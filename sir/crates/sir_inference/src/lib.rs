@@ -1,10 +1,14 @@
 //! SIR Inference — Representation Beliefs v0.1
 //!
 //! Accumulates evidence from semantic truths and forms representation
-//! hypotheses. This is where heuristics and weights live.
+//! hypotheses. Also produces `TransformationContextDatabase` — the
+//! sealed contract between inference (understanding) and generation (action).
 //!
 //! This is Layer 3 of the knowledge hierarchy:
 //!   Facts (sir_analysis) → Truths (sir_semantics) → Beliefs (sir_inference)
+//!
+//! Consumes both `SemanticDatabase` and `StructuralDatabase` to produce
+//! hypotheses and transformation contexts.
 
 pub mod evidence;
 pub mod hypothesis;

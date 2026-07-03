@@ -3,6 +3,7 @@ use sir_transform::representation::Representation;
 use sir_semantics::concepts::SemanticConcept;
 use sir_semantics::region::{Region, RegionId, RecognitionExplanation};
 use sir_semantics::semantics::SemanticDatabase;
+use sir_semantics::structure::StructuralDatabase;
 
 fn run_inference(concepts: &[SemanticConcept]) -> Vec<sir_inference::hypothesis::Hypothesis> {
     let mut semantic_db = SemanticDatabase::new();
@@ -16,7 +17,8 @@ fn run_inference(concepts: &[SemanticConcept]) -> Vec<sir_inference::hypothesis:
     semantic_db.add_region(region);
 
     let mut engine = InferenceEngine::new();
-    engine.infer(&semantic_db);
+    let structural_db = StructuralDatabase::new();
+    engine.infer(&semantic_db, &structural_db);
 
     engine.database().hypotheses(RegionId::new(0)).to_vec()
 }
