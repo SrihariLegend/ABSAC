@@ -130,6 +130,10 @@ impl InferenceEngine {
     ///
     /// This consumes only the `SemanticDatabase` — never SIR or compiler facts.
     pub fn infer(&mut self, semantic_db: &SemanticDatabase) {
+        // Reset state to ensure idempotency
+        self.evidence_registry = EvidenceRegistry::new();
+        self.db = HypothesisDatabase::new();
+
         // 1. Generate evidence from all regions
         for (_region_id, region) in semantic_db.regions() {
             let evidence = crate::sources::bitset_evidence::contribute(region);
@@ -140,15 +144,15 @@ impl InferenceEngine {
 
         // 2. Aggregate evidence per (region, representation)
         // Build a map: (RegionId, Representation) -> (positive_sum, negative_sum, evidence_ids)
-        let mut aggregation: HashMap<(RegionId, Representation), (u16, u16, Vec<usize>)> =
+        let mut aggregation: HashMap<(RegionId, Representation), (u32, u32, Vec<usize>)> =
             HashMap::new();
 
         for (evidence_id, evidence) in self.evidence_registry.all().iter().enumerate() {
             let key = (evidence.region, evidence.representation);
             let entry = aggregation.entry(key).or_insert_with(|| (0, 0, Vec::new()));
             match evidence.polarity {
-                Polarity::Supports => entry.0 += evidence.weight,
-                Polarity::Against => entry.1 += evidence.weight,
+                Polarity::Supports => entry.0 += evidence.weight as u32,
+                Polarity::Against => entry.1 += evidence.weight as u32,
             }
             entry.2.push(evidence_id);
         }
@@ -158,7 +162,7 @@ impl InferenceEngine {
             if positive > 0 || negative > 0 {
                 let hypothesis = Hypothesis {
                     representation,
-                    support: Support { positive, negative },
+                    support: Support { positive: positive as u16, negative: negative as u16 },
                     evidence: evidence_ids,
                 };
                 self.db.add_hypothesis(region_id, hypothesis);
