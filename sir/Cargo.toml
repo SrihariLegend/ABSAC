@@ -12,6 +12,7 @@ members = [
     "crates/sir_inference",
     "crates/sir_transform",
     "crates/sir_generation",
+    "crates/sir_verification",
 ]
 
 [workspace.package]
