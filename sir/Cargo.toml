@@ -14,6 +14,7 @@ members = [
     "crates/sir_generation",
     "crates/sir_verification",
     "crates/sir_rewrite",
+    "crates/sir_selection",
 ]
 
 [workspace.package]

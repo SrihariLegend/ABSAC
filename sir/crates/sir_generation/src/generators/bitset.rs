@@ -2,6 +2,7 @@ use sir_inference::concepts::SemanticConcept;
 use sir_transform::context::TransformationContext;
 use sir_transform::ids::DefinitionId;
 use sir_transform::representation::Representation;
+use sir_types::CostProfile;
 
 use crate::candidate::{
     Candidate, CandidateEffects, CandidateExplanation, CandidateId,
@@ -15,6 +16,7 @@ struct StrategyDef {
     rationale: &'static str,
     effects: &'static [CandidateEffects],
     definition_id: DefinitionId,
+    expected_cost: CostProfile,
 }
 
 impl StrategyDef {
@@ -30,6 +32,7 @@ impl StrategyDef {
                 rationale: self.rationale,
             },
             effects: self.effects.to_vec(),
+            expected_cost: self.expected_cost.clone(),
         }
     }
 }
@@ -45,6 +48,12 @@ static STRATEGIES: &[StrategyDef] = &[
                     eliminating the counting loop entirely.",
         effects: &[CandidateEffects::CountingStrategyChange],
         definition_id: DefinitionId::new(0),
+        expected_cost: CostProfile {
+            instruction_count: 2,  // Pack + Popcount
+            select_count: 0,
+            memory_accesses: 1,
+            critical_path_depth: 1,
+        },
     },
     StrategyDef {
         strategy: ImplementationStrategy::BitIteration,
@@ -56,6 +65,12 @@ static STRATEGIES: &[StrategyDef] = &[
                     visiting only populated elements rather than all 64 positions.",
         effects: &[CandidateEffects::TraversalChange],
         definition_id: DefinitionId::new(1),
+        expected_cost: CostProfile {
+            instruction_count: 4,  // tzcnt + and + loop overhead
+            select_count: 1,       // loop termination check
+            memory_accesses: 1,
+            critical_path_depth: 2,
+        },
     },
     StrategyDef {
         strategy: ImplementationStrategy::PackedBitfield,
@@ -68,6 +83,12 @@ static STRATEGIES: &[StrategyDef] = &[
                     and enabling bitwise operations on the entire set.",
         effects: &[CandidateEffects::RepresentationChange],
         definition_id: DefinitionId::new(2),
+        expected_cost: CostProfile {
+            instruction_count: 8,  // restructuring the data representation
+            select_count: 0,
+            memory_accesses: 2,
+            critical_path_depth: 3,
+        },
     },
     StrategyDef {
         strategy: ImplementationStrategy::MaskConstruction,
@@ -79,6 +100,12 @@ static STRATEGIES: &[StrategyDef] = &[
                     enabling parallel evaluation of multiple conditions via AND/OR/XOR.",
         effects: &[CandidateEffects::PredicateEncodingChange],
         definition_id: DefinitionId::new(3),
+        expected_cost: CostProfile {
+            instruction_count: 6,  // mask construction operations
+            select_count: 0,
+            memory_accesses: 2,
+            critical_path_depth: 2,
+        },
     },
 ];
 

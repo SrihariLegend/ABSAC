@@ -102,6 +102,7 @@ impl TransformationDefinition for PopcountDefinition {
             domain: Some(domain),
         }
     }
+
 }
 
 #[cfg(test)]

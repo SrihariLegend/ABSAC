@@ -7,7 +7,7 @@ use sir_transform::context::ContextId;
 use sir_transform::ids::DefinitionId;
 
 /// Unique identifier for a candidate plan.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct CandidateId(pub u64);
 
 impl CandidateId {
@@ -77,4 +77,8 @@ pub struct Candidate {
     pub strategy: ImplementationStrategy,
     pub explanation: CandidateExplanation,
     pub effects: Vec<CandidateEffects>,
+    /// Expected cost profile after this transformation is applied.
+    /// Set by the generator at creation time based on the implementation strategy.
+    /// This is objective data — cost models assign meaning to it.
+    pub expected_cost: sir_types::CostProfile,
 }

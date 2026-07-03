@@ -7,7 +7,7 @@ use sir_transform::context::ContextId;
 use sir_transform::ids::DefinitionId;
 use sir_transform::roles::RegionRoles;
 use sir_transform::structures::SourceStructure;
-use sir_types::{RegionId, Span, Type};
+use sir_types::{CostProfile, RegionId, Span, Type};
 
 use sir_rewrite::engine::RewriteEngine;
 use sir_rewrite::error::RewriteError;
@@ -60,6 +60,7 @@ fn make_candidate() -> Candidate {
             rationale: "popcount replacement",
         },
         effects: vec![CandidateEffects::CountingStrategyChange],
+        expected_cost: CostProfile::default(),
     }
 }
 

@@ -1,0 +1,142 @@
+use sir_generation::candidate::Candidate;
+use sir_types::{CostProfile, RegionId};
+use sir_verification::Proof;
+
+use crate::cost_model::CostModel;
+use crate::score::{CostModelReport, TransformationScore};
+
+/// A candidate that has passed verification.
+/// Carries everything needed for selection and rewriting.
+#[derive(Clone, Debug)]
+pub struct VerifiedCandidate {
+    pub candidate: Candidate,
+    pub proof: Proof,
+}
+
+/// The selector's output — no reconstruction needed by the caller.
+pub struct SelectedCandidate<'a> {
+    pub candidate: &'a Candidate,
+    pub proof: &'a Proof,
+    pub score: TransformationScore,
+}
+
+/// The result of selection for a single region.
+pub struct SelectionResult<'a> {
+    pub chosen: Option<SelectedCandidate<'a>>,
+    pub rejected: Vec<sir_generation::candidate::CandidateId>,
+    pub report: CostModelReport,
+}
+
+impl<'a> SelectionResult<'a> {
+    /// Convert to the owned form for persistent storage.
+    pub fn to_owned(&self) -> crate::database::SelectionResultOwned {
+        crate::database::SelectionResultOwned {
+            chosen: self.chosen.as_ref().map(|s| {
+                crate::database::SelectedCandidateOwned {
+                    candidate: s.candidate.clone(),
+                    proof: s.proof.clone(),
+                    score: s.score.clone(),
+                }
+            }),
+            rejected: self.rejected.clone(),
+            report: self.report.clone(),
+        }
+    }
+}
+
+/// Deterministic selection of the best verified candidate.
+///
+/// Expected costs come directly from `Candidate.expected_cost`,
+/// populated by `sir_generation` at candidate creation time.
+pub struct Selector<M: CostModel> {
+    cost_model: M,
+}
+
+impl<M: CostModel> Selector<M> {
+    pub fn new(cost_model: M) -> Self {
+        Self { cost_model }
+    }
+
+    /// Select the best candidate from verified options for a single region.
+    ///
+    /// All candidates in `verified` must belong to the same region.
+    /// `original_cost` is the pre-computed cost profile of the original
+    /// region (computed by the orchestrator by walking SIR region nodes —
+    /// the selector never reads SIR).
+    ///
+    /// For each verified candidate, calls:
+    ///   CostModel.evaluate(&candidate, original_cost, &candidate.expected_cost)
+    ///
+    /// Policy:
+    ///   - Filter: total >= 0 (does not degrade performance)
+    ///   - Rank: highest total wins
+    ///   - Tie: lowest CandidateId wins (deterministic, stable)
+    ///   - Empty input: chosen is None
+    pub fn select<'a>(
+        &self,
+        region: RegionId,
+        verified: &'a [VerifiedCandidate],
+        original_cost: &CostProfile,
+    ) -> SelectionResult<'a> {
+        if verified.is_empty() {
+            return SelectionResult {
+                chosen: None,
+                rejected: vec![],
+                report: CostModelReport {
+                    region,
+                    scores: vec![],
+                },
+            };
+        }
+
+        let mut scored_candidates: Vec<(&VerifiedCandidate, TransformationScore)> = verified
+            .iter()
+            .map(|vc| {
+                let score = self.cost_model.evaluate(
+                    &vc.candidate,
+                    original_cost,
+                    &vc.candidate.expected_cost,
+                );
+                (vc, score)
+            })
+            .collect();
+
+        // Sort by total descending, then by candidate ID ascending
+        scored_candidates.sort_by(|a, b| {
+            b.1.total
+                .cmp(&a.1.total)
+                .then_with(|| a.0.candidate.id.cmp(&b.0.candidate.id))
+        });
+
+        let mut chosen = None;
+        let mut rejected = Vec::new();
+
+        if let Some((vc, score)) = scored_candidates.first() {
+            if score.total >= 0 {
+                chosen = Some(SelectedCandidate {
+                    candidate: &vc.candidate,
+                    proof: &vc.proof,
+                    score: score.clone(),
+                });
+
+                // Add the rest to rejected
+                for (other_vc, _) in scored_candidates.iter().skip(1) {
+                    rejected.push(other_vc.candidate.id);
+                }
+            } else {
+                // All rejected because highest score is < 0
+                for (other_vc, _) in scored_candidates.iter() {
+                    rejected.push(other_vc.candidate.id);
+                }
+            }
+        }
+
+        let scores: Vec<_> = scored_candidates.into_iter().map(|(_, s)| s).collect();
+
+        SelectionResult {
+            chosen,
+            rejected,
+            report: CostModelReport { region, scores },
+        }
+    }
+}

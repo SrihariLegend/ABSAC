@@ -38,12 +38,12 @@ Selection
 
 A correct rewrite may still be rejected. Proofs are binary — a theorem is proven or it isn't. No proof is "more correct" than another. Score never influences proof (verification happens first, always). Correctness never influences score (only cost deltas matter).
 
-The mission of ABSAC is transformation to bitwise form. If a zero-cost bitwise rewrite exists, it should be applied — the goal is bitwise expression, not performance optimization. Performance is a safeguard against degradation and a tiebreaker between competing bitwise forms.
+The mission of ABSAC is transformation to bitwise form. If a rewrite does not degrade performance (`total >= 0`), it should be applied — the goal is bitwise expression, not maximizing performance. Performance is a safeguard against degradation and a tiebreaker between competing bitwise forms.
 
 ## Pipeline
 
 ```text
-Generation       (proposes plans)
+Generation       (proposes plans, estimates costs)
     ↓
 Verification     (proves plans)
     ↓
@@ -65,14 +65,16 @@ Beliefs         (sir_inference)
     ↓
 Contexts        (sir_transform)
     ↓
-Plans           (sir_generation)
+Plans           (sir_generation)       ← expected_cost attached here
     ↓
 Proofs          (sir_verification)
     ↓
-Selections      (sir_selection)          ← THIS LAYER
+Selections      (sir_selection)        ← THIS LAYER
     ↓
 Rewrites        (sir_rewrite)
 ```
+
+Cost estimation happens at generation time. When `sir_generation` creates a `Candidate`, it attaches an `expected_cost: CostProfile`. This is objective data — the generator knows what it proposes. The cost model later assigns *meaning* to that data.
 
 ## New Crate
 
@@ -93,12 +95,12 @@ sir_selection/
 sir_types
 sir_generation
 sir_verification
-sir_transform
 ```
 
 No dependency on:
 
 ```
+sir_transform
 sir_analysis
 sir_semantics
 sir_inference
@@ -106,19 +108,18 @@ sir_builder
 sir_nodes
 ```
 
-Selection never rediscovers information.
+The selector receives `expected_cost` directly from the `Candidate` struct — no transformation registry, no context database, no definition lookups. Selection never rediscovers information.
 
 ## Changes to Existing Crates
 
 | Crate | Change |
 |-------|--------|
 | `sir_types` | Add `CostProfile` struct (new file `cost_profile.rs`). New types are allowed by the architecture freeze. |
-| `sir_generation` | `CandidateId` gains `PartialOrd + Ord` derive (for deterministic tie-breaking). |
-| `sir_verification` | `TransformationDefinition` trait gains `cost_profile(&self, ctx: &TransformationContext) -> CostProfile`. |
+| `sir_generation` | `CandidateId` gains `PartialOrd + Ord` derive. `Candidate` gains `expected_cost: CostProfile` field. |
 | `sir_selection` | New crate — all selection logic. |
 | All other crates | No changes. |
 
-`sir_semantics`, `sir_inference`, `sir_generation`, and `sir_rewrite` are unchanged. The original cost profile is computed by the orchestrator (caller) by walking the region's SIR nodes, not by any existing crate.
+`sir_verification`, `sir_semantics`, `sir_inference`, `sir_rewrite` are unchanged. The original cost profile is computed by the orchestrator (caller) by walking the region's SIR nodes, not by any existing crate.
 
 ## Core Types
 
@@ -142,9 +143,26 @@ pub struct CostProfile {
 }
 ```
 
-Purely descriptive. Same struct for original region cost and candidate expected cost. The `diff` method lives here.
+Purely descriptive. Same struct for original region cost and candidate expected cost.
 
 Note: `select_count` reflects SIR's branchless design — `Select` replaces `if`/`else`. There are no branches in SIR.
+
+### Candidate changes (in `sir_generation`)
+
+```rust
+pub struct Candidate {
+    pub id: CandidateId,
+    pub region: RegionId,
+    pub context_id: ContextId,
+    pub definition_id: DefinitionId,
+    pub strategy: ImplementationStrategy,
+    pub explanation: CandidateExplanation,
+    pub effects: Vec<CandidateEffects>,
+    pub expected_cost: CostProfile,        // ← NEW
+}
+```
+
+The generator populates `expected_cost` at creation time based on the implementation strategy. For example, a `Popcount` candidate always has `instruction_count: 2, select_count: 0, memory_accesses: 1`. This is objective data — the generator knows what it proposes, independent of any cost model.
 
 ### VerifiedCandidate (in `sir_selection`)
 
@@ -184,7 +202,7 @@ pub struct ScoreBreakdown {
 }
 ```
 
-All fields are objective deltas. No policy fields. The invariant `total == instruction_delta + select_delta + memory_delta + depth_delta` is enforced by tests.
+All fields are objective deltas. No policy fields. In the default additive model, `total` equals the sum of the breakdown fields. Weighted models may compute `total` differently — the breakdown remains a factual description of what changed, while `total` reflects the model's policy.
 
 ### SelectedCandidate (in `sir_selection`)
 
@@ -217,11 +235,17 @@ pub struct SelectionDatabase {
 }
 ```
 
-Where `SelectionResultOwned` is the owned equivalent of `SelectionResult<'a>` for persistent storage:
+Where `SelectionResultOwned` is the owned equivalent for persistent storage:
 
 ```rust
+pub struct SelectedCandidateOwned {
+    pub candidate: Candidate,
+    pub proof: Proof,
+    pub score: TransformationScore,
+}
+
 pub struct SelectionResultOwned {
-    pub chosen: Option<(Candidate, Proof, TransformationScore)>,
+    pub chosen: Option<SelectedCandidateOwned>,
     pub rejected: Vec<CandidateId>,
     pub report: CostModelReport,
 }
@@ -280,6 +304,10 @@ No `Proof` parameter — the cost model does not care how a candidate was proven
 /// Every reduced instruction, Select operation, memory access,
 /// and dependency level contributes equally (+1).
 ///
+/// In this model, `total` is the unweighted sum of the breakdown fields.
+/// Weighted models (e.g., X86CostModel) may compute `total` differently
+/// while the `breakdown` still reports the raw deltas.
+///
 /// No architecture-specific weighting is performed.
 /// These values are illustrative for the default
 /// architecture-independent model and are not intended
@@ -320,39 +348,38 @@ impl CostModel for DefaultCostModel {
 ```rust
 /// Deterministic selection of the best verified candidate.
 ///
-/// Owns the transformation registry (for cost profile lookup)
-/// and the cost model (for scoring).
+/// The selector does not own a transformation registry or context database.
+/// Expected costs come directly from `Candidate.expected_cost`, populated
+/// by `sir_generation` at candidate creation time.
 pub struct Selector<M: CostModel> {
-    registry: TransformationRegistry,
     cost_model: M,
 }
 
 impl<M: CostModel> Selector<M> {
-    pub fn new(registry: TransformationRegistry, cost_model: M) -> Self {
-        Self { registry, cost_model }
+    pub fn new(cost_model: M) -> Self {
+        Self { cost_model }
     }
 
-    /// Select the best candidate from verified options.
+    /// Select the best candidate from verified options for a single region.
     ///
-    /// For each verified candidate:
-    ///   1. Look up TransformationDefinition by candidate.definition_id
-    ///   2. Call definition.cost_profile(&ctx) -> expected CostProfile
-    ///   3. CostModel.evaluate(candidate, &original, &expected) -> TransformationScore
+    /// All candidates in `verified` must belong to the same `region`.
+    /// `original_cost` is the pre-computed cost profile of the original
+    /// region (computed by the orchestrator by walking SIR region nodes —
+    /// the selector never reads SIR).
     ///
-    /// `original_costs` maps RegionId to the original region's CostProfile.
-    /// These are pre-computed by the orchestrator (caller) by walking region
-    /// SIR nodes — the selector never reads SIR.
+    /// For each verified candidate, calls:
+    ///   CostModel.evaluate(&candidate, original_cost, &candidate.expected_cost)
     ///
     /// Policy:
-    ///   - Filter: total >= 0 (bitwise form is the goal; performance is a safeguard)
+    ///   - Filter: total >= 0 (does not degrade performance)
     ///   - Rank: highest total wins
     ///   - Tie: lowest CandidateId wins (deterministic, stable)
-    ///   - Empty input: None
+    ///   - Empty input: chosen is None
     pub fn select<'a>(
         &self,
+        region: RegionId,
         verified: &'a [VerifiedCandidate],
-        context_db: &TransformationContextDatabase,
-        original_costs: &BTreeMap<RegionId, CostProfile>,
+        original_cost: &CostProfile,
     ) -> SelectionResult<'a> { ... }
 }
 ```
@@ -365,7 +392,7 @@ Deterministic. Always.
 |-----------|--------|
 | Highest `total` | Winner |
 | Tie on `total` | Lowest `CandidateId` wins |
-| `total >= 0` | Candidate is accepted (bitwise form achieved) |
+| `total >= 0` | Candidate is accepted (does not degrade) |
 | `total < 0` | Candidate is rejected (degradation) |
 | All candidates rejected | `chosen` is `None` |
 | Empty input | `chosen` is `None` |
@@ -380,26 +407,30 @@ Compiler output must be reproducible: same input → same optimization → same 
 
 ```rust
 // Build the selector once
-let mut registry = TransformationRegistry::new();
-registry.register(Box::new(PopcountDefinition::new(DefinitionId::new(0))));
-let selector = Selector::new(registry, DefaultCostModel);
+let selector = Selector::new(DefaultCostModel);
 
 // Compute original costs (orchestrator responsibility — walks SIR region nodes)
-let mut original_costs = BTreeMap::new();
-for (region_id, nodes) in &regions {
-    original_costs.insert(*region_id, compute_original_cost(function, nodes));
+// Selection never reads SIR.
+let original_costs: BTreeMap<RegionId, CostProfile> = regions
+    .iter()
+    .map(|(rid, nodes)| (*rid, compute_original_cost(function, nodes)))
+    .collect();
+
+// Run selection per region
+let mut selection_db = SelectionDatabase::new();
+for (region_id, verified) in proven_candidates.grouped_by_region() {
+    let original = original_costs.get(&region_id).unwrap();
+    let result = selector.select(region_id, verified, original);
+    selection_db.insert(region_id, result);
 }
 
-// Run selection
-let result = selector.select(&verified_candidates, context_db, &original_costs);
-
-// Execute only the winner
-if let Some(selected) = result.chosen {
-    engine.rewrite(function, selected.candidate, selected.proof, structural_db)?;
+// Execute only the selected winner for each region
+for (region_id, result) in selection_db.iter() {
+    if let Some(selected) = result.chosen() {
+        engine.rewrite(function, selected.candidate, selected.proof, structural_db)?;
+    }
 }
 ```
-
-The orchestrator (caller, not a crate) is responsible for computing the original `CostProfile` for each region by walking the region's SIR nodes and counting instructions, Select operations, memory effects, and dependency depth. This is done once before calling `select()`. Selection never reads SIR.
 
 ## BS001 Acceptance Benchmark
 
@@ -409,11 +440,11 @@ Full pipeline: build SIR -> analyze -> semantics -> inference
 ```
 
 1. Four candidates exist (BitIteration, Popcount, PackedBitfield, MaskConstruction) — verified by prior phases
-2. All four are verified equivalent
-3. DefaultCostModel scores each deterministically
-4. Selector chooses Popcount (highest score)
-5. Only the Popcount recipe is passed to `sir_rewrite`
-6. Rewritten SIR passes `sir_verify`
+2. Each candidate carries its `expected_cost` set by the generator
+3. All four are verified equivalent
+4. DefaultCostModel scores each deterministically
+5. Selector chooses Popcount (highest score)
+6. Only the Popcount recipe is passed to `sir_rewrite`
 7. Repeated runs produce identical results
 
 Illustrative BS001 scores (DefaultCostModel):
@@ -434,7 +465,7 @@ These values are illustrative for the default architecture-independent model and
 | Tier | Test | Verifies |
 |------|------|----------|
 | 1 | `cost_profile_diff` | Delta computation is correct |
-| 2 | `score_breakdown_sum` | Breakdown fields sum to `total` |
+| 2 | `default_model_total_matches_sum` | In the default additive model, total equals the sum of breakdown fields |
 | 3 | `selector_highest_wins` | Max score is chosen |
 | 4 | `selector_tie_lowest_id` | Equal scores → lowest `CandidateId` wins |
 | 5 | `selector_empty_input` | Empty → `None` |
@@ -445,6 +476,8 @@ These values are illustrative for the default architecture-independent model and
 | 10 | `deterministic_selection` | Same inputs → same decision |
 | 11 | `report_formatting` | `CostModelReport` Display matches expected format |
 | 12 | `bs001_selection` | Full pipeline: Popcount selected |
+
+Note: Test 2 verifies only that the *default* model's total equals the sum. Weighted models are free to compute `total` differently — the breakdown fields are factual deltas, while `total` is policy.
 
 ## Selection Invariants
 
@@ -466,7 +499,7 @@ Deterministic. No randomness. No instability. Compiler output must be reproducib
 
 ### Selection never reads SIR
 
-The original `CostProfile` is pre-computed by the orchestrator. The `CostModel` only sees the profiles. No graph traversal inside the selection crate.
+The original `CostProfile` is pre-computed by the orchestrator. Expected cost comes from `Candidate.expected_cost`, set at generation time. The `CostModel` only sees the two profiles. No graph traversal inside the selection crate.
 
 ## Explicit Non-Goals
 
@@ -496,15 +529,15 @@ EnergyCostModel        — power consumption weighting
 CodeSizeCostModel      — minimal binary size
 ```
 
-Each model is a new implementation of the same trait. No architectural changes required.
+Each model is a new implementation of the same trait. The `breakdown` fields always report factual deltas; each model decides how to combine them into `total`. No architectural changes required.
 
 ## Success Criteria
 
 For the BS001 benchmark:
 
-1. Four mathematically verified candidates exist
+1. Four mathematically verified candidates exist, each carrying `expected_cost`
 2. The cost model deterministically scores each candidate
-3. Every score has a complete breakdown where `sum(deltas) == total`
+3. For the default model, every score has a complete breakdown where `sum(deltas) == total`
 4. The selector chooses exactly one candidate (Popcount)
 5. The choice is reproducible across runs
 6. Only the selected rewrite is passed to `sir_rewrite`
