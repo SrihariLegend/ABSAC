@@ -5,6 +5,7 @@ use sir_nodes::Function;
 
 use crate::concepts::SemanticConcept;
 use crate::region::{Region, RegionId, RecognitionExplanation};
+use crate::structure::StructuralDatabase;
 
 /// The semantic knowledge database.
 ///
@@ -135,6 +136,7 @@ impl SemanticDatabase {
 /// deterministic recognizers over the function graph.
 pub struct SemanticEngine {
     db: SemanticDatabase,
+    structural_db: StructuralDatabase,
 }
 
 impl SemanticEngine {
@@ -142,12 +144,18 @@ impl SemanticEngine {
     pub fn new() -> Self {
         Self {
             db: SemanticDatabase::new(),
+            structural_db: StructuralDatabase::new(),
         }
     }
 
     /// Access the semantic database (read-only after derivation).
     pub fn database(&self) -> &SemanticDatabase {
         &self.db
+    }
+
+    /// Access the structural database (read-only after derivation).
+    pub fn structural_database(&self) -> &StructuralDatabase {
+        &self.structural_db
     }
 
     /// Derive semantic truths from the function graph and compiler facts.
@@ -215,6 +223,19 @@ impl SemanticEngine {
         // end up in a single region. This enables combined evidence
         // accumulation in the inference engine.
         self.db.merge_overlapping_regions();
+
+        // Structural recognizers
+        use crate::recognizers::{boolean_array, bitmask};
+
+        let bool_array_recs = boolean_array::recognize_boolean_array(func, analysis);
+        for (_region_id, desc) in bool_array_recs {
+            self.structural_db.add_description(desc);
+        }
+
+        let bitmask_recs = bitmask::recognize_bitmask(func, analysis);
+        for (_region_id, desc) in bitmask_recs {
+            self.structural_db.add_description(desc);
+        }
     }
 }
 

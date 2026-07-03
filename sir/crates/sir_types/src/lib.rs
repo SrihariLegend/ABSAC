@@ -9,6 +9,7 @@ pub mod effects;
 pub mod span;
 pub mod metadata;
 pub mod constant;
+pub mod region_id;
 
 pub use node_id::*;
 pub use types::*;
@@ -16,3 +17,4 @@ pub use effects::*;
 pub use span::*;
 pub use metadata::*;
 pub use constant::*;
+pub use region_id::*;

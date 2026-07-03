@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::fmt;
 
-use sir_semantics::region::RegionId;
+use sir_types::RegionId;
 
 use crate::assumptions::Assumption;
 use crate::constraints::Constraint;
