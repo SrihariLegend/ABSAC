@@ -31,7 +31,7 @@ sir/
 
 ```bash
 cargo build              # Build all crates
-cargo test               # Run all tests (257 tests, all passing)
+cargo test               # Run all tests (365 tests, all passing)
 cargo test -p <crate>    # Run one crate's tests
 cargo test <test_name>   # Run a single test by name
 ```
@@ -160,7 +160,7 @@ Transforms representation beliefs into concrete candidate plans via 4 strategies
 - Candidate plan generation (4 strategies from BitSet contexts)
 - Verification obligation registry (scaffolding for proof engine)
 - Rewrite engine (subgraph patching, region rewriting, popcount recipe)
-- 257 tests, all passing
+- 365 tests, all passing
 
 ### Not Yet Started
 - Equivalence verification (SMT-based proof)
