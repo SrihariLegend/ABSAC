@@ -8,6 +8,9 @@
 *.swp
 *.swo
 
+# Repomix
+repomix-output.xml
+
 # OS
 .DS_Store
 Thumbs.db
