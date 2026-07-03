@@ -9,3 +9,10 @@ authors.workspace = true
 sir_types = { path = "../sir_types" }
 sir_transform = { path = "../sir_transform" }
 sir_generation = { path = "../sir_generation" }
+
+[dev-dependencies]
+sir_builder = { path = "../sir_builder" }
+sir_nodes = { path = "../sir_nodes" }
+sir_analysis = { path = "../sir_analysis" }
+sir_semantics = { path = "../sir_semantics" }
+sir_inference = { path = "../sir_inference" }
