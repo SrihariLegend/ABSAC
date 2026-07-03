@@ -7,6 +7,8 @@
 pub mod local_id;
 pub mod detached_arena;
 pub mod subgraph_builder;
+pub mod region;
+pub mod error;
 
 // Temporary stubs — will be replaced in Task 7.
 mod patch_stub {
