@@ -46,6 +46,11 @@ impl StructuralDatabase {
     }
 
     pub fn add_description(&mut self, desc: StructuralDescription) {
+        debug_assert!(
+            !self.descriptions.contains_key(&desc.region),
+            "duplicate region {:?}",
+            desc.region
+        );
         self.descriptions.insert(desc.region, desc);
     }
 

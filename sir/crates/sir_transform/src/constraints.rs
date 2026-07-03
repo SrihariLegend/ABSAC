@@ -1,9 +1,11 @@
+use serde::{Deserialize, Serialize};
+
 /// Properties already established by analysis or semantics.
 ///
 /// A Constraint is already established. It cannot become false unless
 /// the underlying analysis changes. Constraints are NOT assumptions
 /// waiting to be proven — they are facts that have been determined.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Constraint {
     /// The structure has a statically known size.
     FixedLength(usize),

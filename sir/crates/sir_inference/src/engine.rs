@@ -111,6 +111,12 @@ pub mod weights {
     pub const WEAK: u16 = 10;
 }
 
+/// Default assumptions for all transformation contexts.
+static DEFAULT_ASSUMPTIONS: [Assumption; 2] = [
+    Assumption::EquivalentCardinality,
+    Assumption::PreservesLayout,
+];
+
 /// The inference engine — transforms semantic truths into representation beliefs.
 pub struct InferenceEngine {
     db: HypothesisDatabase,
@@ -176,7 +182,7 @@ impl InferenceEngine {
             if *positive > 0 || *negative > 0 {
                 let hypothesis = Hypothesis {
                     representation: *representation,
-                    support: Support { positive: *positive as u16, negative: *negative as u16 },
+                    support: Support { positive: *positive, negative: *negative },
                     evidence: evidence_ids.clone(),
                 };
                 self.db.add_hypothesis(*region_id, hypothesis);
@@ -190,9 +196,7 @@ impl InferenceEngine {
                 // Add inference-derived constraints
                 constraints.insert(Constraint::FiniteIteration);
 
-                let mut assumptions = HashSet::new();
-                assumptions.insert(Assumption::EquivalentCardinality);
-                assumptions.insert(Assumption::PreservesLayout);
+                let assumptions: HashSet<Assumption> = DEFAULT_ASSUMPTIONS.iter().cloned().collect();
 
                 let ctx = TransformationContext::new(
                     *region_id,

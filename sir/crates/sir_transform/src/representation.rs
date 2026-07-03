@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// A mathematical representation of a computation.
@@ -5,7 +6,7 @@ use std::fmt;
 /// Representations are transformation-domain concepts, not inference concepts.
 /// Inference predicts them; generation implements them; verification proves them;
 /// rewrite applies them. All four phases use the same definition.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Representation {
     /// A fixed-size set of boolean values representable as bits.
     BitSet,

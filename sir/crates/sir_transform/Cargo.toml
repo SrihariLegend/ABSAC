@@ -7,6 +7,7 @@ authors.workspace = true
 
 [dependencies]
 sir_types = { path = "../sir_types" }
+serde = { version = "1", features = ["derive"] }
 
 [[test]]
 name = "context_validation"

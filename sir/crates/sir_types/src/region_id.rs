@@ -1,5 +1,7 @@
+use serde::{Deserialize, Serialize};
+
 /// A region identifier — unique within a semantic database.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct RegionId(pub u64);
 
 impl RegionId {
