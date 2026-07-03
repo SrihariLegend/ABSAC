@@ -139,9 +139,11 @@ fn bs001_full_pipeline_produces_four_distinct_candidates() {
     // Collect all candidates and verify expectations.
     let mut total_candidates = 0;
     let mut strategies = HashSet::new();
+    let mut def_ids = HashSet::new();
     for candidate in db.all_candidates() {
         total_candidates += 1;
         strategies.insert(candidate.strategy);
+        def_ids.insert(candidate.definition_id);
     }
 
     assert_eq!(
@@ -154,6 +156,12 @@ fn bs001_full_pipeline_produces_four_distinct_candidates() {
         4,
         "Expected 4 distinct strategies, got {}",
         strategies.len()
+    );
+    assert_eq!(
+        def_ids.len(),
+        4,
+        "Expected 4 distinct definition IDs, got {}",
+        def_ids.len()
     );
     assert!(
         strategies.contains(&ImplementationStrategy::BitIteration),

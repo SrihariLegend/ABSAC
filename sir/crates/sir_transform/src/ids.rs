@@ -17,7 +17,7 @@ impl std::fmt::Display for VariableId {
 pub struct DefinitionId(pub u64);
 
 impl DefinitionId {
-    pub fn new(id: u64) -> Self { Self(id) }
+    pub const fn new(id: u64) -> Self { Self(id) }
 }
 
 impl std::fmt::Display for DefinitionId {

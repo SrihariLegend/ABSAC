@@ -6,6 +6,7 @@ use sir_generation::generator::CandidateDatabase;
 use sir_generation::generator::CandidateGenerator;
 use sir_semantics::region::RegionId;
 use sir_transform::context::ContextId;
+use sir_transform::ids::DefinitionId;
 
 #[test]
 fn empty_generator_has_no_candidates() {
@@ -26,6 +27,7 @@ fn database_validate_rejects_duplicate_ids() {
         region: rid,
         context_id: cid,
         strategy: ImplementationStrategy::BitIteration,
+        definition_id: DefinitionId::new(0),
         explanation: CandidateExplanation {
             source_concepts: vec![],
             rationale: "test",
@@ -46,6 +48,7 @@ fn database_validate_rejects_empty_effects() {
         region: RegionId::new(0),
         context_id: ContextId::new(0),
         strategy: ImplementationStrategy::Popcount,
+        definition_id: DefinitionId::new(0),
         explanation: CandidateExplanation {
             source_concepts: vec![],
             rationale: "test",

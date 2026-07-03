@@ -1,5 +1,6 @@
 use sir_semantics::concepts::SemanticConcept;
 use sir_transform::context::TransformationContext;
+use sir_transform::ids::DefinitionId;
 use sir_transform::representation::Representation;
 
 use crate::candidate::{
@@ -13,6 +14,7 @@ struct StrategyDef {
     source_concepts: &'static [SemanticConcept],
     rationale: &'static str,
     effects: &'static [CandidateEffects],
+    definition_id: DefinitionId,
 }
 
 impl StrategyDef {
@@ -22,6 +24,7 @@ impl StrategyDef {
             region: context.region,
             context_id: context.context_id,
             strategy: self.strategy,
+            definition_id: self.definition_id,
             explanation: CandidateExplanation {
                 source_concepts: self.source_concepts.to_vec(),
                 rationale: self.rationale,
@@ -33,16 +36,6 @@ impl StrategyDef {
 
 static STRATEGIES: &[StrategyDef] = &[
     StrategyDef {
-        strategy: ImplementationStrategy::BitIteration,
-        source_concepts: &[
-            SemanticConcept::MembershipTraversal,
-            SemanticConcept::BooleanCollection,
-        ],
-        rationale: "Iterate over only set bits using trailing-zero count and bit clear, \
-                    visiting only populated elements rather than all 64 positions.",
-        effects: &[CandidateEffects::TraversalChange],
-    },
-    StrategyDef {
         strategy: ImplementationStrategy::Popcount,
         source_concepts: &[
             SemanticConcept::CardinalityReduction,
@@ -51,6 +44,18 @@ static STRATEGIES: &[StrategyDef] = &[
         rationale: "Count set bits directly using hardware popcount instruction, \
                     eliminating the counting loop entirely.",
         effects: &[CandidateEffects::CountingStrategyChange],
+        definition_id: DefinitionId::new(0),
+    },
+    StrategyDef {
+        strategy: ImplementationStrategy::BitIteration,
+        source_concepts: &[
+            SemanticConcept::MembershipTraversal,
+            SemanticConcept::BooleanCollection,
+        ],
+        rationale: "Iterate over only set bits using trailing-zero count and bit clear, \
+                    visiting only populated elements rather than all 64 positions.",
+        effects: &[CandidateEffects::TraversalChange],
+        definition_id: DefinitionId::new(1),
     },
     StrategyDef {
         strategy: ImplementationStrategy::PackedBitfield,
@@ -62,6 +67,7 @@ static STRATEGIES: &[StrategyDef] = &[
                     reducing memory footprint from 64 bytes to 8 bytes \
                     and enabling bitwise operations on the entire set.",
         effects: &[CandidateEffects::RepresentationChange],
+        definition_id: DefinitionId::new(2),
     },
     StrategyDef {
         strategy: ImplementationStrategy::MaskConstruction,
@@ -72,6 +78,7 @@ static STRATEGIES: &[StrategyDef] = &[
         rationale: "Replace boolean predicate evaluation with bitmask construction, \
                     enabling parallel evaluation of multiple conditions via AND/OR/XOR.",
         effects: &[CandidateEffects::PredicateEncodingChange],
+        definition_id: DefinitionId::new(3),
     },
 ];
 
