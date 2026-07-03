@@ -1,0 +1,20 @@
+use sir_types::NodeId;
+
+/// Semantic roles assigned by pattern recognizers during semantic analysis.
+///
+/// Each variant corresponds to a recognized computation pattern.
+/// The recognizer records which SIR nodes fill each role.
+/// Downstream phases (rewrite) consume these roles without rediscovering them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RegionRoles {
+    /// A loop that iterates over a boolean array and counts matching elements.
+    /// Recognized as: MembershipTraversal + CardinalityReduction.
+    BooleanCollectionReduction {
+        /// The boolean array being iterated (e.g., `board` in BS001).
+        collection: NodeId,
+        /// The accumulator carrying the running count (None if zero-initialized).
+        accumulator: Option<NodeId>,
+        /// The final count produced by the region.
+        result: NodeId,
+    },
+}
