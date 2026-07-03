@@ -1,0 +1,12 @@
+[package]
+name = "sir_tests"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+sir_types = { path = "../sir_types" }
+sir_nodes = { path = "../sir_nodes" }
+sir_builder = { path = "../sir_builder" }
+sir_printer = { path = "../sir_printer" }
+sir_verify = { path = "../sir_verify" }
