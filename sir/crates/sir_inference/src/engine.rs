@@ -103,9 +103,10 @@ pub mod weights {
 }
 
 /// Default assumptions for all transformation contexts.
-static DEFAULT_ASSUMPTIONS: [Assumption; 2] = [
+static DEFAULT_ASSUMPTIONS: [Assumption; 3] = [
     Assumption::EquivalentCardinality,
     Assumption::PreservesLayout,
+    Assumption::PreservesIterationOrder,
 ];
 
 /// The inference engine — transforms semantic truths into representation beliefs.
