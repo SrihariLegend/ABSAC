@@ -95,3 +95,24 @@ fn non_bitset_context_produces_no_candidates() {
     // This test validates they don't crash on non-BooleanArray contexts.
     assert_eq!(candidates.len(), 4);
 }
+
+#[test]
+fn generation_is_deterministic() {
+    let ctx = make_context();
+    let first = generators::all_plans(&ctx);
+    let second = generators::all_plans(&ctx);
+    assert_eq!(first.len(), second.len());
+    for (a, b) in first.iter().zip(second.iter()) {
+        assert_eq!(a.strategy, b.strategy);
+    }
+}
+
+#[test]
+fn explanations_contain_source_concepts() {
+    let ctx = make_context();
+    let candidates = generators::all_plans(&ctx);
+    for c in &candidates {
+        assert!(!c.explanation.source_concepts.is_empty(),
+            "{:?} explanation should reference source concepts", c.strategy);
+    }
+}

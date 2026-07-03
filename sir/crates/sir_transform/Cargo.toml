@@ -7,3 +7,7 @@ authors.workspace = true
 
 [dependencies]
 sir_types = { path = "../sir_types" }
+
+[[test]]
+name = "context_validation"
+path = "tests/context_validation.rs"
