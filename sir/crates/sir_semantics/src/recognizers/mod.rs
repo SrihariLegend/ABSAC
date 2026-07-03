@@ -1,2 +1,4 @@
 pub mod boolean_collection;
-// More modules added in Tasks 4b-4d
+pub mod finite_collection;
+pub mod membership_traversal;
+pub mod cardinality_reduction;

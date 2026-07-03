@@ -94,11 +94,48 @@ impl SemanticEngine {
     /// Recognized concepts are grouped into regions and stored in the
     /// `SemanticDatabase`.
     pub fn derive(&mut self, func: &Function, analysis: &FactDatabase) {
-        use crate::recognizers::boolean_collection;
+        use crate::recognizers::{
+            boolean_collection, cardinality_reduction, finite_collection,
+            membership_traversal,
+        };
 
-        let recognitions = boolean_collection::recognize_boolean_collection(func, analysis);
+        let bc_recs = boolean_collection::recognize_boolean_collection(func, analysis);
+        for (_concept, explanation, node_ids) in bc_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation);
+            self.db.add_region(region);
+        }
 
-        for (_concept, explanation, node_ids) in recognitions {
+        let finite_recs = finite_collection::recognize_finite_collection(func, analysis);
+        for (_concept, explanation, node_ids) in finite_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation);
+            self.db.add_region(region);
+        }
+
+        let membership_recs =
+            membership_traversal::recognize_membership_traversal(func, analysis);
+        for (_concept, explanation, node_ids) in membership_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation);
+            self.db.add_region(region);
+        }
+
+        let cardinality_recs =
+            cardinality_reduction::recognize_cardinality_reduction(func, analysis);
+        for (_concept, explanation, node_ids) in cardinality_recs {
             let rid = self.db.next_region_id();
             let mut region = Region::new(rid);
             for node_id in &node_ids {
