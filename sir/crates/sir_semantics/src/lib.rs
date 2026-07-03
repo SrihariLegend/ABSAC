@@ -10,3 +10,4 @@ pub mod concepts;
 pub mod region;
 pub mod semantics;
 pub mod recognizers;
+pub mod structure;
