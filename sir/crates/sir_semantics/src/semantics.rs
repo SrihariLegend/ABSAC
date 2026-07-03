@@ -196,7 +196,7 @@ impl SemanticEngine {
     pub fn derive(&mut self, func: &Function, analysis: &FactDatabase) {
         use crate::recognizers::{
             boolean_collection, cardinality_reduction, finite_collection,
-            membership_traversal,
+            membership_traversal, disjunctive_reduction, conjunctive_reduction, exclusive_reduction,
         };
 
         let bc_recs = boolean_collection::recognize_boolean_collection(func, analysis);
@@ -236,6 +236,42 @@ impl SemanticEngine {
         let cardinality_recs =
             cardinality_reduction::recognize_cardinality_reduction(func, analysis);
         for (_concept, explanation, node_ids) in cardinality_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation);
+            self.db.add_region(region);
+        }
+
+        let disjunctive_recs =
+            disjunctive_reduction::recognize_disjunctive_reduction(func, analysis);
+        for (_concept, explanation, node_ids) in disjunctive_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation);
+            self.db.add_region(region);
+        }
+
+        let conjunctive_recs =
+            conjunctive_reduction::recognize_conjunctive_reduction(func, analysis);
+        for (_concept, explanation, node_ids) in conjunctive_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation);
+            self.db.add_region(region);
+        }
+
+        let exclusive_recs =
+            exclusive_reduction::recognize_exclusive_reduction(func, analysis);
+        for (_concept, explanation, node_ids) in exclusive_recs {
             let rid = self.db.next_region_id();
             let mut region = Region::new(rid);
             for node_id in &node_ids {

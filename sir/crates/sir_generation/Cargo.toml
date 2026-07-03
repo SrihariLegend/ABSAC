@@ -29,3 +29,15 @@ path = "tests/generators.rs"
 [[test]]
 name = "bs001_pipeline"
 path = "tests/bs001_pipeline.rs"
+
+[[test]]
+name = "bs002_any_pipeline"
+path = "tests/bs002_any_pipeline.rs"
+
+[[test]]
+name = "bs003_all_pipeline"
+path = "tests/bs003_all_pipeline.rs"
+
+[[test]]
+name = "bs004_parity_pipeline"
+path = "tests/bs004_parity_pipeline.rs"
