@@ -1,0 +1,11 @@
+[package]
+name = "sir_semantics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+sir_types = { path = "../sir_types" }
+sir_nodes = { path = "../sir_nodes" }
+sir_analysis = { path = "../sir_analysis" }
