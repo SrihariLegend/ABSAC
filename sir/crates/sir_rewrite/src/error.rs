@@ -1,10 +1,10 @@
 /// Errors that can occur during verified rewriting.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RewriteError {
-    /// Candidate, Proof, and Recipe definition IDs don't match.
+    /// Candidate and Recipe definition IDs don't match.
+    /// (Proof does not carry DefinitionId in v0.1 — when it does, add a third field.)
     DefinitionMismatch {
         candidate: sir_transform::ids::DefinitionId,
-        proof: sir_transform::ids::DefinitionId,
         recipe: sir_transform::ids::DefinitionId,
     },
 
@@ -31,12 +31,11 @@ impl std::fmt::Display for RewriteError {
         match self {
             RewriteError::DefinitionMismatch {
                 candidate,
-                proof,
                 recipe,
             } => {
                 write!(
                     f,
-                    "definition mismatch: candidate={candidate}, proof={proof}, recipe={recipe}"
+                    "definition mismatch: candidate={candidate}, recipe={recipe}"
                 )
             }
             RewriteError::MissingRole { role } => {

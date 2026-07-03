@@ -2,7 +2,7 @@
 //!
 //! The reference implementation against which all verification backends
 //! must agree. Deliberately dumb — one recursive walk, no optimization,
-//! no caching. Never panics — always returns Result.
+//! no caching. Always returns Result — never panics.
 
 use crate::errors::InterpreterError;
 use crate::semantic::expression::{Predicate, SemanticExpression};
@@ -34,7 +34,7 @@ impl Interpreter {
             }
 
             SemanticExpression::Constant(c) => {
-                Ok(Self::constant_to_value(c))
+                Self::constant_to_value(c)
             }
 
             SemanticExpression::BooleanArray { variable } => {
@@ -110,22 +110,28 @@ impl Interpreter {
     }
 
     /// Convert a ConstantData to a Value.
-    fn constant_to_value(c: &sir_types::ConstantData) -> Value {
+    fn constant_to_value(c: &sir_types::ConstantData) -> Result<Value, InterpreterError> {
         match c {
-            sir_types::ConstantData::Bool(b) => Value::Bool(*b),
+            sir_types::ConstantData::Bool(b) => Ok(Value::Bool(*b)),
             sir_types::ConstantData::Integer { value, signed, .. } => {
                 if *signed {
-                    // unwrap is safe for well-formed SIR: ConstantData::Integer
-                    // stores validated decimal strings from the parser.
-                    let v: i64 = value.parse().expect("well-formed SIR: signed integer string must parse as i64");
-                    Value::Integer(v as u64)
+                    value.parse::<i64>()
+                        .map(|v| Value::Integer(v as u64))
+                        .map_err(|_| InterpreterError::MalformedConstant {
+                            value: value.clone(),
+                            reason: "signed integer string failed to parse as i64",
+                        })
                 } else {
-                    let v: u64 = value.parse().expect("well-formed SIR: unsigned integer string must parse as u64");
-                    Value::Integer(v)
+                    value.parse::<u64>()
+                        .map(Value::Integer)
+                        .map_err(|_| InterpreterError::MalformedConstant {
+                            value: value.clone(),
+                            reason: "unsigned integer string failed to parse as u64",
+                        })
                 }
             }
-            sir_types::ConstantData::Unit => Value::Integer(0),
-            _ => Value::Integer(0), // fallback for constant types without a corresponding Value variant (e.g. Float, StringLiteral)
+            sir_types::ConstantData::Unit => Ok(Value::Integer(0)),
+            _ => Ok(Value::Integer(0)), // fallback for constant types without a corresponding Value variant
         }
     }
 }
