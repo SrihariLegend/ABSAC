@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/sir_types",
+    "crates/sir_nodes",
+    "crates/sir_builder",
+    "crates/sir_printer",
+    "crates/sir_verify",
+    "crates/sir_tests",
+    "crates/sir_analysis",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Srihari <srihari@example.com>"]

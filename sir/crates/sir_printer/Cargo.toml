@@ -1,0 +1,13 @@
+[package]
+name = "sir_printer"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+sir_types = { path = "../sir_types" }
+sir_nodes = { path = "../sir_nodes" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+sir_builder = { path = "../sir_builder" }

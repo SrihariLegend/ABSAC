@@ -1,0 +1,11 @@
+[package]
+name = "sir_verify"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+sir_types = { path = "../sir_types" }
+sir_nodes = { path = "../sir_nodes" }
+
+[dev-dependencies]
+sir_builder = { path = "../sir_builder" }
