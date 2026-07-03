@@ -20,7 +20,7 @@ use crate::semantic::expression::SemanticExpression;
 use crate::semantic::theorem::Theorem;
 
 /// A completed proof of equivalence.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Proof {
     /// The original theorem that was proven.
     pub theorem: Theorem,
@@ -55,7 +55,7 @@ pub enum VerificationBackend {
 }
 
 /// The result of attempting to verify a proof obligation.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VerificationResult {
     /// The theorem is proven — a proof trace exists.
     Proven(Proof),
@@ -77,7 +77,7 @@ pub enum VerificationPolicy {
 }
 
 /// Resource limits for verification backends.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerificationLimits {
     /// Maximum states for exhaustive enumeration (default: 1_048_576 = 2^20).
     pub max_states: u64,
@@ -92,7 +92,7 @@ impl Default for VerificationLimits {
 }
 
 /// Summary statistics from a verification run.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Statistics {
     pub total: usize,
     pub proven: usize,
