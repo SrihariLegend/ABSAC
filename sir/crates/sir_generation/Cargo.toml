@@ -1,0 +1,10 @@
+[package]
+name = "sir_generation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+sir_transform = { path = "../sir_transform" }
+sir_semantics = { path = "../sir_semantics" }
