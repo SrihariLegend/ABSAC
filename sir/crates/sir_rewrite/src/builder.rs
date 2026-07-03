@@ -83,28 +83,6 @@ impl RewriteBuilder {
             rewritten.arena.remove(*node_id);
         }
 
-        // 7. Reconnect return: if the return node referenced an obsolete node
-        //    that was replaced, update it
-        if let Some(ret_id) = rewritten.return_node {
-            for replacement in &patch.replacements {
-                if let Some(ret_node) = rewritten.arena.get(ret_id) {
-                    if let NodeKind::Return { value } = &ret_node.kind {
-                        if *value == replacement.old {
-                            let new_global = id_map.get(&replacement.new).ok_or_else(|| {
-                                RewriteError::InternalInvariantViolation(
-                                    "no mapping for return replacement".to_string(),
-                                )
-                            })?;
-                            // Update the return node to reference the replacement
-                            if let Some(ret_node_mut) = rewritten.arena.get_mut(ret_id) {
-                                ret_node_mut.kind = NodeKind::Return { value: *new_global };
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         Ok(rewritten)
     }
 
