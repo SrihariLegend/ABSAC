@@ -135,7 +135,7 @@ impl InferenceEngine {
         self.db = HypothesisDatabase::new();
 
         // 1. Generate evidence from all regions
-        for (_region_id, region) in semantic_db.regions() {
+        for (_, region) in semantic_db.regions() {
             let evidence = crate::sources::bitset_evidence::contribute(region);
             for e in evidence {
                 self.evidence_registry.add(e);

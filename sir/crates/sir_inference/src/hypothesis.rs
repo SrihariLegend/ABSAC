@@ -47,7 +47,7 @@ impl Support {
         match net {
             0..=20 => "Weak",
             21..=50 => "Moderate",
-            51..=79 => "Strong",
+            51..=80 => "Strong",
             _ => "Very Strong",
         }
     }

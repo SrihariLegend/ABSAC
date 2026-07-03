@@ -26,7 +26,8 @@ fn support_confidence_labels() {
     assert_eq!(Support { positive: 10, negative: 0 }.confidence_label(), "Weak");
     assert_eq!(Support { positive: 30, negative: 0 }.confidence_label(), "Moderate");
     assert_eq!(Support { positive: 55, negative: 0 }.confidence_label(), "Strong");
-    assert_eq!(Support { positive: 0, negative: 80 }.confidence_label(), "Very Strong"); // net 80
+    assert_eq!(Support { positive: 80, negative: 0 }.confidence_label(), "Strong"); // net 80 = Strong
+    assert_eq!(Support { positive: 0, negative: 81 }.confidence_label(), "Very Strong"); // net 81 = Very Strong
     assert_eq!(Support { positive: 85, negative: 0 }.confidence_label(), "Very Strong");
 }
 
