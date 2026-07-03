@@ -1,5 +1,5 @@
 use sir_generation::candidate::{
-    Candidate, CandidateEffects, CandidateExplanation, CandidateId,
+    Candidate, CandidateEffect, CandidateExplanation, CandidateId,
     ImplementationStrategy,
 };
 use sir_generation::generator::CandidateDatabase;
@@ -32,7 +32,7 @@ fn database_validate_rejects_duplicate_ids() {
             source_concepts: vec![],
             rationale: "test",
         },
-        effects: vec![CandidateEffects::TraversalChange],
+        effects: vec![CandidateEffect::TraversalChange],
         expected_cost: CostProfile::default(),
     };
 

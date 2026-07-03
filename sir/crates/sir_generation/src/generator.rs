@@ -5,6 +5,7 @@
 
 use sir_types::RegionId;
 use sir_transform::context::TransformationContextDatabase;
+use sir_semantics::semantics::SemanticDatabase;
 use sir_types::RegionMap;
 
 use crate::candidate::{Candidate, CandidateId};
@@ -81,10 +82,16 @@ impl CandidateGenerator {
     ///
     /// Each context is inspected by generator functions that produce
     /// candidates when applicable.
-    pub fn generate(&mut self, context_db: &TransformationContextDatabase) {
+    pub fn generate(&mut self, context_db: &TransformationContextDatabase, semantic_db: &SemanticDatabase) {
+        let empty_concepts = std::collections::HashSet::new();
+
         for (region_id, contexts) in context_db.contexts() {
+            let concepts = semantic_db.region(region_id)
+                .map(|r| r.concepts())
+                .unwrap_or(&empty_concepts);
+
             for ctx in contexts {
-                let candidates = crate::generators::all_plans(ctx);
+                let candidates = crate::generators::all_plans(ctx, concepts);
                 for mut candidate in candidates {
                     candidate.id = self.db.next_id();
                     self.db.add(region_id, candidate);

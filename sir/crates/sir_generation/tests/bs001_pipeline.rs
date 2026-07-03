@@ -128,7 +128,7 @@ fn bs001_full_pipeline_produces_four_distinct_candidates() {
 
     // Generation
     let mut generator = CandidateGenerator::new();
-    generator.generate(inference.context_database());
+    generator.generate(inference.context_database(), semantics.database());
 
     let db = generator.database();
     assert!(
@@ -195,7 +195,7 @@ fn bs001_candidates_are_deterministic() {
         let mut inference = InferenceEngine::new();
         inference.infer(semantics.database(), semantics.structural_database());
         let mut generator = CandidateGenerator::new();
-        generator.generate(inference.context_database());
+        generator.generate(inference.context_database(), semantics.database());
         generator
             .database()
             .all_candidates()

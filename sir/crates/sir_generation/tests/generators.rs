@@ -7,6 +7,7 @@ use sir_transform::constraints::Constraint;
 use sir_transform::context::TransformationContext;
 use sir_transform::representation::Representation;
 use sir_transform::structures::SourceStructure;
+use sir_semantics::concepts::SemanticConcept;
 
 fn make_context() -> TransformationContext {
     let mut constraints = HashSet::new();
@@ -28,17 +29,28 @@ fn make_context() -> TransformationContext {
     )
 }
 
+fn make_all_concepts() -> HashSet<SemanticConcept> {
+    let mut concepts = HashSet::new();
+    concepts.insert(SemanticConcept::BooleanCollection);
+    concepts.insert(SemanticConcept::FiniteCollection);
+    concepts.insert(SemanticConcept::MembershipTraversal);
+    concepts.insert(SemanticConcept::CardinalityReduction);
+    concepts
+}
+
 #[test]
 fn all_four_generators_produce_candidates() {
     let ctx = make_context();
-    let candidates: Vec<_> = generators::all_plans(&ctx).collect();
+    let concepts = make_all_concepts();
+    let candidates: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
     assert_eq!(candidates.len(), 4, "Expected 4 candidates for BitSet context");
 }
 
 #[test]
 fn all_strategies_are_distinct() {
     let ctx = make_context();
-    let candidates: Vec<_> = generators::all_plans(&ctx).collect();
+    let concepts = make_all_concepts();
+    let candidates: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
     let strategies: HashSet<_> = candidates.iter().map(|c| c.strategy).collect();
     assert_eq!(strategies.len(), 4);
 }
@@ -46,7 +58,8 @@ fn all_strategies_are_distinct() {
 #[test]
 fn each_candidate_has_effects() {
     let ctx = make_context();
-    let candidates: Vec<_> = generators::all_plans(&ctx).collect();
+    let concepts = make_all_concepts();
+    let candidates: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
     for c in &candidates {
         assert!(!c.effects.is_empty(),
             "{:?} should have at least one effect", c.strategy);
@@ -56,7 +69,8 @@ fn each_candidate_has_effects() {
 #[test]
 fn each_candidate_has_explanation() {
     let ctx = make_context();
-    let candidates: Vec<_> = generators::all_plans(&ctx).collect();
+    let concepts = make_all_concepts();
+    let candidates: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
     for c in &candidates {
         assert!(!c.explanation.rationale.is_empty(),
             "{:?} should have a non-empty rationale", c.strategy);
@@ -79,7 +93,8 @@ fn bitmask_context_produces_four_candidates() {
         constraints,
         assumptions,
     );
-    let candidates: Vec<_> = generators::all_plans(&ctx).collect();
+    let concepts = make_all_concepts();
+    let candidates: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
     // All 4 generators check for BitSet representation, which matches.
     // BitMask as source structure is still valid.
     assert_eq!(candidates.len(), 4);
@@ -88,8 +103,9 @@ fn bitmask_context_produces_four_candidates() {
 #[test]
 fn generation_is_deterministic() {
     let ctx = make_context();
-    let first: Vec<_> = generators::all_plans(&ctx).collect();
-    let second: Vec<_> = generators::all_plans(&ctx).collect();
+    let concepts = make_all_concepts();
+    let first: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
+    let second: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
     assert_eq!(first.len(), second.len());
     for (a, b) in first.iter().zip(second.iter()) {
         assert_eq!(a.strategy, b.strategy);
@@ -99,7 +115,8 @@ fn generation_is_deterministic() {
 #[test]
 fn explanations_contain_source_concepts() {
     let ctx = make_context();
-    let candidates: Vec<_> = generators::all_plans(&ctx).collect();
+    let concepts = make_all_concepts();
+    let candidates: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
     for c in &candidates {
         assert!(!c.explanation.source_concepts.is_empty(),
             "{:?} explanation should reference source concepts", c.strategy);

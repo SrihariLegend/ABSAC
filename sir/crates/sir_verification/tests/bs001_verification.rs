@@ -131,7 +131,7 @@ fn run_full_pipeline(
 
     // Generation
     let mut generator = CandidateGenerator::new();
-    generator.generate(inference.context_database());
+    generator.generate(inference.context_database(), semantics.database());
 
     // Build the Verifier and create obligations
     let verifier = Verifier::new();

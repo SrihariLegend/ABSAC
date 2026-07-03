@@ -12,7 +12,7 @@ pub use selector::{SelectedCandidate, SelectionResult, Selector, VerifiedCandida
 mod tests {
     use super::*;
     use sir_generation::candidate::{
-        Candidate, CandidateEffects, CandidateExplanation, CandidateId, ImplementationStrategy,
+        Candidate, CandidateEffect, CandidateExplanation, CandidateId, ImplementationStrategy,
     };
     use sir_transform::context::ContextId;
     use sir_transform::ids::DefinitionId;
@@ -30,7 +30,7 @@ mod tests {
                 source_concepts: vec![],
                 rationale: "mock",
             },
-            effects: vec![CandidateEffects::CountingStrategyChange],
+            effects: vec![CandidateEffect::CountingStrategyChange],
             expected_cost,
         }
     }

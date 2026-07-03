@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use sir_inference::concepts::SemanticConcept;
+use sir_semantics::concepts::SemanticConcept;
 use sir_types::RegionId;
 use sir_transform::context::ContextId;
 use sir_transform::ids::DefinitionId;
@@ -46,7 +46,7 @@ impl fmt::Display for ImplementationStrategy {
 
 /// What kind of change a candidate proposes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum CandidateEffects {
+pub enum CandidateEffect {
     /// The representation of data changes (e.g., bool[64] → u64)
     RepresentationChange,
     /// How the data is traversed changes (e.g., loop → trailing-zero scan)
@@ -76,7 +76,7 @@ pub struct Candidate {
     pub definition_id: DefinitionId,
     pub strategy: ImplementationStrategy,
     pub explanation: CandidateExplanation,
-    pub effects: Vec<CandidateEffects>,
+    pub effects: Vec<CandidateEffect>,
     /// Expected cost profile after this transformation is applied.
     /// Set by the generator at creation time based on the implementation strategy.
     /// This is objective data — cost models assign meaning to it.

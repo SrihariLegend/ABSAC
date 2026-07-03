@@ -1,6 +1,6 @@
 use sir_builder::Builder;
 use sir_generation::candidate::{
-    Candidate, CandidateEffects, CandidateExplanation, CandidateId, ImplementationStrategy,
+    Candidate, CandidateEffect, CandidateExplanation, CandidateId, ImplementationStrategy,
 };
 use sir_semantics::structure::StructuralDatabase;
 use sir_transform::context::ContextId;
@@ -59,7 +59,7 @@ fn make_candidate() -> Candidate {
             source_concepts: vec![],
             rationale: "popcount replacement",
         },
-        effects: vec![CandidateEffects::CountingStrategyChange],
+        effects: vec![CandidateEffect::CountingStrategyChange],
         expected_cost: CostProfile::default(),
     }
 }
