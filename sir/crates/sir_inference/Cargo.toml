@@ -15,3 +15,7 @@ path = "tests/types.rs"
 [[test]]
 name = "engine"
 path = "tests/engine.rs"
+
+[[test]]
+name = "bitset_evidence"
+path = "tests/bitset_evidence.rs"
