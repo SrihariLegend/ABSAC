@@ -9,3 +9,7 @@ authors.workspace = true
 sir_types = { path = "../sir_types" }
 sir_nodes = { path = "../sir_nodes" }
 sir_analysis = { path = "../sir_analysis" }
+
+[[test]]
+name = "semantic_database"
+path = "tests/semantic_database.rs"
