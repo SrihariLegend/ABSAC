@@ -38,7 +38,7 @@ Selection
 
 A correct rewrite may still be rejected. Proofs are binary — a theorem is proven or it isn't. No proof is "more correct" than another. Score never influences proof (verification happens first, always). Correctness never influences score (only cost deltas matter).
 
-The mission of ABSAC is transformation to bitwise form. If a rewrite does not degrade performance (`total >= 0`), it should be applied — the goal is bitwise expression, not maximizing performance. Performance is a safeguard against degradation and a tiebreaker between competing bitwise forms.
+ABSAC optimizes for performance through bitwise transformation. Selection requires strict improvement: only rewrites with `total > 0` are applied. If no candidate is predicted to outperform the original, no rewrite occurs. The generator already ensures every candidate is a bitwise form — the selector's job is to choose the best one, and if none is better, choosing none is the correct answer.
 
 ## Pipeline
 
@@ -371,7 +371,7 @@ impl<M: CostModel> Selector<M> {
     ///   CostModel.evaluate(&candidate, original_cost, &candidate.expected_cost)
     ///
     /// Policy:
-    ///   - Filter: total >= 0 (does not degrade performance)
+    ///   - Filter: total > 0 (strict improvement over original)
     ///   - Rank: highest total wins
     ///   - Tie: lowest CandidateId wins (deterministic, stable)
     ///   - Empty input: chosen is None
@@ -392,8 +392,8 @@ Deterministic. Always.
 |-----------|--------|
 | Highest `total` | Winner |
 | Tie on `total` | Lowest `CandidateId` wins |
-| `total >= 0` | Candidate is accepted (does not degrade) |
-| `total < 0` | Candidate is rejected (degradation) |
+| `total > 0` | Candidate is accepted (strict improvement) |
+| `total <= 0` | Candidate is rejected (no improvement or degradation) |
 | All candidates rejected | `chosen` is `None` |
 | Empty input | `chosen` is `None` |
 
@@ -470,8 +470,8 @@ These values are illustrative for the default architecture-independent model and
 | 4 | `selector_tie_lowest_id` | Equal scores → lowest `CandidateId` wins |
 | 5 | `selector_empty_input` | Empty → `None` |
 | 6 | `selector_all_negative` | All totals < 0 → `None` |
-| 7 | `selector_zero_wins` | `total == 0` → accepted, lowest ID selected |
-| 8 | `selector_positive_beats_zero` | `+5` beats `0` |
+| 7 | `selector_zero_rejected` | `total == 0` → rejected (no improvement) |
+| 8 | `selector_positive_beats_zero` | `+5` beats `0` (zero rejected, positive chosen) |
 | 9 | `selector_positive_beats_negative` | `+1` beats `-1` |
 | 10 | `deterministic_selection` | Same inputs → same decision |
 | 11 | `report_formatting` | `CostModelReport` Display matches expected format |
