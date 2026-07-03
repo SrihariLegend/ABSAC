@@ -49,6 +49,9 @@ pub fn dataflow_inputs(kind: &NodeKind) -> Vec<NodeId> {
         | NodeKind::TrailingZeros { operand }
         | NodeKind::BoolNot { operand } => vec![*operand],
 
+        // Pack: wraps an array value.
+        NodeKind::Pack { array } => vec![*array],
+
         // Select: condition + two value branches.
         NodeKind::Select { cond, true_val, false_val } => vec![*cond, *true_val, *false_val],
 
