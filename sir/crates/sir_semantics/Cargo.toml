@@ -12,6 +12,7 @@ sir_analysis = { path = "../sir_analysis" }
 
 [dev-dependencies]
 sir_builder = { path = "../sir_builder" }
+sir_analysis = { path = "../sir_analysis" }
 sir_inference = { path = "../sir_inference" }
 
 [[test]]

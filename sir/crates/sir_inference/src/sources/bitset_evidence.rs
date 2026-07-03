@@ -8,8 +8,7 @@ use crate::hypothesis::Representation;
 /// Contribute evidence toward the BitSet representation.
 ///
 /// For each semantic concept present in the region, emit an evidence
-/// entry that supports BitSet (and potentially entries that oppose it
-/// — for v0.1 only positive contributions are implemented).
+/// entry that supports BitSet.
 ///
 /// This is a pure function: it reads the region, returns evidence.
 /// The caller owns the registry and handles aggregation.
