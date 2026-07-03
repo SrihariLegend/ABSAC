@@ -59,5 +59,38 @@ pub fn contribute(region: &Region) -> Vec<Evidence> {
         });
     }
 
+    if region.contains(SemanticConcept::DisjunctiveReduction) {
+        evidence.push(Evidence {
+            region: region.id,
+            representation: Representation::BitSet,
+            polarity: Polarity::Supports,
+            weight: weights::MODERATE,
+            source: SemanticConcept::DisjunctiveReduction,
+            explanation: "Checking any members matches bitwise OR pattern",
+        });
+    }
+
+    if region.contains(SemanticConcept::ConjunctiveReduction) {
+        evidence.push(Evidence {
+            region: region.id,
+            representation: Representation::BitSet,
+            polarity: Polarity::Supports,
+            weight: weights::MODERATE,
+            source: SemanticConcept::ConjunctiveReduction,
+            explanation: "Checking all members matches bitwise AND pattern",
+        });
+    }
+
+    if region.contains(SemanticConcept::ExclusiveReduction) {
+        evidence.push(Evidence {
+            region: region.id,
+            representation: Representation::BitSet,
+            polarity: Polarity::Supports,
+            weight: weights::MODERATE,
+            source: SemanticConcept::ExclusiveReduction,
+            explanation: "Checking parity matches bitwise XOR pattern",
+        });
+    }
+
     evidence
 }

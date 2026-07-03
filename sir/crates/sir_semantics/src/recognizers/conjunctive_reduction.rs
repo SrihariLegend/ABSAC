@@ -5,15 +5,14 @@ use sir_types::NodeId;
 use crate::concepts::SemanticConcept;
 use crate::region::RecognitionExplanation;
 
-/// Recognize cardinality reduction patterns.
+/// Recognize conjunctive reduction patterns.
 ///
-/// A cardinality reduction counts how many elements of a collection
-/// satisfy a condition. We detect:
-/// - A loop with a reduction variable of kind "sum"
-/// - The reduction combines a boolean condition (0 or 1) into a counter
+/// A conjunctive reduction checks if all elements satisfy a condition
+/// (e.g. `&&` over a boolean collection). We detect:
+/// - A loop with a reduction variable of kind "bitwise_and"
 ///
 /// Returns (concept, explanation, related_node_ids) tuples.
-pub fn recognize_cardinality_reduction(
+pub fn recognize_conjunctive_reduction(
     func: &Function,
     analysis: &FactDatabase,
 ) -> Vec<(SemanticConcept, RecognitionExplanation, Vec<NodeId>)> {
@@ -22,23 +21,24 @@ pub fn recognize_cardinality_reduction(
     for node in func.arena.iter() {
         if let sir_nodes::NodeKind::Loop { .. } = &node.kind {
             if let Some(loop_fact) = analysis.loops.get(&node.id) {
-                // Sum reductions include both the loop counter (i = i + 1, always present)
-                // and the actual counting reduction (count = count + inc).
-                // Require at least 2 sum reductions — one is the loop counter, the
-                // other is the cardinality reduction.
-                let sum_reductions: Vec<_> = loop_fact.reductions.iter().filter(|r| r.reduction_kind == "sum").collect();
-                if sum_reductions.len() >= 2 {
+                let and_reductions: Vec<_> = loop_fact
+                    .reductions
+                    .iter()
+                    .filter(|r| r.reduction_kind == "bitwise_and")
+                    .collect();
+
+                if !and_reductions.is_empty() {
                     let mut related = vec![node.id];
-                    for reduction in sum_reductions {
+                    for reduction in and_reductions {
                         related.push(reduction.variable);
                         related.push(reduction.invariant_value);
                     }
                     results.push((
-                        SemanticConcept::CardinalityReduction,
+                        SemanticConcept::ConjunctiveReduction,
                         RecognitionExplanation {
-                            concept: SemanticConcept::CardinalityReduction,
+                            concept: SemanticConcept::ConjunctiveReduction,
                             triggering_facts: vec![
-                                "Loop has additive reduction",
+                                "Loop has bitwise AND reduction",
                                 "Reduction variable accumulates boolean conditions",
                             ],
                         },

@@ -163,14 +163,14 @@ fn detect_reductions(
                         None
                     }
                 }
-                NodeKind::And { lhs, rhs } => {
+                NodeKind::And { lhs, rhs } | NodeKind::BoolAnd { lhs, rhs } => {
                     if *lhs == carry || *rhs == carry {
                         Some("bitwise_and".to_string())
                     } else {
                         None
                     }
                 }
-                NodeKind::Or { lhs, rhs } => {
+                NodeKind::Or { lhs, rhs } | NodeKind::BoolOr { lhs, rhs } => {
                     if *lhs == carry || *rhs == carry {
                         Some("bitwise_or".to_string())
                     } else {
@@ -178,6 +178,14 @@ fn detect_reductions(
                     }
                 }
                 NodeKind::Xor { lhs, rhs } => {
+                    if *lhs == carry || *rhs == carry {
+                        Some("bitwise_xor".to_string())
+                    } else {
+                        None
+                    }
+                }
+                NodeKind::Ne { lhs, rhs } => {
+                    // a != b is XOR for boolean operands
                     if *lhs == carry || *rhs == carry {
                         Some("bitwise_xor".to_string())
                     } else {
@@ -194,7 +202,10 @@ fn detect_reductions(
                     | NodeKind::Mul { lhs, rhs }
                     | NodeKind::And { lhs, rhs }
                     | NodeKind::Or { lhs, rhs }
-                    | NodeKind::Xor { lhs, rhs } => {
+                    | NodeKind::Xor { lhs, rhs }
+                    | NodeKind::BoolAnd { lhs, rhs }
+                    | NodeKind::BoolOr { lhs, rhs }
+                    | NodeKind::Ne { lhs, rhs } => {
                         if *lhs == carry { *rhs } else { *lhs }
                     }
                     _ => continue,
