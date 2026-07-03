@@ -13,3 +13,4 @@ pub mod patch;
 pub mod plan;
 pub mod recipe;
 pub mod builder;
+pub mod result;
