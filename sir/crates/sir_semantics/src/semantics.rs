@@ -1,7 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use sir_analysis::facts::FactDatabase;
 use sir_nodes::Function;
+use sir_types::NodeId;
 
 use crate::concepts::SemanticConcept;
 use crate::region::{Region, RegionId, RecognitionExplanation};
@@ -81,47 +82,67 @@ impl SemanticDatabase {
     /// This is critical for evidence accumulation: a merged region with
     /// multiple concepts produces combined evidence weight, enabling
     /// strong support scores for the resulting representation hypothesis.
+    ///
+    /// Uses a reverse-index + union-find approach: O(total_nodes) instead
+    /// of the naive O(n^3) nested pairwise comparison.
     pub(crate) fn merge_overlapping_regions(&mut self) {
-        // Keep merging until no more overlaps exist
-        loop {
-            let ids: Vec<RegionId> = self.regions.keys().copied().collect();
-            if ids.len() <= 1 {
-                break;
+        if self.regions.len() <= 1 {
+            return;
+        }
+
+        // Build reverse index: node -> Vec<RegionId>
+        let mut node_to_regions: HashMap<NodeId, Vec<RegionId>> = HashMap::new();
+        for (&rid, region) in &self.regions {
+            for &nid in &region.nodes {
+                node_to_regions.entry(nid).or_default().push(rid);
             }
+        }
 
-            let mut merged = false;
+        // Build a graph of overlapping regions using a simple approach:
+        // collect all pairs of regions that share a node, then merge.
+        let mut merged: HashSet<RegionId> = HashSet::new();
+        let mut merge_map: HashMap<RegionId, RegionId> = HashMap::new(); // source -> target
 
-            'outer: for i in 0..ids.len() {
-                for j in (i + 1)..ids.len() {
-                    let has_overlap = {
-                        let ri = &self.regions[&ids[i]];
-                        let rj = &self.regions[&ids[j]];
-                        ri.nodes.intersection(&rj.nodes).next().is_some()
-                    };
-
-                    if has_overlap {
-                        // Absorb region j into region i, then restart scanning
-                        let rj = self.regions.remove(&ids[j]).unwrap();
-                        if let Some(ri) = self.regions.get_mut(&ids[i]) {
-                            for &nid in &rj.nodes {
-                                ri.nodes.insert(nid);
-                            }
-                            let concepts: Vec<SemanticConcept> =
-                                rj.concepts().iter().copied().collect();
-                            for concept in concepts {
-                                if let Some(expl) = rj.explanation(concept) {
-                                    ri.add_concept(concept, expl.clone());
-                                }
-                            }
-                        }
-                        merged = true;
-                        break 'outer;
-                    }
+        for (_, rids) in &node_to_regions {
+            if rids.len() <= 1 {
+                continue;
+            }
+            // Choose the smallest as target, merge the rest into it
+            let target = *rids.iter().min().unwrap();
+            for &rid in rids.iter() {
+                if rid != target && !merged.contains(&rid) {
+                    merge_map.insert(rid, target);
+                    merged.insert(rid);
                 }
             }
+        }
 
-            if !merged {
-                break;
+        // Resolve transitive chains in merge_map:
+        // if A -> B and B -> C (B is also a source), resolve to A -> C.
+        let mut resolved_map: HashMap<RegionId, RegionId> = HashMap::new();
+        for (&src, &tgt) in &merge_map {
+            let mut ultimate = tgt;
+            while let Some(&next) = merge_map.get(&ultimate) {
+                ultimate = next;
+            }
+            resolved_map.insert(src, ultimate);
+        }
+
+        // Merge regions according to the resolved merge map
+        for (source_id, target_id) in &resolved_map {
+            if let Some(source) = self.regions.remove(source_id) {
+                if let Some(target_region) = self.regions.get_mut(target_id) {
+                    for &nid in &source.nodes {
+                        target_region.nodes.insert(nid);
+                    }
+                    let concepts: Vec<SemanticConcept> =
+                        source.concepts().iter().copied().collect();
+                    for concept in concepts {
+                        if let Some(expl) = source.explanation(concept) {
+                            target_region.add_concept(concept, expl.clone());
+                        }
+                    }
+                }
             }
         }
 
@@ -247,11 +268,24 @@ impl SemanticEngine {
         // After semantic region merging, re-key structural descriptions
         // to match the surviving semantic region ID so that the inference
         // engine can look them up by the correct region ID.
-        if let Some(survivor_id) = self.db.first_region_id() {
-            let placeholder = RegionId::new(0);
-            if survivor_id != placeholder {
-                self.structural_db.rekey_region(placeholder, survivor_id);
+        //
+        // v0.1 limitation: structural recognizers don't track which nodes
+        // they matched — they just return RegionId(0). When there is only
+        // one surviving semantic region, we rekey all structural descriptions
+        // to it. With multiple survivors, this mapping is ambiguous, so we
+        // log a warning and skip.
+        let survivor_ids: Vec<RegionId> = self.db.regions.keys().copied().collect();
+        if survivor_ids.len() == 1 {
+            let target = survivor_ids[0];
+            if target != RegionId::new(0) {
+                self.structural_db.rekey_region(RegionId::new(0), target);
             }
+        } else if survivor_ids.len() > 1 {
+            eprintln!(
+                "warning: multiple surviving regions after merge ({}); structural descriptions use \
+                 placeholder IDs and cannot be unambiguously rekeyed. This is a v0.1 limitation.",
+                survivor_ids.len()
+            );
         }
     }
 }

@@ -6,6 +6,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+sir_types = { path = "../sir_types" }
 sir_semantics = { path = "../sir_semantics" }
 sir_transform = { path = "../sir_transform" }
 

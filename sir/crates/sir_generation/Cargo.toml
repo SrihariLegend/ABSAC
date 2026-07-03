@@ -6,6 +6,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+sir_types = { path = "../sir_types" }
 sir_transform = { path = "../sir_transform" }
 sir_semantics = { path = "../sir_semantics" }
 serde = { version = "1", features = ["derive"] }
@@ -15,7 +16,6 @@ sir_inference = { path = "../sir_inference" }
 sir_builder = { path = "../sir_builder" }
 sir_analysis = { path = "../sir_analysis" }
 sir_nodes = { path = "../sir_nodes" }
-sir_types = { path = "../sir_types" }
 
 [[test]]
 name = "generator"

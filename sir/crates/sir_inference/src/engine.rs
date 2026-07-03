@@ -4,6 +4,7 @@ use std::fmt;
 use sir_semantics::region::RegionId;
 use sir_semantics::semantics::SemanticDatabase;
 use sir_semantics::structure::StructuralDatabase;
+use sir_types::RegionMap;
 
 use crate::evidence::{EvidenceRegistry, Polarity};
 use sir_transform::assumptions::Assumption;
@@ -15,47 +16,37 @@ use crate::hypothesis::{Hypothesis, Support};
 /// The hypothesis database — stores representation beliefs per region.
 #[derive(Clone, Debug, Default)]
 pub struct HypothesisDatabase {
-    hypotheses: HashMap<RegionId, Vec<Hypothesis>>,
+    map: RegionMap<Hypothesis>,
 }
 
 impl HypothesisDatabase {
     pub fn new() -> Self {
-        Self {
-            hypotheses: HashMap::new(),
-        }
+        Self { map: RegionMap::new() }
     }
 
     /// Get all hypotheses for a region.
     pub fn hypotheses(&self, region: RegionId) -> &[Hypothesis] {
-        self.hypotheses
-            .get(&region)
-            .map(|v| v.as_slice())
-            .unwrap_or(&[])
+        self.map.get(region)
     }
 
     /// Get the highest-scoring hypothesis for a region.
     pub fn best(&self, region: RegionId) -> Option<&Hypothesis> {
-        self.hypotheses
-            .get(&region)
-            .and_then(|v| v.iter().max_by_key(|h| h.support.score()))
+        self.map.get(region).iter().max_by_key(|h| h.support.score())
     }
 
     /// Find all regions that have at least one hypothesis for the
     /// given representation.
     pub fn regions_supporting(&self, rep: Representation) -> Vec<RegionId> {
-        self.hypotheses
+        self.map
             .iter()
             .filter(|(_, hyps)| hyps.iter().any(|h| h.representation == rep))
-            .map(|(&rid, _)| rid)
+            .map(|(rid, _)| rid)
             .collect()
     }
 
     /// Add a hypothesis to a region.
     pub fn add_hypothesis(&mut self, region: RegionId, hypothesis: Hypothesis) {
-        self.hypotheses
-            .entry(region)
-            .or_insert_with(Vec::new)
-            .push(hypothesis);
+        self.map.insert(region, hypothesis);
     }
 }
 
@@ -177,36 +168,36 @@ impl InferenceEngine {
             entry.2.push(evidence_id);
         }
 
-        // 3. Form hypotheses for any representation with non-zero support
-        for ((region_id, representation), (positive, negative, evidence_ids)) in &aggregation {
-            if *positive > 0 || *negative > 0 {
+        // 3. Form hypotheses and build TransformationContexts in a single pass.
+        //    Consuming `aggregation` with into_iter() lets us move evidence_ids
+        //    into the Hypothesis rather than cloning.
+        for ((region_id, representation), (positive, negative, evidence_ids)) in aggregation.into_iter() {
+            if positive > 0 || negative > 0 {
                 let hypothesis = Hypothesis {
-                    representation: *representation,
-                    support: Support { positive: *positive, negative: *negative },
-                    evidence: evidence_ids.clone(),
+                    representation,
+                    support: Support { positive, negative },
+                    evidence: evidence_ids, // moved, not cloned
                 };
-                self.db.add_hypothesis(*region_id, hypothesis);
+                self.db.add_hypothesis(region_id, hypothesis);
             }
-        }
 
-        // 4. Build TransformationContexts for best hypotheses
-        for ((region_id, representation), (_positive, _negative, _evidence_ids)) in &aggregation {
-            if let Some(structural) = structural_db.region(*region_id) {
+            // Build TransformationContext for every region+representation pair
+            // that has a structural description
+            if let Some(structural) = structural_db.region(region_id) {
                 let mut constraints = structural.constraints.clone();
-                // Add inference-derived constraints
                 constraints.insert(Constraint::FiniteIteration);
 
                 let assumptions: HashSet<Assumption> = DEFAULT_ASSUMPTIONS.iter().cloned().collect();
 
                 let ctx = TransformationContext::new(
-                    *region_id,
-                    *representation,
+                    region_id,
+                    representation,
                     structural.source_structure.clone(),
                     constraints,
                     assumptions,
                 );
-                let _ = ctx.validate(); // ensure valid before storing
-                self.context_db.insert(*region_id, ctx);
+                let _ = ctx.validate();
+                self.context_db.insert(region_id, ctx);
             }
         }
     }

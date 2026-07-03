@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashSet};
 use std::fmt;
 
-use sir_types::RegionId;
+use sir_types::{RegionId, RegionMap};
 
 use crate::assumptions::Assumption;
 use crate::constraints::Constraint;
@@ -82,28 +82,31 @@ impl TransformationContext {
 /// Stores transformation contexts produced during inference.
 #[derive(Clone, Debug, Default)]
 pub struct TransformationContextDatabase {
-    contexts: HashMap<RegionId, Vec<TransformationContext>>,
+    map: RegionMap<TransformationContext>,
     next_context_id: u64,
 }
 
 impl TransformationContextDatabase {
     pub fn new() -> Self {
-        Self { contexts: HashMap::new(), next_context_id: 0 }
+        Self {
+            map: RegionMap::new(),
+            next_context_id: 0,
+        }
     }
 
     pub fn insert(&mut self, region: RegionId, mut ctx: TransformationContext) -> ContextId {
         let cid = ContextId::new(self.next_context_id);
         self.next_context_id += 1;
         ctx.context_id = cid;
-        self.contexts.entry(region).or_default().push(ctx);
+        self.map.insert(region, ctx);
         cid
     }
 
     pub fn contexts(&self) -> impl Iterator<Item = (RegionId, &[TransformationContext])> {
-        self.contexts.iter().map(|(&rid, v)| (rid, v.as_slice()))
+        self.map.iter()
     }
 
     pub fn for_region(&self, region: RegionId) -> &[TransformationContext] {
-        self.contexts.get(&region).map(|v| v.as_slice()).unwrap_or(&[])
+        self.map.get(region)
     }
 }
