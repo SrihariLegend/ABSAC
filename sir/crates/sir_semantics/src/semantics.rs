@@ -62,6 +62,71 @@ impl SemanticDatabase {
         self.next_region_id += 1;
         id
     }
+
+    /// Merge regions that share nodes into single regions.
+    ///
+    /// After all recognizers have run, related concepts (e.g., all concepts
+    /// for the same loop + array computation) may end up in separate regions
+    /// because each recognizer creates its own. This method finds overlapping
+    /// regions (regions that share SIR node IDs) and merges them so that
+    /// one computation maps to one region with all its semantic concepts.
+    ///
+    /// This is critical for evidence accumulation: a merged region with
+    /// multiple concepts produces combined evidence weight, enabling
+    /// strong support scores for the resulting representation hypothesis.
+    pub(crate) fn merge_overlapping_regions(&mut self) {
+        // Keep merging until no more overlaps exist
+        loop {
+            let ids: Vec<RegionId> = self.regions.keys().copied().collect();
+            if ids.len() <= 1 {
+                break;
+            }
+
+            let mut merged = false;
+
+            'outer: for i in 0..ids.len() {
+                for j in (i + 1)..ids.len() {
+                    let has_overlap = {
+                        let ri = &self.regions[&ids[i]];
+                        let rj = &self.regions[&ids[j]];
+                        ri.nodes.intersection(&rj.nodes).next().is_some()
+                    };
+
+                    if has_overlap {
+                        // Absorb region j into region i, then restart scanning
+                        let rj = self.regions.remove(&ids[j]).unwrap();
+                        if let Some(ri) = self.regions.get_mut(&ids[i]) {
+                            for &nid in &rj.nodes {
+                                ri.nodes.insert(nid);
+                            }
+                            let concepts: Vec<SemanticConcept> =
+                                rj.concepts().iter().copied().collect();
+                            for concept in concepts {
+                                if let Some(expl) = rj.explanation(concept) {
+                                    ri.add_concept(concept, expl.clone());
+                                }
+                            }
+                        }
+                        merged = true;
+                        break 'outer;
+                    }
+                }
+            }
+
+            if !merged {
+                break;
+            }
+        }
+
+        // Update next_region_id to avoid reusing IDs
+        let max_id = self
+            .regions
+            .keys()
+            .map(|rid| rid.as_u64())
+            .max()
+            .unwrap_or(0);
+        self.next_region_id = max_id + 1;
+    }
 }
 
 /// The semantic derivation engine.
@@ -144,6 +209,12 @@ impl SemanticEngine {
             region.add_concept(explanation.concept, explanation);
             self.db.add_region(region);
         }
+
+        // Merge overlapping regions so that related concepts
+        // (e.g., all concepts for the same loop/array computation)
+        // end up in a single region. This enables combined evidence
+        // accumulation in the inference engine.
+        self.db.merge_overlapping_regions();
     }
 }
 
