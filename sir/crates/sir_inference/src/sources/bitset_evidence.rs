@@ -1,9 +1,64 @@
+use sir_semantics::concepts::SemanticConcept;
 use sir_semantics::region::Region;
 
-use crate::evidence::Evidence;
+use crate::engine::weights;
+use crate::evidence::{Evidence, Polarity};
+use crate::hypothesis::Representation;
 
-/// Contribute evidence toward BitSet representation.
-/// Returns an empty list for now — populated in Task 7.
-pub fn contribute(_region: &Region) -> Vec<Evidence> {
-    Vec::new()
+/// Contribute evidence toward the BitSet representation.
+///
+/// For each semantic concept present in the region, emit an evidence
+/// entry that supports BitSet (and potentially entries that oppose it
+/// — for v0.1 only positive contributions are implemented).
+///
+/// This is a pure function: it reads the region, returns evidence.
+/// The caller owns the registry and handles aggregation.
+pub fn contribute(region: &Region) -> Vec<Evidence> {
+    let mut evidence = Vec::new();
+
+    if region.contains(SemanticConcept::BooleanCollection) {
+        evidence.push(Evidence {
+            region: region.id,
+            representation: Representation::BitSet,
+            polarity: Polarity::Supports,
+            weight: weights::STRONG,
+            source: SemanticConcept::BooleanCollection,
+            explanation: "Boolean arrays often represent bitsets",
+        });
+    }
+
+    if region.contains(SemanticConcept::FiniteCollection) {
+        evidence.push(Evidence {
+            region: region.id,
+            representation: Representation::BitSet,
+            polarity: Polarity::Supports,
+            weight: weights::MODERATE,
+            source: SemanticConcept::FiniteCollection,
+            explanation: "Known iteration bound enables bitwise encoding",
+        });
+    }
+
+    if region.contains(SemanticConcept::MembershipTraversal) {
+        evidence.push(Evidence {
+            region: region.id,
+            representation: Representation::BitSet,
+            polarity: Polarity::Supports,
+            weight: weights::STRONG,
+            source: SemanticConcept::MembershipTraversal,
+            explanation: "Testing membership is a bitset operation",
+        });
+    }
+
+    if region.contains(SemanticConcept::CardinalityReduction) {
+        evidence.push(Evidence {
+            region: region.id,
+            representation: Representation::BitSet,
+            polarity: Polarity::Supports,
+            weight: weights::MODERATE,
+            source: SemanticConcept::CardinalityReduction,
+            explanation: "Counting members matches popcount pattern",
+        });
+    }
+
+    evidence
 }
