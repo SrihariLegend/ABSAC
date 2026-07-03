@@ -1,7 +1,8 @@
 use sir_semantics::concepts::SemanticConcept;
 use sir_semantics::region::RegionId;
 
-use crate::hypothesis::{EvidenceId, Representation};
+use sir_transform::representation::Representation;
+use crate::hypothesis::EvidenceId;
 
 /// Whether evidence supports or opposes a representation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

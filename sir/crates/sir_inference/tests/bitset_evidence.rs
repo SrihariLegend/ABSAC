@@ -1,5 +1,5 @@
 use sir_inference::evidence::Polarity;
-use sir_inference::hypothesis::Representation;
+use sir_transform::representation::Representation;
 use sir_inference::sources::bitset_evidence;
 use sir_semantics::concepts::SemanticConcept;
 use sir_semantics::region::{Region, RegionId, RecognitionExplanation};

@@ -5,7 +5,8 @@ use sir_semantics::region::RegionId;
 use sir_semantics::semantics::SemanticDatabase;
 
 use crate::evidence::{EvidenceRegistry, Polarity};
-use crate::hypothesis::{Hypothesis, Representation, Support};
+use sir_transform::representation::Representation;
+use crate::hypothesis::{Hypothesis, Support};
 
 /// The hypothesis database — stores representation beliefs per region.
 #[derive(Clone, Debug, Default)]

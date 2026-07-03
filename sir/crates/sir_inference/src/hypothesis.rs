@@ -1,22 +1,4 @@
-use std::fmt;
-
-/// A mathematical representation of a computation.
-///
-/// These are concrete realizations of semantic concepts, not
-/// machine instructions. v0.1 targets exactly one representation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum Representation {
-    /// A fixed-size set of boolean values representable as bits.
-    BitSet,
-}
-
-impl fmt::Display for Representation {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Representation::BitSet => write!(f, "BitSet"),
-        }
-    }
-}
+pub use sir_transform::representation::Representation;
 
 /// Integer support score — no floating point in engine logic.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

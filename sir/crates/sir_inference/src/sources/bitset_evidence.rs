@@ -3,7 +3,7 @@ use sir_semantics::region::Region;
 
 use crate::engine::weights;
 use crate::evidence::{Evidence, Polarity};
-use crate::hypothesis::Representation;
+use sir_transform::representation::Representation;
 
 /// Contribute evidence toward the BitSet representation.
 ///

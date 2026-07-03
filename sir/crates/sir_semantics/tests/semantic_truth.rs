@@ -11,7 +11,7 @@
 use sir_analysis::manager::AnalysisManager;
 use sir_builder::Builder;
 use sir_inference::engine::InferenceEngine;
-use sir_inference::hypothesis::Representation;
+use sir_transform::representation::Representation;
 use sir_semantics::concepts::SemanticConcept;
 use sir_semantics::semantics::SemanticEngine;
 use sir_types::{ConstantData, Span, Type};

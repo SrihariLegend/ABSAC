@@ -1,5 +1,6 @@
 use sir_inference::evidence::{Evidence, Polarity};
-use sir_inference::hypothesis::{Hypothesis, Representation, Support};
+use sir_transform::representation::Representation;
+use sir_inference::hypothesis::{Hypothesis, Support};
 use sir_semantics::concepts::SemanticConcept;
 use sir_semantics::region::RegionId;
 

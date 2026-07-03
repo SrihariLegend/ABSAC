@@ -1,5 +1,6 @@
 use sir_inference::engine::{HypothesisDatabase, InferenceEngine};
-use sir_inference::hypothesis::{Hypothesis, Representation, Support};
+use sir_transform::representation::Representation;
+use sir_inference::hypothesis::{Hypothesis, Support};
 
 #[test]
 fn empty_database_has_no_hypotheses() {
