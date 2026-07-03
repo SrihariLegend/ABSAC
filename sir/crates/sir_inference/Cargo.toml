@@ -11,3 +11,7 @@ sir_semantics = { path = "../sir_semantics" }
 [[test]]
 name = "types"
 path = "tests/types.rs"
+
+[[test]]
+name = "engine"
+path = "tests/engine.rs"
