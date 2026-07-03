@@ -4,6 +4,7 @@ use std::fmt;
 use sir_semantics::concepts::SemanticConcept;
 use sir_semantics::region::RegionId;
 use sir_transform::context::ContextId;
+use sir_transform::ids::DefinitionId;
 
 /// Unique identifier for a candidate plan.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -72,6 +73,7 @@ pub struct Candidate {
     /// Reference to the context that produced this candidate.
     /// Multiple candidates may reference the same context.
     pub context_id: ContextId,
+    pub definition_id: DefinitionId,
     pub strategy: ImplementationStrategy,
     pub explanation: CandidateExplanation,
     pub effects: Vec<CandidateEffects>,

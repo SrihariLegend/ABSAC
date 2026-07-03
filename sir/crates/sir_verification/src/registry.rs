@@ -55,18 +55,14 @@ impl TransformationRegistry {
     }
 
     /// Find a definition applicable to the given candidate and context.
-    ///
-    /// Note: `_candidate` is accepted but `candidate.definition_id` is not
-    /// checked yet — the field will be added in a later task and the
-    /// full lookup logic restored then.
-    /// Returns the first definition that claims applicability.
+    /// Checks both applicability and definition_id match.
     pub fn find_for(
         &self,
-        _candidate: &Candidate,
+        candidate: &Candidate,
         context: &TransformationContext,
     ) -> Option<&dyn TransformationDefinition> {
         self.definitions.iter().find_map(|def| {
-            if def.applicability(context) {
+            if def.applicability(context) && def.id() == candidate.definition_id {
                 Some(def.as_ref())
             } else {
                 None
