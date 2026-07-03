@@ -90,8 +90,21 @@ Three tests used `if let Ok(result)` patterns that silently accepted `Err` outco
 2. `rewritten_function_passes_sir_verify` -- same explicit match with error-type assertions.
 3. `provenance_tracks_recipe_id` -- added an `else if let Err(ref e)` branch that asserts the error is not `RewriteError::InternalInvariantViolation` (which would indicate a compiler bug).
 
+### M6: Add Display impls for RewriteResult types
+
+**File:** `sir/crates/sir_rewrite/src/result.rs`
+
+Added `Display` implementations for `NodeProvenance`, `GraphDiff`, and `EdgeChange` to improve debugging and diff reporting.
+
+### M7: Verify Pack's output type in sir_verify
+
+**File:** `sir/crates/sir_verify/src/verifier.rs`
+
+Added verification that a Pack node's declared type is `BitVector` with a width matching the array length. For `Array(Bool, length)`, the output must be `BitVector { width: length }`. `Slice(Bool)` is accepted without width checking (dynamic length).
+
 ### Verification
 
 - `cargo build -p sir_rewrite`: builds with no errors
 - `cargo test -p sir_rewrite`: 18 tests pass (13 unit + 5 integration)
+- `cargo test -p sir_verify`: 8 tests pass (0 failures)
 - `cargo test` (workspace): all tests pass, zero regressions

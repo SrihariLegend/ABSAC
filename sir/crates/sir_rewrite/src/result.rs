@@ -29,6 +29,19 @@ pub struct NodeProvenance {
     pub recipe: DefinitionId,
 }
 
+impl std::fmt::Display for NodeProvenance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} originates from [", self.new_node)?;
+        for (i, id) in self.originates_from.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", id)?;
+        }
+        write!(f, "] via {}", self.recipe)
+    }
+}
+
 /// A complete diff between original and rewritten functions.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GraphDiff {
@@ -38,6 +51,31 @@ pub struct GraphDiff {
     pub added_nodes: BTreeSet<NodeId>,
     /// Edges whose target changed between original and rewritten.
     pub modified_edges: Vec<EdgeChange>,
+}
+
+impl std::fmt::Display for GraphDiff {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "GraphDiff:")?;
+        writeln!(
+            f,
+            "  removed: {}",
+            self.removed_nodes
+                .iter()
+                .map(|id| format!("{}", id))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )?;
+        writeln!(
+            f,
+            "  added: {}",
+            self.added_nodes
+                .iter()
+                .map(|id| format!("{}", id))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )?;
+        write!(f, "  modified edges: {}", self.modified_edges.len())
+    }
 }
 
 /// A single edge change in the graph diff.
@@ -51,4 +89,14 @@ pub struct EdgeChange {
     pub old_target: NodeId,
     /// The new target node.
     pub new_target: NodeId,
+}
+
+impl std::fmt::Display for EdgeChange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}: input {} changed from {} to {}",
+            self.from, self.to, self.old_target, self.new_target
+        )
+    }
 }
