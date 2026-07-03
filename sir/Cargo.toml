@@ -10,6 +10,7 @@ members = [
     "crates/sir_analysis",
     "crates/sir_semantics",
     "crates/sir_inference",
+    "crates/sir_transform",
 ]
 
 [workspace.package]
