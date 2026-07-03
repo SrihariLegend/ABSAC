@@ -9,7 +9,7 @@ use crate::types::{FloatWidth, IntegerWidth};
 /// rounding issues during serialization.
 ///
 /// Numeric consumers must parse the strings when they need actual values.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ConstantData {
     /// The unit constant `()`.
     Unit,
