@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **After every meaningful change** — invoke `/superpowers:using-superpowers` to check for applicable skills before deciding next steps. Don't wing it.
 - **Dispatch goons aggressively** — see [Subagent Dispatch](#subagent-dispatch-vertex-ai-goons). Parallelize everything that can be parallelized. Know your crew.
+- **Subagent-driven dev = Goon-driven dev** — when `superpowers:subagent-driven-development` says "dispatch a subagent" or talks about model selection, it means dispatch a goon via `pi --print` with the right Vertex AI model. Pro = most capable, Flash = standard/cheap, Flash-lite = cheapest tier.
 
 ## Project
 
