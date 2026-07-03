@@ -4,3 +4,4 @@
 //! Pure, read-only, no SIR access. No ranking, no verification, no rewriting.
 
 pub mod candidate;
+pub mod generator;
