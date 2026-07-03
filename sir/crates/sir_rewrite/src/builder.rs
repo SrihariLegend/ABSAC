@@ -34,8 +34,14 @@ impl RewriteBuilder {
         // 2. Build LocalNodeId → NodeId mapping
         let id_map = Self::build_id_map(patch, &rewritten);
 
+        // Build the set of original NodeIds to distinguish external references
+        // from local references during remapping.
+        let original_ids: BTreeSet<NodeId> =
+            rewritten.arena.nodes().keys().copied().collect();
+
         // 3. Rewrite LocalNodeId references inside the detached arena to NodeId references
-        let rewritten_nodes = Self::rewrite_local_refs(patch, &id_map)?;
+        let rewritten_nodes =
+            Self::rewrite_local_refs(patch, &id_map, &original_ids)?;
 
         // 4. Import the rewritten nodes into the cloned function
         for (local_id, mut node) in rewritten_nodes {
@@ -78,8 +84,14 @@ impl RewriteBuilder {
             .copied()
             .collect();
 
-        // Remove obsolete nodes
+        // Remove obsolete nodes (skip function parameters — they must remain
+        // in the arena to satisfy sir_verify's parameter index check)
         for node_id in &obsolete {
+            if let Some(node) = rewritten.arena.get(*node_id) {
+                if matches!(node.kind, NodeKind::Parameter { .. }) {
+                    continue;
+                }
+            }
             rewritten.arena.remove(*node_id);
         }
 
@@ -113,6 +125,7 @@ impl RewriteBuilder {
     fn rewrite_local_refs(
         patch: &ReplacementPatch,
         id_map: &BTreeMap<LocalNodeId, NodeId>,
+        original_ids: &BTreeSet<NodeId>,
     ) -> Result<Vec<(LocalNodeId, Node)>, RewriteError> {
         let mut result = Vec::new();
 
@@ -120,7 +133,8 @@ impl RewriteBuilder {
             let mut new_node = node.clone();
 
             // Rewrite all NodeId operands in the NodeKind
-            new_node.kind = Self::rewrite_kind_refs(&node.kind, id_map)?;
+            new_node.kind =
+                Self::rewrite_kind_refs(&node.kind, id_map, original_ids)?;
 
             result.push((local_id, new_node));
         }
@@ -135,8 +149,15 @@ impl RewriteBuilder {
     fn rewrite_kind_refs(
         kind: &NodeKind,
         id_map: &BTreeMap<LocalNodeId, NodeId>,
+        original_ids: &BTreeSet<NodeId>,
     ) -> Result<NodeKind, RewriteError> {
         let resolve = |node_id: &NodeId| -> Result<NodeId, RewriteError> {
+            // NodeIds that exist in the original function are external references
+            // (e.g., the board parameter). They must be preserved as-is and NOT
+            // remapped through the id_map, which only contains local nodes.
+            if original_ids.contains(node_id) {
+                return Ok(*node_id);
+            }
             let local = LocalNodeId::new(node_id.as_u64());
             id_map.get(&local).copied().ok_or_else(|| {
                 RewriteError::InternalInvariantViolation(format!(
@@ -311,10 +332,6 @@ impl RewriteBuilder {
             }
         }
 
-        // Also update the return_node reference
-        if function.return_node == Some(old_id) {
-            function.return_node = Some(new_id);
-        }
     }
 
     /// Replace all occurrences of `old_id` with `new_id` in a NodeKind.
