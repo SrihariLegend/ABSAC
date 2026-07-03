@@ -19,3 +19,11 @@ path = "tests/engine.rs"
 [[test]]
 name = "bitset_evidence"
 path = "tests/bitset_evidence.rs"
+
+[[test]]
+name = "negative"
+path = "tests/negative.rs"
+
+[[test]]
+name = "ambiguity"
+path = "tests/ambiguity.rs"
