@@ -18,10 +18,10 @@ Research focus (v0.1):
 
 - Boolean collections
 - Bitsets
-- Cardinality reduction
-- Popcount-based transformations
+- Reduction operators: cardinality (`+`), disjunction (`||`), conjunction (`&&`), exclusive (`^`)
+- Popcount-based transformations (fully implemented for BS001)
 
-Future work expands to additional transformation families.
+Additional transformation families (disjunctive, conjunctive, exclusive) are semantically recognized but await verification and rewrite recipes.
 
 ## Knowledge Pipeline
 
@@ -45,8 +45,14 @@ Transformation Contexts  "What would have to be true to transform it?"
       v  sir_generation
 Candidate Plans          "What implementations are possible?"
       |
-      v  sir_verification / sir_rewrite
-Verified Transformations
+      v  sir_verification
+Equivalence Proofs       "Is the rewrite mathematically correct?"
+      |
+      v  sir_selection
+Cost Scores              "Which proven rewrite should we apply?"
+      |
+      v  sir_rewrite
+Verified Mutations       "Execute the selected winner."
 ```
 
 Each layer consumes only the knowledge of the immediately preceding layer. No layer reads upward or across.
@@ -74,17 +80,26 @@ A traditional syntax-directed optimizer primarily sees: loop, load, branch, add.
 | 2 | SAF — 9 compiler analyses (Facts) | Complete |
 | 3 | SRI — semantic reasoning + representation inference (Truths + Beliefs) | Complete |
 | 4 | CGE — transformation planning (Contexts + Plans) | Complete |
-| 5 | Equivalence verification (Proofs) | Scaffolding |
-| 6 | Verified rewriting (Mutations) | BS001 |
-| 7 | Cost model (Selection) | Planned |
-| 8 | End-to-end optimizer | Planned |
+| 5 | Equivalence verification (Proofs) | Complete |
+| 6 | Verified rewriting (Mutations) | Complete |
+| 7 | Cost model + Selection | Complete |
+| 8 | End-to-end optimizer | In progress |
+
+### Benchmark Coverage
+
+| Benchmark | Pattern | Operator | Concept | Rewrite |
+|-----------|---------|----------|---------|---------|
+| BS001 | `count += board[i]` | `+` | CardinalityReduction | Popcount (complete) |
+| BS002 | `found \|\|= board[i]` | `\|\|` | DisjunctiveReduction | Recognized, awaiting recipe |
+| BS003 | `all &&= board[i]` | `&&` | ConjunctiveReduction | Recognized, awaiting recipe |
+| BS004 | `parity ^= board[i]` | `!=` | ExclusiveReduction | Recognized, awaiting recipe |
 
 ## Quick Start
 
 ```bash
 cd sir
 cargo build
-cargo test          # 365 tests, all passing
+cargo test          # 380+ tests, all passing
 ```
 
 **Requirements:** Rust 2021 edition (stable).
@@ -96,23 +111,24 @@ ABSAC/
 ├── README.md
 ├── CLAUDE.md                   # Project instructions
 ├── sir/                        # Semantic IR — the active component
-│   ├── Cargo.toml              # Workspace manifest (13 crates)
+│   ├── Cargo.toml              # Workspace manifest (14 crates)
 │   ├── README.md               # SIR-specific documentation
 │   ├── crates/
-│   │   ├── sir_types/          # Type system, NodeId, Effects, Span
+│   │   ├── sir_types/          # Type system, NodeId, Effects, CostProfile
 │   │   ├── sir_nodes/          # NodeKind (40+ variants), NodeArena, Function
 │   │   ├── sir_builder/        # Type-safe construction API
 │   │   ├── sir_printer/        # Text + JSON serialization
 │   │   ├── sir_verify/         # Graph invariant verification (7 checks)
 │   │   ├── sir_analysis/       # 9 compiler analyses
-│   │   ├── sir_semantics/      # Semantic truth + structural recognition
+│   │   ├── sir_semantics/      # Semantic truth + structural recognition (7 recognizers)
 │   │   ├── sir_inference/      # Representation belief inference
 │   │   ├── sir_transform/      # Transformation contract
 │   │   ├── sir_generation/     # Candidate plan generation (4 strategies)
-│   │   ├── sir_verification/   # Proof obligation registry
-│   │   ├── sir_rewrite/        # Rewrite engine (subgraph patching)
+│   │   ├── sir_verification/   # Proof engine (symbolic + exhaustive backends)
+│   │   ├── sir_selection/      # Cost model + deterministic selector
+│   │   ├── sir_rewrite/        # Verified rewrite engine (subgraph patching)
 │   │   └── sir_tests/          # Integration tests
-│   └── docs/                   # Design documents (12 specs)
+│   └── docs/                   # Design documents (13 specs)
 ├── phase0.xml                  # External project data
 └── phase1.xml                  # External project data
 ```
@@ -122,27 +138,35 @@ ABSAC/
 ### Crate dependency graph (layered, no cycles)
 
 ```
-sir_types          — foundational (no internal deps)
-  |
-sir_nodes           — depends on sir_types
-  |
-sir_builder         — depends on sir_nodes, sir_types
-sir_printer         — depends on sir_nodes, sir_types
-sir_verify          — depends on sir_nodes, sir_types
-sir_analysis        — depends on sir_nodes, sir_types (read-only)
-  |
-sir_semantics       — depends on sir_analysis
-  |
-sir_transform       — depends on sir_semantics
-  |
-sir_inference       — depends on sir_semantics, sir_transform
-  |
-sir_generation      — depends on sir_transform
-  |
-sir_verification    — depends on sir_transform
-sir_rewrite         — depends on sir_transform
-  |
-sir_tests           — depends on all of the above
+sir_types                 — foundational (no internal deps)
+  │
+  ├── sir_transform       — depends on sir_types
+  │
+  └── sir_nodes           — depends on sir_types
+        │
+        ├── sir_builder   — depends on sir_nodes, sir_types
+        ├── sir_printer   — depends on sir_nodes, sir_types
+        ├── sir_verify    — depends on sir_nodes, sir_types
+        │
+        ├── sir_analysis  — depends on sir_nodes, sir_types (read-only)
+        │     │
+        │     ▼
+        ├── sir_semantics — depends on sir_types, sir_nodes, sir_analysis, sir_transform
+        │     │
+        │     ├── sir_inference  — depends on sir_types, sir_semantics, sir_transform
+        │     │
+        │     └── sir_generation — depends on sir_types, sir_transform, sir_semantics
+        │           │
+        │           ├── sir_verification — depends on sir_types, sir_transform, sir_generation
+        │           │     │
+        │           │     ├── sir_selection — depends on sir_types, sir_generation, sir_verification
+        │           │     │     │
+        │           │     │     ▼
+        │           │     └── sir_rewrite — depends on sir_types, sir_nodes, sir_transform,
+        │           │                        sir_generation, sir_verification, sir_verify,
+        │           │                        sir_semantics
+        │
+        └── sir_tests     — integration tests (depends on all of the above)
 ```
 
 ## Design Philosophy
