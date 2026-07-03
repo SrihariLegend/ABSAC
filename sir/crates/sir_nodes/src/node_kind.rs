@@ -61,6 +61,8 @@ pub enum NodeKind {
     LeadingZeros { operand: NodeId },
     /// Count trailing zero bits: `operand.trailing_zeros()`.
     TrailingZeros { operand: NodeId },
+
+    // ── Data conversion ─────────────────────────────────────
     /// Pack a boolean array into a bitvector.
     /// Maps `bool[n]` to `bv<n>` where bit i = array[i].
     Pack { array: NodeId },
@@ -239,10 +241,10 @@ impl NodeKind {
             | NodeKind::Popcount { operand }
             | NodeKind::LeadingZeros { operand }
             | NodeKind::TrailingZeros { operand }
-            | NodeKind::Pack { array: operand }
             | NodeKind::BoolNot { operand }
             | NodeKind::Load { ptr: operand }
             | NodeKind::Deallocate { ptr: operand } => vec![*operand],
+            NodeKind::Pack { array } => vec![*array],
             NodeKind::Select {
                 cond,
                 true_val,
