@@ -169,7 +169,7 @@ fn bs001_board_scan_infers_bitset_with_strong_support() {
     semantics.derive(&func, analysis.database());
 
     let mut inference = InferenceEngine::new();
-    inference.infer(semantics.database());
+    inference.infer(semantics.database(), semantics.structural_database());
 
     let db = inference.database();
     let mut found = false;
@@ -213,7 +213,7 @@ fn bs001_explanation_accounts_for_support() {
     semantics.derive(&func, analysis.database());
 
     let mut inference = InferenceEngine::new();
-    inference.infer(semantics.database());
+    inference.infer(semantics.database(), semantics.structural_database());
 
     let mut found_explanation = false;
 

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use sir_types::RegionId;
@@ -74,5 +74,33 @@ impl TransformationContext {
         // ReadOnly + (Write observed) would be contradictory,
         // but we only track positive constraints.
         Ok(())
+    }
+}
+
+/// Stores transformation contexts produced during inference.
+#[derive(Clone, Debug, Default)]
+pub struct TransformationContextDatabase {
+    contexts: HashMap<RegionId, Vec<TransformationContext>>,
+    next_context_id: u64,
+}
+
+impl TransformationContextDatabase {
+    pub fn new() -> Self {
+        Self { contexts: HashMap::new(), next_context_id: 0 }
+    }
+
+    pub fn insert(&mut self, region: RegionId, ctx: TransformationContext) -> ContextId {
+        let cid = ContextId::new(self.next_context_id);
+        self.next_context_id += 1;
+        self.contexts.entry(region).or_default().push(ctx);
+        cid
+    }
+
+    pub fn contexts(&self) -> impl Iterator<Item = (RegionId, &[TransformationContext])> {
+        self.contexts.iter().map(|(&rid, v)| (rid, v.as_slice()))
+    }
+
+    pub fn for_region(&self, region: RegionId) -> &[TransformationContext] {
+        self.contexts.get(&region).map(|v| v.as_slice()).unwrap_or(&[])
     }
 }
