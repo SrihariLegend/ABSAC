@@ -36,6 +36,7 @@ The downstream translation, verification, and transformation execution layers ar
 |-------|--------|-------------------------------------|
 | `sir_generation` | In Development / Frozen Interface | New generator strategies, refining candidate generation |
 | `sir_verification` | In Development | Equivalence proof engine (exhaustive and symbolic backends) |
+| `sir_selection` | Complete | Cost model, deterministic selector — frozen |
 | `sir_rewrite` | In Development | AST/graph rewrite machinery, verified mutations and patch generation |
 
 ### Implemented Capabilities
@@ -46,9 +47,9 @@ The downstream translation, verification, and transformation execution layers ar
 | 2 | SAF — 9 compiler analyses (Facts) | Complete |
 | 3 | SRI — semantic reasoning + representation inference (Truths + Beliefs) | Complete |
 | 4 | CGE — transformation planning (Contexts + Plans) | Complete |
-| 5 | Equivalence verification (Proofs) | In progress (`sir_verification`) |
-| 6 | Verified rewriting (Mutations) | In progress (`sir_rewrite`) |
-| 7 | Cost model (Selection) | Not started |
+| 5 | Equivalence verification (Proofs) | Complete (`sir_verification`) |
+| 6 | Verified rewriting (Mutations) | Complete (`sir_rewrite`) |
+| 7 | Cost model + Selection | Complete (`sir_selection`) |
 | 8 | End-to-end optimizer | Not started |
 
 ### Knowledge Pipeline
@@ -70,11 +71,17 @@ Structural Descriptions  "How is the data organized?"
 Representation Beliefs   "Which representation best explains it?"
 Transformation Contexts  "What would have to be true to transform it?"
       │
-      ▼  sir_generation [Active Development]
+      ▼  sir_generation
 Candidate Plans          "What implementations are possible?"
       │
-      ▼  sir_verification / sir_rewrite [Active Development]
-Verification → Rewrite → Cost → Selection
+      ▼  sir_verification
+Equivalence Proofs       "Is the rewrite mathematically correct?"
+      │
+      ▼  sir_selection
+Cost Scores              "Which proven rewrite should we apply?"
+      │
+      ▼  sir_rewrite
+Verified Mutations       "Execute the selected winner."
 ```
 
 Each layer consumes only the knowledge of the immediately preceding layer. No layer reads upward or across. No layer below `sir_semantics` inspects SIR directly.
@@ -120,8 +127,10 @@ sir_types                 — no internal deps (foundational)
         │           │
         │           ├─► sir_verification — depends on sir_types, sir_transform, sir_generation
         │           │     │
-        │           │     ▼
-        │           └────► sir_rewrite — depends on sir_types, sir_nodes, sir_transform, sir_generation, sir_verification, sir_verify, sir_semantics
+        │           │     ├─► sir_selection — depends on sir_types, sir_generation, sir_verification
+        │           │     │     │
+        │           │     │     ▼
+        │           │     └────► sir_rewrite — depends on sir_types, sir_nodes, sir_transform, sir_generation, sir_verification, sir_verify, sir_semantics
         │
         └─► sir_tests     — depends on sir_types, sir_nodes, sir_builder, sir_printer, sir_verify (integration tests only)
 ```

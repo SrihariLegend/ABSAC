@@ -11,6 +11,7 @@ pub mod metadata;
 pub mod constant;
 pub mod region_id;
 pub mod region_map;
+pub mod cost_profile;
 
 pub use node_id::*;
 pub use types::*;
@@ -20,3 +21,4 @@ pub use metadata::*;
 pub use constant::*;
 pub use region_id::*;
 pub use region_map::RegionMap;
+pub use cost_profile::*;

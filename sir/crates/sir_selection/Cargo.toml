@@ -1,0 +1,14 @@
+[package]
+name = "sir_selection"
+version = "0.1.0"
+edition = "2021"
+authors = ["Srihari <srihari@example.com>"]
+description = "Cost modeling and verified rewrite selection for Semantic IR"
+
+[dependencies]
+sir_types = { path = "../sir_types" }
+sir_generation = { path = "../sir_generation" }
+sir_verification = { path = "../sir_verification" }
+
+[dev-dependencies]
+sir_transform = { path = "../sir_transform" }
