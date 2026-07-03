@@ -65,11 +65,10 @@ impl VariableSpec {
     fn state_count(&self) -> Option<u64> {
         match &self.kind {
             VariableKind::BooleanArray { length } => {
-                let len = *length as u32;
-                if len >= 64 {
+                if *length >= 64 {
                     None // 2^64 or larger overflows u64
                 } else {
-                    Some(1u64 << len)
+                    Some(1u64 << *length)
                 }
             }
         }

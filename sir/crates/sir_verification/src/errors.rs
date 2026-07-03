@@ -70,6 +70,11 @@ pub enum InterpreterError {
         max: usize,
         found: usize,
     },
+    /// A ConstantData string could not be parsed to its expected type.
+    MalformedConstant {
+        value: String,
+        reason: &'static str,
+    },
 }
 
 #[cfg(test)]

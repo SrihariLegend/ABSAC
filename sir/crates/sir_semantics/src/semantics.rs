@@ -280,12 +280,11 @@ impl SemanticEngine {
             if target != RegionId::new(0) {
                 self.structural_db.rekey_region(RegionId::new(0), target);
             }
-        } else if survivor_ids.len() > 1 {
-            eprintln!(
-                "warning: multiple surviving regions after merge ({}); structural descriptions use \
-                 placeholder IDs and cannot be unambiguously rekeyed. This is a v0.1 limitation.",
-                survivor_ids.len()
-            );
+        } else {
+            // Multiple surviving regions after merge: structural descriptions use
+            // placeholder RegionId(0) and cannot be unambiguously rekeyed.
+            // This is a v0.1 limitation — structural rekeying requires exactly
+            // one survivor region.
         }
     }
 }

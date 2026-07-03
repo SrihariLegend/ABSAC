@@ -117,12 +117,11 @@ impl RewriteEngine {
                 "no recipe for definition {}", candidate.definition_id
             )))?;
 
-        // In v0.1, Proof doesn't carry definition_id directly.
         // We verify that the recipe matches the candidate's definition.
+        // Proof does not carry DefinitionId in v0.1; add a third field when it does.
         if candidate.definition_id != recipe_id {
             return Err(RewriteError::DefinitionMismatch {
                 candidate: candidate.definition_id,
-                proof: candidate.definition_id, // placeholder — Proof doesn't carry DefinitionId yet
                 recipe: recipe_id,
             });
         }
