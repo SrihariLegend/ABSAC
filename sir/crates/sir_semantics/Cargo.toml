@@ -10,6 +10,10 @@ sir_types = { path = "../sir_types" }
 sir_nodes = { path = "../sir_nodes" }
 sir_analysis = { path = "../sir_analysis" }
 
+[dev-dependencies]
+sir_builder = { path = "../sir_builder" }
+sir_inference = { path = "../sir_inference" }
+
 [[test]]
 name = "semantic_database"
 path = "tests/semantic_database.rs"
@@ -17,3 +21,7 @@ path = "tests/semantic_database.rs"
 [[test]]
 name = "recognizers"
 path = "tests/recognizers.rs"
+
+[[test]]
+name = "semantic_truth"
+path = "tests/semantic_truth.rs"
