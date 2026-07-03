@@ -14,7 +14,7 @@ use crate::semantic::value::{Environment, Value};
 ///
 /// No SIR references — portable across backends.
 /// Everything needed to verify equivalence is encoded here.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProofObligation {
     pub id: ObligationId,
     pub region: RegionId,
@@ -26,7 +26,7 @@ pub struct ProofObligation {
 }
 
 /// Describes the input space for exhaustive enumeration.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FiniteDomain {
     pub variables: Vec<VariableSpec>,
 }
@@ -55,7 +55,7 @@ impl FiniteDomain {
 }
 
 /// Specification for a single variable in the domain.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VariableSpec {
     pub id: VariableId,
     pub kind: VariableKind,
@@ -77,13 +77,14 @@ impl VariableSpec {
 }
 
 /// The kind of a domain variable.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VariableKind {
     /// A fixed-size array of booleans. Induces 2^length possible states.
     BooleanArray { length: usize },
 }
 
 /// Iterates over all input combinations in a deterministic order.
+#[derive(Clone, Debug)]
 pub struct DomainIterator {
     domain: FiniteDomain,
     index: u64,
@@ -146,7 +147,7 @@ impl DomainIterator {
 /// Stores proof obligations with indexed lookup.
 ///
 /// Follows the pattern established by CandidateDatabase, FactDatabase, etc.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProofObligationDatabase {
     obligations: Vec<ProofObligation>,
     by_region: HashMap<RegionId, Vec<usize>>,

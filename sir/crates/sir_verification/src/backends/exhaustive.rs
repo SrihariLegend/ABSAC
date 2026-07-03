@@ -22,6 +22,7 @@ use crate::{Proof, ProofStep, VerificationBackend, VerificationLimits, Verificat
 /// Serves double duty:
 /// - Fallback for finite domains the symbolic verifier cannot handle
 /// - Reference oracle — validates the symbolic engine against concrete execution
+#[derive(Clone, Debug)]
 pub struct ExhaustiveVerifier {
     limits: VerificationLimits,
 }

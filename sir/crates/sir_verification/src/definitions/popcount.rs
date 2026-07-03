@@ -17,6 +17,7 @@ use crate::semantic::theorem::Theorem;
 ///   Count(Filter(BooleanArray(v), True)) ≡ Popcount(Pack(BooleanArray(v)))
 ///
 /// Under assumptions: EquivalentCardinality, PreservesIterationOrder, PreservesLayout.
+#[derive(Clone, Debug)]
 pub struct PopcountDefinition {
     id: DefinitionId,
 }

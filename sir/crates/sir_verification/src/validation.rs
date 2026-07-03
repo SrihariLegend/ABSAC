@@ -13,6 +13,7 @@ use crate::obligation::ProofObligation;
 ///
 /// Assumptions are admissibility conditions, not proofs.
 /// This stage runs before backend verification.
+#[derive(Clone, Debug)]
 pub struct AssumptionValidator;
 
 impl AssumptionValidator {

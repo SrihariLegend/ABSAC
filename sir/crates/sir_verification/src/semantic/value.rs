@@ -7,6 +7,8 @@
 use std::collections::BTreeMap;
 use sir_transform::ids::VariableId;
 
+use crate::errors::InterpreterError;
+
 /// The result type of the operational semantics (interpreter).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Value {
@@ -61,26 +63,27 @@ impl BitVectorValue {
 /// This is the canonical bit-ordering. Any change to this specification
 /// would invalidate all proofs that involve `Pack` or `Popcount`.
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics if the input length exceeds 128 (u128 capacity).
-pub fn pack_bits(bits: &[bool]) -> BitVectorValue {
+/// Returns `InterpreterError::InputTooLarge` if the input length exceeds 128
+/// (u128 capacity).
+pub fn pack_bits(bits: &[bool]) -> Result<BitVectorValue, InterpreterError> {
     let mut packed: u128 = 0;
     for (i, &bit) in bits.iter().enumerate() {
         if i >= 128 {
-            panic!(
-                "pack_bits: input length {} exceeds u128 capacity",
-                bits.len()
-            );
+            return Err(InterpreterError::InputTooLarge {
+                max: 128,
+                found: bits.len(),
+            });
         }
         if bit {
             packed |= 1u128 << i;
         }
     }
-    BitVectorValue {
+    Ok(BitVectorValue {
         bits: packed,
         width: bits.len(),
-    }
+    })
 }
 
 /// Maps variables to their concrete values for a single test case.
@@ -125,21 +128,21 @@ mod tests {
 
     #[test]
     fn pack_bits_empty_array() {
-        let result = pack_bits(&[]);
+        let result = pack_bits(&[]).unwrap();
         assert_eq!(result.bits, 0);
         assert_eq!(result.width, 0);
     }
 
     #[test]
     fn pack_bits_all_false() {
-        let result = pack_bits(&[false, false, false, false]);
+        let result = pack_bits(&[false, false, false, false]).unwrap();
         assert_eq!(result.bits, 0);
         assert_eq!(result.width, 4);
     }
 
     #[test]
     fn pack_bits_all_true() {
-        let result = pack_bits(&[true, true, true, true]);
+        let result = pack_bits(&[true, true, true, true]).unwrap();
         assert_eq!(result.bits, 0b1111);
         assert_eq!(result.width, 4);
     }
@@ -147,7 +150,7 @@ mod tests {
     #[test]
     fn pack_bits_bit_ordering() {
         // bit 0 = element 0
-        let result = pack_bits(&[true, false, true, false]);
+        let result = pack_bits(&[true, false, true, false]).unwrap();
         assert_eq!(result.bits, 0b0101); // bits: 0=1, 1=0, 2=1, 3=0
         assert_eq!(result.width, 4);
     }
@@ -158,9 +161,19 @@ mod tests {
         let mut input = vec![false; 64];
         input[0] = true;
         input[63] = true;
-        let result = pack_bits(&input);
+        let result = pack_bits(&input).unwrap();
         assert_eq!(result.bits, 1 | (1u128 << 63));
         assert_eq!(result.width, 64);
+    }
+
+    #[test]
+    fn pack_bits_too_large_returns_error() {
+        let input = vec![false; 200];
+        let result = pack_bits(&input);
+        assert!(matches!(
+            result,
+            Err(InterpreterError::InputTooLarge { max: 128, found: 200 })
+        ));
     }
 
     #[test]
