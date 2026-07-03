@@ -40,17 +40,16 @@ impl SubgraphBuilder {
         &mut self,
         kind: NodeKind,
         ty: Type,
-        effects: Effects,
         _span: Span,
     ) -> LocalNodeId {
         let local_id = self.next_id();
+        let effects = Self::compute_effects(&kind);
         // The Node's internal `id` field is a placeholder — LocalNodeId is authoritative.
         let node = Node::new(sir_types::NodeId::new(local_id.as_u64()), kind, ty, effects, _span);
         self.arena.insert(local_id, node);
         local_id
     }
 
-    #[allow(dead_code)]
     fn compute_effects(kind: &NodeKind) -> Effects {
         match kind {
             NodeKind::Load { .. } => Effects::READ_MEMORY,
@@ -93,49 +92,55 @@ impl SubgraphBuilder {
 
     /// Create a constant node.
     pub fn constant(&mut self, data: ConstantData, ty: Type, span: Span) -> LocalNodeId {
-        self.alloc_node(NodeKind::Constant(data), ty, Effects::empty(), span)
+        self.alloc_node(NodeKind::Constant(data), ty, span)
     }
 
     // ── Arithmetic (binary) ─────────────────────────────────────
 
     pub fn add(&mut self, lhs: LocalNodeId, rhs: LocalNodeId, span: Span) -> LocalNodeId {
         let ty = self.get_type(lhs).unwrap_or(Type::i32());
-        self.alloc_node(NodeKind::Add { lhs: NodeId::new(lhs.as_u64()), rhs: NodeId::new(rhs.as_u64()) }, ty, Effects::empty(), span)
+        self.alloc_node(NodeKind::Add { lhs: NodeId::new(lhs.as_u64()), rhs: NodeId::new(rhs.as_u64()) }, ty, span)
     }
 
     pub fn sub(&mut self, lhs: LocalNodeId, rhs: LocalNodeId, span: Span) -> LocalNodeId {
         let ty = self.get_type(lhs).unwrap_or(Type::i32());
-        self.alloc_node(NodeKind::Sub { lhs: NodeId::new(lhs.as_u64()), rhs: NodeId::new(rhs.as_u64()) }, ty, Effects::empty(), span)
+        self.alloc_node(NodeKind::Sub { lhs: NodeId::new(lhs.as_u64()), rhs: NodeId::new(rhs.as_u64()) }, ty, span)
     }
 
     pub fn mul(&mut self, lhs: LocalNodeId, rhs: LocalNodeId, span: Span) -> LocalNodeId {
         let ty = self.get_type(lhs).unwrap_or(Type::i32());
-        self.alloc_node(NodeKind::Mul { lhs: NodeId::new(lhs.as_u64()), rhs: NodeId::new(rhs.as_u64()) }, ty, Effects::empty(), span)
+        self.alloc_node(NodeKind::Mul { lhs: NodeId::new(lhs.as_u64()), rhs: NodeId::new(rhs.as_u64()) }, ty, span)
     }
 
     // ── Bitwise (unary) ─────────────────────────────────────────
 
     pub fn bit_not(&mut self, operand: LocalNodeId, span: Span) -> LocalNodeId {
         let ty = self.get_type(operand).unwrap_or(Type::i32());
-        self.alloc_node(NodeKind::Not { operand: NodeId::new(operand.as_u64()) }, ty, Effects::empty(), span)
+        self.alloc_node(NodeKind::Not { operand: NodeId::new(operand.as_u64()) }, ty, span)
     }
 
     pub fn popcount(&mut self, operand: LocalNodeId, span: Span) -> LocalNodeId {
         let ty = self.get_type(operand).unwrap_or(Type::i32());
-        self.alloc_node(NodeKind::Popcount { operand: NodeId::new(operand.as_u64()) }, ty, Effects::empty(), span)
+        self.alloc_node(NodeKind::Popcount { operand: NodeId::new(operand.as_u64()) }, ty, span)
     }
 
     // ── Pack ────────────────────────────────────────────────────
 
     pub fn pack(&mut self, array: LocalNodeId, span: Span) -> LocalNodeId {
         let width = match self.get_type(array) {
-            Some(Type::Array { length, .. }) => length,
-            _ => 64, // default for BS001
+            Some(Type::Array { element, length }) if *element == Type::Bool => length,
+            Some(Type::Slice { element }) if *element == Type::Bool => 0,
+            Some(other) => {
+                // In v0.1, non-array operands are caught at verification time.
+                // debug_assert! catches recipe bugs during development.
+                debug_assert!(false, "pack() operand must be Array(Bool) or Slice(Bool), got {:?}", other);
+                64 // fallback for non-debug builds
+            }
+            None => 64, // operand not in arena (external reference or test)
         };
         self.alloc_node(
             NodeKind::Pack { array: NodeId::new(array.as_u64()) },
             Type::BitVector { width },
-            Effects::empty(),
             span,
         )
     }
@@ -157,7 +162,6 @@ impl SubgraphBuilder {
                 false_val: NodeId::new(false_val.as_u64()),
             },
             ty,
-            Effects::empty(),
             span,
         )
     }
@@ -168,7 +172,6 @@ impl SubgraphBuilder {
         self.alloc_node(
             NodeKind::Return { value: NodeId::new(value.as_u64()) },
             Type::Unit,
-            Effects::empty(),
             span,
         )
     }
@@ -203,9 +206,14 @@ mod tests {
     #[test]
     fn popcount_of_bitvector() {
         let mut b = SubgraphBuilder::new();
-        let bv = LocalNodeId::new(0);
-        // We can't type-check without arena lookup, but construction succeeds
+        // Create a constant in the arena first, then popcount it
+        let bv = b.constant(ConstantData::u64(0xFFFF), Type::BitVector { width: 64 }, Span::unknown());
         let pop = b.popcount(bv, Span::unknown());
-        assert_eq!(pop.as_u64(), 0); // first allocated node
+        // Verify we got a node
+        let arena = &b.finish(vec![]).arena;
+        assert!(arena.contains(pop));
+        // Popcount of 0xFFFF (16 ones) should be 16 — but we just check structure here
+        let pop_node = arena.get(pop).unwrap();
+        assert_eq!(pop_node.ty, Type::BitVector { width: 64 }); // popcount returns same type as operand
     }
 }

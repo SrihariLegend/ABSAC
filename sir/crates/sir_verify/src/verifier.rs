@@ -324,10 +324,39 @@ impl<'a> Verifier<'a> {
                     }
                 }
 
-                // Pack: operand must be Array(Bool) or Slice(Bool).
+                // Pack: operand must be Array(Bool) or Slice(Bool);
+                // output type must be BitVector with width matching the array length.
                 NodeKind::Pack { array } => {
                     if let Some(ty) = self.node_type(*array) {
                         match &ty {
+                            Type::Array {
+                                element,
+                                length,
+                            } if **element == Type::Bool => {
+                                // Verify output type is BitVector with matching width.
+                                match &node.ty {
+                                    Type::BitVector { width }
+                                        if *width == *length => {}
+                                    Type::BitVector { .. } => {
+                                        self.errors.push(VerificationError::TypeMismatch {
+                                            node: node.id,
+                                            kind: node.kind.clone(),
+                                            input_index: 0,
+                                            expected: Type::BitVector { width: *length },
+                                            actual: node.ty.clone(),
+                                        });
+                                    }
+                                    other => {
+                                        self.errors.push(VerificationError::TypeMismatch {
+                                            node: node.id,
+                                            kind: node.kind.clone(),
+                                            input_index: 0,
+                                            expected: Type::BitVector { width: *length },
+                                            actual: other.clone(),
+                                        });
+                                    }
+                                }
+                            }
                             Type::Array { element, .. } | Type::Slice { element } => {
                                 if **element != Type::Bool {
                                     self.errors.push(VerificationError::TypeMismatch {
