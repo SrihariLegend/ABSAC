@@ -94,10 +94,19 @@ impl SemanticEngine {
     /// Recognized concepts are grouped into regions and stored in the
     /// `SemanticDatabase`.
     pub fn derive(&mut self, func: &Function, analysis: &FactDatabase) {
-        // Recognizers are called in Tasks 4a-4d.
-        // For now, this is a no-op -- the engine compiles but derives nothing.
-        let _ = func;
-        let _ = analysis;
+        use crate::recognizers::boolean_collection;
+
+        let recognitions = boolean_collection::recognize_boolean_collection(func, analysis);
+
+        for (_concept, explanation, node_ids) in recognitions {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation);
+            self.db.add_region(region);
+        }
     }
 }
 
