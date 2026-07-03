@@ -3,7 +3,7 @@
 //! Generates candidate transformation plans from transformation contexts.
 //! Pure — no SIR access, no ranking, no verification.
 
-use sir_semantics::region::RegionId;
+use sir_types::RegionId;
 use sir_transform::context::TransformationContextDatabase;
 use sir_types::RegionMap;
 

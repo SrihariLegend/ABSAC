@@ -14,3 +14,7 @@ pub mod evidence;
 pub mod hypothesis;
 pub mod engine;
 pub mod sources;
+
+pub mod concepts {
+    pub use sir_semantics::concepts::SemanticConcept;
+}

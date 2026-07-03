@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use sir_generation::generators;
-use sir_semantics::region::RegionId;
+use sir_types::RegionId;
 use sir_transform::assumptions::Assumption;
 use sir_transform::constraints::Constraint;
 use sir_transform::context::TransformationContext;

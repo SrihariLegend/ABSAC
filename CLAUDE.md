@@ -10,18 +10,27 @@ The active component is **SIR** (Semantic IR), located in `sir/`. SIR is a typed
 
 ### Architecture Freeze (2026-07-03)
 
-The reasoning substrate is frozen. The following crates are considered **architecturally stable** — no redesigns, no interface changes beyond extension:
+The reasoning substrate and core IR layers are frozen. The following crates are considered **architecturally stable** — no redesigns, no interface changes beyond extension (such as supporting IR evolution):
 
 | Crate | Status | Allowed changes |
 |-------|--------|-----------------|
 | `sir_types` | Frozen | New types, new `RegionMap` usage |
-| `sir_nodes` | Frozen | — |
+| `sir_nodes` | Frozen | New NodeKind variants (such as `Pack`) |
 | `sir_analysis` | Frozen | New analyses (new fact types in FactDatabase) |
 | `sir_semantics` | Frozen | New semantic/structural recognizers |
 | `sir_inference` | Frozen | New evidence sources |
 | `sir_transform` | Frozen | New enum variants (Representation, SourceStructure, Constraint, Assumption) |
-| `sir_generation` | Frozen | New generator strategies |
-| `sir_builder`, `sir_printer`, `sir_verify` | Frozen | — |
+| `sir_builder`, `sir_printer`, `sir_verify` | Frozen | Support for new NodeKind variants |
+
+### Active Development Crates
+
+The downstream translation, verification, and transformation execution layers are in active development:
+
+| Crate | Status | Active Work Areas / Allowed changes |
+|-------|--------|-------------------------------------|
+| `sir_generation` | In Development / Frozen Interface | New generator strategies, refining candidate generation |
+| `sir_verification` | In Development | Equivalence proof engine (exhaustive and symbolic backends) |
+| `sir_rewrite` | In Development | AST/graph rewrite machinery, verified mutations and patch generation |
 
 ### Implemented Capabilities
 
@@ -31,8 +40,8 @@ The reasoning substrate is frozen. The following crates are considered **archite
 | 2 | SAF — 9 compiler analyses (Facts) | Complete |
 | 3 | SRI — semantic reasoning + representation inference (Truths + Beliefs) | Complete |
 | 4 | CGE — transformation planning (Contexts + Plans) | Complete |
-| 5 | Equivalence verification (Proofs) | Not started |
-| 6 | Verified rewriting (Mutations) | Not started |
+| 5 | Equivalence verification (Proofs) | In progress (`sir_verification`) |
+| 6 | Verified rewriting (Mutations) | In progress (`sir_rewrite`) |
 | 7 | Cost model (Selection) | Not started |
 | 8 | End-to-end optimizer | Not started |
 
@@ -55,14 +64,16 @@ Structural Descriptions  "How is the data organized?"
 Representation Beliefs   "Which representation best explains it?"
 Transformation Contexts  "What would have to be true to transform it?"
       │
-      ▼  sir_generation
+      ▼  sir_generation [Active Development]
 Candidate Plans          "What implementations are possible?"
       │
-      ▼  (future)
+      ▼  sir_verification / sir_rewrite [Active Development]
 Verification → Rewrite → Cost → Selection
 ```
 
 Each layer consumes only the knowledge of the immediately preceding layer. No layer reads upward or across. No layer below `sir_semantics` inspects SIR directly.
+
+*Note: The layers `sir_generation` and `sir_rewrite` (and the verification/rewrite phases) are under active development. While the strict feed-forward boundaries of the knowledge pipeline are the architectural target, they are considered aspirational during current prototyping.*
 
 ## Build & Test
 
@@ -70,7 +81,7 @@ All commands run from `sir/`:
 
 ```bash
 cargo build              # build all crates
-cargo test               # run all tests (365 tests, all passing)
+cargo test               # run all tests (350+ tests, all passing)
 cargo test -p <crate>    # run one crate's tests (e.g. sir_verify, sir_builder)
 cargo test <test_name>   # run a single test by name
 ```
@@ -82,16 +93,31 @@ There is no lint config, no CI, and no binary crate — this is a library-only w
 ### Crate dependency graph (layered, no cycles)
 
 ```
-sir_types          — no internal deps (foundational)
-  ↓
-sir_nodes          — depends on sir_types
-  ↓
-sir_builder        — depends on sir_nodes, sir_types
-sir_printer        — depends on sir_nodes, sir_types
-sir_verify         — depends on sir_nodes, sir_types
-sir_analysis       — depends on sir_nodes, sir_types (read-only analysis framework)
-  ↓
-sir_tests          — depends on all of the above (integration tests only)
+sir_types                 — no internal deps (foundational)
+  │
+  ├─► sir_transform       — depends on sir_types
+  │
+  └─► sir_nodes           — depends on sir_types
+        │
+        ├─► sir_builder   — depends on sir_nodes, sir_types
+        ├─► sir_printer   — depends on sir_nodes, sir_types
+        ├─► sir_verify    — depends on sir_nodes, sir_types
+        │
+        ├─► sir_analysis  — depends on sir_nodes, sir_types (read-only analysis framework)
+        │     │
+        │     ▼
+        ├─► sir_semantics — depends on sir_types, sir_nodes, sir_analysis, sir_transform
+        │     │
+        │     ├─► sir_inference  — depends on sir_types, sir_semantics, sir_transform
+        │     │
+        │     └─► sir_generation — depends on sir_types, sir_transform, sir_semantics
+        │           │
+        │           ├─► sir_verification — depends on sir_types, sir_transform, sir_generation
+        │           │     │
+        │           │     ▼
+        │           └────► sir_rewrite — depends on sir_types, sir_nodes, sir_transform, sir_generation, sir_verification, sir_verify, sir_semantics
+        │
+        └─► sir_tests     — depends on sir_types, sir_nodes, sir_builder, sir_printer, sir_verify (integration tests only)
 ```
 
 ### Core data model (`sir_types` + `sir_nodes`)
@@ -141,3 +167,22 @@ A **read-only** analysis layer. Facts are stored in `FactDatabase` (one `HashMap
 - **Branchless selection** — `Select { cond, true_val, false_val }` replaces `if`/`else`. No basic blocks or CFG.
 - **Loop with explicit carried values** — `Loop { body, termination, outputs, carried_inputs }`. No phi nodes. `carried_inputs` feed each iteration; `outputs` are the final values after termination. `carried_inputs.len()` must equal `outputs.len()`.
 - **No control flow** beyond Select, Loop, and Return. No gotos, no branches, no exception handling.
+
+## Subagent Dispatch (Vertex AI Goons)
+
+The `Agent` tool only accepts Claude model aliases. To dispatch non-interactive subagents to Vertex AI models, use `pi --print` via Bash:
+
+```bash
+pi --model google-vertex/<model-id> --print "<prompt>" 2>&1
+```
+
+| Model ID | Role | Use Case |
+|---|---|---|
+| `gemini-3.1-pro-preview` | Heavy lifter | Complex reasoning, design, review |
+| `gemini-3.5-flash` | Fast parallel | Quick analysis, bulk tasks |
+| `gemini-3.1-flash-lite-preview` | Cheap scout | Trivial lookups, git queries, file counts |
+
+- **Always dispatch in background** (`run_in_background: true`) — never block the main loop waiting for a goon. Fire multiple in parallel and the harness notifies when each completes.
+- **Don't wait for results before responding** — acknowledge the dispatch, keep working, and incorporate results when they land.
+- Always use `2>&1` to capture stderr alongside stdout.
+- These are non-interactive — they run and return output, no conversation loop.

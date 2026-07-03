@@ -145,11 +145,9 @@ impl RewriteEngine {
         };
 
         // Find all nodes outside the region that reference these outputs
-        for node in &function.arena {
-            for input_id in node.kind.input_nodes() {
-                if output_nodes.contains(&input_id) {
-                    external.insert(node.id);
-                }
+        for output_node in output_nodes {
+            for user in sir_analysis::graph::users(output_node, &function.arena) {
+                external.insert(user);
             }
         }
 

@@ -1,4 +1,4 @@
-use sir_semantics::concepts::SemanticConcept;
+use sir_inference::concepts::SemanticConcept;
 use sir_transform::context::TransformationContext;
 use sir_transform::ids::DefinitionId;
 use sir_transform::representation::Representation;
