@@ -36,7 +36,7 @@ impl fmt::Display for CostModelReport {
             )?;
         }
         if let Some(winner) = self.scores.first() {
-            if winner.total >= 0 {
+            if winner.total > 0 {
                 write!(f, "  Winner: {}", winner.strategy)?;
             } else {
                 write!(f, "  Winner: None (all rejected)")?;

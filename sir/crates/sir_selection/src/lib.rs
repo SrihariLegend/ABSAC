@@ -220,16 +220,17 @@ mod tests {
         assert_eq!(result.rejected[0], CandidateId::new(1));
     }
 
-    // ── Tier 7: Zero delta → accepted ─────────────────────
+    // ── Tier 7: Zero delta → rejected (no improvement) ────
 
     #[test]
-    fn test_selector_zero_wins() {
+    fn test_selector_zero_rejected() {
         let selector = Selector::new(DefaultCostModel);
         let verified = vec![make_verified_candidate(1, original_cost())];
 
         let result = selector.select(RegionId::new(1), &verified, &original_cost());
-        assert!(result.chosen.is_some());
-        assert_eq!(result.chosen.unwrap().candidate.id, CandidateId::new(1));
+        assert!(result.chosen.is_none());
+        assert_eq!(result.rejected.len(), 1);
+        assert_eq!(result.rejected[0], CandidateId::new(1));
     }
 
     // ── Tier 8: Positive beats zero ───────────────────────

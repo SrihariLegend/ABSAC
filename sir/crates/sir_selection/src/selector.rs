@@ -68,7 +68,7 @@ impl<M: CostModel> Selector<M> {
     ///   CostModel.evaluate(&candidate, original_cost, &candidate.expected_cost)
     ///
     /// Policy:
-    ///   - Filter: total >= 0 (does not degrade performance)
+    ///   - Filter: total > 0 (strict improvement over original)
     ///   - Rank: highest total wins
     ///   - Tie: lowest CandidateId wins (deterministic, stable)
     ///   - Empty input: chosen is None
@@ -119,7 +119,7 @@ impl<M: CostModel> Selector<M> {
         let mut rejected = Vec::new();
 
         if let Some((vc, score)) = scored_candidates.first() {
-            if score.total >= 0 {
+            if score.total > 0 {
                 chosen = Some(SelectedCandidate {
                     candidate: &vc.candidate,
                     proof: &vc.proof,
