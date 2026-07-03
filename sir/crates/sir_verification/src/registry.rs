@@ -1,5 +1,6 @@
 //! TransformationDefinition trait and TransformationRegistry.
 
+use sir_generation::candidate::Candidate;
 use sir_transform::context::TransformationContext;
 use sir_transform::ids::DefinitionId;
 
@@ -53,10 +54,15 @@ impl TransformationRegistry {
             .map(|d| d.as_ref())
     }
 
-    /// Find a definition applicable to the given context.
+    /// Find a definition applicable to the given candidate and context.
+    ///
+    /// Note: `_candidate` is accepted but `candidate.definition_id` is not
+    /// checked yet — the field will be added in a later task and the
+    /// full lookup logic restored then.
     /// Returns the first definition that claims applicability.
     pub fn find_for(
         &self,
+        _candidate: &Candidate,
         context: &TransformationContext,
     ) -> Option<&dyn TransformationDefinition> {
         self.definitions.iter().find_map(|def| {
