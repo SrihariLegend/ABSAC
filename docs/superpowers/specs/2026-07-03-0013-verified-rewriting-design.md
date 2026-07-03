@@ -158,6 +158,9 @@ RewriteRecipe       (builds detached replacement subgraph)
 ReplacementPatch    (closed subgraph, owned by recipe output)
     │
     ▼
+RewritePlan         (immutable: region + patch + proof)
+    │
+    ▼
 RewriteBuilder      (graph surgery: clone, import, reconnect, repair)
     │
     ▼
@@ -277,6 +280,20 @@ pub trait RewriteRecipe {
 
 Recipes consume the builder by value, call `builder.finish(...)` to seal the patch. No cloning, no SSA reconnection, no diff computation, no IR validation.
 
+### RewritePlan
+
+An immutable value aggregating everything `RewriteBuilder` needs. `RewriteBuilder` knows nothing about candidates, proofs, or recipes — it only executes plans.
+
+```rust
+pub struct RewritePlan {
+    pub region: RewriteRegion,
+    pub patch: ReplacementPatch,
+    pub proof: Proof,
+}
+```
+
+The engine constructs the plan from recipe output; the builder consumes the plan. This keeps `RewriteBuilder` completely generic — it performs graph surgery on any valid plan, regardless of which transformation produced it.
+
 ### RewriteBuilder
 
 The graph surgery engine. Owns the persistent transformation.
@@ -289,8 +306,7 @@ impl RewriteBuilder {
     /// Returns a structurally valid rewritten function or an error.
     pub fn apply(
         function: &Function,
-        region: &RewriteRegion,
-        patch: ReplacementPatch,
+        plan: RewritePlan,
     ) -> Result<Function, RewriteError>;
 }
 ```
@@ -305,7 +321,7 @@ Responsibilities:
 - Replace exported values (`old → new`)
 - Omit obsolete region internal nodes from the rewritten graph
 - Preserve spans and metadata on unmodified nodes
-- Preserve dominance (holds by construction: replacements inserted at region entry, all external users are downstream)
+- Preserve dominance: `RewriteBuilder` is responsible for preserving SSA dominance. For BS001 this follows directly from insertion at the region entry point. Future recipes may require additional dominance repair.
 - Preserve SSA validity (each `LocalNodeId` maps to exactly one global `NodeId`)
 - Return the rewritten function
 
@@ -324,10 +340,11 @@ Pipeline:
 4. Compute external_users from the function graph
 5. Assemble RewriteRegion
 6. Invoke recipe → ReplacementPatch
-7. RewriteBuilder::apply() → rewritten Function
-8. Run sir_verify (structural verifier, not the Phase 0012 semantic verifier) on the rewritten function
-9. If verification fails: discard rewritten graph, return RewriteError
-10. Otherwise: compute provenance, compute GraphDiff, return RewriteResult
+7. Assemble RewritePlan { region, patch, proof }
+8. RewriteBuilder::apply(function, plan) → rewritten Function
+9. Run sir_verify (structural verifier, not the Phase 0012 semantic verifier) on the rewritten function
+10. If verification fails: discard rewritten graph, return RewriteError
+11. Otherwise: compute provenance, compute GraphDiff, return RewriteResult
 ```
 
 The transactional nature is explicit: a structurally invalid rewrite is discarded and the original function is retained.
@@ -404,6 +421,8 @@ Proof.definition_id == Recipe.definition()
 ```
 
 Mismatch → `RewriteRejected::DefinitionMismatch`. The rewrite is aborted before any graph is cloned.
+
+`RewriteError` includes a reserved `InternalInvariantViolation` variant for conditions that indicate a compiler bug rather than a user-facing failure. Any code path that reaches this variant represents an implementation error in either a recipe or `RewriteBuilder`.
 
 ## Structural verification
 
@@ -491,6 +510,7 @@ For the canonical BS001 benchmark:
 | Rewrite boundary source | `StructuralRegion` in `sir_semantics` | Structural recognition, not heuristic inference |
 | Builder architecture | Detached arena with `LocalNodeId` | Recipes construct genuine SIR, not an intermediate DSL |
 | Builder API surface | General-purpose, mirrors `sir_builder::Builder` | One canonical way to construct SIR |
+| Recipe → Builder handoff | `RewritePlan` value object | Builder is generic; knows nothing about candidates or recipes |
 | Recipe-specific methods | None — every method is 1:1 with a `NodeKind` | Prevents fragmentation and DSL proliferation |
 | `RegionRoles` | Named enum per recognized pattern | Recognizer records roles once; no downstream rediscovery |
 | `RewriteRegion` | Transient, not persisted | Assembled from `StructuralRegion` + live graph query |
@@ -505,6 +525,7 @@ For the canonical BS001 benchmark:
 | Determinism | Byte-for-byte identical output | Reproducible builds, stable regression tests |
 | `sir_analysis`/`sir_semantics`/`sir_inference` | Absent from dependencies | Rewrite engine never rediscovers anything |
 | Graph canonicalization | Explicitly excluded | Belongs in later optimization passes |
+| Error reserve | `InternalInvariantViolation` variant | "This indicates a compiler bug" — catches impossible states |
 
 ## Invariants
 
