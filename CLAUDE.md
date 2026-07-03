@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Operating Rules
+
+- **After every meaningful change** — invoke `/superpowers:using-superpowers` to check for applicable skills before deciding next steps. Don't wing it.
+- **Dispatch goons aggressively** — see [Subagent Dispatch](#subagent-dispatch-vertex-ai-goons). Parallelize everything that can be parallelized. Know your crew.
+
 ## Project
 
 **ABSAC** (Automatic Bitwise Superoptimization of Arbitrary Code) — a compiler toolchain that reads source code and produces an equivalent version where every fragment expressible as bitwise operations is expressed that way.
@@ -176,13 +181,18 @@ The `Agent` tool only accepts Claude model aliases. To dispatch non-interactive 
 pi --model google-vertex/<model-id> --print "<prompt>" 2>&1
 ```
 
-| Model ID | Role | Use Case |
+| Model ID | Role | Dispatch for... |
 |---|---|---|
-| `gemini-3.1-pro-preview` | Heavy lifter | Complex reasoning, design, review |
-| `gemini-3.5-flash` | Fast parallel | Quick analysis, bulk tasks |
-| `gemini-3.1-flash-lite-preview` | Cheap scout | Trivial lookups, git queries, file counts |
+| `gemini-3.1-pro-preview` | Heavy lifter | Architecture, design decisions, deep bug analysis, writing plans, reviewing complex code, refactoring, any task that requires thinking |
+| `gemini-3.5-flash` | Fast parallel | Bulk analysis, grep sweeps, test runs, doc updates, pattern scanning, moderate complexity at speed |
+| `gemini-3.1-flash-lite-preview` | Cheap scout | File counts, git log, trivial lookups, stats gathering, surface scans — anything a shell one-liner could do but you want a sentence of context with it |
 
-- **Always dispatch in background** (`run_in_background: true`) — never block the main loop waiting for a goon. Fire multiple in parallel and the harness notifies when each completes.
-- **Don't wait for results before responding** — acknowledge the dispatch, keep working, and incorporate results when they land.
+**Dispatch rules:**
+- **Always dispatch in background** (`run_in_background: true`). Never block on a goon.
+- **Fire parallel first, ask questions later.** When you need N things investigated, dispatch all N at once — don't sequence what can fan out.
+- **Don't wait for results before responding** — acknowledge the dispatch, keep working, incorporate results as they land.
+- **Match the goon to the job.** Pro for thinking, Flash for doing, Flash-lite for glancing. Don't send Flash-lite to audit architecture. Don't send Pro to count files.
+- **Pro needs clear constraints.** Give it file paths, line ranges, and specific questions. It thinks deep but can over-engineer — bound its scope.
+- **Flash-lite is a one-liner with commentary.** If you just need a command run, run it yourself. If you want the output summarized or judged, that's Flash-lite territory.
 - Always use `2>&1` to capture stderr alongside stdout.
 - These are non-interactive — they run and return output, no conversation loop.
