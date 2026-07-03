@@ -397,6 +397,37 @@ impl Builder {
         ))
     }
 
+    /// Create a Pack node: packs a boolean array into a bitvector.
+    /// The operand must be an Array(Bool) or Slice(Bool) type.
+    pub fn pack(&mut self, array: NodeId, span: Span) -> Result<NodeId, BuildError> {
+        let ty = self.get_type(array)?;
+        let width = match &ty {
+            Type::Array { element, length } if **element == Type::Bool => *length,
+            Type::Slice { element } if **element == Type::Bool => {
+                // Slices need a dynamic width — use 0 as placeholder.
+                // The verifier will accept Slice(Bool) → BitVector{width: 0}.
+                0
+            }
+            _ => {
+                return Err(BuildError::TypeMismatch {
+                    node: array,
+                    expected: Type::Array {
+                        element: Box::new(Type::Bool),
+                        length: 64,
+                    },
+                    actual: ty,
+                });
+            }
+        };
+        let bv_ty = Type::BitVector { width };
+        Ok(self.alloc_node(
+            NodeKind::Pack { array },
+            bv_ty,
+            Effects::empty(),
+            span,
+        ))
+    }
+
     // ── Comparisons ─────────────────────────────────────────
 
     fn comparison(
@@ -961,5 +992,42 @@ mod tests {
         assert_eq!(b.parameter_named("x"), Some(NodeId::new(0)));
         assert_eq!(b.parameter_named("y"), Some(NodeId::new(1)));
         assert_eq!(b.parameter_named("z"), None);
+    }
+
+    // ── Pack ─────────────────────────────────────────────────
+
+    #[test]
+    fn pack_bool_array_to_bitvector() {
+        let mut b = Builder::new(
+            "pack_test",
+            &[(
+                "board",
+                Type::Array {
+                    element: Box::new(Type::Bool),
+                    length: 64,
+                },
+            )],
+            Type::BitVector { width: 64 },
+        );
+        let board = b.parameter_index(0).unwrap();
+        let packed = b.pack(board, unknown_span()).unwrap();
+        let node = b.function().get_node(packed).unwrap();
+        assert_eq!(node.ty, Type::BitVector { width: 64 });
+        match &node.kind {
+            NodeKind::Pack { array } => assert_eq!(*array, board),
+            _ => panic!("expected Pack"),
+        }
+    }
+
+    #[test]
+    fn pack_non_array_rejected() {
+        let mut b = Builder::new(
+            "bad_pack",
+            &[("x", i32_type())],
+            Type::BitVector { width: 32 },
+        );
+        let x = b.parameter_index(0).unwrap();
+        let result = b.pack(x, unknown_span());
+        assert!(result.is_err());
     }
 }

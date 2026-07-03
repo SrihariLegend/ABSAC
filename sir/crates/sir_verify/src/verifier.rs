@@ -324,6 +324,37 @@ impl<'a> Verifier<'a> {
                     }
                 }
 
+                // Pack: operand must be Array(Bool) or Slice(Bool).
+                NodeKind::Pack { array } => {
+                    if let Some(ty) = self.node_type(*array) {
+                        match &ty {
+                            Type::Array { element, .. } | Type::Slice { element } => {
+                                if **element != Type::Bool {
+                                    self.errors.push(VerificationError::TypeMismatch {
+                                        node: node.id,
+                                        kind: node.kind.clone(),
+                                        input_index: 0,
+                                        expected: Type::Bool,
+                                        actual: *element.clone(),
+                                    });
+                                }
+                            }
+                            _ => {
+                                self.errors.push(VerificationError::TypeMismatch {
+                                    node: node.id,
+                                    kind: node.kind.clone(),
+                                    input_index: 0,
+                                    expected: Type::Array {
+                                        element: Box::new(Type::Bool),
+                                        length: 64,
+                                    },
+                                    actual: ty,
+                                });
+                            }
+                        }
+                    }
+                }
+
                 // Comparisons: operands must be same type. Result is Bool (checked by node.ty).
                 NodeKind::Eq { lhs, rhs }
                 | NodeKind::Ne { lhs, rhs }
