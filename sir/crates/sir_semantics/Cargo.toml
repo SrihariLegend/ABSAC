@@ -14,6 +14,7 @@ sir_analysis = { path = "../sir_analysis" }
 sir_builder = { path = "../sir_builder" }
 sir_analysis = { path = "../sir_analysis" }
 sir_inference = { path = "../sir_inference" }
+sir_transform = { path = "../sir_transform" }
 
 [[test]]
 name = "semantic_database"
