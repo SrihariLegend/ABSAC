@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use sir_transform::constraints::Constraint;
+use sir_transform::roles::RegionRoles;
 use sir_transform::structures::SourceStructure;
 
 use crate::region::RegionId;
@@ -11,6 +12,7 @@ use crate::region::RegionId;
 pub struct StructuralDescription {
     pub region: RegionId,
     pub source_structure: SourceStructure,
+    pub roles: Option<RegionRoles>,
     pub constraints: std::collections::HashSet<Constraint>,
 }
 
@@ -22,8 +24,14 @@ impl StructuralDescription {
         Self {
             region,
             source_structure,
+            roles: None,
             constraints: std::collections::HashSet::new(),
         }
+    }
+
+    pub fn with_roles(mut self, roles: RegionRoles) -> Self {
+        self.roles = Some(roles);
+        self
     }
 
     pub fn with_constraint(mut self, constraint: Constraint) -> Self {

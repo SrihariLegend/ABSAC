@@ -8,6 +8,7 @@
 //!   Understanding → sir_transform ← Action
 
 pub mod representation;
+pub mod roles;
 pub mod structures;
 pub mod constraints;
 pub mod assumptions;
