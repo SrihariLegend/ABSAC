@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use sir_semantics::concepts::SemanticConcept;
-use sir_semantics::region::RegionId;
+use sir_inference::concepts::SemanticConcept;
+use sir_types::RegionId;
 use sir_transform::context::ContextId;
 use sir_transform::ids::DefinitionId;
 

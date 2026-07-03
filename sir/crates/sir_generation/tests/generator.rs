@@ -4,7 +4,7 @@ use sir_generation::candidate::{
 };
 use sir_generation::generator::CandidateDatabase;
 use sir_generation::generator::CandidateGenerator;
-use sir_semantics::region::RegionId;
+use sir_types::RegionId;
 use sir_transform::context::ContextId;
 use sir_transform::ids::DefinitionId;
 
