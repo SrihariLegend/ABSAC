@@ -1,8 +1,10 @@
+use serde::{Deserialize, Serialize};
+
 /// Describes the physical organization of data in a region.
 ///
 /// SourceStructure describes data layout, not computational behavior.
 /// Computational behavior belongs to the semantic layer (SemanticConcept).
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SourceStructure {
     /// Array of booleans with known length, e.g. bool[64]
     BooleanArray { length: usize },

@@ -31,14 +31,14 @@ fn make_context() -> TransformationContext {
 #[test]
 fn all_four_generators_produce_candidates() {
     let ctx = make_context();
-    let candidates = generators::all_plans(&ctx);
+    let candidates: Vec<_> = generators::all_plans(&ctx).collect();
     assert_eq!(candidates.len(), 4, "Expected 4 candidates for BitSet context");
 }
 
 #[test]
 fn all_strategies_are_distinct() {
     let ctx = make_context();
-    let candidates = generators::all_plans(&ctx);
+    let candidates: Vec<_> = generators::all_plans(&ctx).collect();
     let strategies: HashSet<_> = candidates.iter().map(|c| c.strategy).collect();
     assert_eq!(strategies.len(), 4);
 }
@@ -46,7 +46,7 @@ fn all_strategies_are_distinct() {
 #[test]
 fn each_candidate_has_effects() {
     let ctx = make_context();
-    let candidates = generators::all_plans(&ctx);
+    let candidates: Vec<_> = generators::all_plans(&ctx).collect();
     for c in &candidates {
         assert!(!c.effects.is_empty(),
             "{:?} should have at least one effect", c.strategy);
@@ -56,7 +56,7 @@ fn each_candidate_has_effects() {
 #[test]
 fn each_candidate_has_explanation() {
     let ctx = make_context();
-    let candidates = generators::all_plans(&ctx);
+    let candidates: Vec<_> = generators::all_plans(&ctx).collect();
     for c in &candidates {
         assert!(!c.explanation.rationale.is_empty(),
             "{:?} should have a non-empty rationale", c.strategy);
@@ -64,43 +64,32 @@ fn each_candidate_has_explanation() {
 }
 
 #[test]
-fn each_candidate_has_prerequisites() {
-    let ctx = make_context();
-    let candidates = generators::all_plans(&ctx);
-    for c in &candidates {
-        assert!(!c.explanation.prerequisites.is_empty(),
-            "{:?} should list prerequisites", c.strategy);
-    }
-}
-
-#[test]
-fn non_bitset_context_produces_no_candidates() {
+fn bitmask_context_produces_four_candidates() {
     let mut constraints = HashSet::new();
     constraints.insert(Constraint::FixedLength(64));
     let mut assumptions = HashSet::new();
     assumptions.insert(Assumption::EquivalentCardinality);
 
-    // Non-BitSet representation — should be skipped by all generators
+    // BitMask source structure — still valid for BitSet representation;
+    // generators check representation, not source structure type.
     let ctx = TransformationContext::new(
         RegionId::new(0),
-        // There's only BitSet in v0.1, but each generator checks representation
         Representation::BitSet,
         SourceStructure::BitMask { width: 64 },
         constraints,
         assumptions,
     );
-    let candidates = generators::all_plans(&ctx);
-    // All 4 generators check for BitSet, but BitMask as source structure
-    // is still valid — generators check representation, not structure.
-    // This test validates they don't crash on non-BooleanArray contexts.
+    let candidates: Vec<_> = generators::all_plans(&ctx).collect();
+    // All 4 generators check for BitSet representation, which matches.
+    // BitMask as source structure is still valid.
     assert_eq!(candidates.len(), 4);
 }
 
 #[test]
 fn generation_is_deterministic() {
     let ctx = make_context();
-    let first = generators::all_plans(&ctx);
-    let second = generators::all_plans(&ctx);
+    let first: Vec<_> = generators::all_plans(&ctx).collect();
+    let second: Vec<_> = generators::all_plans(&ctx).collect();
     assert_eq!(first.len(), second.len());
     for (a, b) in first.iter().zip(second.iter()) {
         assert_eq!(a.strategy, b.strategy);
@@ -110,7 +99,7 @@ fn generation_is_deterministic() {
 #[test]
 fn explanations_contain_source_concepts() {
     let ctx = make_context();
-    let candidates = generators::all_plans(&ctx);
+    let candidates: Vec<_> = generators::all_plans(&ctx).collect();
     for c in &candidates {
         assert!(!c.explanation.source_concepts.is_empty(),
             "{:?} explanation should reference source concepts", c.strategy);

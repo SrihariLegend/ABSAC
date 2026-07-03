@@ -1,13 +1,12 @@
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 use sir_semantics::concepts::SemanticConcept;
 use sir_semantics::region::RegionId;
-use sir_transform::constraints::Constraint;
 use sir_transform::context::ContextId;
-use sir_transform::representation::Representation;
 
 /// Unique identifier for a candidate plan.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CandidateId(pub u64);
 
 impl CandidateId {
@@ -21,7 +20,7 @@ impl fmt::Display for CandidateId {
 }
 
 /// How a bitset transformation might be implemented.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ImplementationStrategy {
     /// Iterate over set bits: while bb != 0 { tzcnt; bb &= bb-1 }
     BitIteration,
@@ -45,7 +44,7 @@ impl fmt::Display for ImplementationStrategy {
 }
 
 /// What kind of change a candidate proposes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CandidateEffects {
     /// The representation of data changes (e.g., bool[64] → u64)
     RepresentationChange,
@@ -60,10 +59,7 @@ pub enum CandidateEffects {
 /// Human-readable explanation of a candidate plan.
 #[derive(Clone, Debug)]
 pub struct CandidateExplanation {
-    pub strategy: ImplementationStrategy,
-    pub representation: Representation,
     pub source_concepts: Vec<SemanticConcept>,
-    pub prerequisites: Vec<Constraint>,
     pub rationale: &'static str,
 }
 

@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
@@ -9,7 +10,7 @@ use crate::representation::Representation;
 use crate::structures::SourceStructure;
 
 /// A unique identifier for a transformation context.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ContextId(pub u64);
 
 impl ContextId {
@@ -48,13 +49,14 @@ impl fmt::Display for ValidationError {
 /// A TransformationContext must contain all information required to
 /// generate candidate transformation plans without consulting SIR,
 /// compiler analyses, or semantic recognizers.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TransformationContext {
     pub region: RegionId,
     pub representation: Representation,
     pub source_structure: SourceStructure,
     pub constraints: HashSet<Constraint>,
     pub assumptions: HashSet<Assumption>,
+    pub context_id: ContextId,
 }
 
 impl TransformationContext {
@@ -65,7 +67,7 @@ impl TransformationContext {
         constraints: HashSet<Constraint>,
         assumptions: HashSet<Assumption>,
     ) -> Self {
-        Self { region, representation, source_structure, constraints, assumptions }
+        Self { region, representation, source_structure, constraints, assumptions, context_id: ContextId::new(0) }
     }
 
     /// Validate invariants: source structure present, no contradictions.
@@ -89,9 +91,10 @@ impl TransformationContextDatabase {
         Self { contexts: HashMap::new(), next_context_id: 0 }
     }
 
-    pub fn insert(&mut self, region: RegionId, ctx: TransformationContext) -> ContextId {
+    pub fn insert(&mut self, region: RegionId, mut ctx: TransformationContext) -> ContextId {
         let cid = ContextId::new(self.next_context_id);
         self.next_context_id += 1;
+        ctx.context_id = cid;
         self.contexts.entry(region).or_default().push(ctx);
         cid
     }

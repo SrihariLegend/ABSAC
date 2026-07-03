@@ -3,14 +3,14 @@ pub use sir_transform::representation::Representation;
 /// Integer support score — no floating point in engine logic.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Support {
-    pub positive: u16,
-    pub negative: u16,
+    pub positive: u32,
+    pub negative: u32,
 }
 
 impl Support {
     /// Net score: positive minus negative.
-    pub fn score(&self) -> i32 {
-        self.positive as i32 - self.negative as i32
+    pub fn score(&self) -> i64 {
+        self.positive as i64 - self.negative as i64
     }
 
     /// Ratio of positive support to total (for display only).
