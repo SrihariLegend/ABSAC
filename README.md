@@ -84,7 +84,7 @@ A traditional syntax-directed optimizer primarily sees: loop, load, branch, add.
 ```bash
 cd sir
 cargo build
-cargo test          # 257 tests, all passing
+cargo test          # 365 tests, all passing
 ```
 
 **Requirements:** Rust 2021 edition (stable).

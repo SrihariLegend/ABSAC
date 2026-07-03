@@ -70,7 +70,7 @@ All commands run from `sir/`:
 
 ```bash
 cargo build              # build all crates
-cargo test               # run all tests (257 tests, all passing)
+cargo test               # run all tests (365 tests, all passing)
 cargo test -p <crate>    # run one crate's tests (e.g. sir_verify, sir_builder)
 cargo test <test_name>   # run a single test by name
 ```
