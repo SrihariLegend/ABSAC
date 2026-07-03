@@ -15,6 +15,7 @@ use crate::semantic::value::{pack_bits, Environment, Value};
 ///
 /// Invariant: Every verification backend (symbolic, exhaustive, SMT, SAT,
 /// theorem prover) must agree with the interpreter on all supported expressions.
+#[derive(Clone, Debug)]
 pub struct Interpreter;
 
 impl Interpreter {
@@ -53,7 +54,7 @@ impl Interpreter {
                 let val = self.evaluate(inner, env)?;
                 match val {
                     Value::BooleanArray(bits) => {
-                        Ok(Value::BitVector(pack_bits(&bits)))
+                        Ok(Value::BitVector(pack_bits(&bits)?))
                     }
                     other => Err(InterpreterError::TypeMismatch {
                         expected: "BooleanArray",
@@ -114,15 +115,17 @@ impl Interpreter {
             sir_types::ConstantData::Bool(b) => Value::Bool(*b),
             sir_types::ConstantData::Integer { value, signed, .. } => {
                 if *signed {
-                    let v: i64 = value.parse().unwrap_or(0);
+                    // unwrap is safe for well-formed SIR: ConstantData::Integer
+                    // stores validated decimal strings from the parser.
+                    let v: i64 = value.parse().expect("well-formed SIR: signed integer string must parse as i64");
                     Value::Integer(v as u64)
                 } else {
-                    let v: u64 = value.parse().unwrap_or(0);
+                    let v: u64 = value.parse().expect("well-formed SIR: unsigned integer string must parse as u64");
                     Value::Integer(v)
                 }
             }
             sir_types::ConstantData::Unit => Value::Integer(0),
-            _ => Value::Integer(0), // fallback for unsupported constant types
+            _ => Value::Integer(0), // fallback for constant types without a corresponding Value variant (e.g. Float, StringLiteral)
         }
     }
 }

@@ -9,6 +9,7 @@ use crate::semantic::normalizer::NormalizationRule;
 ///
 /// The rule is universally valid for any BooleanArray width ≤ 128
 /// (the maximum representable in a u128 BitVector).
+#[derive(Clone, Debug)]
 pub struct CountFilterToPopcount;
 
 impl NormalizationRule for CountFilterToPopcount {

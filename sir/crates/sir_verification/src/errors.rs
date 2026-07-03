@@ -65,6 +65,11 @@ pub enum InterpreterError {
         expected: &'static str,
         found: Value,
     },
+    /// The input is too large to pack into a u128 bitvector.
+    InputTooLarge {
+        max: usize,
+        found: usize,
+    },
 }
 
 #[cfg(test)]
@@ -144,5 +149,14 @@ mod tests {
             found: Value::Integer(42),
         };
         assert!(matches!(err, InterpreterError::TypeMismatch { .. }));
+    }
+
+    #[test]
+    fn interpreter_error_input_too_large() {
+        let err = InterpreterError::InputTooLarge {
+            max: 128,
+            found: 256,
+        };
+        assert!(matches!(err, InterpreterError::InputTooLarge { .. }));
     }
 }

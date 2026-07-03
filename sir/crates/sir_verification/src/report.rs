@@ -5,7 +5,7 @@ use std::fmt;
 use crate::VerificationBackend;
 
 /// A human-readable verification report for a set of obligations.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerificationReport {
     pub entries: Vec<ReportEntry>,
 }
@@ -41,7 +41,7 @@ impl fmt::Display for VerificationReport {
 }
 
 /// A single entry in a verification report.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReportEntry {
     pub transformation_name: String,
     pub backend: String,
@@ -50,7 +50,7 @@ pub struct ReportEntry {
 }
 
 /// The status of a single verification attempt.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReportStatus {
     Proven,
     Rejected,
