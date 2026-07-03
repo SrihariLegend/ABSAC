@@ -1,1 +1,291 @@
 //! Interpreter — canonical operational semantics of SemanticExpression.
+//!
+//! The reference implementation against which all verification backends
+//! must agree. Deliberately dumb — one recursive walk, no optimization,
+//! no caching. Never panics — always returns Result.
+
+use crate::errors::InterpreterError;
+use crate::semantic::expression::{Predicate, SemanticExpression};
+use crate::semantic::value::{pack_bits, Environment, Value};
+
+/// The canonical operational semantics of SemanticExpression.
+///
+/// Deliberately dumb — one recursive walk, no optimization, no caching.
+/// The reference implementation against which all backends are validated.
+///
+/// Invariant: Every verification backend (symbolic, exhaustive, SMT, SAT,
+/// theorem prover) must agree with the interpreter on all supported expressions.
+pub struct Interpreter;
+
+impl Interpreter {
+    /// Evaluate an expression in the given environment.
+    /// Never panics — returns InterpreterError on malformed states.
+    pub fn evaluate(
+        &self,
+        expr: &SemanticExpression,
+        env: &Environment,
+    ) -> Result<Value, InterpreterError> {
+        match expr {
+            SemanticExpression::Variable(id) => {
+                env.lookup(*id)
+                    .cloned()
+                    .ok_or(InterpreterError::UnboundVariable(*id))
+            }
+
+            SemanticExpression::Constant(c) => {
+                Ok(Self::constant_to_value(c))
+            }
+
+            SemanticExpression::BooleanArray { variable } => {
+                match env.lookup(*variable) {
+                    Some(Value::BooleanArray(bits)) => {
+                        Ok(Value::BooleanArray(bits.clone()))
+                    }
+                    Some(other) => Err(InterpreterError::TypeMismatch {
+                        expected: "BooleanArray",
+                        found: other.clone(),
+                    }),
+                    None => Err(InterpreterError::UnboundVariable(*variable)),
+                }
+            }
+
+            SemanticExpression::Pack(inner) => {
+                let val = self.evaluate(inner, env)?;
+                match val {
+                    Value::BooleanArray(bits) => {
+                        Ok(Value::BitVector(pack_bits(&bits)))
+                    }
+                    other => Err(InterpreterError::TypeMismatch {
+                        expected: "BooleanArray",
+                        found: other,
+                    }),
+                }
+            }
+
+            SemanticExpression::Filter { input, predicate } => {
+                let val = self.evaluate(input, env)?;
+                match val {
+                    Value::BooleanArray(bits) => {
+                        let filtered: Vec<bool> = bits
+                            .into_iter()
+                            .filter(|b| predicate.test(*b))
+                            .collect();
+                        Ok(Value::BooleanArray(filtered))
+                    }
+                    other => Err(InterpreterError::TypeMismatch {
+                        expected: "BooleanArray",
+                        found: other,
+                    }),
+                }
+            }
+
+            SemanticExpression::Count(inner) => {
+                let val = self.evaluate(inner, env)?;
+                match val {
+                    Value::BooleanArray(bits) => {
+                        let count = bits.iter().filter(|b| **b).count() as u64;
+                        Ok(Value::Integer(count))
+                    }
+                    other => Err(InterpreterError::TypeMismatch {
+                        expected: "BooleanArray",
+                        found: other,
+                    }),
+                }
+            }
+
+            SemanticExpression::Popcount(inner) => {
+                let val = self.evaluate(inner, env)?;
+                match val {
+                    Value::BitVector(bv) => {
+                        Ok(Value::Integer(bv.bits.count_ones() as u64))
+                    }
+                    other => Err(InterpreterError::TypeMismatch {
+                        expected: "BitVector",
+                        found: other,
+                    }),
+                }
+            }
+        }
+    }
+
+    /// Convert a ConstantData to a Value.
+    fn constant_to_value(c: &sir_types::ConstantData) -> Value {
+        match c {
+            sir_types::ConstantData::Bool(b) => Value::Bool(*b),
+            sir_types::ConstantData::Integer { value, signed, .. } => {
+                if *signed {
+                    let v: i64 = value.parse().unwrap_or(0);
+                    Value::Integer(v as u64)
+                } else {
+                    let v: u64 = value.parse().unwrap_or(0);
+                    Value::Integer(v)
+                }
+            }
+            sir_types::ConstantData::Unit => Value::Integer(0),
+            _ => Value::Integer(0), // fallback for unsupported constant types
+        }
+    }
+}
+
+impl Predicate {
+    /// Test whether a boolean value satisfies this predicate.
+    pub fn test(&self, _value: bool) -> bool {
+        match self {
+            Predicate::True => true,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::semantic::expression::SemanticExpression;
+    use crate::semantic::value::{BitVectorValue, Environment, Value};
+    use sir_transform::ids::VariableId;
+    fn board_env(bits: Vec<bool>) -> Environment {
+        let mut env = Environment::new();
+        env.bind(VariableId::new(0), Value::BooleanArray(bits));
+        env
+    }
+
+    #[test]
+    fn evaluate_variable() {
+        let env = board_env(vec![true, false, true, false]);
+        let expr = SemanticExpression::Variable(VariableId::new(0));
+        let result = Interpreter.evaluate(&expr, &env).unwrap();
+        assert_eq!(result, Value::BooleanArray(vec![true, false, true, false]));
+    }
+
+    #[test]
+    fn evaluate_unbound_variable() {
+        let env = Environment::new();
+        let expr = SemanticExpression::Variable(VariableId::new(99));
+        let result = Interpreter.evaluate(&expr, &env);
+        assert!(matches!(result, Err(InterpreterError::UnboundVariable(_))));
+    }
+
+    #[test]
+    fn evaluate_boolean_array() {
+        let env = board_env(vec![true, false, true, false]);
+        let expr = SemanticExpression::BooleanArray { variable: VariableId::new(0) };
+        let result = Interpreter.evaluate(&expr, &env).unwrap();
+        assert_eq!(result, Value::BooleanArray(vec![true, false, true, false]));
+    }
+
+    #[test]
+    fn evaluate_pack() {
+        let env = board_env(vec![true, false, true, false]);
+        let expr = SemanticExpression::Pack(Box::new(
+            SemanticExpression::BooleanArray { variable: VariableId::new(0) },
+        ));
+        let result = Interpreter.evaluate(&expr, &env).unwrap();
+        assert_eq!(
+            result,
+            Value::BitVector(BitVectorValue { bits: 0b0101, width: 4 })
+        );
+    }
+
+    #[test]
+    fn evaluate_filter_true() {
+        let env = board_env(vec![true, false, true, false]);
+        let expr = SemanticExpression::Filter {
+            input: Box::new(SemanticExpression::BooleanArray { variable: VariableId::new(0) }),
+            predicate: Predicate::True,
+        };
+        let result = Interpreter.evaluate(&expr, &env).unwrap();
+        // True predicate is identity — all elements pass
+        assert_eq!(result, Value::BooleanArray(vec![true, false, true, false]));
+    }
+
+    #[test]
+    fn evaluate_count() {
+        let env = board_env(vec![true, false, true, false]);
+        let expr = SemanticExpression::Count(Box::new(
+            SemanticExpression::BooleanArray { variable: VariableId::new(0) },
+        ));
+        let result = Interpreter.evaluate(&expr, &env).unwrap();
+        assert_eq!(result, Value::Integer(2));
+    }
+
+    #[test]
+    fn evaluate_popcount() {
+        let mut env = Environment::new();
+        // 0b1010 = bits 1 and 3 set → popcount = 2
+        env.bind(
+            VariableId::new(0),
+            Value::BitVector(BitVectorValue { bits: 0b1010, width: 4 }),
+        );
+        let expr = SemanticExpression::Popcount(Box::new(
+            SemanticExpression::Variable(VariableId::new(0)),
+        ));
+        let result = Interpreter.evaluate(&expr, &env).unwrap();
+        assert_eq!(result, Value::Integer(2));
+    }
+
+    #[test]
+    fn evaluate_bs001_lhs() {
+        // Count(Filter(BooleanArray(v), True))
+        let env = board_env(vec![true, true, false, true]); // 3 true
+        let lhs = SemanticExpression::Count(Box::new(
+            SemanticExpression::Filter {
+                input: Box::new(SemanticExpression::BooleanArray {
+                    variable: VariableId::new(0),
+                }),
+                predicate: Predicate::True,
+            },
+        ));
+        let result = Interpreter.evaluate(&lhs, &env).unwrap();
+        assert_eq!(result, Value::Integer(3));
+    }
+
+    #[test]
+    fn evaluate_bs001_rhs() {
+        // Popcount(Pack(BooleanArray(v)))
+        let env = board_env(vec![true, true, false, true]); // 3 true
+        let rhs = SemanticExpression::Popcount(Box::new(
+            SemanticExpression::Pack(Box::new(
+                SemanticExpression::BooleanArray {
+                    variable: VariableId::new(0),
+                },
+            )),
+        ));
+        let result = Interpreter.evaluate(&rhs, &env).unwrap();
+        assert_eq!(result, Value::Integer(3));
+    }
+
+    #[test]
+    fn evaluate_bs001_lhs_equals_rhs() {
+        // For any given input, the lhs and rhs produce the same result
+        let env = board_env(vec![false, true, false, true, true, false, false, true]); // 4 true
+        let lhs = SemanticExpression::Count(Box::new(
+            SemanticExpression::Filter {
+                input: Box::new(SemanticExpression::BooleanArray {
+                    variable: VariableId::new(0),
+                }),
+                predicate: Predicate::True,
+            },
+        ));
+        let rhs = SemanticExpression::Popcount(Box::new(
+            SemanticExpression::Pack(Box::new(
+                SemanticExpression::BooleanArray {
+                    variable: VariableId::new(0),
+                },
+            )),
+        ));
+        let lhs_result = Interpreter.evaluate(&lhs, &env).unwrap();
+        let rhs_result = Interpreter.evaluate(&rhs, &env).unwrap();
+        assert_eq!(lhs_result, rhs_result);
+        assert_eq!(lhs_result, Value::Integer(4));
+    }
+
+    #[test]
+    fn evaluate_type_mismatch_pack_on_non_array() {
+        let mut env = Environment::new();
+        env.bind(VariableId::new(0), Value::Integer(42));
+        let expr = SemanticExpression::Pack(Box::new(
+            SemanticExpression::Variable(VariableId::new(0)),
+        ));
+        let result = Interpreter.evaluate(&expr, &env);
+        assert!(matches!(result, Err(InterpreterError::TypeMismatch { .. })));
+    }
+}
