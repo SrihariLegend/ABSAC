@@ -2,7 +2,7 @@ use sir_generation::candidate::{CandidateId, ImplementationStrategy};
 use sir_types::RegionId;
 use std::fmt;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ScoreBreakdown {
     pub instruction_delta: i64, // positive = fewer instructions
     pub select_delta: i64,      // positive = fewer Select ops
@@ -10,7 +10,7 @@ pub struct ScoreBreakdown {
     pub depth_delta: i64,       // positive = shallower critical path
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TransformationScore {
     pub candidate: CandidateId,
     pub strategy: ImplementationStrategy,
@@ -18,7 +18,7 @@ pub struct TransformationScore {
     pub breakdown: ScoreBreakdown,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CostModelReport {
     pub region: RegionId,
     pub scores: Vec<TransformationScore>, // sorted highest first

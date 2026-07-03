@@ -78,6 +78,13 @@ impl<M: CostModel> Selector<M> {
         verified: &'a [VerifiedCandidate],
         original_cost: &CostProfile,
     ) -> SelectionResult<'a> {
+        // All candidates must belong to the same region
+        debug_assert!(
+            verified.iter().all(|vc| vc.candidate.region == region),
+            "selector.select(): all VerifiedCandidates must belong to region {}",
+            region
+        );
+
         if verified.is_empty() {
             return SelectionResult {
                 chosen: None,

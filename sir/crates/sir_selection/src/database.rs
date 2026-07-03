@@ -7,6 +7,9 @@ use sir_verification::Proof;
 use crate::score::{CostModelReport, TransformationScore};
 
 /// Owned equivalent of SelectedCandidate for persistent storage.
+///
+/// NOTE: Serialize/Deserialize not yet derived — blocked on Candidate
+/// (SemanticConcept, DefinitionId lack serde) and Proof (Theorem lacks serde).
 #[derive(Clone, Debug)]
 pub struct SelectedCandidateOwned {
     pub candidate: Candidate,
@@ -15,6 +18,8 @@ pub struct SelectedCandidateOwned {
 }
 
 /// Owned equivalent of SelectionResult for persistent storage.
+///
+/// NOTE: Serialize/Deserialize not yet derived — see SelectedCandidateOwned.
 #[derive(Clone, Debug)]
 pub struct SelectionResultOwned {
     pub chosen: Option<SelectedCandidateOwned>,

@@ -2,7 +2,7 @@
 ///
 /// This type contains no notion of "good" or "bad".
 /// Cost models assign meaning to these fields.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CostProfile {
     /// Number of IR instructions.
     pub instruction_count: u32,
