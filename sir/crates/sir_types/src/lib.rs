@@ -10,6 +10,7 @@ pub mod span;
 pub mod metadata;
 pub mod constant;
 pub mod region_id;
+pub mod region_map;
 
 pub use node_id::*;
 pub use types::*;
@@ -18,3 +19,4 @@ pub use span::*;
 pub use metadata::*;
 pub use constant::*;
 pub use region_id::*;
+pub use region_map::RegionMap;

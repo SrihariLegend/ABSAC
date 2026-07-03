@@ -3,39 +3,41 @@
 //! Generates candidate transformation plans from transformation contexts.
 //! Pure — no SIR access, no ranking, no verification.
 
-use std::collections::HashMap;
-
 use sir_semantics::region::RegionId;
 use sir_transform::context::TransformationContextDatabase;
+use sir_types::RegionMap;
 
 use crate::candidate::{Candidate, CandidateId};
 
 /// Stores candidate plans per region.
 #[derive(Clone, Debug, Default)]
 pub struct CandidateDatabase {
-    candidates: HashMap<RegionId, Vec<Candidate>>,
+    map: RegionMap<Candidate>,
     next_candidate_id: u64,
 }
 
 impl CandidateDatabase {
     pub fn new() -> Self {
-        Self { candidates: HashMap::new(), next_candidate_id: 0 }
+        Self {
+            map: RegionMap::new(),
+            next_candidate_id: 0,
+        }
     }
 
     pub fn add(&mut self, region: RegionId, candidate: Candidate) {
-        self.candidates.entry(region).or_default().push(candidate);
+        self.map.insert(region, candidate);
     }
 
     pub fn candidates(&self, region: RegionId) -> &[Candidate] {
-        self.candidates.get(&region).map(|v| v.as_slice()).unwrap_or(&[])
+        self.map.get(region)
     }
 
     pub fn all_candidates(&self) -> impl Iterator<Item = &Candidate> {
-        self.candidates.values().flat_map(|v| v.iter())
+        self.map.all()
     }
 
     pub fn region_count(&self) -> usize {
-        self.candidates.len()
+        self.map.len()
     }
 
     pub(crate) fn next_id(&mut self) -> CandidateId {
