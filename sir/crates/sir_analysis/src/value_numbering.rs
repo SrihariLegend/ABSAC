@@ -143,6 +143,7 @@ pub(crate) fn kind_variant_tag(kind: &NodeKind) -> u32 {
         NodeKind::ExternalCall { .. } => 38,
         NodeKind::Loop { .. } => 39,
         NodeKind::Iterator { .. } => 40,
+        NodeKind::Pack { .. } => 42,
         NodeKind::Return { .. } => 41,
     }
 }
