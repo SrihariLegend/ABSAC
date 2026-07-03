@@ -1,6 +1,13 @@
-# 0008 — Representation Inference (Future)
+# 0008 — Representation Inference (Historical)
 
-## Planned for v0.5+
+> **Superseded by [0010 — Semantic Representation Inference](0010_semantic_representation_inference.md).**
+>
+> This document originally reserved the topic of representation inference for a
+> future phase. The actual specification has been written as 0010, which defines
+> a three-layer knowledge architecture (Facts → Truths → Beliefs) that
+> supersedes the placeholder description below.
+
+## Original placeholder (retained for reference)
 
 Representation inference is the problem of identifying code fragments where a
 bitwise representation is possible — without being told.
