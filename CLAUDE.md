@@ -4,9 +4,65 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**ABSAC** (Automatic Bitwise Superoptimization of Arbitrary Code) — a compiler toolchain that reads source code and produces an equivalent version where every fragment expressible as bitwise operations is expressed that way. v0.1 implements only the core IR. No optimization passes, source parsers, lowering, SMT verification, or code generation exist yet.
+**ABSAC** (Automatic Bitwise Superoptimization of Arbitrary Code) — a compiler toolchain that reads source code and produces an equivalent version where every fragment expressible as bitwise operations is expressed that way.
 
 The active component is **SIR** (Semantic IR), located in `sir/`. SIR is a typed, SSA-form functional IR for representing program meaning — not instruction encoding. The raw `.xml` files at the repo root are external project data, not part of SIR.
+
+### Architecture Freeze (2026-07-03)
+
+The reasoning substrate is frozen. The following crates are considered **architecturally stable** — no redesigns, no interface changes beyond extension:
+
+| Crate | Status | Allowed changes |
+|-------|--------|-----------------|
+| `sir_types` | Frozen | New types, new `RegionMap` usage |
+| `sir_nodes` | Frozen | — |
+| `sir_analysis` | Frozen | New analyses (new fact types in FactDatabase) |
+| `sir_semantics` | Frozen | New semantic/structural recognizers |
+| `sir_inference` | Frozen | New evidence sources |
+| `sir_transform` | Frozen | New enum variants (Representation, SourceStructure, Constraint, Assumption) |
+| `sir_generation` | Frozen | New generator strategies |
+| `sir_builder`, `sir_printer`, `sir_verify` | Frozen | — |
+
+### Implemented Capabilities
+
+| # | Capability | Status |
+|---|-----------|--------|
+| 1 | SIR — typed SSA-form functional IR | Complete |
+| 2 | SAF — 9 compiler analyses (Facts) | Complete |
+| 3 | SRI — semantic reasoning + representation inference (Truths + Beliefs) | Complete |
+| 4 | CGE — transformation planning (Contexts + Plans) | Complete |
+| 5 | Equivalence verification (Proofs) | Not started |
+| 6 | Verified rewriting (Mutations) | Not started |
+| 7 | Cost model (Selection) | Not started |
+| 8 | End-to-end optimizer | Not started |
+
+### Knowledge Pipeline
+
+```
+Source Program
+      │
+      ▼  sir_builder
+SIR
+      │
+      ▼  sir_analysis
+Compiler Facts           "What is provably true?"
+      │
+      ▼  sir_semantics
+Semantic Truths          "What computation is being performed?"
+Structural Descriptions  "How is the data organized?"
+      │
+      ▼  sir_inference
+Representation Beliefs   "Which representation best explains it?"
+Transformation Contexts  "What would have to be true to transform it?"
+      │
+      ▼  sir_generation
+Candidate Plans          "What implementations are possible?"
+      │
+      ▼  (future)
+Verification → Rewrite → Cost → Selection
+```
+
+Each layer consumes only the knowledge of the immediately preceding layer. No layer reads upward or across. No layer below `sir_semantics` inspects SIR directly.
 
 ## Build & Test
 
@@ -14,7 +70,7 @@ All commands run from `sir/`:
 
 ```bash
 cargo build              # build all crates
-cargo test               # run all tests (216 tests, all passing)
+cargo test               # run all tests (257 tests, all passing)
 cargo test -p <crate>    # run one crate's tests (e.g. sir_verify, sir_builder)
 cargo test <test_name>   # run a single test by name
 ```
