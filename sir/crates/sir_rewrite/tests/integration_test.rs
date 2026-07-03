@@ -120,9 +120,16 @@ fn bs001_end_to_end_rewrite_produces_valid_sir() {
             let mut verifier = sir_verify::Verifier::new(&rewrite_result.rewritten);
             assert!(verifier.verify(), "rewritten function must pass sir_verify");
         }
-        Err(_e) => {
-            // Expected in v0.1 test harness — the stub function doesn't have
-            // the right structure. The important thing is the pipeline runs.
+        Err(e) => {
+            // Acceptable: stub function doesn't have a real loop structure.
+            // But the error must be one we understand.
+            assert!(
+                matches!(e, RewriteError::RecipeFailed(_))
+                    || matches!(e, RewriteError::MissingRole { .. })
+                    || matches!(e, RewriteError::StructuralVerificationFailed(_)),
+                "unexpected error type: {:?}",
+                e
+            );
         }
     }
 }
@@ -169,11 +176,23 @@ fn rewritten_function_passes_sir_verify() {
     let engine = make_engine();
 
     let result = engine.rewrite(&func, &candidate, &proof, &structural_db);
-    if let Ok(rewrite_result) = result {
-        let mut verifier = sir_verify::Verifier::new(&rewrite_result.rewritten);
-        assert!(verifier.verify());
+    match result {
+        Ok(rewrite_result) => {
+            let mut verifier = sir_verify::Verifier::new(&rewrite_result.rewritten);
+            assert!(verifier.verify(), "rewritten function must pass sir_verify");
+        }
+        Err(e) => {
+            // Acceptable: stub function doesn't have a real loop structure.
+            // But the error must be one we understand.
+            assert!(
+                matches!(e, RewriteError::RecipeFailed(_))
+                    || matches!(e, RewriteError::MissingRole { .. })
+                    || matches!(e, RewriteError::StructuralVerificationFailed(_)),
+                "unexpected error type: {:?}",
+                e
+            );
+        }
     }
-    // If Err, that's fine for v0.1 — the pipeline executed without panicking
 }
 
 // ── Tier 9: Provenance ──────────────────────────────────────
@@ -193,6 +212,12 @@ fn provenance_tracks_recipe_id() {
         let _ = rewrite_result.provenance;
         let _ = rewrite_result.diff;
         assert_eq!(rewrite_result.proof, proof);
+    } else if let Err(ref e) = result {
+        assert!(
+            !matches!(e, RewriteError::InternalInvariantViolation(_)),
+            "internal invariant violation indicates a bug: {:?}",
+            e
+        );
     }
 }
 
