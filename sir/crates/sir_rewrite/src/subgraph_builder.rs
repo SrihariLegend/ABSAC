@@ -50,6 +50,7 @@ impl SubgraphBuilder {
         local_id
     }
 
+    #[allow(dead_code)]
     fn compute_effects(kind: &NodeKind) -> Effects {
         match kind {
             NodeKind::Load { .. } => Effects::READ_MEMORY,
