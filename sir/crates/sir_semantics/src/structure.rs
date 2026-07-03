@@ -61,6 +61,17 @@ impl StructuralDatabase {
         self.descriptions.len()
     }
 
+    /// Re-key a structural description from one region ID to another.
+    ///
+    /// This is needed because semantic region IDs may change after merging,
+    /// while structural recognizers use placeholder region IDs.
+    pub fn rekey_region(&mut self, from: RegionId, to: RegionId) {
+        if let Some(mut desc) = self.descriptions.remove(&from) {
+            desc.region = to;
+            self.descriptions.insert(to, desc);
+        }
+    }
+
     pub(crate) fn next_region_id(&mut self) -> RegionId {
         let id = RegionId::new(self.next_region_id);
         self.next_region_id += 1;

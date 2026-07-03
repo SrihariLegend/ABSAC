@@ -57,6 +57,12 @@ impl SemanticDatabase {
         self.regions.len()
     }
 
+    /// Get the ID of the first/surviving region (after merging).
+    /// Returns `None` if there are no regions.
+    pub fn first_region_id(&self) -> Option<RegionId> {
+        self.regions.keys().next().copied()
+    }
+
     /// Allocate the next region ID.
     pub(crate) fn next_region_id(&mut self) -> RegionId {
         let id = RegionId::new(self.next_region_id);
@@ -235,6 +241,17 @@ impl SemanticEngine {
         let bitmask_recs = bitmask::recognize_bitmask(func, analysis);
         for (_region_id, desc) in bitmask_recs {
             self.structural_db.add_description(desc);
+        }
+
+        // Structural recognizers use hardcoded placeholder region IDs.
+        // After semantic region merging, re-key structural descriptions
+        // to match the surviving semantic region ID so that the inference
+        // engine can look them up by the correct region ID.
+        if let Some(survivor_id) = self.db.first_region_id() {
+            let placeholder = RegionId::new(0);
+            if survivor_id != placeholder {
+                self.structural_db.rekey_region(placeholder, survivor_id);
+            }
         }
     }
 }
