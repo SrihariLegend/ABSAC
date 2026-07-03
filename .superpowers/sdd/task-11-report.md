@@ -96,6 +96,30 @@ Three tests used `if let Ok(result)` patterns that silently accepted `Err` outco
 
 Added `Display` implementations for `NodeProvenance`, `GraphDiff`, and `EdgeChange` to improve debugging and diff reporting.
 
+### M1: `SubgraphBuilder::pack()` lacked input type validation
+
+**File:** `sir/crates/sir_rewrite/src/subgraph_builder.rs`
+
+`pack()` silently defaulted to `width=64` for any non-array type without validation.
+
+**Fix:** Added `debug_assert!` that checks the operand type is `Array(Bool)` or `Slice(Bool)`, catching recipe bugs in debug builds without changing the API signature. Also added explicit `Slice(Bool)` handling to compute `width=0`.
+
+### M3: `compute_effects` was dead code in `SubgraphBuilder`
+
+**File:** `sir/crates/sir_rewrite/src/subgraph_builder.rs`
+
+`compute_effects` had `#[allow(dead_code)]` and was never called. All nodes were constructed with hardcoded `Effects::empty()`.
+
+**Fix:** Wired `compute_effects` into `alloc_node` by removing the `effects` parameter from its signature and calling `Self::compute_effects(&kind)` internally. Removed `#[allow(dead_code)]` from `compute_effects`. Updated all 9 call sites to no longer pass `Effects::empty()`.
+
+### M4: Unit test `popcount_of_bitvector` used `LocalNodeId` not in arena
+
+**File:** `sir/crates/sir_rewrite/src/subgraph_builder.rs`
+
+The test created `LocalNodeId::new(0)` without inserting it into the arena, so `popcount()` defaulted to `Type::i32()` and the test didn't validate realistic usage.
+
+**Fix:** Rewrote the test to create a constant in the arena first, then popcount it, verifying the node exists in the arena, and that its output type is `BitVector { width: 64 }`.
+
 ### M7: Verify Pack's output type in sir_verify
 
 **File:** `sir/crates/sir_verify/src/verifier.rs`
