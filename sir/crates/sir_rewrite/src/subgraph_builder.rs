@@ -3,7 +3,7 @@ use sir_types::{ConstantData, Effects, NodeId, Span, Type};
 
 use crate::detached_arena::DetachedArena;
 use crate::local_id::LocalNodeId;
-use crate::patch_stub::{ReplacementPatch, ReplacementValue};
+use crate::patch::{ReplacementPatch, ReplacementValue};
 
 /// Builds replacement SIR in a detached arena.
 ///
