@@ -78,12 +78,16 @@ impl CandidateGenerator {
     /// Generate candidates for every transformation context.
     ///
     /// Each context is inspected by generator functions that produce
-    /// candidates when applicable. For v0.1, the generator pipeline
-    /// is scaffolded — no actual generator functions are registered yet.
+    /// candidates when applicable.
     pub fn generate(&mut self, context_db: &TransformationContextDatabase) {
-        for (_region_id, _contexts) in context_db.contexts() {
-            // Generator functions will be plugged in during a future task.
-            // Each context is inspected and may produce zero or more candidates.
+        for (region_id, contexts) in context_db.contexts() {
+            for ctx in contexts {
+                let candidates = crate::generators::all_plans(ctx);
+                for mut candidate in candidates {
+                    candidate.id = self.db.next_id();
+                    self.db.add(region_id, candidate);
+                }
+            }
         }
     }
 }

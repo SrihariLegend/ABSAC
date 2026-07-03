@@ -9,6 +9,13 @@ authors.workspace = true
 sir_transform = { path = "../sir_transform" }
 sir_semantics = { path = "../sir_semantics" }
 
+[dev-dependencies]
+sir_inference = { path = "../sir_inference" }
+
 [[test]]
 name = "generator"
 path = "tests/generator.rs"
+
+[[test]]
+name = "generators"
+path = "tests/generators.rs"
