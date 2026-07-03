@@ -12,3 +12,4 @@ pub mod error;
 pub mod patch;
 pub mod plan;
 pub mod recipe;
+pub mod builder;

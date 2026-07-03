@@ -1,4 +1,8 @@
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
+
+use sir_types::NodeId;
 
 /// Describes the physical organization of data in a region.
 ///
@@ -14,4 +18,11 @@ pub enum SourceStructure {
     PackedBooleanArray { element_count: usize },
     /// 2D arrangement of boolean values
     BooleanMatrix { rows: usize, cols: usize },
+}
+
+impl SourceStructure {
+    /// Return the set of SIR nodes that constitute this structure (v0.1 stub).
+    pub fn nodes(&self) -> Option<BTreeSet<NodeId>> {
+        None // v0.1: structural regions are identified by roles, not node enumeration
+    }
 }
