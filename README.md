@@ -111,7 +111,7 @@ ABSAC/
 ├── README.md
 ├── CLAUDE.md                   # Project instructions
 ├── sir/                        # Semantic IR — the active component
-│   ├── Cargo.toml              # Workspace manifest (14 crates)
+│   ├── Cargo.toml              # Workspace manifest (15 crates)
 │   ├── README.md               # SIR-specific documentation
 │   ├── crates/
 │   │   ├── sir_types/          # Type system, NodeId, Effects, CostProfile
@@ -127,6 +127,7 @@ ABSAC/
 │   │   ├── sir_verification/   # Proof engine (symbolic + exhaustive backends)
 │   │   ├── sir_selection/      # Cost model + deterministic selector
 │   │   ├── sir_rewrite/        # Verified rewrite engine (subgraph patching)
+│   │   ├── sir_optimizer/      # Fixed-point optimization driver
 │   │   └── sir_tests/          # Integration tests
 │   └── docs/                   # Design documents (13 specs)
 ├── phase0.xml                  # External project data
@@ -165,6 +166,9 @@ sir_types                 — foundational (no internal deps)
         │           │     └── sir_rewrite — depends on sir_types, sir_nodes, sir_transform,
         │           │                        sir_generation, sir_verification, sir_verify,
         │           │                        sir_semantics
+        │           │                        │
+        │           │                        ▼
+        │           │              sir_optimizer — depends on all above (fixed-point driver)
         │
         └── sir_tests     — integration tests (depends on all of the above)
 ```
