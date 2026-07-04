@@ -2,9 +2,11 @@ use std::collections::{HashMap, HashSet};
 
 use sir_analysis::facts::FactDatabase;
 use sir_nodes::Function;
-use sir_types::NodeId;
+use sir_types::{NodeId, Type};
 
 use crate::concepts::SemanticConcept;
+use crate::cost::CostDatabase;
+use crate::cost_deriver::CostDeriver;
 use crate::region::{Region, RegionId, RecognitionExplanation};
 use crate::structure::StructuralDatabase;
 
@@ -164,6 +166,7 @@ impl SemanticDatabase {
 pub struct SemanticEngine {
     db: SemanticDatabase,
     structural_db: StructuralDatabase,
+    cost_db: CostDatabase,
 }
 
 impl SemanticEngine {
@@ -172,6 +175,7 @@ impl SemanticEngine {
         Self {
             db: SemanticDatabase::new(),
             structural_db: StructuralDatabase::new(),
+            cost_db: CostDatabase::new(),
         }
     }
 
@@ -183,6 +187,11 @@ impl SemanticEngine {
     /// Access the structural database (read-only after derivation).
     pub fn structural_database(&self) -> &StructuralDatabase {
         &self.structural_db
+    }
+
+    /// Access the cost database (read-only after derivation).
+    pub fn cost_database(&self) -> &CostDatabase {
+        &self.cost_db
     }
 
     /// Derive semantic truths from the function graph and compiler facts.
@@ -321,6 +330,76 @@ impl SemanticEngine {
             // placeholder RegionId(0) and cannot be unambiguously rekeyed.
             // This is a v0.1 limitation — structural rekeying requires exactly
             // one survivor region.
+        }
+
+        // ── Role derivation ────────────────────────────────────
+        // Populate RegionRoles on structural descriptions from
+        // recognized semantic concepts. For v0.1, this handles
+        // BooleanCollectionReduction by identifying collection,
+        // accumulator, and result nodes from the function structure.
+        self.derive_roles(func, analysis);
+
+        // ── Cost derivation ────────────────────────────────────
+        // Compute CostProfile for each region from the SIR nodes.
+        // Runs after structural recognition so all regions are known.
+        self.cost_db = CostDeriver::derive(func, &self.structural_db);
+    }
+
+    /// Derive RegionRoles on structural descriptions from recognized
+    /// semantic concepts and function structure.
+    ///
+    /// For v0.1, handles BooleanCollectionReduction:
+    /// - collection: function parameter with Array<Bool> type
+    /// - accumulator: loop carried variable with "sum" reduction kind
+    /// - result: return node of the function
+    fn derive_roles(&mut self, func: &Function, analysis: &FactDatabase) {
+        use sir_nodes::NodeKind;
+        use sir_transform::roles::RegionRoles;
+
+        for (region_id, region) in self.db.regions() {
+            if !region.contains(SemanticConcept::CardinalityReduction) {
+                continue;
+            }
+
+            // Identify collection: function parameter with Array<Bool> type
+            let mut collection: Option<NodeId> = None;
+            let mut accumulator: Option<NodeId> = None;
+            let mut result_node: Option<NodeId> = None;
+
+            for node in func.arena.iter() {
+                // Collection: Parameter node with Array<Bool> type
+                if let NodeKind::Parameter { .. } = &node.kind {
+                    if let Type::Array { element, .. } = &node.ty {
+                        if matches!(element.as_ref(), &Type::Bool) {
+                            collection = Some(node.id);
+                        }
+                    }
+                }
+                // Accumulator: loop carried variable with "sum" reduction
+                if let NodeKind::Loop { .. } = &node.kind {
+                    if let Some(loop_fact) = analysis.loops.get(&node.id) {
+                        for reduction in &loop_fact.reductions {
+                            if reduction.reduction_kind == "sum" {
+                                accumulator = Some(reduction.variable);
+                            }
+                        }
+                    }
+                }
+                // Result: return node value
+                if let NodeKind::Return { value } = &node.kind {
+                    result_node = Some(*value);
+                }
+            }
+
+            if let (Some(collection), Some(result)) = (collection, result_node) {
+                if let Some(desc) = self.structural_db.region_mut(region_id) {
+                    desc.roles = Some(RegionRoles::BooleanCollectionReduction {
+                        collection,
+                        accumulator,
+                        result,
+                    });
+                }
+            }
         }
     }
 }

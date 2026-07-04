@@ -1,0 +1,29 @@
+[package]
+name = "sir_optimizer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+sir_types = { path = "../sir_types" }
+sir_nodes = { path = "../sir_nodes" }
+sir_analysis = { path = "../sir_analysis" }
+sir_semantics = { path = "../sir_semantics" }
+sir_inference = { path = "../sir_inference" }
+sir_transform = { path = "../sir_transform" }
+sir_generation = { path = "../sir_generation" }
+sir_verification = { path = "../sir_verification" }
+sir_selection = { path = "../sir_selection" }
+sir_rewrite = { path = "../sir_rewrite" }
+
+[dev-dependencies]
+sir_builder = { path = "../sir_builder" }
+
+[[test]]
+name = "bs001_optimizer"
+path = "tests/bs001_optimizer.rs"
+
+[[test]]
+name = "optimizer_tests"
+path = "tests/optimizer_tests.rs"
