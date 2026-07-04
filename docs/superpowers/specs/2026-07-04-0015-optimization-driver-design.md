@@ -79,11 +79,15 @@ Depends on everything below it in the pipeline. No crate depends on `sir_optimiz
 
 | Crate | Change |
 |-------|--------|
-| `sir_semantics` | `SemanticDatabase` gains a `RegionCostMap` (new type `CostDatabase`) mapping `RegionId → CostProfile`. Populated by recognizers alongside structural descriptions. |
+| `sir_semantics` | New `CostDatabase` type (`cost.rs`) and `CostDeriver` component (`cost_deriver.rs`). `SemanticEngine` gains a `cost_database()` accessor. Cost derivation runs as a dedicated step inside `derive()`, after structural recognition, populating a parallel `CostDatabase` (mapping `RegionId → CostProfile`). |
 | `sir_optimizer` | New crate |
 | All other crates | No changes |
 
-`CostProfile` already exists in `sir_transform` (added in Phase 0014). The semantic recognizer that identifies a region's structure also populates its cost in a separate `CostDatabase` — the boolean collection recognizer already knows it's looking at a `bool[64]` traversal loop and can count the operations as part of structural recognition. `StructuralDescription` itself is unchanged (freeze-compliant). The optimizer reads `original_cost` from `semantics.cost_database()` — it never walks SIR.
+**Design rationale:** `CostDatabase` is a parallel database to `StructuralDatabase` — not embedded in `StructuralDescription`. Cost is not structure. Separating them keeps `StructuralDescription` freeze-compliant and enables future target-specific cost models (x86 vs ARM vs CUDA) against the same structural descriptions.
+
+**Cost derivation** lives in a dedicated `CostDeriver` component (not inline in `SemanticEngine`), preserving the engine's role as a phase orchestrator. For v0.1, `critical_path_depth` is computed as maximum expression depth over the region subgraph — a local recursive computation. No dependency on `sir_analysis::graph` algorithms. This can be replaced with a proper latency model later.
+
+**The optimizer never walks SIR.** It reads `original_cost` from `semantics.cost_database()` — all knowledge derivation stays in the semantics layer.
 
 ## Core Types
 
@@ -253,10 +257,11 @@ optimize_iteration(function, n):
     analysis = AnalysisManager::new()
     analysis.run_all(function)
 
-    // 2. Semantics
+    // 2. Semantics (includes cost derivation)
     semantics = SemanticEngine::new()
     semantics.derive(function, analysis.database())
-    // StructuralDescription now carries original_cost: CostProfile
+    // derive() runs: recognize semantics → recognize structure → derive costs
+    // Costs available via semantics.cost_database()
 
     // 3. Inference
     inference = InferenceEngine::new()
@@ -283,29 +288,25 @@ optimize_iteration(function, n):
     if proven.is_empty():
         return converged(function, NoProof)
 
-    // 6. Selection (per region)
+    // 6. Selection (selector owns region grouping)
     selector = Selector::new(self.cost_model.as_ref())
     cost_db = semantics.cost_database()
-    for each region with proven candidates:
-        original_cost = cost_db.for_region(region)
-        result = selector.select(region, &proven, &original_cost)
-        if result.chosen:
-            selected.push(result.chosen)
+    selection = selector.select(&proven, cost_db)
 
-    if no selection:
+    if selection.chosen.is_empty():
         return converged(function, NoSelection)
 
     // 7. Rewrite (only selected winners)
     engine = RewriteEngine::new(recipe_registry)
     current = function
-    for each selected:
+    for each selected in selection.chosen:
         rewrite_result = engine.rewrite(current, candidate, proof, structural_db)
         current = rewrite_result.rewritten
 
     return continued(current, RewriteApplied, record)
 ```
 
-The optimizer never walks SIR nodes. The `original_cost` comes from `semantics.cost_database()`, populated by the semantic recognizer. Context-to-candidate associations come from the obligation database. The optimizer purely moves artifacts between stages.
+The optimizer never walks SIR nodes. The `original_cost` comes from `semantics.cost_database()`, populated by the `CostDeriver` component within `SemanticEngine::derive()`. Context-to-candidate associations come from the obligation database. The optimizer purely moves artifacts between stages.
 
 **v0.1 limitation:** Sequential rewrites within a single iteration are applied to a mutating graph. If two selected rewrites target overlapping regions, the second rewrite's structural description and proof were computed against the original graph and may reference stale `NodeId`s. For v0.1 with a single transformation family and one region per function, this is not triggered. A future phase should either batch non-overlapping rewrites or re-verify after each mutation.
 
