@@ -296,19 +296,18 @@ optimize_iteration(function, n):
     if selection.chosen.is_empty():
         return converged(function, NoSelection)
 
-    // 7. Rewrite (only selected winners)
+    // 7. Rewrite (exactly one per iteration)
     engine = RewriteEngine::new(recipe_registry)
-    current = function
-    for each selected in selection.chosen:
-        rewrite_result = engine.rewrite(current, candidate, proof, structural_db)
-        current = rewrite_result.rewritten
+    best = selection.chosen.first()  // highest score after selection
+    rewrite_result = engine.rewrite(function, best.candidate, best.proof, structural_db)
+    current = rewrite_result.rewritten
 
     return continued(current, RewriteApplied, record)
 ```
 
 The optimizer never walks SIR nodes. The `original_cost` comes from `semantics.cost_database()`, populated by the `CostDeriver` component within `SemanticEngine::derive()`. Context-to-candidate associations come from the obligation database. The optimizer purely moves artifacts between stages.
 
-**v0.1 limitation:** Sequential rewrites within a single iteration are applied to a mutating graph. If two selected rewrites target overlapping regions, the second rewrite's structural description and proof were computed against the original graph and may reference stale `NodeId`s. For v0.1 with a single transformation family and one region per function, this is not triggered. A future phase should either batch non-overlapping rewrites or re-verify after each mutation.
+**v0.1 design:** Exactly one rewrite is applied per iteration — the highest-scoring candidate. Multiple rewrites are sequenced across iterations by the fixed-point loop. This eliminates overlapping-rewrite concerns entirely. A future phase may introduce batch application of non-overlapping rewrites for faster convergence.
 
 ## Invariants
 
