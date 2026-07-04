@@ -79,11 +79,11 @@ Depends on everything below it in the pipeline. No crate depends on `sir_optimiz
 
 | Crate | Change |
 |-------|--------|
-| `sir_semantics` | `StructuralDescription` gains `original_cost: CostProfile` |
+| `sir_semantics` | `SemanticDatabase` gains a `RegionCostMap` (new type `CostDatabase`) mapping `RegionId → CostProfile`. Populated by recognizers alongside structural descriptions. |
 | `sir_optimizer` | New crate |
 | All other crates | No changes |
 
-`CostProfile` already exists in `sir_transform` (added in Phase 0014). The semantic recognizer that identifies a region's structure also populates its cost — the boolean collection recognizer already knows it's looking at a `bool[64]` traversal loop and can count the operations as part of structural recognition. The optimizer never walks SIR.
+`CostProfile` already exists in `sir_transform` (added in Phase 0014). The semantic recognizer that identifies a region's structure also populates its cost in a separate `CostDatabase` — the boolean collection recognizer already knows it's looking at a `bool[64]` traversal loop and can count the operations as part of structural recognition. `StructuralDescription` itself is unchanged (freeze-compliant). The optimizer reads `original_cost` from `semantics.cost_database()` — it never walks SIR.
 
 ## Core Types
 
@@ -204,7 +204,9 @@ pub enum IterationOutcome {
     RewriteApplied,
     /// Generation produced no candidates.
     NoCandidate,
-    /// Candidates existed but none were selected.
+    /// Candidates were generated but none could be proven equivalent.
+    NoProof,
+    /// Candidates were proven but none were selected (all had total <= 0).
     NoSelection,
 }
 ```
@@ -215,9 +217,11 @@ Statistics are always collected — no configuration flag. The overhead is negli
 
 ```text
 current = input_function
+total_rewrites = 0
 
 for iteration in 1..=max_iterations:
     result = optimize_iteration(current, iteration)
+    total_rewrites += result.record.rewrites_applied
 
     if result.converged:
         return OptimizationResult {
@@ -226,7 +230,7 @@ for iteration in 1..=max_iterations:
             ...
         }
 
-    if total_rewrites >= max_total_rewrites:
+    if max_total_rewrites is set and total_rewrites >= max_total_rewrites:
         return OptimizationResult {
             termination: IterationLimitReached,
             ...
@@ -267,20 +271,23 @@ optimize_iteration(function, n):
 
     // 5. Verification
     verifier = Verifier::new()
-    obligations = verifier.build_obligations(candidates, contexts)
+    context_db = inference.context_database()
+    obligations = verifier.build_obligations(candidates, context_db)
     proven = []
     for each obligation:
+        context = context_db.for_region(obligation.region).first()
         result = verifier.verify(obligation, context)
         if Proven(proof):
             proven.push(VerifiedCandidate { candidate, proof })
 
     if proven.is_empty():
-        return converged(function, NoCandidate)
+        return converged(function, NoProof)
 
     // 6. Selection (per region)
-    selector = Selector::new(DefaultCostModel)
+    selector = Selector::new(self.cost_model.as_ref())
+    cost_db = semantics.cost_database()
     for each region with proven candidates:
-        original_cost = structural_db.region(region).original_cost
+        original_cost = cost_db.for_region(region)
         result = selector.select(region, &proven, &original_cost)
         if result.chosen:
             selected.push(result.chosen)
@@ -298,7 +305,9 @@ optimize_iteration(function, n):
     return continued(current, RewriteApplied, record)
 ```
 
-The optimizer never walks SIR nodes. The `original_cost` comes from `StructuralDescription`, populated by the semantic recognizer. Context-to-candidate associations come from the obligation database. The optimizer purely moves artifacts between stages.
+The optimizer never walks SIR nodes. The `original_cost` comes from `semantics.cost_database()`, populated by the semantic recognizer. Context-to-candidate associations come from the obligation database. The optimizer purely moves artifacts between stages.
+
+**v0.1 limitation:** Sequential rewrites within a single iteration are applied to a mutating graph. If two selected rewrites target overlapping regions, the second rewrite's structural description and proof were computed against the original graph and may reference stale `NodeId`s. For v0.1 with a single transformation family and one region per function, this is not triggered. A future phase should either batch non-overlapping rewrites or re-verify after each mutation.
 
 ## Invariants
 
@@ -334,7 +343,8 @@ This is stronger than "the optimizer converges." It specifies *why* it converges
 | 8 | `iteration_monotonicity` | Rewrite count never increases after converging |
 | 9 | `database_freshness` | Every iteration constructs fresh stages |
 | 10 | `no_candidate_termination` | Iteration with zero generated candidates → `NoCandidate` outcome |
-| 11 | `no_selection_termination` | Iteration with candidates but none selected → `NoSelection` outcome |
+| 11 | `no_proof_termination` | Iteration with candidates but none proven → `NoProof` outcome |
+| 12 | `no_selection_termination` | Iteration with proven candidates but none selected → `NoSelection` outcome |
 
 ## BS001 Acceptance Benchmark
 
