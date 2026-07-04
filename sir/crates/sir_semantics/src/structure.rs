@@ -66,6 +66,11 @@ impl StructuralDatabase {
         self.descriptions.get(&id)
     }
 
+    /// Get a mutable reference to a structural description.
+    pub fn region_mut(&mut self, id: RegionId) -> Option<&mut StructuralDescription> {
+        self.descriptions.get_mut(&id)
+    }
+
     pub fn regions(&self) -> impl Iterator<Item = (RegionId, &StructuralDescription)> {
         self.descriptions.iter().map(|(&id, desc)| (id, desc))
     }
