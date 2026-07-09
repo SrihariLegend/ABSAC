@@ -28,10 +28,11 @@ The downstream translation, verification, and transformation execution layers ar
 
 | Crate | Status | Active Work Areas / Allowed changes |
 |-------|--------|-------------------------------------|
-| `sir_generation` | In Development / Frozen Interface | New generator strategies, refining candidate generation |
-| `sir_verification` | In Development | Equivalence proof engine (exhaustive and symbolic backends) |
+| `sir_generation` | Complete | Generators and candidate plans |
+| `sir_verification` | Complete | Equivalence proof engine (exhaustive and symbolic backends) |
 | `sir_selection` | Complete | Cost model, deterministic selector — frozen |
-| `sir_rewrite` | In Development | AST/graph rewrite machinery, verified mutations and patch generation |
+| `sir_rewrite` | Complete | AST/graph rewrite machinery, verified mutations and patch generation |
+| `sir_optimizer` | Complete | Fixed-point optimization driver |
 
 ### Implemented Capabilities
 
@@ -44,7 +45,7 @@ The downstream translation, verification, and transformation execution layers ar
 | 5 | Equivalence verification (Proofs) | Complete (`sir_verification`) |
 | 6 | Verified rewriting (Mutations) | Complete (`sir_rewrite`) |
 | 7 | Cost model + Selection | Complete (`sir_selection`) |
-| 8 | End-to-end optimizer | Not started |
+| 8 | End-to-end optimizer | Complete (`sir_optimizer`) |
 
 ### Knowledge Pipeline
 
@@ -125,6 +126,9 @@ sir_types                 — no internal deps (foundational)
         │           │     │     │
         │           │     │     ▼
         │           │     └────► sir_rewrite — depends on sir_types, sir_nodes, sir_transform, sir_generation, sir_verification, sir_verify, sir_semantics
+        │           │                  │
+        │           │                  ▼
+        │           │            sir_optimizer — depends on all crates above (fixed-point optimization driver)
         │
         └─► sir_tests     — depends on sir_types, sir_nodes, sir_builder, sir_printer, sir_verify (integration tests only)
 ```

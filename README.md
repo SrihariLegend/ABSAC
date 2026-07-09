@@ -19,9 +19,8 @@ Research focus (v0.1):
 - Boolean collections
 - Bitsets
 - Reduction operators: cardinality (`+`), disjunction (`||`), conjunction (`&&`), exclusive (`^`)
-- Popcount-based transformations (fully implemented for BS001)
-
-Additional transformation families (disjunctive, conjunctive, exclusive) are semantically recognized but await verification and rewrite recipes.
+- Popcount-based transformations (BS001)
+- Disjunctive, conjunctive, and exclusive reductions (BS002, BS003, BS004)
 
 ## Knowledge Pipeline
 
@@ -83,16 +82,16 @@ A traditional syntax-directed optimizer primarily sees: loop, load, branch, add.
 | 5 | Equivalence verification (Proofs) | Complete |
 | 6 | Verified rewriting (Mutations) | Complete |
 | 7 | Cost model + Selection | Complete |
-| 8 | End-to-end optimizer | In progress |
+| 8 | End-to-end optimizer | Complete |
 
 ### Benchmark Coverage
 
 | Benchmark | Pattern | Operator | Concept | Rewrite |
 |-----------|---------|----------|---------|---------|
 | BS001 | `count += board[i]` | `+` | CardinalityReduction | Popcount (complete) |
-| BS002 | `found \|\|= board[i]` | `\|\|` | DisjunctiveReduction | Recognized, awaiting recipe |
-| BS003 | `all &&= board[i]` | `&&` | ConjunctiveReduction | Recognized, awaiting recipe |
-| BS004 | `parity ^= board[i]` | `!=` | ExclusiveReduction | Recognized, awaiting recipe |
+| BS002 | `found \|\|= board[i]` | `\|\|` | DisjunctiveReduction | Complete |
+| BS003 | `all &&= board[i]` | `&&` | ConjunctiveReduction | Complete |
+| BS004 | `parity ^= board[i]` | `!=` | ExclusiveReduction | Complete |
 
 ## Quick Start
 
