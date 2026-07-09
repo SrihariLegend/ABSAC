@@ -136,7 +136,24 @@ impl SubgraphBuilder {
         self.alloc_node(NodeKind::Ne { lhs: NodeId::new(lhs.as_u64()), rhs: NodeId::new(rhs.as_u64()) }, Type::Bool, span)
     }
 
-    // ── Pack ────────────────────────────────────────────────────
+    // ── Pack & VectorCmp ──────────────────────────────────────────
+
+    pub fn array_cmp_mask(&mut self, array: LocalNodeId, scalar: LocalNodeId, op: sir_nodes::CmpOperator, span: Span) -> LocalNodeId {
+        let width = match self.get_type(array) {
+            Some(Type::Array { length, .. }) => length,
+            Some(Type::Slice { .. }) => 0,
+            _ => 64,
+        };
+        self.alloc_node(
+            NodeKind::ArrayCmpMask {
+                array: NodeId::new(array.as_u64()),
+                scalar: NodeId::new(scalar.as_u64()),
+                op,
+            },
+            Type::BitVector { width },
+            span,
+        )
+    }
 
     pub fn pack(&mut self, array: LocalNodeId, span: Span) -> LocalNodeId {
         let width = match self.get_type(array) {
