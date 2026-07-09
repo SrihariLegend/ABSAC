@@ -299,20 +299,18 @@ impl SemanticEngine {
         // Structural recognizers
         use crate::recognizers::{boolean_array, bitmask};
 
-        let mut next_structural_id = 0;
-
         let bool_array_recs = boolean_array::recognize_boolean_array(func, analysis);
-        for (_region_id, mut desc) in bool_array_recs {
-            desc.region = RegionId::new(next_structural_id);
-            next_structural_id += 1;
-            self.structural_db.add_description(desc);
+        for (_region_id, desc) in bool_array_recs {
+            if self.structural_db.region(desc.region).is_none() {
+                self.structural_db.add_description(desc);
+            }
         }
 
         let bitmask_recs = bitmask::recognize_bitmask(func, analysis);
-        for (_region_id, mut desc) in bitmask_recs {
-            desc.region = RegionId::new(next_structural_id);
-            next_structural_id += 1;
-            self.structural_db.add_description(desc);
+        for (_region_id, desc) in bitmask_recs {
+            if self.structural_db.region(desc.region).is_none() {
+                self.structural_db.add_description(desc);
+            }
         }
 
         // Structural recognizers use hardcoded placeholder region IDs.
