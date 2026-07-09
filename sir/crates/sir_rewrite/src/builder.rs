@@ -109,7 +109,7 @@ impl RewriteBuilder {
             }
         }
 
-        for node in rewritten.arena.iter() { println!("DEBUG: node {} is {:?} with type {:?}", node.id.as_u64(), node.kind, node.ty); } Ok(rewritten)
+        Ok(rewritten)
     }
 
     /// Build a mapping from LocalNodeId to fresh global NodeId.
