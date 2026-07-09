@@ -133,7 +133,7 @@ impl Verifier {
             sir_transform::ids::DefinitionId::new(0),
         )));
         registry.register(Box::new(AnyDefinition::new(
-            sir_transform::ids::DefinitionId::new(4), // Match the ImplementationStrategy definition IDs? Wait, strategies use DefinitionId::new(0..3). Let's see what bitset generators use.
+            sir_transform::ids::DefinitionId::new(4), // Any (BS002)
         )));
         registry.register(Box::new(AllDefinition::new(
             sir_transform::ids::DefinitionId::new(5),
