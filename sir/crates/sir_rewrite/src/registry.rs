@@ -3,6 +3,7 @@ use crate::recipes::popcount::PopcountRecipe;
 use crate::recipes::any::AnyRecipe;
 use crate::recipes::all::AllRecipe;
 use crate::recipes::parity::ParityRecipe;
+use crate::recipes::modulo_and::BitwiseAndModuloRecipe;
 use sir_transform::ids::DefinitionId;
 
 /// Create a default recipe registry populated with all known recipes.
@@ -20,6 +21,9 @@ pub fn default_registry() -> RecipeRegistry {
     
     // ID 6: Parity
     registry.register(Box::new(ParityRecipe::new(DefinitionId::new(6))));
+
+    // ID 100: BitwiseAndModulo
+    registry.register(Box::new(BitwiseAndModuloRecipe::new(DefinitionId::new(100))));
     
     registry
 }

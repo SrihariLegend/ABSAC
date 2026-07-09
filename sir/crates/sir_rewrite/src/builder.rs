@@ -457,6 +457,17 @@ impl RewriteBuilder {
                     }
                     nodes.insert(*result);
                 }
+                sir_transform::roles::RegionRoles::ArithmeticOperation {
+                    operator_node,
+                    lhs,
+                    rhs,
+                    result,
+                } => {
+                    nodes.insert(*operator_node);
+                    nodes.insert(*lhs);
+                    nodes.insert(*rhs);
+                    nodes.insert(*result);
+                }
             }
         }
         nodes

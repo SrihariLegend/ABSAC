@@ -1,6 +1,6 @@
 use sir_analysis::facts::FactDatabase;
 use sir_nodes::Function;
-use sir_types::NodeId;
+use sir_types::{Effects, NodeId};
 
 use crate::concepts::SemanticConcept;
 use crate::region::RecognitionExplanation;
@@ -11,6 +11,7 @@ use crate::region::RecognitionExplanation;
 /// satisfy a condition. We detect:
 /// - A loop with a reduction variable of kind "sum"
 /// - The reduction combines a boolean condition (0 or 1) into a counter
+/// - The loop has no observable side effects (IO, WRITE_MEMORY, etc.)
 ///
 /// Returns (concept, explanation, related_node_ids) tuples.
 pub fn recognize_cardinality_reduction(
@@ -21,6 +22,12 @@ pub fn recognize_cardinality_reduction(
 
     for node in func.arena.iter() {
         if let sir_nodes::NodeKind::Loop { .. } = &node.kind {
+            // Reject loops with side effects (IO, memory writes, allocations)
+            let allowed_effects = Effects::READ_MEMORY;
+            if !(node.effects - allowed_effects).is_empty() {
+                continue;
+            }
+
             if let Some(loop_fact) = analysis.loops.get(&node.id) {
                 // Sum reductions include both the loop counter (i = i + 1, always present)
                 // and the actual counting reduction (count = count + inc).

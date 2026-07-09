@@ -42,6 +42,8 @@ pub enum ImplementationStrategy {
     All,
     /// Check if odd number of bits are set: popcount(bb) & 1
     Parity,
+    /// Bitwise AND operation (for modulo).
+    BitwiseAnd,
 }
 
 impl fmt::Display for ImplementationStrategy {
@@ -54,6 +56,7 @@ impl fmt::Display for ImplementationStrategy {
             ImplementationStrategy::Any => write!(f, "Any"),
             ImplementationStrategy::All => write!(f, "All"),
             ImplementationStrategy::Parity => write!(f, "Parity"),
+            ImplementationStrategy::BitwiseAnd => write!(f, "BitwiseAnd"),
         }
     }
 }
@@ -71,6 +74,8 @@ pub enum CandidateEffect {
     CountingStrategyChange,
     /// How reduction is performed changes (e.g., loop accumulator → bitwise math)
     ReductionStrategyChange,
+    /// Replaces an arithmetic operation with a bitwise equivalent.
+    InstructionSubstitution,
 }
 
 /// Human-readable explanation of a candidate plan.

@@ -206,6 +206,7 @@ impl SemanticEngine {
         use crate::recognizers::{
             boolean_collection, cardinality_reduction, finite_collection,
             membership_traversal, disjunctive_reduction, conjunctive_reduction, exclusive_reduction,
+            modulo_power_of_two,
         };
 
         let bc_recs = boolean_collection::recognize_boolean_collection(func, analysis);
@@ -290,6 +291,18 @@ impl SemanticEngine {
             self.db.add_region(region);
         }
 
+        let modulo_recs =
+            modulo_power_of_two::recognize_modulo_power_of_two(func, analysis);
+        for (_concept, explanation, node_ids) in modulo_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation);
+            self.db.add_region(region);
+        }
+
         // Merge overlapping regions so that related concepts
         // (e.g., all concepts for the same loop/array computation)
         // end up in a single region. This enables combined evidence
@@ -297,10 +310,17 @@ impl SemanticEngine {
         self.db.merge_overlapping_regions();
 
         // Structural recognizers
-        use crate::recognizers::{boolean_array, bitmask};
+        use crate::recognizers::{boolean_array, bitmask, modulo_power_of_two as struct_modulo};
 
         let bool_array_recs = boolean_array::recognize_boolean_array(func, analysis);
         for (_region_id, desc) in bool_array_recs {
+            if self.structural_db.region(desc.region).is_none() {
+                self.structural_db.add_description(desc);
+            }
+        }
+
+        let mod_op_recs = struct_modulo::recognize_modulo_operator(func, analysis);
+        for (_region_id, desc) in mod_op_recs {
             if self.structural_db.region(desc.region).is_none() {
                 self.structural_db.add_description(desc);
             }
@@ -366,47 +386,63 @@ impl SemanticEngine {
                 || region.contains(SemanticConcept::ConjunctiveReduction)
                 || region.contains(SemanticConcept::ExclusiveReduction);
 
-            if !is_reduction {
-                continue;
-            }
+            if is_reduction {
+                // Identify collection: function parameter with Array<Bool> type
+                let mut collection: Option<NodeId> = None;
+                let mut accumulator: Option<NodeId> = None;
+                let mut result_node: Option<NodeId> = None;
 
-            // Identify collection: function parameter with Array<Bool> type
-            let mut collection: Option<NodeId> = None;
-            let mut accumulator: Option<NodeId> = None;
-            let mut result_node: Option<NodeId> = None;
-
-            for node in func.arena.iter() {
-                // Collection: Parameter node with Array<Bool> type
-                if let NodeKind::Parameter { .. } = &node.kind {
-                    if let Type::Array { element, .. } = &node.ty {
-                        if matches!(element.as_ref(), &Type::Bool) {
-                            collection = Some(node.id);
-                        }
-                    }
-                }
-                // Accumulator: loop carried variable with a supported reduction
-                if let NodeKind::Loop { .. } = &node.kind {
-                    if let Some(loop_fact) = analysis.loops.get(&node.id) {
-                        for reduction in &loop_fact.reductions {
-                            if matches!(reduction.reduction_kind.as_str(), "sum" | "bitwise_or" | "bitwise_and" | "bitwise_xor") {
-                                accumulator = Some(reduction.variable);
+                for node in func.arena.iter() {
+                    // Collection: Parameter node with Array<Bool> type
+                    if let NodeKind::Parameter { .. } = &node.kind {
+                        if let Type::Array { element, .. } = &node.ty {
+                            if matches!(element.as_ref(), &Type::Bool) {
+                                collection = Some(node.id);
                             }
                         }
                     }
+                    // Accumulator: loop carried variable with a supported reduction
+                    if let NodeKind::Loop { .. } = &node.kind {
+                        if let Some(loop_fact) = analysis.loops.get(&node.id) {
+                            for reduction in &loop_fact.reductions {
+                                if matches!(reduction.reduction_kind.as_str(), "sum" | "bitwise_or" | "bitwise_and" | "bitwise_xor") {
+                                    accumulator = Some(reduction.variable);
+                                }
+                            }
+                        }
+                    }
+                    // Result: return node value
+                    if let NodeKind::Return { value } = &node.kind {
+                        result_node = Some(*value);
+                    }
                 }
-                // Result: return node value
-                if let NodeKind::Return { value } = &node.kind {
-                    result_node = Some(*value);
-                }
-            }
 
-            if let (Some(collection), Some(result)) = (collection, result_node) {
-                if let Some(desc) = self.structural_db.region_mut(region_id) {
-                    desc.roles = Some(RegionRoles::BooleanCollectionReduction {
-                        collection,
-                        accumulator,
-                        result,
-                    });
+                if let (Some(collection), Some(result)) = (collection, result_node) {
+                    if let Some(desc) = self.structural_db.region_mut(region_id) {
+                        desc.roles = Some(RegionRoles::BooleanCollectionReduction {
+                            collection,
+                            accumulator,
+                            result,
+                        });
+                    }
+                }
+            } else if region.contains(SemanticConcept::ModuloPowerOfTwo) {
+                // Find Rem node
+                let mut op_info = None;
+                for node in func.arena.iter() {
+                    if let NodeKind::Rem { lhs, rhs } = &node.kind {
+                        op_info = Some((node.id, *lhs, *rhs));
+                    }
+                }
+                if let Some((rem, lhs, rhs)) = op_info {
+                    if let Some(desc) = self.structural_db.region_mut(region_id) {
+                        desc.roles = Some(RegionRoles::ArithmeticOperation {
+                            operator_node: rem,
+                            lhs,
+                            rhs,
+                            result: rem,
+                        });
+                    }
                 }
             }
         }
