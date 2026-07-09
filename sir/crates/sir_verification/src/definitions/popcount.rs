@@ -1,7 +1,7 @@
 //! Popcount — transformation definition for popcount equivalence.
 
+use sir_generation::candidate::Candidate;
 use sir_transform::assumptions::Assumption;
-use sir_transform::context::TransformationContext;
 use sir_transform::ids::{DefinitionId, ObligationId, VariableId};
 use sir_transform::representation::Representation;
 
@@ -37,17 +37,17 @@ impl TransformationDefinition for PopcountDefinition {
         "Popcount"
     }
 
-    fn applicability(&self, context: &TransformationContext) -> bool {
-        // Applicable when the context targets BitSet representation
-        context.representation == Representation::BitSet
+    fn applicability(&self, candidate: &Candidate) -> bool {
+        // Applicable when the candidate targets BitSet representation
+        candidate.representation == Representation::BitSet
     }
 
-    fn obligation(&self, context: &TransformationContext) -> ProofObligation {
+    fn obligation(&self, candidate: &Candidate) -> ProofObligation {
         // Synthesize the variable from the region
         let board_var = VariableId::new(0);
 
         // Determine array length from constraints
-        let length = context
+        let length = candidate
             .constraints
             .iter()
             .find_map(|c| match c {
@@ -94,7 +94,7 @@ impl TransformationDefinition for PopcountDefinition {
 
         ProofObligation {
             id: ObligationId::new(0), // assigned by database on insert
-            region: context.region,
+            region: candidate.region,
             candidate: sir_generation::candidate::CandidateId::new(0), // assigned by caller
             definition: self.id,
             theorem,
@@ -111,9 +111,11 @@ mod tests {
     use sir_transform::constraints::Constraint;
     use sir_transform::structures::SourceStructure;
     use sir_types::RegionId;
+    use sir_generation::candidate::{CandidateEffect, CandidateExplanation, CandidateId, ImplementationStrategy};
+    use sir_transform::context::ContextId;
     use std::collections::HashSet;
 
-    fn make_context() -> TransformationContext {
+    fn make_candidate() -> Candidate {
         let mut constraints = HashSet::new();
         constraints.insert(Constraint::FixedLength(64));
         constraints.insert(Constraint::ReadOnly);
@@ -122,27 +124,42 @@ mod tests {
         let mut assumptions = HashSet::new();
         assumptions.insert(Assumption::EquivalentCardinality);
 
-        TransformationContext::new(
-            RegionId::new(0),
-            Representation::BitSet,
-            SourceStructure::BooleanArray { length: 64 },
+        Candidate {
+            id: CandidateId::new(0),
+            region: RegionId::new(0),
+            context_id: ContextId::new(0),
+            definition_id: DefinitionId::new(0),
+            strategy: ImplementationStrategy::Popcount,
+            explanation: CandidateExplanation {
+                source_concepts: vec![],
+                rationale: "",
+            },
+            effects: vec![],
+            expected_cost: sir_types::CostProfile {
+                instruction_count: 0,
+                select_count: 0,
+                memory_accesses: 0,
+                critical_path_depth: 0,
+            },
+            representation: Representation::BitSet,
+            source_structure: SourceStructure::BooleanArray { length: 64 },
             constraints,
             assumptions,
-        )
+        }
     }
 
     #[test]
     fn popcount_definition_is_applicable_to_bitset() {
         let def = PopcountDefinition::new(DefinitionId::new(0));
-        let ctx = make_context();
-        assert!(def.applicability(&ctx));
+        let cand = make_candidate();
+        assert!(def.applicability(&cand));
     }
 
     #[test]
     fn popcount_definition_obligation_has_correct_theorem() {
         let def = PopcountDefinition::new(DefinitionId::new(0));
-        let ctx = make_context();
-        let obl = def.obligation(&ctx);
+        let cand = make_candidate();
+        let obl = def.obligation(&cand);
 
         // LHS: Count(Filter(BooleanArray(v), True))
         match &obl.theorem.lhs {
@@ -179,8 +196,8 @@ mod tests {
     #[test]
     fn popcount_definition_obligation_has_required_assumptions() {
         let def = PopcountDefinition::new(DefinitionId::new(0));
-        let ctx = make_context();
-        let obl = def.obligation(&ctx);
+        let cand = make_candidate();
+        let obl = def.obligation(&cand);
 
         assert!(obl.assumptions.contains(&Assumption::EquivalentCardinality));
         assert!(obl.assumptions.contains(&Assumption::PreservesIterationOrder));
@@ -190,8 +207,8 @@ mod tests {
     #[test]
     fn popcount_definition_obligation_has_domain() {
         let def = PopcountDefinition::new(DefinitionId::new(0));
-        let ctx = make_context();
-        let obl = def.obligation(&ctx);
+        let cand = make_candidate();
+        let obl = def.obligation(&cand);
 
         assert!(obl.domain.is_some());
         let domain = obl.domain.unwrap();
@@ -204,8 +221,8 @@ mod tests {
     #[test]
     fn popcount_definition_obligation_has_correct_definition_id() {
         let def = PopcountDefinition::new(DefinitionId::new(42));
-        let ctx = make_context();
-        let obl = def.obligation(&ctx);
+        let cand = make_candidate();
+        let obl = def.obligation(&cand);
 
         assert_eq!(obl.definition, DefinitionId::new(42));
     }

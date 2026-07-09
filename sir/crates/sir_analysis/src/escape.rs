@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use sir_nodes::{Function, NodeKind};
 use sir_types::NodeId;
 
-use crate::facts::{EscapeFact, EscapeKind, FactDatabase};
+use crate::facts::{EscapeFact, EscapeKind};
 use crate::graph;
 
 /// Run escape analysis on a function.
@@ -88,27 +88,6 @@ pub fn run_escape(func: &Function) -> HashMap<NodeId, EscapeFact> {
     }
 
     facts
-}
-
-/// Determine the intrinsic escape kind of a node (ignoring its users).
-fn intrinsic_escape_kind(node: &sir_nodes::Node) -> EscapeKind {
-    match &node.kind {
-        // Return node means its value escapes.
-        NodeKind::Return { .. } => EscapeKind::Returned,
-
-        // Store node itself doesn't intrinsically escape — its value operand
-        // is marked explicitly in explicit_escape_map.
-        NodeKind::Store { .. } => EscapeKind::NeverEscapes,
-
-        // Values passed to external calls escape.
-        NodeKind::ExternalCall { .. } => EscapeKind::PassedExternally,
-
-        // Values carried in loops may escape (conservative).
-        NodeKind::Loop { .. } => EscapeKind::Captured,
-
-        // All other nodes are locally contained by default.
-        _ => EscapeKind::NeverEscapes,
-    }
 }
 
 /// Merge two escape kinds, taking the more severe one.

@@ -134,6 +134,30 @@ impl Normalizer {
                 let normalized = self.normalize_recursive(inner, steps, depth + 1);
                 SemanticExpression::Popcount(Box::new(normalized))
             }
+            SemanticExpression::Exists(inner) => {
+                let normalized = self.normalize_recursive(inner, steps, depth + 1);
+                SemanticExpression::Exists(Box::new(normalized))
+            }
+            SemanticExpression::All(inner) => {
+                let normalized = self.normalize_recursive(inner, steps, depth + 1);
+                SemanticExpression::All(Box::new(normalized))
+            }
+            SemanticExpression::Parity(inner) => {
+                let normalized = self.normalize_recursive(inner, steps, depth + 1);
+                SemanticExpression::Parity(Box::new(normalized))
+            }
+            SemanticExpression::NotEqualZero(inner) => {
+                let normalized = self.normalize_recursive(inner, steps, depth + 1);
+                SemanticExpression::NotEqualZero(Box::new(normalized))
+            }
+            SemanticExpression::EqualFullMask(inner) => {
+                let normalized = self.normalize_recursive(inner, steps, depth + 1);
+                SemanticExpression::EqualFullMask(Box::new(normalized))
+            }
+            SemanticExpression::BitwiseAndOne(inner) => {
+                let normalized = self.normalize_recursive(inner, steps, depth + 1);
+                SemanticExpression::BitwiseAndOne(Box::new(normalized))
+            }
 
             // Filter — normalize input (predicate has no children to normalize in v0.1)
             SemanticExpression::Filter { input, predicate } => {

@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use sir_nodes::Function;
 use sir_types::NodeId;
 
-use crate::facts::{FactDatabase, UseDefFact};
+use crate::facts::UseDefFact;
 use crate::graph;
 
 /// Run Use-Def analysis on a function.

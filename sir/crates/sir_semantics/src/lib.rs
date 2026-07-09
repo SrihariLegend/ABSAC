@@ -7,6 +7,8 @@
 //!   Facts (sir_analysis) → Truths (sir_semantics) → Beliefs (sir_inference)
 
 pub mod concepts;
+pub mod cost;
+pub mod cost_deriver;
 pub mod region;
 pub mod semantics;
 pub mod recognizers;

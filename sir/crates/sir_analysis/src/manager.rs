@@ -315,7 +315,7 @@ impl Analysis for ValueNumberingAnalysis {
 mod tests {
     use super::*;
     use sir_builder::Builder;
-    use sir_types::{ConstantData, Span, Type};
+    use sir_types::{Span, Type};
 
     fn i32_type() -> Type { Type::i32() }
     fn unknown_span() -> Span { Span::unknown() }

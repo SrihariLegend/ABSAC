@@ -106,6 +106,90 @@ impl Interpreter {
                     }),
                 }
             }
+
+            SemanticExpression::Exists(inner) => {
+                let val = self.evaluate(inner, env)?;
+                match val {
+                    Value::BooleanArray(bits) => {
+                        Ok(Value::Bool(bits.iter().any(|b| *b)))
+                    }
+                    other => Err(InterpreterError::TypeMismatch {
+                        expected: "BooleanArray",
+                        found: other,
+                    }),
+                }
+            }
+
+            SemanticExpression::All(inner) => {
+                let val = self.evaluate(inner, env)?;
+                match val {
+                    Value::BooleanArray(bits) => {
+                        Ok(Value::Bool(bits.iter().all(|b| *b)))
+                    }
+                    other => Err(InterpreterError::TypeMismatch {
+                        expected: "BooleanArray",
+                        found: other,
+                    }),
+                }
+            }
+
+            SemanticExpression::Parity(inner) => {
+                let val = self.evaluate(inner, env)?;
+                match val {
+                    Value::BooleanArray(bits) => {
+                        let count = bits.iter().filter(|b| **b).count();
+                        Ok(Value::Bool(count % 2 == 1))
+                    }
+                    other => Err(InterpreterError::TypeMismatch {
+                        expected: "BooleanArray",
+                        found: other,
+                    }),
+                }
+            }
+
+            SemanticExpression::NotEqualZero(inner) => {
+                let val = self.evaluate(inner, env)?;
+                match val {
+                    Value::BitVector(bv) => {
+                        Ok(Value::Bool(bv.bits != 0))
+                    }
+                    other => Err(InterpreterError::TypeMismatch {
+                        expected: "BitVector",
+                        found: other,
+                    }),
+                }
+            }
+
+            SemanticExpression::EqualFullMask(inner) => {
+                let val = self.evaluate(inner, env)?;
+                match val {
+                    Value::BitVector(bv) => {
+                        let full_mask = if bv.width == 128 {
+                            u128::MAX
+                        } else {
+                            (1u128 << bv.width) - 1
+                        };
+                        Ok(Value::Bool(bv.bits == full_mask))
+                    }
+                    other => Err(InterpreterError::TypeMismatch {
+                        expected: "BitVector",
+                        found: other,
+                    }),
+                }
+            }
+
+            SemanticExpression::BitwiseAndOne(inner) => {
+                let val = self.evaluate(inner, env)?;
+                match val {
+                    Value::Integer(i) => {
+                        Ok(Value::Integer(i & 1))
+                    }
+                    other => Err(InterpreterError::TypeMismatch {
+                        expected: "Integer",
+                        found: other,
+                    }),
+                }
+            }
         }
     }
 

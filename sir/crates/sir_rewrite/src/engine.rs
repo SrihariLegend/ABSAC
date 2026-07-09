@@ -30,14 +30,13 @@ impl RewriteEngine {
     /// Pipeline:
     /// 1. Verify IDs align
     /// 2. Fetch StructuralDescription for the candidate's region
-    /// 3. Compute external users
-    /// 4. Assemble RewriteRegion
-    /// 5. Look up and invoke recipe → ReplacementPatch
-    /// 6. Assemble RewritePlan
-    /// 7. RewriteBuilder::apply() → rewritten Function
-    /// 8. Run sir_verify on rewritten function
-    /// 9. If verification fails: discard, return error
-    /// 10. Compute provenance, diff, return RewriteResult
+    /// 3. Assemble RewriteRegion
+    /// 4. Look up and invoke recipe → ReplacementPatch
+    /// 5. Assemble RewritePlan
+    /// 6. RewriteBuilder::apply() → rewritten Function
+    /// 7. Run sir_verify on rewritten function
+    /// 8. If verification fails: discard, return error
+    /// 9. Compute provenance, diff, return RewriteResult
     pub fn rewrite(
         &self,
         function: &Function,
@@ -55,13 +54,10 @@ impl RewriteEngine {
                 "no structural description for region {:?}", candidate.region
             )))?.clone();
 
-        // 3. Compute external users of the region's outputs
-        let external_users = Self::compute_external_users(function, &structural);
+        // 3. Assemble RewriteRegion
+        let rewrite_region = RewriteRegion::new(structural);
 
-        // 4. Assemble RewriteRegion
-        let rewrite_region = RewriteRegion::new(structural, external_users);
-
-        // 5. Look up recipe
+        // 4. Look up recipe
         let recipe = self
             .recipe_registry
             .lookup(candidate.definition_id)
@@ -69,21 +65,21 @@ impl RewriteEngine {
                 "no recipe for definition {}", candidate.definition_id
             )))?;
 
-        // 6. Invoke recipe → ReplacementPatch
+        // 5. Invoke recipe → ReplacementPatch
         let builder = crate::subgraph_builder::SubgraphBuilder::new();
         let patch = recipe.build_patch(&rewrite_region, builder)?;
 
-        // 7. Assemble RewritePlan
+        // 6. Assemble RewritePlan
         let plan = RewritePlan {
             region: rewrite_region,
             patch,
             proof: proof.clone(),
         };
 
-        // 8. RewriteBuilder::apply()
+        // 7. RewriteBuilder::apply()
         let rewritten = RewriteBuilder::apply(function, plan)?;
 
-        // 9. Run structural verification
+        // 8. Run structural verification
         let mut verifier = sir_verify::Verifier::new(&rewritten);
         if !verifier.verify() {
             return Err(RewriteError::StructuralVerificationFailed(
@@ -91,7 +87,7 @@ impl RewriteEngine {
             ));
         }
 
-        // 10. Compute provenance and diff
+        // 9. Compute provenance and diff
         let provenance = Self::compute_provenance(candidate);
         let diff = Self::compute_diff(function, &rewritten);
 
@@ -127,31 +123,6 @@ impl RewriteEngine {
         }
 
         Ok(())
-    }
-
-    /// Compute the set of nodes outside the region that reference region outputs.
-    fn compute_external_users(
-        function: &Function,
-        structural: &sir_semantics::structure::StructuralDescription,
-    ) -> std::collections::BTreeSet<sir_types::NodeId> {
-        let mut external = std::collections::BTreeSet::new();
-
-        // Collect region output nodes from roles
-        let output_nodes = match &structural.roles {
-            Some(sir_transform::roles::RegionRoles::BooleanCollectionReduction { result, .. }) => {
-                vec![*result]
-            }
-            None => vec![],
-        };
-
-        // Find all nodes outside the region that reference these outputs
-        for output_node in output_nodes {
-            for user in sir_analysis::graph::users(output_node, &function.arena) {
-                external.insert(user);
-            }
-        }
-
-        external
     }
 
     /// Compute provenance for the rewrite (v0.1: simple mapping).

@@ -8,7 +8,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use sir_nodes::Function;
 use sir_types::NodeId;
 
-use crate::facts::{DominanceFact, FactDatabase};
+use crate::facts::DominanceFact;
 use crate::graph;
 
 /// Run dominance analysis on a function.
@@ -165,7 +165,7 @@ fn dom_tree_descendants(
 mod tests {
     use super::*;
     use sir_builder::Builder;
-    use sir_types::{ConstantData, Span, Type};
+    use sir_types::{Span, Type};
 
     fn i32_type() -> Type { Type::i32() }
     fn unknown_span() -> Span { Span::unknown() }
