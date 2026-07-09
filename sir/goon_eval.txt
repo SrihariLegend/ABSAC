@@ -14,4 +14,4 @@ The Cost Model layer is explicitly marked as "Not started". Adding structures li
 - **Pipeline Order:** Verification → Rewrite → Cost → Selection.
 - The `Cost` layer immediately follows `Rewrite`. Therefore, it should only consume the outputs of `Rewrite` (e.g., `Mutations` or mutated graphs), not the outputs of `Verification` (`Proofs`). Passing `Proof` directly into `CostModel::evaluate` would bypass the rewrite layer. 
 - **Semantic mismatch:** A `Proof` establishes semantic equivalence, which has no bearing on the computational cost of the mutation. The cost model only needs to evaluate the performance characteristics of the transformed graph.
-ermore, a `Proof` establishes semantic equivalence—it has no bearing on execution cost, making it semantically irrelevant to the cost model.
+Furthermore, a `Proof` establishes semantic equivalence—it has no bearing on execution cost, making it semantically irrelevant to the cost model.
