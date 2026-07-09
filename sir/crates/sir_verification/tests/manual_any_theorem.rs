@@ -1,11 +1,10 @@
-use sir_transform::assumptions::Assumption;
+use sir_generation::candidate::CandidateId;
 use sir_transform::ids::{DefinitionId, ObligationId, VariableId};
 use sir_types::RegionId;
-use sir_generation::candidate::CandidateId;
 
 use sir_verification::backends::symbolic::SymbolicVerifier;
-use sir_verification::obligation::{ProofObligation, FiniteDomain, VariableSpec, VariableKind};
-use sir_verification::semantic::expression::{SemanticExpression, Predicate};
+use sir_verification::obligation::ProofObligation;
+use sir_verification::semantic::expression::SemanticExpression;
 use sir_verification::semantic::theorem::Theorem;
 
 #[test]
