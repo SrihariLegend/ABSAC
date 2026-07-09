@@ -87,7 +87,7 @@ impl SemanticDatabase {
     ///
     /// Uses a reverse-index + union-find approach: O(total_nodes) instead
     /// of the naive O(n^3) nested pairwise comparison.
-    pub(crate) fn merge_overlapping_regions(&mut self) {
+    pub(crate) fn merge_overlapping_regions(&mut self, func: &Function) {
         if self.regions.len() <= 1 {
             return;
         }
@@ -96,6 +96,12 @@ impl SemanticDatabase {
         let mut node_to_regions: HashMap<NodeId, Vec<RegionId>> = HashMap::new();
         for (&rid, region) in &self.regions {
             for &nid in &region.nodes {
+                // Do not merge based on shared Parameters or Constants
+                if let Some(node) = func.get_node(nid) {
+                    if matches!(node.kind, sir_nodes::NodeKind::Parameter { .. } | sir_nodes::NodeKind::Constant(_)) {
+                        continue;
+                    }
+                }
                 node_to_regions.entry(nid).or_default().push(rid);
             }
         }
@@ -307,54 +313,51 @@ impl SemanticEngine {
         // (e.g., all concepts for the same loop/array computation)
         // end up in a single region. This enables combined evidence
         // accumulation in the inference engine.
-        self.db.merge_overlapping_regions();
+        self.db.merge_overlapping_regions(func);
 
         // Structural recognizers
         use crate::recognizers::{boolean_array, bitmask, modulo_power_of_two as struct_modulo};
 
         let bool_array_recs = boolean_array::recognize_boolean_array(func, analysis);
         for (_region_id, desc) in bool_array_recs {
-            if self.structural_db.region(desc.region).is_none() {
-                self.structural_db.add_description(desc);
+            for (rid, region) in self.db.regions() {
+                if region.contains(SemanticConcept::BooleanCollection) {
+                    let mut new_desc = desc.clone();
+                    new_desc.region = rid;
+                    if self.structural_db.region(rid).is_none() {
+                        self.structural_db.add_description(new_desc);
+                    }
+                }
             }
         }
 
         let mod_op_recs = struct_modulo::recognize_modulo_operator(func, analysis);
         for (_region_id, desc) in mod_op_recs {
-            if self.structural_db.region(desc.region).is_none() {
-                self.structural_db.add_description(desc);
+            for (rid, region) in self.db.regions() {
+                if region.contains(SemanticConcept::ModuloPowerOfTwo) {
+                    let mut new_desc = desc.clone();
+                    new_desc.region = rid;
+                    if self.structural_db.region(rid).is_none() {
+                        self.structural_db.add_description(new_desc);
+                    }
+                }
             }
         }
 
         let bitmask_recs = bitmask::recognize_bitmask(func, analysis);
         for (_region_id, desc) in bitmask_recs {
-            if self.structural_db.region(desc.region).is_none() {
-                self.structural_db.add_description(desc);
+            for (rid, region) in self.db.regions() {
+                if region.contains(SemanticConcept::FiniteCollection) {
+                    let mut new_desc = desc.clone();
+                    new_desc.region = rid;
+                    if self.structural_db.region(rid).is_none() {
+                        self.structural_db.add_description(new_desc);
+                    }
+                }
             }
         }
 
-        // Structural recognizers use hardcoded placeholder region IDs.
-        // After semantic region merging, re-key structural descriptions
-        // to match the surviving semantic region ID so that the inference
-        // engine can look them up by the correct region ID.
-        //
-        // v0.1 limitation: structural recognizers don't track which nodes
-        // they matched — they just return RegionId(0). When there is only
-        // one surviving semantic region, we rekey all structural descriptions
-        // to it. With multiple survivors, this mapping is ambiguous, so we
-        // log a warning and skip.
-        let survivor_ids: Vec<RegionId> = self.db.regions.keys().copied().collect();
-        if survivor_ids.len() == 1 {
-            let target = survivor_ids[0];
-            if target != RegionId::new(0) {
-                self.structural_db.rekey_region(RegionId::new(0), target);
-            }
-        } else {
-            // Multiple surviving regions after merge: structural descriptions use
-            // placeholder RegionId(0) and cannot be unambiguously rekeyed.
-            // This is a v0.1 limitation — structural rekeying requires exactly
-            // one survivor region.
-        }
+
 
         // ── Role derivation ────────────────────────────────────
         // Populate RegionRoles on structural descriptions from
@@ -402,18 +405,18 @@ impl SemanticEngine {
                         }
                     }
                     // Accumulator: loop carried variable with a supported reduction
+                    // Result node is the Loop node itself, as it produces the final reduction value.
                     if let NodeKind::Loop { .. } = &node.kind {
-                        if let Some(loop_fact) = analysis.loops.get(&node.id) {
-                            for reduction in &loop_fact.reductions {
-                                if matches!(reduction.reduction_kind.as_str(), "sum" | "bitwise_or" | "bitwise_and" | "bitwise_xor") {
-                                    accumulator = Some(reduction.variable);
+                        if region.nodes.contains(&node.id) {
+                            result_node = Some(node.id);
+                            if let Some(loop_fact) = analysis.loops.get(&node.id) {
+                                for reduction in &loop_fact.reductions {
+                                    if matches!(reduction.reduction_kind.as_str(), "sum" | "bitwise_or" | "bitwise_and" | "bitwise_xor") {
+                                        accumulator = Some(reduction.variable);
+                                    }
                                 }
                             }
                         }
-                    }
-                    // Result: return node value
-                    if let NodeKind::Return { value } = &node.kind {
-                        result_node = Some(*value);
                     }
                 }
 

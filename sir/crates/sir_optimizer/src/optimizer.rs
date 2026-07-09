@@ -224,6 +224,9 @@ impl Optimizer {
         // overlapping-rewrite concerns entirely.
         let best = &selection.chosen[0];
 
+        // LOGGING HACK
+        println!("Iteration {}: Selected candidate {} with strategy {:?}", iteration_number, best.candidate.id, best.candidate.strategy);
+
         let (next_function, rewrites_applied) = match self.rewrite_engine.rewrite(
             function,
             best.candidate,
