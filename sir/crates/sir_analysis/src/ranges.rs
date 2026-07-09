@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use sir_nodes::{Function, NodeKind};
 use sir_types::{ConstantData, NodeId};
 
-use crate::facts::{FactDatabase, RangeFact};
+use crate::facts::RangeFact;
 use crate::graph;
 
 /// Run range analysis on a function.
@@ -37,16 +37,16 @@ pub fn run_ranges(func: &Function) -> HashMap<NodeId, RangeFact> {
 
 /// Get range for a constant value.
 fn range_of_constant(data: &ConstantData) -> RangeFact {
-    let (lo, hi, signed) = match data {
-        ConstantData::Integer { value, width, signed } => {
+    let (lo, hi) = match data {
+        ConstantData::Integer { value, .. } => {
             let parsed: Option<i128> = value.parse().ok();
-            (parsed, parsed, *signed)
+            (parsed, parsed)
         }
         ConstantData::Bool(b) => {
             let v = if *b { 1i128 } else { 0 };
-            (Some(v), Some(v), false)
+            (Some(v), Some(v))
         }
-        _ => (None, None, false),
+        _ => (None, None),
     };
 
     RangeFact {

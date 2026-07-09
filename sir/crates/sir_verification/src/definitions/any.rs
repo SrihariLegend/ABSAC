@@ -1,4 +1,4 @@
-//! Popcount — transformation definition for popcount equivalence.
+//! Any — transformation definition for any equivalence.
 
 use sir_generation::candidate::Candidate;
 use sir_transform::assumptions::Assumption;
@@ -10,31 +10,31 @@ use crate::registry::TransformationDefinition;
 use crate::semantic::expression::{Predicate, SemanticExpression};
 use crate::semantic::theorem::Theorem;
 
-/// The Popcount transformation: replaces a boolean-array counting loop
-/// with a hardware popcount instruction.
+/// The Any transformation: replaces a boolean-array disjunctive loop
+/// with a hardware pack and zero-check.
 ///
 /// Theorem:
-///   Count(Filter(BooleanArray(v), True)) ≡ Popcount(Pack(BooleanArray(v)))
+///   Exists(BooleanArray(v)) ≡ NotEqualZero(Pack(BooleanArray(v)))
 ///
 /// Under assumptions: EquivalentCardinality, PreservesIterationOrder, PreservesLayout.
 #[derive(Clone, Debug)]
-pub struct PopcountDefinition {
+pub struct AnyDefinition {
     id: DefinitionId,
 }
 
-impl PopcountDefinition {
+impl AnyDefinition {
     pub fn new(id: DefinitionId) -> Self {
         Self { id }
     }
 }
 
-impl TransformationDefinition for PopcountDefinition {
+impl TransformationDefinition for AnyDefinition {
     fn id(&self) -> DefinitionId {
         self.id
     }
 
     fn name(&self) -> &'static str {
-        "Popcount"
+        "Any"
     }
 
     fn applicability(&self, candidate: &Candidate) -> bool {
@@ -56,18 +56,15 @@ impl TransformationDefinition for PopcountDefinition {
             })
             .unwrap_or(64); // default for BS001
 
-        // Build the theorem: LHS = Count(Filter(BooleanArray(v), True))
-        let lhs = SemanticExpression::Count(Box::new(
-            SemanticExpression::Filter {
-                input: Box::new(SemanticExpression::BooleanArray {
-                    variable: board_var,
-                }),
-                predicate: Predicate::True,
+        // Build the theorem: LHS = Exists(BooleanArray(v))
+        let lhs = SemanticExpression::Exists(Box::new(
+            SemanticExpression::BooleanArray {
+                variable: board_var,
             },
         ));
 
-        // RHS = Popcount(Pack(BooleanArray(v)))
-        let rhs = SemanticExpression::Popcount(Box::new(
+        // RHS = NotEqualZero(Pack(BooleanArray(v)))
+        let rhs = SemanticExpression::NotEqualZero(Box::new(
             SemanticExpression::Pack(Box::new(
                 SemanticExpression::BooleanArray {
                     variable: board_var,
@@ -129,7 +126,7 @@ mod tests {
             region: RegionId::new(0),
             context_id: ContextId::new(0),
             definition_id: DefinitionId::new(0),
-            strategy: ImplementationStrategy::Popcount,
+            strategy: ImplementationStrategy::Any,
             explanation: CandidateExplanation {
                 source_concepts: vec![],
                 rationale: "",
@@ -149,53 +146,47 @@ mod tests {
     }
 
     #[test]
-    fn popcount_definition_is_applicable_to_bitset() {
-        let def = PopcountDefinition::new(DefinitionId::new(0));
+    fn any_definition_is_applicable_to_bitset() {
+        let def = AnyDefinition::new(DefinitionId::new(0));
         let cand = make_candidate();
         assert!(def.applicability(&cand));
     }
 
     #[test]
-    fn popcount_definition_obligation_has_correct_theorem() {
-        let def = PopcountDefinition::new(DefinitionId::new(0));
+    fn any_definition_obligation_has_correct_theorem() {
+        let def = AnyDefinition::new(DefinitionId::new(0));
         let cand = make_candidate();
         let obl = def.obligation(&cand);
 
-        // LHS: Count(Filter(BooleanArray(v), True))
+        // LHS: Exists(BooleanArray(v))
         match &obl.theorem.lhs {
-            SemanticExpression::Count(inner) => match inner.as_ref() {
-                SemanticExpression::Filter { input, predicate } => {
-                    assert_eq!(*predicate, Predicate::True);
-                    match input.as_ref() {
-                        SemanticExpression::BooleanArray { variable } => {
-                            assert_eq!(*variable, VariableId::new(0));
-                        }
-                        _ => panic!("Expected BooleanArray in Filter input"),
-                    }
+            SemanticExpression::Exists(inner) => match inner.as_ref() {
+                SemanticExpression::BooleanArray { variable } => {
+                    assert_eq!(*variable, VariableId::new(0));
                 }
-                _ => panic!("Expected Filter inside Count"),
+                _ => panic!("Expected BooleanArray inside Exists"),
             },
-            _ => panic!("Expected Count as LHS root"),
+            _ => panic!("Expected Exists as LHS root"),
         }
 
-        // RHS: Popcount(Pack(BooleanArray(v)))
+        // RHS: NotEqualZero(Pack(BooleanArray(v)))
         match &obl.theorem.rhs {
-            SemanticExpression::Popcount(inner) => match inner.as_ref() {
+            SemanticExpression::NotEqualZero(inner) => match inner.as_ref() {
                 SemanticExpression::Pack(inner2) => match inner2.as_ref() {
                     SemanticExpression::BooleanArray { variable } => {
                         assert_eq!(*variable, VariableId::new(0));
                     }
                     _ => panic!("Expected BooleanArray inside Pack"),
                 },
-                _ => panic!("Expected Pack inside Popcount"),
+                _ => panic!("Expected Pack inside NotEqualZero"),
             },
-            _ => panic!("Expected Popcount as RHS root"),
+            _ => panic!("Expected NotEqualZero as RHS root"),
         }
     }
 
     #[test]
-    fn popcount_definition_obligation_has_required_assumptions() {
-        let def = PopcountDefinition::new(DefinitionId::new(0));
+    fn any_definition_obligation_has_required_assumptions() {
+        let def = AnyDefinition::new(DefinitionId::new(0));
         let cand = make_candidate();
         let obl = def.obligation(&cand);
 
@@ -205,8 +196,8 @@ mod tests {
     }
 
     #[test]
-    fn popcount_definition_obligation_has_domain() {
-        let def = PopcountDefinition::new(DefinitionId::new(0));
+    fn any_definition_obligation_has_domain() {
+        let def = AnyDefinition::new(DefinitionId::new(0));
         let cand = make_candidate();
         let obl = def.obligation(&cand);
 
@@ -219,8 +210,8 @@ mod tests {
     }
 
     #[test]
-    fn popcount_definition_obligation_has_correct_definition_id() {
-        let def = PopcountDefinition::new(DefinitionId::new(42));
+    fn any_definition_obligation_has_correct_definition_id() {
+        let def = AnyDefinition::new(DefinitionId::new(42));
         let cand = make_candidate();
         let obl = def.obligation(&cand);
 

@@ -8,7 +8,7 @@ use std::collections::{BTreeSet, HashMap};
 use sir_nodes::{Function, NodeKind};
 use sir_types::NodeId;
 
-use crate::facts::{AliasFact, AliasKind, FactDatabase};
+use crate::facts::{AliasFact, AliasKind};
 use crate::graph;
 
 /// Run alias analysis on a function.

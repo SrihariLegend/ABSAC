@@ -37,7 +37,7 @@ fn make_board_function() -> sir_nodes::Function {
         )],
         uint64_type(),
     );
-    let board = b.parameter_index(0).unwrap();
+    let _board = b.parameter_index(0).unwrap();
     let zero = b.constant(
         sir_types::ConstantData::u64(0),
         uint64_type(),
@@ -61,6 +61,10 @@ fn make_candidate() -> Candidate {
         },
         effects: vec![CandidateEffect::CountingStrategyChange],
         expected_cost: CostProfile::default(),
+        representation: sir_transform::representation::Representation::BitSet,
+        source_structure: SourceStructure::BooleanArray { length: 64 },
+        constraints: std::collections::HashSet::new(),
+        assumptions: std::collections::HashSet::new(),
     }
 }
 

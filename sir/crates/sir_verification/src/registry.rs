@@ -1,7 +1,6 @@
 //! TransformationDefinition trait and TransformationRegistry.
 
 use sir_generation::candidate::Candidate;
-use sir_transform::context::TransformationContext;
 use sir_transform::ids::DefinitionId;
 
 use crate::obligation::ProofObligation;
@@ -21,12 +20,12 @@ pub trait TransformationDefinition {
     /// Human-readable name.
     fn name(&self) -> &'static str;
 
-    /// Is this transformation applicable to the given context?
-    fn applicability(&self, context: &TransformationContext) -> bool;
+    /// Is this transformation applicable to the given candidate?
+    fn applicability(&self, candidate: &Candidate) -> bool;
 
-    /// Construct the full proof obligation for a given context.
+    /// Construct the full proof obligation for a given candidate.
     /// Owns: theorem construction, assumption enumeration, domain specification.
-    fn obligation(&self, context: &TransformationContext) -> ProofObligation;
+    fn obligation(&self, candidate: &Candidate) -> ProofObligation;
 }
 
 /// Registry of known transformation definitions.
@@ -54,15 +53,14 @@ impl TransformationRegistry {
             .map(|d| d.as_ref())
     }
 
-    /// Find a definition applicable to the given candidate and context.
+    /// Find a definition applicable to the given candidate.
     /// Checks both applicability and definition_id match.
     pub fn find_for(
         &self,
         candidate: &Candidate,
-        context: &TransformationContext,
     ) -> Option<&dyn TransformationDefinition> {
         self.definitions.iter().find_map(|def| {
-            if def.applicability(context) && def.id() == candidate.definition_id {
+            if def.id() == candidate.definition_id && def.applicability(candidate) {
                 Some(def.as_ref())
             } else {
                 None

@@ -299,13 +299,19 @@ impl SemanticEngine {
         // Structural recognizers
         use crate::recognizers::{boolean_array, bitmask};
 
+        let mut next_structural_id = 0;
+
         let bool_array_recs = boolean_array::recognize_boolean_array(func, analysis);
-        for (_region_id, desc) in bool_array_recs {
+        for (_region_id, mut desc) in bool_array_recs {
+            desc.region = RegionId::new(next_structural_id);
+            next_structural_id += 1;
             self.structural_db.add_description(desc);
         }
 
         let bitmask_recs = bitmask::recognize_bitmask(func, analysis);
-        for (_region_id, desc) in bitmask_recs {
+        for (_region_id, mut desc) in bitmask_recs {
+            desc.region = RegionId::new(next_structural_id);
+            next_structural_id += 1;
             self.structural_db.add_description(desc);
         }
 
@@ -357,7 +363,12 @@ impl SemanticEngine {
         use sir_transform::roles::RegionRoles;
 
         for (region_id, region) in self.db.regions() {
-            if !region.contains(SemanticConcept::CardinalityReduction) {
+            let is_reduction = region.contains(SemanticConcept::CardinalityReduction)
+                || region.contains(SemanticConcept::DisjunctiveReduction)
+                || region.contains(SemanticConcept::ConjunctiveReduction)
+                || region.contains(SemanticConcept::ExclusiveReduction);
+
+            if !is_reduction {
                 continue;
             }
 
@@ -375,11 +386,11 @@ impl SemanticEngine {
                         }
                     }
                 }
-                // Accumulator: loop carried variable with "sum" reduction
+                // Accumulator: loop carried variable with a supported reduction
                 if let NodeKind::Loop { .. } = &node.kind {
                     if let Some(loop_fact) = analysis.loops.get(&node.id) {
                         for reduction in &loop_fact.reductions {
-                            if reduction.reduction_kind == "sum" {
+                            if matches!(reduction.reduction_kind.as_str(), "sum" | "bitwise_or" | "bitwise_and" | "bitwise_xor") {
                                 accumulator = Some(reduction.variable);
                             }
                         }

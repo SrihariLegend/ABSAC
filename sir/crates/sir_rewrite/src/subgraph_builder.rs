@@ -24,7 +24,7 @@ impl SubgraphBuilder {
     pub fn new() -> Self {
         Self {
             arena: DetachedArena::new(),
-            next_local_id: 0,
+            next_local_id: 1_000_000_000, // Offset to avoid overlapping with global NodeIds
         }
     }
 
@@ -65,7 +65,7 @@ impl SubgraphBuilder {
         }
     }
 
-    fn get_type(&self, id: LocalNodeId) -> Option<Type> {
+    pub fn get_type(&self, id: LocalNodeId) -> Option<Type> {
         self.arena.get(id).map(|n| n.ty.clone())
     }
 
@@ -120,8 +120,20 @@ impl SubgraphBuilder {
     }
 
     pub fn popcount(&mut self, operand: LocalNodeId, span: Span) -> LocalNodeId {
-        let ty = self.get_type(operand).unwrap_or(Type::i32());
-        self.alloc_node(NodeKind::Popcount { operand: NodeId::new(operand.as_u64()) }, ty, span)
+        self.alloc_node(NodeKind::Popcount { operand: NodeId::new(operand.as_u64()) }, Type::i32(), span)
+    }
+
+    pub fn bitwise_and(&mut self, lhs: LocalNodeId, rhs: LocalNodeId, span: Span) -> LocalNodeId {
+        let ty = self.get_type(lhs).unwrap_or(Type::i32());
+        self.alloc_node(NodeKind::And { lhs: NodeId::new(lhs.as_u64()), rhs: NodeId::new(rhs.as_u64()) }, ty, span)
+    }
+
+    pub fn eq(&mut self, lhs: LocalNodeId, rhs: LocalNodeId, span: Span) -> LocalNodeId {
+        self.alloc_node(NodeKind::Eq { lhs: NodeId::new(lhs.as_u64()), rhs: NodeId::new(rhs.as_u64()) }, Type::Bool, span)
+    }
+
+    pub fn ne(&mut self, lhs: LocalNodeId, rhs: LocalNodeId, span: Span) -> LocalNodeId {
+        self.alloc_node(NodeKind::Ne { lhs: NodeId::new(lhs.as_u64()), rhs: NodeId::new(rhs.as_u64()) }, Type::Bool, span)
     }
 
     // ── Pack ────────────────────────────────────────────────────

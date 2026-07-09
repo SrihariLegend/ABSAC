@@ -6,9 +6,9 @@
 
 use std::collections::{HashMap, VecDeque};
 use sir_nodes::{Function, NodeKind};
-use sir_types::{ConstantData, NodeId, Type};
+use sir_types::{ConstantData, NodeId};
 
-use crate::facts::{ConstantFact, ConstantLattice, FactDatabase};
+use crate::facts::{ConstantFact, ConstantLattice};
 use crate::graph;
 
 /// Run constant propagation on a function.

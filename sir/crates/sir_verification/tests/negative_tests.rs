@@ -73,12 +73,12 @@ fn make_obligation(
 // ────────────────────────────────────────────────────────────
 
 #[test]
-fn symbolic_rejects_broken_theorem() {
+fn symbolic_returns_unknown_broken_theorem() {
     // LHS = Count(BooleanArray(v)) — missing the Filter wrapper.
     // The CountFilterToPopcount rule won't match, so LHS stays
     // as-is while RHS is Popcount(Pack(BooleanArray(v))).
     //
-    // Since the two normalized forms differ, symbolic rejects.
+    // Since the two normalized forms differ, symbolic returns unknown.
     let v = VariableId::new(0);
     let lhs = SemanticExpression::Count(Box::new(
         SemanticExpression::BooleanArray { variable: v },
@@ -95,18 +95,18 @@ fn symbolic_rejects_broken_theorem() {
 
     let result = verifier.verify(&obligation, &context);
     match result {
-        VerificationResult::Rejected(RejectReason::SemanticMismatch { .. }) => {
+        VerificationResult::Unknown(sir_verification::errors::UnknownReason::UnsupportedRule { .. }) => {
             // Expected — the rule only matches Count(Filter(...))
         }
         other => panic!(
-            "Expected Rejected(SemanticMismatch) for broken theorem without Filter, got {:?}",
+            "Expected Unknown(UnsupportedRule) for broken theorem without Filter, got {:?}",
             other
         ),
     }
 }
 
 #[test]
-fn symbolic_rejects_count_without_filter() {
+fn symbolic_returns_unknown_for_count_without_filter() {
     // Explicit test: Count(BooleanArray(v)) on LHS without Filter.
     // The symbolic normalizer has no rule for this case.
     let v = VariableId::new(0);
@@ -121,9 +121,9 @@ fn symbolic_rejects_count_without_filter() {
 
     let result = verifier.verify(&obligation, &context);
     match result {
-        VerificationResult::Rejected(RejectReason::SemanticMismatch { .. }) => {}
+        VerificationResult::Unknown(sir_verification::errors::UnknownReason::UnsupportedRule { .. }) => {}
         other => panic!(
-            "Expected Rejected(SemanticMismatch) for Count without Filter, got {:?}",
+            "Expected Unknown(UnsupportedRule) for Count without Filter, got {:?}",
             other
         ),
     }
