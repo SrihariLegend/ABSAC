@@ -21,6 +21,14 @@ pub enum SemanticConcept {
     ConjunctiveReduction,
     /// Operation: checking if an odd number of elements satisfy a condition (parity/xor)
     ExclusiveReduction,
+    /// Operation: finding the first element that satisfies a condition
+    FindFirst,
+    /// Operation: checking if elements are present in two collections simultaneously
+    SetIntersection,
+    /// Operation: integer modulo by a power of two
+    ModuloPowerOfTwo,
+    /// Operation: integer multiplication by a power of two
+    MultiplyPowerOfTwo,
 }
 
 impl fmt::Display for SemanticConcept {
@@ -33,6 +41,10 @@ impl fmt::Display for SemanticConcept {
             SemanticConcept::DisjunctiveReduction => write!(f, "DisjunctiveReduction"),
             SemanticConcept::ConjunctiveReduction => write!(f, "ConjunctiveReduction"),
             SemanticConcept::ExclusiveReduction => write!(f, "ExclusiveReduction"),
+            SemanticConcept::FindFirst => write!(f, "FindFirst"),
+            SemanticConcept::SetIntersection => write!(f, "SetIntersection"),
+            SemanticConcept::ModuloPowerOfTwo => write!(f, "ModuloPowerOfTwo"),
+            SemanticConcept::MultiplyPowerOfTwo => write!(f, "MultiplyPowerOfTwo"),
         }
     }
 }

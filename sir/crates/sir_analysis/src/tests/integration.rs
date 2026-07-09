@@ -122,7 +122,7 @@ fn milestone4_memory_analysis() {
 
 #[test]
 fn milestone5_intrinsic_analysis() {
-    let mut b = Builder::new("pop", &[("x", u64_type())], u64_type());
+    let mut b = Builder::new("pop", &[("x", u64_type())], i32_type());
     let x = b.parameter_index(0).unwrap();
     let pop = b.popcount(x, unknown_span()).unwrap();
     b.return_value(pop, unknown_span()).unwrap();

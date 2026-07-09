@@ -141,6 +141,9 @@ impl Verifier {
         registry.register(Box::new(ParityDefinition::new(
             sir_transform::ids::DefinitionId::new(6),
         )));
+        registry.register(Box::new(definitions::modulo_and::ModuloAndDefinition::new(
+            sir_transform::ids::DefinitionId::new(100),
+        )));
 
         Self {
             registry,

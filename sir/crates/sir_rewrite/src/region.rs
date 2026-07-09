@@ -42,8 +42,39 @@ impl RewriteRegion {
     pub fn result(&self) -> Result<NodeId, RewriteError> {
         match &self.structural.roles {
             Some(RegionRoles::BooleanCollectionReduction { result, .. }) => Ok(*result),
+            Some(RegionRoles::ArithmeticOperation { result, .. }) => Ok(*result),
             _ => Err(RewriteError::MissingRole {
                 role: "result".to_string(),
+            }),
+        }
+    }
+
+    /// The operator node.
+    pub fn operator_node(&self) -> Result<NodeId, RewriteError> {
+        match &self.structural.roles {
+            Some(RegionRoles::ArithmeticOperation { operator_node, .. }) => Ok(*operator_node),
+            _ => Err(RewriteError::MissingRole {
+                role: "operator_node".to_string(),
+            }),
+        }
+    }
+
+    /// The left operand.
+    pub fn lhs(&self) -> Result<NodeId, RewriteError> {
+        match &self.structural.roles {
+            Some(RegionRoles::ArithmeticOperation { lhs, .. }) => Ok(*lhs),
+            _ => Err(RewriteError::MissingRole {
+                role: "lhs".to_string(),
+            }),
+        }
+    }
+
+    /// The right operand.
+    pub fn rhs(&self) -> Result<NodeId, RewriteError> {
+        match &self.structural.roles {
+            Some(RegionRoles::ArithmeticOperation { rhs, .. }) => Ok(*rhs),
+            _ => Err(RewriteError::MissingRole {
+                role: "rhs".to_string(),
             }),
         }
     }

@@ -20,6 +20,10 @@ pub fn recognize_conjunctive_reduction(
 
     for node in func.arena.iter() {
         if let sir_nodes::NodeKind::Loop { .. } = &node.kind {
+            let allowed_effects = sir_types::Effects::READ_MEMORY;
+            if !(node.effects - allowed_effects).is_empty() {
+                continue;
+            }
             if let Some(loop_fact) = analysis.loops.get(&node.id) {
                 let and_reductions: Vec<_> = loop_fact
                     .reductions

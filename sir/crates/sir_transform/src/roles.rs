@@ -17,4 +17,15 @@ pub enum RegionRoles {
         /// The final count produced by the region.
         result: NodeId,
     },
+    /// An arithmetic expression recognized as having an optimized form.
+    ArithmeticOperation {
+        /// The node representing the operator.
+        operator_node: NodeId,
+        /// The left operand.
+        lhs: NodeId,
+        /// The right operand (e.g. the constant divisor).
+        rhs: NodeId,
+        /// The node representing the final output result to replace.
+        result: NodeId,
+    },
 }

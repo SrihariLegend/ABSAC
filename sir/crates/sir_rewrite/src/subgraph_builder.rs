@@ -226,6 +226,6 @@ mod tests {
         assert!(arena.contains(pop));
         // Popcount of 0xFFFF (16 ones) should be 16 — but we just check structure here
         let pop_node = arena.get(pop).unwrap();
-        assert_eq!(pop_node.ty, Type::BitVector { width: 64 }); // popcount returns same type as operand
+        assert_eq!(pop_node.ty, Type::i32()); // popcount returns i32
     }
 }
