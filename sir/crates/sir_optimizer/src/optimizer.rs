@@ -231,10 +231,7 @@ impl Optimizer {
             semantics.structural_database(),
         ) {
             Ok(rewrite_result) => (rewrite_result.rewritten, 1usize),
-            Err(e) => {
-                println!("REWRITE ERROR: {:?}", e);
-                (function.clone(), 0usize)
-            }
+            Err(_e) => (function.clone(), 0usize),
         };
 
         IterationResult {
