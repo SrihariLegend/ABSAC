@@ -45,7 +45,7 @@ cargo test <test_name>   # Run a single test by name
 | **Representation** | `sir_types`, `sir_nodes` | How is the program encoded? |
 | **Knowledge** | `sir_analysis`, `sir_semantics`, `sir_inference` | What is the program? |
 | **Planning** | `sir_transform`, `sir_generation` | What should we do about it? |
-| **Execution** | `sir_verification`, `sir_rewrite` | Is it correct and worthwhile? |
+| **Execution** | `sir_verification`, `sir_rewrite`, `sir_optimizer` | Is it correct and worthwhile? |
 
 ### Knowledge Pipeline
 
@@ -81,6 +81,8 @@ sir_builder   sir_printer   sir_verify   sir_analysis
                                    sir_inference   sir_generation
                                                    ↓
                                    sir_verification  sir_rewrite
+                                                   ↓
+                                             sir_optimizer
 ```
 
 No cycles. Dependencies are strictly one-way.
@@ -158,14 +160,13 @@ Transforms representation beliefs into concrete candidate plans via 4 strategies
 - Representation belief inference (evidence aggregation with support scoring)
 - Transformation contract (Representation, Context, Constraints, Assumptions)
 - Candidate plan generation (4 strategies from BitSet contexts)
-- Verification obligation registry (scaffolding for proof engine)
+- Verification obligation registry and equivalence verification
+- Cost model (microarchitectural performance prediction)
 - Rewrite engine (subgraph patching, region rewriting, popcount recipe)
-- 365 tests, all passing
+- End-to-end pipeline (analysis → rewrite → verify → select) via `sir_optimizer`
+- 380+ tests, passing
 
 ### Not Yet Started
-- Equivalence verification (SMT-based proof)
-- Cost model (microarchitectural performance prediction)
-- End-to-end pipeline (analysis → rewrite → verify → select)
 - Source-language lowering (Rust, C, C++ → SIR)
 - Additional representations beyond BitSet
 
