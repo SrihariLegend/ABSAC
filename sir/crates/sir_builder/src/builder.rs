@@ -159,9 +159,8 @@ impl Builder {
             NodeKind::Iterator { .. } => Effects::READ_MEMORY,
             NodeKind::Call { .. } => Effects::READ_MEMORY | Effects::WRITE_MEMORY,
             NodeKind::Loop { .. } => {
-                // Loops inherit effects from their body — we conservatively
-                // mark them as ReadMemory|WriteMemory for v0.1
-                Effects::READ_MEMORY | Effects::WRITE_MEMORY
+                // Loops inherit effects from their body which is computed during builder construction.
+                Effects::empty()
             }
             // Pure by default
             _ => Effects::empty(),
@@ -205,7 +204,20 @@ impl Builder {
         } else {
             Err(BuildError::TypeMismatch {
                 node: id,
-                expected: Type::i32(), // placeholder
+                expected: Type::Integer { width: sir_types::IntegerWidth::I32, signed: true, overflow: sir_types::OverflowBehavior::Wrapping }, // placeholder
+                actual: ty,
+            })
+        }
+    }
+
+    fn expect_integer_or_bitvector(&self, id: NodeId) -> Result<Type, BuildError> {
+        let ty = self.get_type(id)?;
+        if ty.is_integer_or_bitvector() {
+            Ok(ty)
+        } else {
+            Err(BuildError::TypeMismatch {
+                node: id,
+                expected: Type::Integer { width: sir_types::IntegerWidth::I32, signed: true, overflow: sir_types::OverflowBehavior::Wrapping }, // placeholder
                 actual: ty,
             })
         }
@@ -368,30 +380,30 @@ impl Builder {
     }
 
     pub fn popcount(&mut self, operand: NodeId, span: Span) -> Result<NodeId, BuildError> {
-        let ty = self.expect_integer(operand)?;
+        self.expect_integer_or_bitvector(operand)?;
         Ok(self.alloc_node(
             NodeKind::Popcount { operand },
-            ty,
+            Type::i32(),
             Effects::empty(),
             span,
         ))
     }
 
     pub fn leading_zeros(&mut self, operand: NodeId, span: Span) -> Result<NodeId, BuildError> {
-        let ty = self.expect_integer(operand)?;
+        self.expect_integer_or_bitvector(operand)?;
         Ok(self.alloc_node(
             NodeKind::LeadingZeros { operand },
-            ty,
+            Type::i32(),
             Effects::empty(),
             span,
         ))
     }
 
     pub fn trailing_zeros(&mut self, operand: NodeId, span: Span) -> Result<NodeId, BuildError> {
-        let ty = self.expect_integer(operand)?;
+        self.expect_integer_or_bitvector(operand)?;
         Ok(self.alloc_node(
             NodeKind::TrailingZeros { operand },
-            ty,
+            Type::i32(),
             Effects::empty(),
             span,
         ))
@@ -733,10 +745,17 @@ impl Builder {
         span: Span,
     ) -> Result<NodeId, BuildError> {
         self.expect_type(termination, &Type::Bool)?;
-        // Verify all body/output/carried nodes exist
+        
+        let mut loop_effects = Effects::empty();
+        
+        // Verify all body/output/carried nodes exist and accumulate body effects
         for &id in body.iter().chain(outputs).chain(carried_inputs) {
-            let _ = self.get_node(id)?;
+            let node = self.get_node(id)?;
+            if body.contains(&id) {
+                loop_effects |= node.effects;
+            }
         }
+        
         Ok(self.alloc_node(
             NodeKind::Loop {
                 body: body.to_vec(),
@@ -745,7 +764,7 @@ impl Builder {
                 carried_inputs: carried_inputs.to_vec(),
             },
             output_ty,
-            Effects::READ_MEMORY | Effects::WRITE_MEMORY,
+            loop_effects,
             span,
         ))
     }

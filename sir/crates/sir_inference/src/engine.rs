@@ -97,6 +97,7 @@ impl fmt::Display for Explanation {
 
 /// Evidence weight constants — relative strength categories.
 pub mod weights {
+    pub const ABSOLUTE: u16 = 100;
     pub const STRONG: u16 = 30;
     pub const MODERATE: u16 = 20;
     pub const WEAK: u16 = 10;
@@ -150,6 +151,10 @@ impl InferenceEngine {
         for (_, region) in semantic_db.regions() {
             let evidence = crate::sources::bitset_evidence::contribute(region);
             for e in evidence {
+                self.evidence_registry.add(e);
+            }
+            let arith_evidence = crate::sources::arithmetic_evidence::contribute(region);
+            for e in arith_evidence {
                 self.evidence_registry.add(e);
             }
         }
