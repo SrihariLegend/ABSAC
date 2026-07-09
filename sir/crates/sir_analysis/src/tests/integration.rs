@@ -2,7 +2,7 @@
 //!
 //! These tests exercise the full pipeline for each SIR milestone.
 
-use crate::facts::{EscapeKind, PurityLevel};
+use crate::facts::EscapeKind;
 use crate::manager::AnalysisManager;
 use sir_builder::Builder;
 use sir_types::{ConstantData, Span, Type};

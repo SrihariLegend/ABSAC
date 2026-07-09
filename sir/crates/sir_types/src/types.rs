@@ -223,6 +223,11 @@ impl Type {
         matches!(self, Type::Integer { .. })
     }
 
+    /// Check if this type is an integer or bitvector type.
+    pub fn is_integer_or_bitvector(&self) -> bool {
+        if matches!(self, Type::BitVector { .. }) { true } else { matches!(self, Type::Integer { .. }) }
+    }
+
     /// Check if this type is a float type.
     pub fn is_float(&self) -> bool {
         matches!(self, Type::Float { .. })

@@ -8,6 +8,7 @@ description = "Cost modeling and verified rewrite selection for Semantic IR"
 [dependencies]
 sir_types = { path = "../sir_types" }
 sir_generation = { path = "../sir_generation" }
+sir_semantics = { path = "../sir_semantics" }
 sir_verification = { path = "../sir_verification" }
 serde = { version = "1", features = ["derive"] }
 

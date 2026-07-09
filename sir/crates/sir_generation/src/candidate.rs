@@ -1,10 +1,15 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::collections::HashSet;
 
 use sir_semantics::concepts::SemanticConcept;
 use sir_types::RegionId;
 use sir_transform::context::ContextId;
 use sir_transform::ids::DefinitionId;
+use sir_transform::representation::Representation;
+use sir_transform::structures::SourceStructure;
+use sir_transform::constraints::Constraint;
+use sir_transform::assumptions::Assumption;
 
 /// Unique identifier for a candidate plan.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -31,6 +36,12 @@ pub enum ImplementationStrategy {
     PackedBitfield,
     /// Replace boolean predicates with mask operations: AND/OR/XOR
     MaskConstruction,
+    /// Check if any bit is set: bb != 0
+    Any,
+    /// Check if all bits are set: bb == full_mask
+    All,
+    /// Check if odd number of bits are set: popcount(bb) & 1
+    Parity,
 }
 
 impl fmt::Display for ImplementationStrategy {
@@ -40,6 +51,9 @@ impl fmt::Display for ImplementationStrategy {
             ImplementationStrategy::Popcount => write!(f, "Popcount"),
             ImplementationStrategy::PackedBitfield => write!(f, "PackedBitfield"),
             ImplementationStrategy::MaskConstruction => write!(f, "MaskConstruction"),
+            ImplementationStrategy::Any => write!(f, "Any"),
+            ImplementationStrategy::All => write!(f, "All"),
+            ImplementationStrategy::Parity => write!(f, "Parity"),
         }
     }
 }
@@ -55,6 +69,8 @@ pub enum CandidateEffect {
     PredicateEncodingChange,
     /// How counting is performed changes (e.g., accumulator → popcount)
     CountingStrategyChange,
+    /// How reduction is performed changes (e.g., loop accumulator → bitwise math)
+    ReductionStrategyChange,
 }
 
 /// Human-readable explanation of a candidate plan.
@@ -81,4 +97,8 @@ pub struct Candidate {
     /// Set by the generator at creation time based on the implementation strategy.
     /// This is objective data — cost models assign meaning to it.
     pub expected_cost: sir_types::CostProfile,
+    pub representation: Representation,
+    pub source_structure: SourceStructure,
+    pub constraints: HashSet<Constraint>,
+    pub assumptions: HashSet<Assumption>,
 }

@@ -35,6 +35,10 @@ impl StrategyDef {
             },
             effects: self.effects.to_vec(),
             expected_cost: (self.compute_cost)(length),
+            representation: context.representation,
+            source_structure: context.source_structure.clone(),
+            constraints: context.constraints.clone(),
+            assumptions: context.assumptions.clone(),
         }
     }
 }
@@ -107,6 +111,57 @@ static STRATEGIES: &[StrategyDef] = &[
             select_count: 0,
             memory_accesses: 2,
             critical_path_depth: 2,
+        },
+    },
+    StrategyDef {
+        strategy: ImplementationStrategy::Any,
+        source_concepts: &[
+            SemanticConcept::DisjunctiveReduction,
+            SemanticConcept::BooleanCollection,
+        ],
+        rationale: "Check if any elements are true using a single non-zero comparison against the packed bitset, \
+                    eliminating the disjunctive loop entirely.",
+        effects: &[CandidateEffect::ReductionStrategyChange],
+        definition_id: DefinitionId::new(4),
+        compute_cost: |length| CostProfile {
+            instruction_count: 2,
+            select_count: 0,
+            memory_accesses: 1,
+            critical_path_depth: 1.max(length.max(1).ilog2() / 6),
+        },
+    },
+    StrategyDef {
+        strategy: ImplementationStrategy::All,
+        source_concepts: &[
+            SemanticConcept::ConjunctiveReduction,
+            SemanticConcept::BooleanCollection,
+        ],
+        rationale: "Check if all elements are true using a single full-mask comparison against the packed bitset, \
+                    eliminating the conjunctive loop entirely.",
+        effects: &[CandidateEffect::ReductionStrategyChange],
+        definition_id: DefinitionId::new(5),
+        compute_cost: |length| CostProfile {
+            instruction_count: 2,
+            select_count: 0,
+            memory_accesses: 1,
+            critical_path_depth: 1.max(length.max(1).ilog2() / 6),
+        },
+    },
+    StrategyDef {
+        strategy: ImplementationStrategy::Parity,
+        source_concepts: &[
+            SemanticConcept::ExclusiveReduction,
+            SemanticConcept::BooleanCollection,
+        ],
+        rationale: "Compute parity of elements using hardware popcount and bitwise AND, \
+                    eliminating the exclusive loop entirely.",
+        effects: &[CandidateEffect::ReductionStrategyChange],
+        definition_id: DefinitionId::new(6),
+        compute_cost: |length| CostProfile {
+            instruction_count: 3,
+            select_count: 0,
+            memory_accesses: 1,
+            critical_path_depth: 1.max(length.max(1).ilog2() / 6) + 1,
         },
     },
 ];

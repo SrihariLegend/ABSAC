@@ -38,19 +38,7 @@ impl RewriteRecipe for PopcountRecipe {
         region: &RewriteRegion,
         mut builder: SubgraphBuilder,
     ) -> Result<ReplacementPatch, RewriteError> {
-        // 1. Get the collection (board array) from the region
-        let collection = region.collection()?;
-
-        // 2. Emit: pack(board)
-        //    In the detached arena, references to original SSA values use
-        //    LocalNodeId::new(node_id.as_u64()) as placeholders.
-        //    RewriteBuilder resolves these during import.
-
-        let packed = builder.pack(
-            crate::local_id::LocalNodeId::new(collection.as_u64()),
-            Span::unknown(),
-        );
-
+        let packed = crate::recipes::helpers::emit_pack(region, &mut builder)?;
         let pop = builder.popcount(packed, Span::unknown());
 
         // 3. Map old result → new popcount
@@ -81,7 +69,7 @@ mod tests {
             result: sir_types::NodeId::new(20),
         });
 
-        RewriteRegion::new(structural, std::collections::BTreeSet::new())
+        RewriteRegion::new(structural)
     }
 
     #[test]
@@ -120,7 +108,7 @@ mod tests {
             RegionId::new(0),
             SourceStructure::BooleanArray { length: 64 },
         );
-        let region = RewriteRegion::new(structural, std::collections::BTreeSet::new());
+        let region = RewriteRegion::new(structural);
         let builder = SubgraphBuilder::new();
 
         let result = recipe.build_patch(&region, builder);

@@ -12,6 +12,7 @@ pub mod error;
 pub mod patch;
 pub mod plan;
 pub mod recipe;
+pub mod registry;
 pub mod builder;
 pub mod result;
 pub mod engine;

@@ -53,6 +53,12 @@ pub enum UnknownReason {
     NonTerminatingNormalization {
         steps: usize,
     },
+    /// The symbolic verifier could not reduce both sides to the same normal form
+    /// (likely missing a structural rewrite rule).
+    UnsupportedRule {
+        lhs: SemanticExpression,
+        rhs: SemanticExpression,
+    },
 }
 
 /// Error during expression interpretation.

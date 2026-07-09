@@ -70,32 +70,39 @@ impl RewriteBuilder {
             );
         }
 
-        // 6. Omit obsolete region internal nodes from the rewritten graph
-        let internal_nodes: BTreeSet<NodeId> = region
-            .structural
-            .source_structure
-            .nodes()
-            .unwrap_or_default();
-
-        // Also collect nodes from the region's roles
-        let role_nodes = Self::collect_role_nodes(region);
-        let obsolete: BTreeSet<NodeId> = internal_nodes
-            .union(&role_nodes)
-            .copied()
-            .collect();
-
-        // Remove obsolete nodes (skip function parameters — they must remain
-        // in the arena to satisfy sir_verify's parameter index check)
-        for node_id in &obsolete {
-            if let Some(node) = rewritten.arena.get(*node_id) {
-                if matches!(node.kind, NodeKind::Parameter { .. }) {
-                    continue;
+        // 6. Run a mark-and-sweep dead code elimination to remove the obsolete loop
+        //    and all its internal nodes. Only nodes reachable from the Return node stay.
+        if let Some(return_id) = rewritten.return_node {
+            let mut reachable = BTreeSet::new();
+            let mut worklist = vec![return_id];
+            
+            // Mark
+            while let Some(id) = worklist.pop() {
+                if reachable.insert(id) {
+                    if let Some(node) = rewritten.arena.get(id) {
+                        for input in node.kind.input_nodes() {
+                            worklist.push(input);
+                        }
+                    }
                 }
             }
-            rewritten.arena.remove(*node_id);
+            
+            // Sweep
+            let all_ids: Vec<NodeId> = rewritten.arena.nodes().keys().copied().collect();
+            for id in all_ids {
+                if !reachable.contains(&id) {
+                    // Skip parameters (sir_verify requires all function parameters to exist)
+                    if let Some(node) = rewritten.arena.get(id) {
+                        if matches!(node.kind, NodeKind::Parameter { .. }) {
+                            continue;
+                        }
+                    }
+                    rewritten.arena.remove(id);
+                }
+            }
         }
 
-        Ok(rewritten)
+        for node in rewritten.arena.iter() { println!("DEBUG: node {} is {:?} with type {:?}", node.id.as_u64(), node.kind, node.ty); } Ok(rewritten)
     }
 
     /// Build a mapping from LocalNodeId to fresh global NodeId.

@@ -1,4 +1,4 @@
-//! Popcount — transformation definition for popcount equivalence.
+//! Parity — transformation definition for parity equivalence.
 
 use sir_generation::candidate::Candidate;
 use sir_transform::assumptions::Assumption;
@@ -10,31 +10,31 @@ use crate::registry::TransformationDefinition;
 use crate::semantic::expression::{Predicate, SemanticExpression};
 use crate::semantic::theorem::Theorem;
 
-/// The Popcount transformation: replaces a boolean-array counting loop
-/// with a hardware popcount instruction.
+/// The Parity transformation: replaces a boolean-array exclusive loop
+/// with a hardware pack, popcount, and bitwise-and-one.
 ///
 /// Theorem:
-///   Count(Filter(BooleanArray(v), True)) ≡ Popcount(Pack(BooleanArray(v)))
+///   Parity(BooleanArray(v)) ≡ BitwiseAndOne(Popcount(Pack(BooleanArray(v))))
 ///
 /// Under assumptions: EquivalentCardinality, PreservesIterationOrder, PreservesLayout.
 #[derive(Clone, Debug)]
-pub struct PopcountDefinition {
+pub struct ParityDefinition {
     id: DefinitionId,
 }
 
-impl PopcountDefinition {
+impl ParityDefinition {
     pub fn new(id: DefinitionId) -> Self {
         Self { id }
     }
 }
 
-impl TransformationDefinition for PopcountDefinition {
+impl TransformationDefinition for ParityDefinition {
     fn id(&self) -> DefinitionId {
         self.id
     }
 
     fn name(&self) -> &'static str {
-        "Popcount"
+        "Parity"
     }
 
     fn applicability(&self, candidate: &Candidate) -> bool {
@@ -56,22 +56,21 @@ impl TransformationDefinition for PopcountDefinition {
             })
             .unwrap_or(64); // default for BS001
 
-        // Build the theorem: LHS = Count(Filter(BooleanArray(v), True))
-        let lhs = SemanticExpression::Count(Box::new(
-            SemanticExpression::Filter {
-                input: Box::new(SemanticExpression::BooleanArray {
-                    variable: board_var,
-                }),
-                predicate: Predicate::True,
+        // Build the theorem: LHS = Parity(BooleanArray(v))
+        let lhs = SemanticExpression::Parity(Box::new(
+            SemanticExpression::BooleanArray {
+                variable: board_var,
             },
         ));
 
-        // RHS = Popcount(Pack(BooleanArray(v)))
-        let rhs = SemanticExpression::Popcount(Box::new(
-            SemanticExpression::Pack(Box::new(
-                SemanticExpression::BooleanArray {
-                    variable: board_var,
-                },
+        // RHS = BitwiseAndOne(Popcount(Pack(BooleanArray(v))))
+        let rhs = SemanticExpression::BitwiseAndOne(Box::new(
+            SemanticExpression::Popcount(Box::new(
+                SemanticExpression::Pack(Box::new(
+                    SemanticExpression::BooleanArray {
+                        variable: board_var,
+                    },
+                )),
             )),
         ));
 
@@ -129,7 +128,7 @@ mod tests {
             region: RegionId::new(0),
             context_id: ContextId::new(0),
             definition_id: DefinitionId::new(0),
-            strategy: ImplementationStrategy::Popcount,
+            strategy: ImplementationStrategy::Parity,
             explanation: CandidateExplanation {
                 source_concepts: vec![],
                 rationale: "",
@@ -149,53 +148,50 @@ mod tests {
     }
 
     #[test]
-    fn popcount_definition_is_applicable_to_bitset() {
-        let def = PopcountDefinition::new(DefinitionId::new(0));
+    fn parity_definition_is_applicable_to_bitset() {
+        let def = ParityDefinition::new(DefinitionId::new(0));
         let cand = make_candidate();
         assert!(def.applicability(&cand));
     }
 
     #[test]
-    fn popcount_definition_obligation_has_correct_theorem() {
-        let def = PopcountDefinition::new(DefinitionId::new(0));
+    fn parity_definition_obligation_has_correct_theorem() {
+        let def = ParityDefinition::new(DefinitionId::new(0));
         let cand = make_candidate();
         let obl = def.obligation(&cand);
 
-        // LHS: Count(Filter(BooleanArray(v), True))
+        // LHS: Parity(BooleanArray(v))
         match &obl.theorem.lhs {
-            SemanticExpression::Count(inner) => match inner.as_ref() {
-                SemanticExpression::Filter { input, predicate } => {
-                    assert_eq!(*predicate, Predicate::True);
-                    match input.as_ref() {
+            SemanticExpression::Parity(inner) => match inner.as_ref() {
+                SemanticExpression::BooleanArray { variable } => {
+                    assert_eq!(*variable, VariableId::new(0));
+                }
+                _ => panic!("Expected BooleanArray inside Parity"),
+            },
+            _ => panic!("Expected Parity as LHS root"),
+        }
+
+        // RHS: BitwiseAndOne(Popcount(Pack(BooleanArray(v))))
+        match &obl.theorem.rhs {
+            SemanticExpression::BitwiseAndOne(inner) => match inner.as_ref() {
+                SemanticExpression::Popcount(inner2) => match inner2.as_ref() {
+                    SemanticExpression::Pack(inner3) => match inner3.as_ref() {
                         SemanticExpression::BooleanArray { variable } => {
                             assert_eq!(*variable, VariableId::new(0));
                         }
-                        _ => panic!("Expected BooleanArray in Filter input"),
-                    }
-                }
-                _ => panic!("Expected Filter inside Count"),
-            },
-            _ => panic!("Expected Count as LHS root"),
-        }
-
-        // RHS: Popcount(Pack(BooleanArray(v)))
-        match &obl.theorem.rhs {
-            SemanticExpression::Popcount(inner) => match inner.as_ref() {
-                SemanticExpression::Pack(inner2) => match inner2.as_ref() {
-                    SemanticExpression::BooleanArray { variable } => {
-                        assert_eq!(*variable, VariableId::new(0));
-                    }
-                    _ => panic!("Expected BooleanArray inside Pack"),
+                        _ => panic!("Expected BooleanArray inside Pack"),
+                    },
+                    _ => panic!("Expected Pack inside Popcount"),
                 },
-                _ => panic!("Expected Pack inside Popcount"),
+                _ => panic!("Expected Popcount inside BitwiseAndOne"),
             },
-            _ => panic!("Expected Popcount as RHS root"),
+            _ => panic!("Expected BitwiseAndOne as RHS root"),
         }
     }
 
     #[test]
-    fn popcount_definition_obligation_has_required_assumptions() {
-        let def = PopcountDefinition::new(DefinitionId::new(0));
+    fn parity_definition_obligation_has_required_assumptions() {
+        let def = ParityDefinition::new(DefinitionId::new(0));
         let cand = make_candidate();
         let obl = def.obligation(&cand);
 
@@ -205,8 +201,8 @@ mod tests {
     }
 
     #[test]
-    fn popcount_definition_obligation_has_domain() {
-        let def = PopcountDefinition::new(DefinitionId::new(0));
+    fn parity_definition_obligation_has_domain() {
+        let def = ParityDefinition::new(DefinitionId::new(0));
         let cand = make_candidate();
         let obl = def.obligation(&cand);
 
@@ -219,8 +215,8 @@ mod tests {
     }
 
     #[test]
-    fn popcount_definition_obligation_has_correct_definition_id() {
-        let def = PopcountDefinition::new(DefinitionId::new(42));
+    fn parity_definition_obligation_has_correct_definition_id() {
+        let def = ParityDefinition::new(DefinitionId::new(42));
         let cand = make_candidate();
         let obl = def.obligation(&cand);
 
