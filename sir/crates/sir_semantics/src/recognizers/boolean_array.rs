@@ -27,6 +27,17 @@ pub fn recognize_boolean_array(
                 results.push((RegionId::new(0), desc));
             }
         }
+        if let sir_nodes::NodeKind::ArrayCmpMask { .. } = &node.kind {
+            if let Type::BitVector { width } = &node.ty {
+                let desc = StructuralDescription::new(
+                    RegionId::new(0),
+                    SourceStructure::DynamicBooleanSequence { length: *width },
+                )
+                .with_constraint(Constraint::FixedLength(*width));
+
+                results.push((RegionId::new(0), desc));
+            }
+        }
     }
 
     results

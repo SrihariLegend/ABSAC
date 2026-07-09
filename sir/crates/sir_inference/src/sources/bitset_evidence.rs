@@ -26,6 +26,17 @@ pub fn contribute(region: &Region) -> Vec<Evidence> {
         });
     }
 
+    if region.contains(SemanticConcept::PredicateCollection) {
+        evidence.push(Evidence {
+            region: region.id,
+            representation: Representation::BitSet,
+            polarity: Polarity::Supports,
+            weight: weights::STRONG,
+            source: SemanticConcept::PredicateCollection,
+            explanation: "Dynamic predicates evaluated over arrays can form bitsets",
+        });
+    }
+
     if region.contains(SemanticConcept::FiniteCollection) {
         evidence.push(Evidence {
             region: region.id,

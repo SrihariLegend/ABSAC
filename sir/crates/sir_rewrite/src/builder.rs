@@ -265,6 +265,7 @@ impl RewriteBuilder {
                 false_val: resolve(false_val)?,
             },
             NodeKind::Pack { array } => NodeKind::Pack { array: resolve(array)? },
+            NodeKind::ArrayCmpMask { array, scalar, op } => NodeKind::ArrayCmpMask { array: resolve(array)?, scalar: resolve(scalar)?, op: *op },
             NodeKind::Return { value } => NodeKind::Return { value: resolve(value)? },
             NodeKind::Load { ptr } => NodeKind::Load { ptr: resolve(ptr)? },
             NodeKind::Store { ptr, value } => NodeKind::Store {
@@ -399,6 +400,7 @@ impl RewriteBuilder {
                 false_val: r(false_val),
             },
             NodeKind::Pack { array } => NodeKind::Pack { array: r(array) },
+            NodeKind::ArrayCmpMask { array, scalar, op } => NodeKind::ArrayCmpMask { array: r(array), scalar: r(scalar), op: *op },
             NodeKind::Return { value } => NodeKind::Return { value: r(value) },
             NodeKind::Load { ptr } => NodeKind::Load { ptr: r(ptr) },
             NodeKind::Store { ptr, value } => {
@@ -452,6 +454,21 @@ impl RewriteBuilder {
                     result,
                 } => {
                     nodes.insert(*collection);
+                    if let Some(acc) = accumulator {
+                        nodes.insert(*acc);
+                    }
+                    nodes.insert(*result);
+                }
+                sir_transform::roles::RegionRoles::PredicateCollectionReduction {
+                    collection,
+                    scalar,
+                    operator,
+                    accumulator,
+                    result,
+                } => {
+                    nodes.insert(*collection);
+                    nodes.insert(*scalar);
+                    nodes.insert(*operator);
                     if let Some(acc) = accumulator {
                         nodes.insert(*acc);
                     }

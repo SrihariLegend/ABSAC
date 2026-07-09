@@ -164,6 +164,22 @@ static STRATEGIES: &[StrategyDef] = &[
             critical_path_depth: 1.max(length.max(1).ilog2() / 6) + 1,
         },
     },
+    StrategyDef {
+        strategy: ImplementationStrategy::Popcount,
+        source_concepts: &[
+            SemanticConcept::CardinalityReduction,
+            SemanticConcept::PredicateCollection,
+        ],
+        rationale: "Count elements matching a predicate by constructing a bitmask and using hardware popcount.",
+        effects: &[CandidateEffect::CountingStrategyChange],
+        definition_id: DefinitionId::new(0),
+        compute_cost: |length| CostProfile {
+            instruction_count: 3,
+            select_count: 0,
+            memory_accesses: 1,
+            critical_path_depth: 1.max(length.max(1).ilog2() / 6),
+        },
+    },
 ];
 
 /// Generate candidate plans for a BitSet transformation context.

@@ -29,11 +29,28 @@ impl RewriteRegion {
     /// The boolean array collection being iterated (e.g., `board` in BS001).
     pub fn collection(&self) -> Result<NodeId, RewriteError> {
         match &self.structural.roles {
-            Some(RegionRoles::BooleanCollectionReduction {
-                collection, ..
-            }) => Ok(*collection),
+            Some(RegionRoles::BooleanCollectionReduction { collection, .. }) => Ok(*collection),
+            Some(RegionRoles::PredicateCollectionReduction { collection, .. }) => Ok(*collection),
             _ => Err(RewriteError::MissingRole {
                 role: "collection".to_string(),
+            }),
+        }
+    }
+
+    pub fn predicate_scalar(&self) -> Result<NodeId, RewriteError> {
+        match &self.structural.roles {
+            Some(RegionRoles::PredicateCollectionReduction { scalar, .. }) => Ok(*scalar),
+            _ => Err(RewriteError::MissingRole {
+                role: "predicate_scalar".to_string(),
+            }),
+        }
+    }
+
+    pub fn predicate_op_node(&self) -> Result<NodeId, RewriteError> {
+        match &self.structural.roles {
+            Some(RegionRoles::PredicateCollectionReduction { operator, .. }) => Ok(*operator),
+            _ => Err(RewriteError::MissingRole {
+                role: "predicate_op_node".to_string(),
             }),
         }
     }
@@ -42,6 +59,7 @@ impl RewriteRegion {
     pub fn result(&self) -> Result<NodeId, RewriteError> {
         match &self.structural.roles {
             Some(RegionRoles::BooleanCollectionReduction { result, .. }) => Ok(*result),
+            Some(RegionRoles::PredicateCollectionReduction { result, .. }) => Ok(*result),
             Some(RegionRoles::ArithmeticOperation { result, .. }) => Ok(*result),
             _ => Err(RewriteError::MissingRole {
                 role: "result".to_string(),
