@@ -7,8 +7,7 @@ use std::collections::HashMap;
 use sir_nodes::{Function, NodeKind};
 use sir_types::NodeId;
 
-use crate::facts::{FactDatabase, LoopFact, ReductionVar};
-use crate::graph;
+use crate::facts::{LoopFact, ReductionVar};
 
 /// Run loop analysis on a function.
 pub fn run_loops(func: &Function) -> HashMap<NodeId, LoopFact> {
@@ -95,10 +94,10 @@ fn try_count_loop(
     rhs: NodeId,
 ) -> Option<u64> {
     // Check if one operand is the carried variable and the other is a constant.
-    let (var_side, bound_side) = if lhs == carried {
-        (lhs, rhs)
+    let bound_side = if lhs == carried {
+        rhs
     } else if rhs == carried {
-        (rhs, lhs)
+        lhs
     } else {
         return None;
     };

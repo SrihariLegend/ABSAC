@@ -256,7 +256,7 @@ impl<'a> Verifier<'a> {
                 | NodeKind::Xor { lhs, rhs } => {
                     if let (Some(lt), Some(rt)) = (self.node_type(*lhs), self.node_type(*rhs))
                     {
-                        if !lt.is_integer() {
+                        if !lt.is_integer_or_bitvector() {
                             self.errors.push(VerificationError::TypeMismatch {
                                 node: node.id,
                                 kind: node.kind.clone(),
@@ -283,7 +283,7 @@ impl<'a> Verifier<'a> {
                 | NodeKind::Rol { lhs, rhs }
                 | NodeKind::Ror { lhs, rhs } => {
                     if let Some(ty) = self.node_type(*lhs) {
-                        if !ty.is_integer() {
+                        if !ty.is_integer_or_bitvector() {
                             self.errors.push(VerificationError::TypeMismatch {
                                 node: node.id,
                                 kind: node.kind.clone(),
@@ -294,7 +294,7 @@ impl<'a> Verifier<'a> {
                         }
                     }
                     if let Some(ty) = self.node_type(*rhs) {
-                        if !ty.is_integer() {
+                        if !ty.is_integer_or_bitvector() {
                             self.errors.push(VerificationError::TypeMismatch {
                                 node: node.id,
                                 kind: node.kind.clone(),
@@ -312,7 +312,7 @@ impl<'a> Verifier<'a> {
                 | NodeKind::LeadingZeros { operand }
                 | NodeKind::TrailingZeros { operand } => {
                     if let Some(ty) = self.node_type(*operand) {
-                        if !ty.is_integer() {
+                        if !ty.is_integer_or_bitvector() {
                             self.errors.push(VerificationError::TypeMismatch {
                                 node: node.id,
                                 kind: node.kind.clone(),
@@ -504,7 +504,7 @@ impl<'a> Verifier<'a> {
                 // Allocate: count must be integer.
                 NodeKind::Allocate { count, .. } => {
                     if let Some(ty) = self.node_type(*count) {
-                        if !ty.is_integer() {
+                        if !ty.is_integer_or_bitvector() {
                             self.errors.push(VerificationError::TypeMismatch {
                                 node: node.id,
                                 kind: node.kind.clone(),
@@ -537,7 +537,7 @@ impl<'a> Verifier<'a> {
                 // ArrayAccess: index must be integer.
                 NodeKind::ArrayAccess { base, index } => {
                     if let Some(ty) = self.node_type(*index) {
-                        if !ty.is_integer() {
+                        if !ty.is_integer_or_bitvector() {
                             self.errors.push(VerificationError::TypeMismatch {
                                 node: node.id,
                                 kind: node.kind.clone(),

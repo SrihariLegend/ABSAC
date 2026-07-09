@@ -262,7 +262,6 @@ mod tests {
     use sir_types::{ConstantData, Span, Type};
 
     fn i32_type() -> Type { Type::i32() }
-    fn u64_type() -> Type { Type::u64() }
     fn unknown_span() -> Span { Span::unknown() }
 
     #[test]

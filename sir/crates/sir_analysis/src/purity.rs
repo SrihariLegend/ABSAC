@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use sir_nodes::Function;
 use sir_types::NodeId;
 
-use crate::facts::{FactDatabase, PurityFact, PurityLevel};
+use crate::facts::{PurityFact, PurityLevel};
 use crate::graph;
 
 /// Run purity analysis on a function.

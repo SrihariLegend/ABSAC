@@ -36,6 +36,26 @@ pub enum SemanticExpression {
 
     /// Count the number of set bits in a bitvector.
     Popcount(Box<SemanticExpression>),
+
+    // ── Added for Boolean Reductions (Phase 0016) ───────────
+
+    /// True if at least one element in the boolean array is true.
+    Exists(Box<SemanticExpression>),
+
+    /// True if all elements in the boolean array are true.
+    All(Box<SemanticExpression>),
+
+    /// True if an odd number of elements in the boolean array are true.
+    Parity(Box<SemanticExpression>),
+
+    /// True if the bitvector is not zero.
+    NotEqualZero(Box<SemanticExpression>),
+
+    /// True if the bitvector has all bits set (equal to full mask).
+    EqualFullMask(Box<SemanticExpression>),
+
+    /// Bitwise AND with 1 (extract the lowest bit).
+    BitwiseAndOne(Box<SemanticExpression>),
 }
 
 /// A predicate for filtering collections.

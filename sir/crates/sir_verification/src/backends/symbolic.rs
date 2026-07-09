@@ -4,10 +4,13 @@
 //! compares structurally. Handles infinite domains because
 //! it never enumerates inputs.
 
-use crate::errors::RejectReason;
+use crate::errors::{RejectReason, UnknownReason};
 use crate::obligation::ProofObligation;
 use crate::semantic::normalizer::Normalizer;
 use crate::semantic::rules::count_filter_to_popcount::CountFilterToPopcount;
+use crate::semantic::rules::exists_to_not_equal_zero::ExistsToNotEqualZero;
+use crate::semantic::rules::all_to_equal_full_mask::AllToEqualFullMask;
+use crate::semantic::rules::parity_to_bitwise_and_one::ParityToBitwiseAndOne;
 use crate::{Proof, ProofStep, VerificationBackend, VerificationResult};
 
 /// Symbolic verification via normalization.
@@ -24,6 +27,9 @@ impl SymbolicVerifier {
     pub fn new() -> Self {
         let mut normalizer = Normalizer::new(100);
         normalizer.add_rule(Box::new(CountFilterToPopcount));
+        normalizer.add_rule(Box::new(ExistsToNotEqualZero));
+        normalizer.add_rule(Box::new(AllToEqualFullMask));
+        normalizer.add_rule(Box::new(ParityToBitwiseAndOne));
         Self { normalizer }
     }
 
@@ -46,7 +52,7 @@ impl SymbolicVerifier {
                 steps,
             })
         } else {
-            VerificationResult::Rejected(RejectReason::SemanticMismatch {
+            VerificationResult::Unknown(UnknownReason::UnsupportedRule {
                 lhs: lhs_nf,
                 rhs: rhs_nf,
             })
@@ -126,7 +132,7 @@ mod tests {
     }
 
     #[test]
-    fn symbolic_verifier_rejects_inequivalent() {
+    fn symbolic_verifier_returns_unknown_for_inequivalent() {
         let verifier = SymbolicVerifier::new();
         // Theorem: Count(BooleanArray(v)) ≡ Popcount(Pack(BooleanArray(v)))
         // Missing the Filter — the rule won't match the LHS
@@ -145,8 +151,8 @@ mod tests {
 
         let result = verifier.verify(&obl);
         match result {
-            VerificationResult::Rejected(RejectReason::SemanticMismatch { .. }) => {}
-            other => panic!("Expected Rejected(SemanticMismatch), got {:?}", other),
+            VerificationResult::Unknown(UnknownReason::UnsupportedRule { .. }) => {}
+            other => panic!("Expected Unknown(UnsupportedRule), got {:?}", other),
         }
     }
 

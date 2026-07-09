@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use sir_nodes::{Function, NodeKind};
 use sir_types::NodeId;
 
-use crate::facts::{FactDatabase, ValueNumberFact};
+use crate::facts::ValueNumberFact;
 use crate::graph;
 
 /// Run value numbering on a function.

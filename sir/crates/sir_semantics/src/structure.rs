@@ -45,12 +45,11 @@ impl StructuralDescription {
 #[derive(Clone, Debug, Default)]
 pub struct StructuralDatabase {
     descriptions: HashMap<RegionId, StructuralDescription>,
-    next_region_id: u64,
 }
 
 impl StructuralDatabase {
     pub fn new() -> Self {
-        Self { descriptions: HashMap::new(), next_region_id: 0 }
+        Self { descriptions: HashMap::new() }
     }
 
     pub fn add_description(&mut self, desc: StructuralDescription) {
@@ -64,6 +63,11 @@ impl StructuralDatabase {
 
     pub fn region(&self, id: RegionId) -> Option<&StructuralDescription> {
         self.descriptions.get(&id)
+    }
+
+    /// Get a mutable reference to a structural description.
+    pub fn region_mut(&mut self, id: RegionId) -> Option<&mut StructuralDescription> {
+        self.descriptions.get_mut(&id)
     }
 
     pub fn regions(&self) -> impl Iterator<Item = (RegionId, &StructuralDescription)> {
@@ -85,9 +89,5 @@ impl StructuralDatabase {
         }
     }
 
-    pub(crate) fn next_region_id(&mut self) -> RegionId {
-        let id = RegionId::new(self.next_region_id);
-        self.next_region_id += 1;
-        id
-    }
+
 }

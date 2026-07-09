@@ -25,6 +25,9 @@ use sir_transform::context::{TransformationContext, TransformationContextDatabas
 use crate::backends::exhaustive::ExhaustiveVerifier;
 use crate::backends::symbolic::SymbolicVerifier;
 use crate::definitions::popcount::PopcountDefinition;
+use crate::definitions::any::AnyDefinition;
+use crate::definitions::all::AllDefinition;
+use crate::definitions::parity::ParityDefinition;
 use crate::obligation::{ProofObligation, ProofObligationDatabase};
 use crate::registry::TransformationRegistry;
 use crate::report::{ReportEntry, ReportStatus, VerificationReport};
@@ -129,6 +132,15 @@ impl Verifier {
         registry.register(Box::new(PopcountDefinition::new(
             sir_transform::ids::DefinitionId::new(0),
         )));
+        registry.register(Box::new(AnyDefinition::new(
+            sir_transform::ids::DefinitionId::new(4), // Any (BS002)
+        )));
+        registry.register(Box::new(AllDefinition::new(
+            sir_transform::ids::DefinitionId::new(5),
+        )));
+        registry.register(Box::new(ParityDefinition::new(
+            sir_transform::ids::DefinitionId::new(6),
+        )));
 
         Self {
             registry,
@@ -171,8 +183,8 @@ impl Verifier {
 
             // Find the first context this definition is applicable to
             for ctx in ctx_list {
-                if let Some(def) = self.registry.find_for(candidate, ctx) {
-                    let mut obligation = def.obligation(ctx);
+                if let Some(def) = self.registry.find_for(candidate) {
+                    let mut obligation = def.obligation(candidate);
                     obligation.candidate = candidate.id;
                     obligation.definition = def.id();
                     db.insert(obligation);

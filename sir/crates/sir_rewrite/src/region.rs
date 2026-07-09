@@ -17,15 +17,12 @@ use crate::error::RewriteError;
 pub struct RewriteRegion {
     /// The structural description from semantic recognition.
     pub structural: StructuralDescription,
-    /// Nodes outside the region that reference region outputs.
-    pub external_users: BTreeSet<NodeId>,
 }
 
 impl RewriteRegion {
-    pub fn new(structural: StructuralDescription, external_users: BTreeSet<NodeId>) -> Self {
+    pub fn new(structural: StructuralDescription) -> Self {
         Self {
             structural,
-            external_users,
         }
     }
 

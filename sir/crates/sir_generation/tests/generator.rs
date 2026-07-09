@@ -34,6 +34,10 @@ fn database_validate_rejects_duplicate_ids() {
         },
         effects: vec![CandidateEffect::TraversalChange],
         expected_cost: CostProfile::default(),
+        representation: sir_transform::representation::Representation::BitSet,
+        source_structure: sir_transform::structures::SourceStructure::BooleanArray { length: 64 },
+        constraints: std::collections::HashSet::new(),
+        assumptions: std::collections::HashSet::new(),
     };
 
     db.add(rid, c.clone());
@@ -56,6 +60,10 @@ fn database_validate_rejects_empty_effects() {
         },
         effects: vec![],
         expected_cost: CostProfile::default(),
+        representation: sir_transform::representation::Representation::BitSet,
+        source_structure: sir_transform::structures::SourceStructure::BooleanArray { length: 64 },
+        constraints: std::collections::HashSet::new(),
+        assumptions: std::collections::HashSet::new(),
     };
     db.add(RegionId::new(0), c);
     assert!(db.validate().is_err());
