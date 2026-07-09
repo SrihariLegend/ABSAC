@@ -85,6 +85,7 @@ pub fn dataflow_inputs(kind: &NodeKind) -> Vec<NodeId> {
         NodeKind::Iterator { collection } => vec![*collection],
 
         // Return: value is the dataflow edge.
+        NodeKind::ArrayCmpMask { array, scalar, op: _ } => vec![*array, *scalar],
         NodeKind::Return { value } => vec![*value],
     }
 }

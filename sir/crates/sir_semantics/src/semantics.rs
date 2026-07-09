@@ -212,7 +212,7 @@ impl SemanticEngine {
         use crate::recognizers::{
             boolean_collection, cardinality_reduction, finite_collection,
             membership_traversal, disjunctive_reduction, conjunctive_reduction, exclusive_reduction,
-            modulo_power_of_two,
+            modulo_power_of_two, predicate_collection,
         };
 
         let bc_recs = boolean_collection::recognize_boolean_collection(func, analysis);
@@ -309,6 +309,17 @@ impl SemanticEngine {
             self.db.add_region(region);
         }
 
+        let pred_recs = predicate_collection::recognize_predicate_collection(func, analysis);
+        for (_concept, explanation, node_ids) in pred_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation);
+            self.db.add_region(region);
+        }
+
         // Merge overlapping regions so that related concepts
         // (e.g., all concepts for the same loop/array computation)
         // end up in a single region. This enables combined evidence
@@ -322,6 +333,19 @@ impl SemanticEngine {
         for (_region_id, desc) in bool_array_recs {
             for (rid, region) in self.db.regions() {
                 if region.contains(SemanticConcept::BooleanCollection) {
+                    let mut new_desc = desc.clone();
+                    new_desc.region = rid;
+                    if self.structural_db.region(rid).is_none() {
+                        self.structural_db.add_description(new_desc);
+                    }
+                }
+            }
+        }
+
+        let dyn_bool_seq_recs = predicate_collection::recognize_dynamic_boolean_sequence(func, analysis);
+        for (_region_id, desc) in dyn_bool_seq_recs {
+            for (rid, region) in self.db.regions() {
+                if region.contains(SemanticConcept::PredicateCollection) {
                     let mut new_desc = desc.clone();
                     new_desc.region = rid;
                     if self.structural_db.region(rid).is_none() {
@@ -395,12 +419,45 @@ impl SemanticEngine {
                 let mut accumulator: Option<NodeId> = None;
                 let mut result_node: Option<NodeId> = None;
 
+                let mut predicate_scalar: Option<NodeId> = None;
+                let mut predicate_op_node: Option<NodeId> = None;
+
                 for node in func.arena.iter() {
-                    // Collection: Parameter node with Array<Bool> type
+                    // Collection: Parameter node
                     if let NodeKind::Parameter { .. } = &node.kind {
                         if let Type::Array { element, .. } = &node.ty {
+                            // Only capture boolean array here. Dynamically generated will override.
                             if matches!(element.as_ref(), &Type::Bool) {
                                 collection = Some(node.id);
+                            }
+                        }
+                    }
+                    // Comparison nodes inside the region indicating a dynamic predicate
+                    if region.nodes.contains(&node.id) {
+                        if matches!(node.kind, NodeKind::Eq {..} | NodeKind::Ne {..} | NodeKind::Lt {..} | NodeKind::Le {..} | NodeKind::Gt {..} | NodeKind::Ge {..}) {
+                            let inputs = node.kind.input_nodes();
+                            if inputs.len() == 2 {
+                                // Assume input 0 is array access, input 1 is scalar
+                                if let Some(lhs) = func.get_node(inputs[0]) {
+                                    if matches!(lhs.kind, NodeKind::ArrayAccess { .. } | NodeKind::Load { .. }) {
+                                        // Retrieve the base array from the access
+                                        let mut base_array = None;
+                                        if let NodeKind::ArrayAccess { base, .. } = lhs.kind {
+                                            base_array = Some(base);
+                                        } else if let NodeKind::Load { ptr } = lhs.kind {
+                                            if let Some(ptr_node) = func.get_node(ptr) {
+                                                if let NodeKind::ArrayAccess { base, .. } = ptr_node.kind {
+                                                    base_array = Some(base);
+                                                }
+                                            }
+                                        }
+                                        if let Some(b) = base_array {
+                                            collection = Some(b);
+                                            predicate_scalar = Some(inputs[1]);
+                                            predicate_op_node = Some(node.id);
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -422,11 +479,21 @@ impl SemanticEngine {
 
                 if let (Some(collection), Some(result)) = (collection, result_node) {
                     if let Some(desc) = self.structural_db.region_mut(region_id) {
-                        desc.roles = Some(RegionRoles::BooleanCollectionReduction {
-                            collection,
-                            accumulator,
-                            result,
-                        });
+                        if let (Some(scalar), Some(operator)) = (predicate_scalar, predicate_op_node) {
+                            desc.roles = Some(RegionRoles::PredicateCollectionReduction {
+                                collection,
+                                scalar,
+                                operator,
+                                accumulator,
+                                result,
+                            });
+                        } else {
+                            desc.roles = Some(RegionRoles::BooleanCollectionReduction {
+                                collection,
+                                accumulator,
+                                result,
+                            });
+                        }
                     }
                 }
             } else if region.contains(SemanticConcept::ModuloPowerOfTwo) {

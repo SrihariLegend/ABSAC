@@ -37,6 +37,20 @@ pub fn recognize_boolean_collection(
                 ));
             }
         }
+        
+        // Also recognize dynamically generated boolean collections
+        if let NodeKind::ArrayCmpMask { array, scalar, op: _ } = &node.kind {
+            results.push((
+                SemanticConcept::BooleanCollection,
+                RecognitionExplanation {
+                    concept: SemanticConcept::BooleanCollection,
+                    triggering_facts: vec![
+                        "Dynamic comparison over array constructs boolean collection",
+                    ],
+                },
+                vec![node.id, *array, *scalar],
+            ));
+        }
     }
 
     results

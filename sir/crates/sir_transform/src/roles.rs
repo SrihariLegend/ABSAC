@@ -17,6 +17,18 @@ pub enum RegionRoles {
         /// The final count produced by the region.
         result: NodeId,
     },
+    PredicateCollectionReduction {
+        /// The array being iterated.
+        collection: NodeId,
+        /// The scalar value being compared against.
+        scalar: NodeId,
+        /// The comparison operation used.
+        operator: sir_types::NodeId, // To identify the node, actually we just need the operator.
+        /// The accumulator carrying the running count.
+        accumulator: Option<NodeId>,
+        /// The final count produced by the region.
+        result: NodeId,
+    },
     /// An arithmetic expression recognized as having an optimized form.
     ArithmeticOperation {
         /// The node representing the operator.

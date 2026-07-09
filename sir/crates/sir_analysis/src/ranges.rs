@@ -95,6 +95,15 @@ fn compute_range(
 
     // Operations that produce known ranges regardless of input ranges.
     match kind {
+        NodeKind::ArrayCmpMask { .. } => {
+            return RangeFact {
+                lower: Some(0),
+                upper: None, // Can be any bitvector value
+                is_nonzero: false,
+                is_power_of_two: false,
+                alignment: None,
+            };
+        }
         // Popcount: result is [0, bit_width_of_input_type].
         NodeKind::Popcount { .. } => {
             // For v0.1, the max supported bit width is 64. 

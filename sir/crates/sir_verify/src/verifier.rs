@@ -384,6 +384,12 @@ impl<'a> Verifier<'a> {
                     }
                 }
 
+                NodeKind::ArrayCmpMask { array, scalar, op: _ } => {
+                    // Type checks are primarily handled by the builder for now.
+                    let _ = self.node_type(*array);
+                    let _ = self.node_type(*scalar);
+                }
+
                 // Comparisons: operands must be same type. Result is Bool (checked by node.ty).
                 NodeKind::Eq { lhs, rhs }
                 | NodeKind::Ne { lhs, rhs }

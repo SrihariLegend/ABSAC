@@ -2,6 +2,17 @@ use serde::{Deserialize, Serialize};
 
 use sir_types::{ConstantData, NodeId, Type};
 
+/// A comparison operator for vectorized array comparisons.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CmpOperator {
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+}
+
 /// The kind of a node in the SIR graph.
 ///
 /// `NodeKind` enumerates every operation the IR can represent. Each variant
@@ -66,6 +77,8 @@ pub enum NodeKind {
     /// Pack a boolean array into a bitvector.
     /// Maps `bool[n]` to `bv<n>` where bit i = array[i].
     Pack { array: NodeId },
+    /// Vectorized comparison of an array against a scalar, producing a bitvector mask.
+    ArrayCmpMask { array: NodeId, scalar: NodeId, op: CmpOperator },
 
     // ── Comparisons ─────────────────────────────────────────
     /// Equality: `lhs == rhs`. Result type is always `Bool`.
@@ -185,6 +198,7 @@ impl NodeKind {
             NodeKind::LeadingZeros { .. } => "LeadingZeros",
             NodeKind::TrailingZeros { .. } => "TrailingZeros",
             NodeKind::Pack { .. } => "Pack",
+            NodeKind::ArrayCmpMask { .. } => "ArrayCmpMask",
             NodeKind::Eq { .. } => "Eq",
             NodeKind::Ne { .. } => "Ne",
             NodeKind::Lt { .. } => "Lt",
@@ -245,6 +259,7 @@ impl NodeKind {
             | NodeKind::Load { ptr: operand }
             | NodeKind::Deallocate { ptr: operand } => vec![*operand],
             NodeKind::Pack { array } => vec![*array],
+            NodeKind::ArrayCmpMask { array, scalar, .. } => vec![*array, *scalar],
             NodeKind::Select {
                 cond,
                 true_val,
