@@ -75,7 +75,14 @@ impl RewriteBuilder {
         if let Some(return_id) = rewritten.return_node {
             let mut reachable = BTreeSet::new();
             let mut worklist = vec![return_id];
-            
+
+            // Always preserve side-effecting nodes, even if they don't feed the return value.
+            for node in rewritten.arena.iter() {
+                if !node.effects.is_pure() {
+                    worklist.push(node.id);
+                }
+            }
+
             // Mark
             while let Some(id) = worklist.pop() {
                 if reachable.insert(id) {
