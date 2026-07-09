@@ -10,12 +10,15 @@ use std::fmt;
 pub enum Representation {
     /// A fixed-size set of boolean values representable as bits.
     BitSet,
+    /// Arithmetic operations expressed as bitwise equivalents (e.g. shifts, masks).
+    BitwiseArithmetic,
 }
 
 impl fmt::Display for Representation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Representation::BitSet => write!(f, "BitSet"),
+            Representation::BitwiseArithmetic => write!(f, "BitwiseArithmetic"),
         }
     }
 }

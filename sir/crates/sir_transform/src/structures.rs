@@ -18,6 +18,8 @@ pub enum SourceStructure {
     PackedBooleanArray { element_count: usize },
     /// 2D arrangement of boolean values
     BooleanMatrix { rows: usize, cols: usize },
+    /// Arithmetic modulo operator with a constant power-of-two divisor
+    ModuloOperator,
 }
 
 impl SourceStructure {

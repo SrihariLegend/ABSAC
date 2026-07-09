@@ -97,10 +97,11 @@ fn compute_range(
     match kind {
         // Popcount: result is [0, bit_width_of_input_type].
         NodeKind::Popcount { .. } => {
-            let width = type_bit_width(ty);
+            // For v0.1, the max supported bit width is 64. 
+            // We use a conservative upper bound of 64 for all popcounts.
             return RangeFact {
                 lower: Some(0),
-                upper: Some(width as i128),
+                upper: Some(64),
                 is_nonzero: false,
                 is_power_of_two: false,
                 alignment: None,
@@ -292,7 +293,7 @@ mod tests {
 
     #[test]
     fn popcount_range() {
-        let mut b = Builder::new("pop", &[("x", u64_type())], u64_type());
+        let mut b = Builder::new("pop", &[("x", u64_type())], i32_type());
         let x = b.parameter_index(0).unwrap();
         let pop = b.popcount(x, unknown_span()).unwrap();
         b.return_value(pop, unknown_span()).unwrap();
