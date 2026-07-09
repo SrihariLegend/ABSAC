@@ -2,6 +2,7 @@ pub mod boolean_collection;
 pub mod finite_collection;
 pub mod membership_traversal;
 pub mod modulo_power_of_two;
+pub mod predicate_collection;
 pub mod cardinality_reduction;
 pub mod disjunctive_reduction;
 pub mod conjunctive_reduction;

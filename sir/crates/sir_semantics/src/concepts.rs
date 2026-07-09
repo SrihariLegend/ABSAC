@@ -23,6 +23,8 @@ pub enum SemanticConcept {
     ExclusiveReduction,
     /// Operation: finding the first element that satisfies a condition
     FindFirst,
+    /// Data: a stream of booleans generated dynamically by comparing elements
+    PredicateCollection,
     /// Operation: checking if elements are present in two collections simultaneously
     SetIntersection,
     /// Operation: integer modulo by a power of two
@@ -41,6 +43,7 @@ impl fmt::Display for SemanticConcept {
             SemanticConcept::DisjunctiveReduction => write!(f, "DisjunctiveReduction"),
             SemanticConcept::ConjunctiveReduction => write!(f, "ConjunctiveReduction"),
             SemanticConcept::ExclusiveReduction => write!(f, "ExclusiveReduction"),
+            SemanticConcept::PredicateCollection => write!(f, "PredicateCollection"),
             SemanticConcept::FindFirst => write!(f, "FindFirst"),
             SemanticConcept::SetIntersection => write!(f, "SetIntersection"),
             SemanticConcept::ModuloPowerOfTwo => write!(f, "ModuloPowerOfTwo"),

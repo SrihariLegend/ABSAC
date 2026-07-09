@@ -158,17 +158,20 @@ impl Optimizer {
                 .context_database()
                 .for_region(obligation.region);
             if let Some(context) = contexts.first() {
-                if let VerificationResult::Proven(proof) = verifier.verify(obligation, context) {
+                let verification_result = verifier.verify(obligation, context);
+                if let VerificationResult::Proven(proof) = &verification_result {
                     // Find the matching candidate from the generator's database
                     for candidate in generator.database().all_candidates() {
                         if candidate.id == obligation.candidate {
                             proven.push(VerifiedCandidate {
                                 candidate: candidate.clone(),
-                                proof,
+                                proof: proof.clone(),
                             });
                             break;
                         }
                     }
+                } else {
+                    println!("Failed proof for {:?}: {:?}", obligation.definition, verification_result);
                 }
             }
         }

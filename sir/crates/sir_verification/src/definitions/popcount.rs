@@ -56,6 +56,12 @@ impl TransformationDefinition for PopcountDefinition {
             })
             .unwrap_or(64); // default for BS001
 
+        // Depending on whether it's a PredicateCollection or BooleanCollection,
+        // we might construct a different theorem. But since Popcount is just over the packed BitVector,
+        // and we are abstracting the collection generation, we can leave the mathematical theorem the same
+        // by verifying that `Popcount(Pack(BooleanArray(v)))` is equivalent to `Count(Filter(BooleanArray(v), True))`.
+        // The Verification Engine models `PredicateCollection` by treating the boolean stream as a `BooleanArray`.
+        
         // Build the theorem: LHS = Count(Filter(BooleanArray(v), True))
         let lhs = SemanticExpression::Count(Box::new(
             SemanticExpression::Filter {

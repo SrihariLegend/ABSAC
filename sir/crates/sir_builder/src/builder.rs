@@ -411,6 +411,34 @@ impl Builder {
 
     /// Create a Pack node: packs a boolean array into a bitvector.
     /// The operand must be an Array(Bool) or Slice(Bool) type.
+    pub fn array_cmp_mask(
+        &mut self,
+        array: NodeId,
+        scalar: NodeId,
+        op: sir_nodes::CmpOperator,
+        span: Span,
+    ) -> Result<NodeId, BuildError> {
+        let ty = self.get_type(array)?;
+        let scalar_ty = self.get_type(scalar)?;
+        
+        let width = match &ty {
+            Type::Array { element, length } if **element == scalar_ty => *length,
+            Type::Slice { element } if **element == scalar_ty => 0,
+            _ => return Err(BuildError::TypeMismatch {
+                node: array,
+                expected: Type::Array { element: Box::new(scalar_ty), length: 0 },
+                actual: ty,
+            }),
+        };
+
+        Ok(self.alloc_node(
+            NodeKind::ArrayCmpMask { array, scalar, op },
+            Type::BitVector { width },
+            Effects::empty(),
+            span,
+        ))
+    }
+
     pub fn pack(&mut self, array: NodeId, span: Span) -> Result<NodeId, BuildError> {
         let ty = self.get_type(array)?;
         let width = match &ty {

@@ -169,7 +169,7 @@ fn build_mixed_reductions() -> sir_nodes::Function {
 #[test]
 fn validate_boolean_boundaries() {
     let benchmarks = vec![
-        ("BS005_NonBoolean", build_non_boolean_array(), false),
+        ("BS005_NonBoolean", build_non_boolean_array(), true), // Now supported via PredicateCollection!
         ("BS006_InterruptingSideEffects", build_side_effect_interrupt(), false),
         ("BS007_ExistingImpl", build_existing_implementation(), false),
         ("BS008_MixedReductions", build_mixed_reductions(), false),

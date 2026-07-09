@@ -144,6 +144,7 @@ pub(crate) fn kind_variant_tag(kind: &NodeKind) -> u32 {
         NodeKind::Loop { .. } => 39,
         NodeKind::Iterator { .. } => 40,
         NodeKind::Pack { .. } => 42,
+        NodeKind::ArrayCmpMask { .. } => 43,
         NodeKind::Return { .. } => 41,
     }
 }
