@@ -325,6 +325,17 @@ impl Interpreter {
                     }),
                 }
             }
+            SemanticExpression::Subtract(lhs, rhs) => {
+                let l = self.evaluate(lhs, env)?;
+                let r = self.evaluate(rhs, env)?;
+                match (l, r) {
+                    (Value::Integer(lv), Value::Integer(rv)) => Ok(Value::Integer(lv - rv)),
+                    _ => Err(InterpreterError::TypeMismatch {
+                        expected: "Integer",
+                        found: Value::Integer(0),
+                    }),
+                }
+            }
         }
     }
 

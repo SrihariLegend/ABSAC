@@ -7,3 +7,4 @@
 pub mod arithmetic_evidence;
 pub mod bitscan_evidence;
 pub mod bitset_evidence;
+pub mod mask_algebra_evidence;

@@ -14,10 +14,13 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "clear_lowest_set_bit",
                 category: "Mask algebra",
                 input_desc: "x & (x - 1)",
-                expected: ExpectedKnowledge::ExpectedFailure {
-                    stage: "Semantics",
-                    missing_knowledge: "MaskAlgebra",
-                    needed_concept: "LowestSetBit",
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "MaskAlgebra",
+                    concepts: vec!["ClearLowestSetBit"],
+                    representation: "MaskAlgebra",
+                    candidate: "ClearLowestBit",
+                    proof: "And(x, Sub(x, 1)) == And(x, Sub(x, 1))",
+                    rewrite: "And -> Intrinsic(blsr)",
                 },
             },
             func: || {

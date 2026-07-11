@@ -75,6 +75,9 @@ pub enum SemanticExpression {
     /// Bitwise shift left `(x << y)`.
     ShiftLeft(Box<SemanticExpression>, Box<SemanticExpression>),
 
+    /// Integer subtraction `(x - y)`.
+    Subtract(Box<SemanticExpression>, Box<SemanticExpression>),
+
     // ── Added for Positional Search (Phase 0018) ────────────
     /// Index of the first true element in a boolean array. Returns the length if none found.
     FirstTrue(Box<SemanticExpression>),

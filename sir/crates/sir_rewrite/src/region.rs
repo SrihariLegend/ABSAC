@@ -69,8 +69,19 @@ impl RewriteRegion {
             Some(RegionRoles::PredicateCollectionReduction { result, .. }) => Ok(*result),
             Some(RegionRoles::ArithmeticOperation { result, .. }) => Ok(*result),
             Some(RegionRoles::PositionSearch { result, .. }) => Ok(*result),
+            Some(RegionRoles::MaskOperation { result, .. }) => Ok(*result),
             _ => Err(RewriteError::MissingRole {
                 role: "result".to_string(),
+            }),
+        }
+    }
+
+    /// Extract the mask operation's operand and result.
+    pub fn mask_operation(&self) -> Result<(NodeId, NodeId), RewriteError> {
+        match &self.structural.roles {
+            Some(RegionRoles::MaskOperation { operand, result }) => Ok((*operand, *result)),
+            _ => Err(RewriteError::MissingRole {
+                role: "MaskOperation".to_string(),
             }),
         }
     }

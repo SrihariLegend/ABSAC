@@ -59,5 +59,10 @@ pub fn default_registry() -> RecipeRegistry {
         203,
     ))));
 
+    // ID 300: ClearLowestSetBit
+    registry.register(Box::new(crate::recipes::clear_lowest_set_bit::ClearLowestSetBitRecipe::new(DefinitionId::new(
+        300,
+    ))));
+
     registry
 }

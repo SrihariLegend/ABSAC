@@ -207,6 +207,10 @@ impl Normalizer {
                 Box::new(self.normalize_recursive(lhs, steps, depth + 1)),
                 Box::new(self.normalize_recursive(rhs, steps, depth + 1)),
             ),
+            SemanticExpression::Subtract(lhs, rhs) => SemanticExpression::Subtract(
+                Box::new(self.normalize_recursive(lhs, steps, depth + 1)),
+                Box::new(self.normalize_recursive(rhs, steps, depth + 1)),
+            ),
         }
     }
 }

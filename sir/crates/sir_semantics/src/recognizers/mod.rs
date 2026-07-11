@@ -7,6 +7,7 @@ pub mod disjunctive_reduction;
 pub mod divide_power_of_two;
 pub mod exclusive_reduction;
 pub mod finite_collection;
+pub mod mask_algebra;
 pub mod membership_traversal;
 pub mod modulo_power_of_two;
 pub mod multiply_power_of_two;

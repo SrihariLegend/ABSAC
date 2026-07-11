@@ -14,6 +14,8 @@ pub enum Representation {
     BitwiseArithmetic,
     /// Positional algorithms (scans for bits).
     BitScan,
+    /// Algebra over bit masks (e.g. clearing lowest set bit).
+    MaskAlgebra,
 }
 
 impl fmt::Display for Representation {
@@ -22,6 +24,7 @@ impl fmt::Display for Representation {
             Representation::BitSet => write!(f, "BitSet"),
             Representation::BitwiseArithmetic => write!(f, "BitwiseArithmetic"),
             Representation::BitScan => write!(f, "BitScan"),
+            Representation::MaskAlgebra => write!(f, "MaskAlgebra"),
         }
     }
 }

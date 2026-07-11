@@ -28,6 +28,8 @@ pub enum SourceStructure {
     MultiplyOperator,
     /// Shift operators that extract a mask
     ShiftMaskOperator,
+    /// Expression performing mask algebra
+    MaskAlgebraExpression,
 }
 
 impl SourceStructure {

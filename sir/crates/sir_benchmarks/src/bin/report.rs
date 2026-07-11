@@ -36,10 +36,11 @@ fn main() {
     println!("  Arithmetic identities     ✓");
     println!("  Positional search         ✓");
     println!("  Set algebra               Partial");
-    println!("  Mask algebra              Missing");
+    println!("  Mask algebra              ✓");
     println!("  Bit permutations          Missing");
     println!("\nRepresentations\n");
     println!("  BitSet                    ✓");
     println!("  BitwiseArithmetic         ✓");
     println!("  BitScan                   ✓");
+    println!("  MaskAlgebra               ✓");
 }
