@@ -3,6 +3,7 @@
 
 pub mod mask_algebra;
 pub mod bit_permutations;
+pub mod composition;
 
 use crate::framework::BenchmarkDef;
 
@@ -10,5 +11,6 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
     let mut all = Vec::new();
     all.extend(mask_algebra::benchmarks());
     all.extend(bit_permutations::benchmarks());
+    all.extend(composition::benchmarks());
     all
 }

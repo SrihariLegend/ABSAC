@@ -220,6 +220,7 @@ mod tests {
         assert_eq!(domain.variables.len(), 1);
         match &domain.variables[0].kind {
             VariableKind::LogicalSequence { length } => assert_eq!(*length, 64),
+            VariableKind::BitVector { .. } => panic!("Expected LogicalSequence"),
         }
     }
 

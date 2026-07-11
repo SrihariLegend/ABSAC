@@ -211,6 +211,10 @@ impl Normalizer {
                 Box::new(self.normalize_recursive(lhs, steps, depth + 1)),
                 Box::new(self.normalize_recursive(rhs, steps, depth + 1)),
             ),
+            SemanticExpression::ClearLowestSetBit(inner) => {
+                let normalized = self.normalize_recursive(inner, steps, depth + 1);
+                SemanticExpression::ClearLowestSetBit(Box::new(normalized))
+            }
         }
     }
 }

@@ -152,9 +152,11 @@ impl InferenceEngine {
         self.db = HypothesisDatabase::new();
         self.context_db = TransformationContextDatabase::new();
 
+        let truths: Vec<_> = semantic_db.truths().cloned().collect();
+
         // 1. Generate evidence from all regions
         for (_, region) in semantic_db.regions() {
-            let evidence = crate::sources::bitset_evidence::contribute(region);
+            let evidence = crate::sources::bitset_evidence::contribute(region, &truths);
             for e in evidence {
                 self.evidence_registry.add(e);
             }
