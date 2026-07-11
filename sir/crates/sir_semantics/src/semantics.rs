@@ -216,8 +216,19 @@ impl SemanticEngine {
             boolean_collection, cardinality_reduction, conjunctive_reduction,
             disjunctive_reduction, divide_power_of_two, exclusive_reduction, finite_collection,
             membership_traversal, modulo_power_of_two, multiply_power_of_two, predicate_collection,
-            shift_mask,
+            shift_mask, set_algebra,
         };
+
+        let sa_recs = set_algebra::recognize_set_algebra(func, analysis);
+        for (_concept, explanation, node_ids) in sa_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation);
+            self.db.add_region(region);
+        }
 
         let bc_recs = boolean_collection::recognize_boolean_collection(func, analysis);
         for (_concept, explanation, node_ids) in bc_recs {

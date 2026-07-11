@@ -143,8 +143,8 @@ fn bs001_full_pipeline_produces_four_distinct_candidates() {
     }
 
     assert_eq!(
-        total_candidates, 4,
-        "Expected exactly 4 candidates, got {}",
+        total_candidates, 5,
+        "Expected exactly 5 candidates, got {}",
         total_candidates
     );
     assert_eq!(

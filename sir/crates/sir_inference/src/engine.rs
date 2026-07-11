@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 
 use sir_semantics::region::RegionId;
@@ -170,8 +170,8 @@ impl InferenceEngine {
 
         // 2. Aggregate evidence per (region, representation)
         // Build a map: (RegionId, Representation) -> (positive_sum, negative_sum, evidence_ids)
-        let mut aggregation: HashMap<(RegionId, Representation), (u32, u32, Vec<usize>)> =
-            HashMap::new();
+        let mut aggregation: BTreeMap<(RegionId, Representation), (u32, u32, Vec<usize>)> =
+            BTreeMap::new();
 
         for (evidence_id, evidence) in self.evidence_registry.all().iter().enumerate() {
             let key = (evidence.region, evidence.representation);

@@ -23,6 +23,12 @@ pub fn recognize_position_search(
             carried_inputs,
         } = &node.kind
         {
+            // Reject loops with side effects (IO, memory writes, allocations)
+            let allowed_effects = sir_types::Effects::READ_MEMORY;
+            if !(node.effects - allowed_effects).is_empty() {
+                continue;
+            }
+
             // Recognize trailing zero count: `(x & 1) == 0`
             let mut is_tzcnt = false;
             let mut is_lzcnt = false;
@@ -41,6 +47,7 @@ pub fn recognize_position_search(
                         // and `Sub` is LastOccurrence.
                         let mut has_add = false;
                         let mut has_sub = false;
+                        let mut has_position_select = false;
                         for id in body {
                             if let Some(n) = func.get_node(*id) {
                                 if matches!(n.kind, sir_nodes::NodeKind::Add { .. }) {
@@ -49,14 +56,23 @@ pub fn recognize_position_search(
                                 if matches!(n.kind, sir_nodes::NodeKind::Sub { .. }) {
                                     has_sub = true;
                                 }
+                                if let sir_nodes::NodeKind::Select { true_val, false_val, .. } = &n.kind {
+                                    // In a position search, we select the loop index (which is not a constant).
+                                    // In a cardinality reduction, we select between 1 and 0 (which are constants).
+                                    let t_is_const = matches!(func.get_node(*true_val).map(|x| &x.kind), Some(sir_nodes::NodeKind::Constant(_)));
+                                    let f_is_const = matches!(func.get_node(*false_val).map(|x| &x.kind), Some(sir_nodes::NodeKind::Constant(_)));
+                                    if !t_is_const || !f_is_const {
+                                        has_position_select = true;
+                                    }
+                                }
                             }
                         }
-                        if has_sub {
-                            is_last = true;
-                        } else if has_add {
-                            is_first = true;
-                        } else {
-                            is_first = true; // default
+                        if has_position_select {
+                            if has_sub {
+                                is_last = true;
+                            } else {
+                                is_first = true;
+                            }
                         }
                     }
 

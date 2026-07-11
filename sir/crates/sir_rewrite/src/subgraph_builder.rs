@@ -166,7 +166,7 @@ impl<'a> SubgraphBuilder<'a> {
     }
 
     pub fn leading_zeros(&mut self, operand: LocalNodeId, span: Span) -> LocalNodeId {
-        let ty = self.get_type(operand).unwrap_or(Type::i32());
+        let ty = Type::i32();
         self.alloc_node(
             NodeKind::LeadingZeros {
                 operand: NodeId::new(operand.as_u64()),
@@ -177,7 +177,7 @@ impl<'a> SubgraphBuilder<'a> {
     }
 
     pub fn trailing_zeros(&mut self, operand: LocalNodeId, span: Span) -> LocalNodeId {
-        let ty = self.get_type(operand).unwrap_or(Type::i32());
+        let ty = Type::i32();
         self.alloc_node(
             NodeKind::TrailingZeros {
                 operand: NodeId::new(operand.as_u64()),

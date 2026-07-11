@@ -90,8 +90,9 @@ mod tests {
         let recipe = PopcountRecipe::new(DefinitionId::new(0));
         let region = make_test_region();
         let builder = SubgraphBuilder::new();
+        let func = sir_nodes::Function::new("test", sir_types::Type::Unit);
 
-        let patch = recipe.build_patch(&region, builder).unwrap();
+        let patch = recipe.build_patch(&func, &region, builder).unwrap();
 
         // The patch contains 2 nodes: Pack + Popcount
         assert_eq!(patch.arena.len(), 2);
@@ -111,8 +112,9 @@ mod tests {
         );
         let region = RewriteRegion::new(structural);
         let builder = SubgraphBuilder::new();
+        let func = sir_nodes::Function::new("test", sir_types::Type::Unit);
 
-        let result = recipe.build_patch(&region, builder);
+        let result = recipe.build_patch(&func, &region, builder);
         assert!(result.is_err());
         match result {
             Err(RewriteError::MissingRole { .. }) => {} // expected

@@ -34,14 +34,10 @@ impl RewriteRecipe for BitScanForwardRecipe {
     ) -> Result<ReplacementPatch, RewriteError> {
         let packed = crate::recipes::helpers::emit_pack(function, region, &mut builder)?;
         let tzcnt = builder.trailing_zeros(packed, Span::unknown());
-
         let result = region.result()?;
 
-        // Ensure type of replacement matches original. TZCNT returns same type as input (often BitVector or i32/u32),
-        // but we might need to cast to the expected result type.
-        // For v0.1 tests, we know PS001 expects u64 and TZCNT returns u64 or i32.
-        // As a shortcut, we assume `trailing_zeros` produces the correctly-typed value if we cast/truncate it.
-        // Let's just use `tzcnt` node directly and let type verification catch any missing casts in a real compiler.
+        // Use tzcnt directly, type verification will validate. We don't have a cast operator in builder yet.
+        // If type mismatches, the selection/verification phase will reject it.
 
         Ok(builder.finish(vec![ReplacementValue {
             old: result,
