@@ -28,11 +28,11 @@ impl RewriteRecipe for DivideShiftRecipe {
 
     fn build_patch(
         &self,
-        function: &sir_nodes::Function,
+        _function: &sir_nodes::Function,
         region: &RewriteRegion,
         mut builder: SubgraphBuilder,
     ) -> Result<ReplacementPatch, RewriteError> {
-        let op = region.operator_node()?;
+        let _op = region.operator_node()?;
         let lhs_id = region.lhs()?;
         let rhs_id = region.rhs()?;
         let result_id = region.result()?;

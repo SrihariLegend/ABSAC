@@ -6,7 +6,7 @@ use sir_types::Span;
 
 /// Shared helper to emit the initial `pack(board)` operation for bitset reductions.
 pub fn emit_pack(
-    function: &sir_nodes::Function,
+    _function: &sir_nodes::Function,
     region: &RewriteRegion,
     builder: &mut SubgraphBuilder,
 ) -> Result<LocalNodeId, RewriteError> {

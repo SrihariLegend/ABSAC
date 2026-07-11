@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 
 use sir_semantics::structure::StructuralDescription;
 use sir_transform::roles::RegionRoles;

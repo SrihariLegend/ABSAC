@@ -22,7 +22,7 @@ impl RewriteBuilder {
     /// Clones the original, imports the patch, reconnects SSA, and returns
     /// the rewritten function. The original function is never mutated.
     pub fn apply(function: &Function, plan: RewritePlan) -> Result<Function, RewriteError> {
-        let region = &plan.region;
+        let _region = &plan.region;
         let patch = &plan.patch;
 
         // 1. Clone the original function
@@ -543,6 +543,7 @@ impl RewriteBuilder {
     }
 
     /// Collect all NodeIds referenced in the region's roles.
+    #[allow(dead_code)]
     fn collect_role_nodes(region: &RewriteRegion) -> BTreeSet<NodeId> {
         let mut nodes = BTreeSet::new();
         if let Some(roles) = &region.structural.roles {

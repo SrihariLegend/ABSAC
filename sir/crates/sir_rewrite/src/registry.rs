@@ -1,4 +1,4 @@
-use crate::recipe::{RecipeRegistry, RewriteRecipe};
+use crate::recipe::RecipeRegistry;
 use crate::recipes::all::AllRecipe;
 use crate::recipes::any::AnyRecipe;
 use crate::recipes::bitscan_forward::BitScanForwardRecipe;

@@ -211,7 +211,7 @@ impl Verifier {
             }
 
             // Find the first context this definition is applicable to
-            for ctx in ctx_list {
+            for _ctx in ctx_list {
                 if let Some(def) = self.registry.find_for(candidate) {
                     let mut obligation = def.obligation(candidate);
                     obligation.candidate = candidate.id;

@@ -4,11 +4,10 @@ use sir_types::NodeId;
 
 use crate::concepts::SemanticConcept;
 use crate::region::RecognitionExplanation;
-use sir_transform::structures::SourceStructure;
 
 pub fn recognize_position_search(
     func: &Function,
-    analysis: &FactDatabase,
+    _analysis: &FactDatabase,
 ) -> Vec<(SemanticConcept, RecognitionExplanation, Vec<NodeId>)> {
     let mut results = Vec::new();
 
@@ -18,9 +17,9 @@ pub fn recognize_position_search(
     for node in func.arena.iter() {
         if let sir_nodes::NodeKind::Loop {
             body,
-            termination,
-            outputs,
-            carried_inputs,
+            termination: _,
+            outputs: _,
+            carried_inputs: _,
         } = &node.kind
         {
             // Reject loops with side effects (IO, memory writes, allocations)
@@ -45,13 +44,13 @@ pub fn recognize_position_search(
                         // This requires looking at the step of the carried loop index.
                         // For v0.1, we assume any array search that uses an `Add` for index is FirstOccurrence,
                         // and `Sub` is LastOccurrence.
-                        let mut has_add = false;
+                        let mut _has_add = false;
                         let mut has_sub = false;
                         let mut has_position_select = false;
                         for id in body {
                             if let Some(n) = func.get_node(*id) {
                                 if matches!(n.kind, sir_nodes::NodeKind::Add { .. }) {
-                                    has_add = true;
+                                    _has_add = true;
                                 }
                                 if matches!(n.kind, sir_nodes::NodeKind::Sub { .. }) {
                                     has_sub = true;

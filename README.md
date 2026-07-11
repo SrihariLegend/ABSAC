@@ -1,195 +1,104 @@
 # ABSAC
 
-**Automatic Bitwise Superoptimization of Arbitrary Code** — a research compiler exploring semantic recognition and verified bitwise transformations that are difficult to express using conventional syntax-directed optimization.
+**A Semantic Knowledge-Acquisition Compiler for Bitwise Superoptimization**
 
-"Arbitrary" refers to arbitrary source programs as input. Only regions recognized as belonging to supported semantic transformation families are rewritten.
+> *"How much of the known universe of bitwise optimization can be automatically rediscovered from naive programs?"*
 
-## Why this compiler exists
+ABSAC is an experimental semantic compiler architecture. Instead of hardcoding peephole patterns or using expensive stochastic search over assembly instructions, ABSAC discovers mathematical domains (like Finite Sets or Logical Sequences) embedded in arbitrary functional source code. It systematically proves the equivalence of hardware-efficient representations (like `BitSet`) to replace naive algorithms with optimal bitwise logic.
 
-Traditional optimizing compilers are largely syntax-directed: they optimize the representation already present in the program.
+The compiler acts as a **knowledge acquisition system**. It doesn't use syntactic pattern matching; it relies entirely on a pipeline of semantic deduction, representation inference, candidate generation, and formal verification.
 
-ABSAC instead attempts to **recognize the underlying computation**, **prove semantic equivalence** of alternative representations, and **rewrite the program** into those representations. Unlike conventional optimization passes, ABSAC separates recognition, proof, and rewriting. Every transformation is first recognized, then formally verified for semantic equivalence, and only then mechanically rewritten.
+## The Knowledge Pipeline
 
-The long-term goal is automatic discovery and application of bitwise formulations that today are typically written manually by expert programmers.
+ABSAC relies on a pure, feed-forward knowledge pipeline operating over **SIR** (Semantic IR), a typed, functional SSA-form graph.
 
-## Current scope
-
-Research focus (v0.1):
-
-- Boolean collections
-- Bitsets
-- Reduction operators: cardinality (`+`), disjunction (`||`), conjunction (`&&`), exclusive (`^`)
-- Popcount-based transformations (BS001)
-- Disjunctive, conjunctive, and exclusive reductions (BS002, BS003, BS004)
-
-## Knowledge Pipeline
-
-```
+```text
 Source Program
-      |
-      v  sir_builder
-SIR
-      |
-      v  sir_analysis
-Compiler Facts           "What is provably true?"
-      |
-      v  sir_semantics
-Semantic Truths          "What computation is being performed?"
-Structural Descriptions  "How is the data organized?"
-      |
-      v  sir_inference
-Representation Beliefs   "Which representation best explains it?"
-Transformation Contexts  "What would have to be true to transform it?"
-      |
-      v  sir_generation
+      │
+      ▼
+Compiler Facts           "What is provably true?" (Purity, Finiteness, Loops, Ranges)
+      │
+      ▼
+Semantic Truths          "What mathematical object / domain does this represent?"
+      │
+      ▼
+Representation Beliefs   "Which hardware representation best models this object?"
+      │
+      ▼
 Candidate Plans          "What implementations are possible?"
-      |
-      v  sir_verification
-Equivalence Proofs       "Is the rewrite mathematically correct?"
-      |
-      v  sir_selection
-Cost Scores              "Which proven rewrite should we apply?"
-      |
-      v  sir_rewrite
-Verified Mutations       "Execute the selected winner."
+      │
+      ▼
+Equivalence Proofs       "Is the chosen rewrite mathematically exact?"
+      │
+      ▼
+Verified Mutations       "Execute the rewrite."
 ```
 
-Each layer consumes only the knowledge of the immediately preceding layer. No layer reads upward or across.
+Each layer strictly consumes only the knowledge produced by the immediately preceding layer.
 
-### The Problem
+## Corpus v1.0: Empirical Evaluation
 
-Compilers optimize syntax. Humans optimize representations. Given:
+ABSAC's progress is measured not by features, but by the boundaries of its mathematical knowledge. We maintain an immutable, reproducible benchmark corpus (**Corpus v1.0**) tracking exactly what the compiler can synthesize from first principles. 
 
-```rust
-let mut count = 0;
-for i in 0..64 {
-    if board[i] {
-        count += 1;
-    }
-}
+Every benchmark acts as a declarative specification of the expected reasoning chain. Expected failures are treated as first-class artifacts mapping the exact domain of missing knowledge (e.g., *Mask Algebra* or *Bit Permutations*).
+
+You can run the live coverage report at any time:
+
+```bash
+cd sir
+cargo run -p sir_benchmarks --bin report
 ```
 
-A traditional syntax-directed optimizer primarily sees: loop, load, branch, add. A human sees: **cardinality of a finite set.** ABSAC recognizes this as a bitset and proposes `popcount(board)` as an equivalent, faster implementation — then proves the transformation correct before applying it.
+### Current Semantic Coverage (Corpus v1.0)
 
-## Implementation Status
+```text
+ABSAC Semantic Coverage Report
+================================
 
-| # | Capability | Status |
-|---|-----------|--------|
-| 1 | SIR — typed SSA-form functional IR | Complete |
-| 2 | SAF — 9 compiler analyses (Facts) | Complete |
-| 3 | SRI — semantic reasoning + representation inference (Truths + Beliefs) | Complete |
-| 4 | CGE — transformation planning (Contexts + Plans) | Complete |
-| 5 | Equivalence verification (Proofs) | Complete |
-| 6 | Verified rewriting (Mutations) | Complete |
-| 7 | Cost model + Selection | Complete |
-| 8 | End-to-end optimizer | Complete |
+Benchmarks:             11
 
-### Benchmark Coverage
+Optimized:              8
+Expected failures:       2
+Correctly declined:      1
 
-| Benchmark | Pattern | Operator | Concept | Rewrite |
-|-----------|---------|----------|---------|---------|
-| BS001 | `count += board[i]` | `+` | CardinalityReduction | Popcount (complete) |
-| BS002 | `found \|\|= board[i]` | `\|\|` | DisjunctiveReduction | Complete |
-| BS003 | `all &&= board[i]` | `&&` | ConjunctiveReduction | Complete |
-| BS004 | `parity ^= board[i]` | `!=` | ExclusiveReduction | Complete |
+Semantic domains
 
-## Quick Start
+  Boolean reductions        ✓
+  Arithmetic identities     ✓
+  Positional search         ✓
+  Set algebra               Partial
+  Mask algebra              Missing
+  Bit permutations          Missing
+
+Representations
+
+  BitSet                    ✓
+  BitwiseArithmetic         ✓
+  BitScan                   ✓
+```
+
+As the compiler acquires new mathematical concepts, benchmarks graduate from "Expected Failure" to "Optimized."
+
+## Project Architecture
+
+The compiler framework is implemented purely in Rust (`sir/` workspace). It is architecturally frozen at the IR and reasoning substrate levels to guarantee stability.
+
+- **`sir_types` / `sir_nodes`**: Core data models and SSA-form IR.
+- **`sir_analysis`**: Read-only framework (Dataflow, Ranges, Purity, Dominance).
+- **`sir_semantics`**: Structural and semantic concept recognizers.
+- **`sir_inference`**: Cost and representation mapping.
+- **`sir_generation`**: Combinatorial implementation strategies.
+- **`sir_verification`**: Exhaustive and symbolic equivalence provers.
+- **`sir_rewrite`**: Deterministic, verified subgraph replacement.
+- **`sir_optimizer`**: The fixed-point orchestrator executing the full pipeline.
+
+## Building and Testing
+
+There are no external dependencies beyond a standard Rust toolchain.
 
 ```bash
 cd sir
 cargo build
-cargo test          # 380+ tests, all passing
+cargo test
+cargo run -p sir_benchmarks --bin report
 ```
-
-**Requirements:** Rust 2021 edition (stable).
-
-## Repository Structure
-
-```
-ABSAC/
-├── README.md
-├── CLAUDE.md                   # Project instructions
-├── sir/                        # Semantic IR — the active component
-│   ├── Cargo.toml              # Workspace manifest (15 crates)
-│   ├── README.md               # SIR-specific documentation
-│   ├── crates/
-│   │   ├── sir_types/          # Type system, NodeId, Effects, CostProfile
-│   │   ├── sir_nodes/          # NodeKind (40+ variants), NodeArena, Function
-│   │   ├── sir_builder/        # Type-safe construction API
-│   │   ├── sir_printer/        # Text + JSON serialization
-│   │   ├── sir_verify/         # Graph invariant verification (7 checks)
-│   │   ├── sir_analysis/       # 9 compiler analyses
-│   │   ├── sir_semantics/      # Semantic truth + structural recognition (7 recognizers)
-│   │   ├── sir_inference/      # Representation belief inference
-│   │   ├── sir_transform/      # Transformation contract
-│   │   ├── sir_generation/     # Candidate plan generation (4 strategies)
-│   │   ├── sir_verification/   # Proof engine (symbolic + exhaustive backends)
-│   │   ├── sir_selection/      # Cost model + deterministic selector
-│   │   ├── sir_rewrite/        # Verified rewrite engine (subgraph patching)
-│   │   ├── sir_optimizer/      # Fixed-point optimization driver
-│   │   └── sir_tests/          # Integration tests
-│   └── docs/                   # Design documents (13 specs)
-├── phase0.xml                  # External project data
-└── phase1.xml                  # External project data
-```
-
-## Architecture
-
-### Crate dependency graph (layered, no cycles)
-
-```
-sir_types                 — foundational (no internal deps)
-  │
-  ├── sir_transform       — depends on sir_types
-  │
-  └── sir_nodes           — depends on sir_types
-        │
-        ├── sir_builder   — depends on sir_nodes, sir_types
-        ├── sir_printer   — depends on sir_nodes, sir_types
-        ├── sir_verify    — depends on sir_nodes, sir_types
-        │
-        ├── sir_analysis  — depends on sir_nodes, sir_types (read-only)
-        │     │
-        │     ▼
-        ├── sir_semantics — depends on sir_types, sir_nodes, sir_analysis, sir_transform
-        │     │
-        │     ├── sir_inference  — depends on sir_types, sir_semantics, sir_transform
-        │     │
-        │     └── sir_generation — depends on sir_types, sir_transform, sir_semantics
-        │           │
-        │           ├── sir_verification — depends on sir_types, sir_transform, sir_generation
-        │           │     │
-        │           │     ├── sir_selection — depends on sir_types, sir_generation, sir_verification
-        │           │     │     │
-        │           │     │     ▼
-        │           │     └── sir_rewrite — depends on sir_types, sir_nodes, sir_transform,
-        │           │                        sir_generation, sir_verification, sir_verify,
-        │           │                        sir_semantics
-        │           │                        │
-        │           │                        ▼
-        │           │              sir_optimizer — depends on all above (fixed-point driver)
-        │
-        └── sir_tests     — integration tests (depends on all of the above)
-```
-
-## Design Philosophy
-
-1. **Lossless** — Every semantic fact from the source language is representable
-2. **Language-independent** — Rust, C, C++, Zig, Go all lower into identical SIR
-3. **SSA form** — Every value assigned exactly once, no mutable variables
-4. **Typed** — Every node has an exact type
-5. **Explicit effects** — Pure vs. impure operations are distinguishable
-6. **Extensible** — SIMD, GPU, tensors, FSMs can be added without redesign
-
-## IR Design
-
-SIR is a **functional IR** — no basic blocks, no control-flow graph, no phi nodes:
-
-- **Select** replaces `if`/`else` (branchless conditional)
-- **Loop** handles iteration with explicit carried inputs/outputs (no back-edges)
-- **No control flow** beyond Select, Loop, and Return
-- **Explicit effects tracking** per node (pure, memory, allocation, IO, atomic)
-
-## License
-
-MIT

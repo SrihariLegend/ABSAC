@@ -28,11 +28,11 @@ impl RewriteRecipe for ShiftMaskRecipe {
 
     fn build_patch(
         &self,
-        function: &sir_nodes::Function,
+        _function: &sir_nodes::Function,
         region: &RewriteRegion,
         mut builder: SubgraphBuilder,
     ) -> Result<ReplacementPatch, RewriteError> {
-        let op = region.operator_node()?;
+        let _op = region.operator_node()?;
         let lhs_id = region.lhs()?; // This is the inner value
         let rhs_id = region.rhs()?; // This is the shift amount
         let result_id = region.result()?;

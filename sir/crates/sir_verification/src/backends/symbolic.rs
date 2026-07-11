@@ -4,7 +4,7 @@
 //! compares structurally. Handles infinite domains because
 //! it never enumerates inputs.
 
-use crate::errors::{RejectReason, UnknownReason};
+use crate::errors::UnknownReason;
 use crate::obligation::ProofObligation;
 use crate::semantic::normalizer::Normalizer;
 use crate::semantic::rules::all_to_equal_full_mask::AllToEqualFullMask;
