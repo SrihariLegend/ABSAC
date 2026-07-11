@@ -29,6 +29,11 @@ impl RewriteRegion {
         match &self.structural.roles {
             Some(RegionRoles::BooleanCollectionReduction { collection, .. }) => Ok(*collection),
             Some(RegionRoles::PredicateCollectionReduction { collection, .. }) => Ok(*collection),
+            Some(RegionRoles::PositionSearch { collection, .. }) => {
+                collection.ok_or_else(|| RewriteError::MissingRole {
+                    role: "collection".to_string(),
+                })
+            }
             _ => Err(RewriteError::MissingRole {
                 role: "collection".to_string(),
             }),
@@ -38,6 +43,11 @@ impl RewriteRegion {
     pub fn predicate_scalar(&self) -> Result<NodeId, RewriteError> {
         match &self.structural.roles {
             Some(RegionRoles::PredicateCollectionReduction { scalar, .. }) => Ok(*scalar),
+            Some(RegionRoles::PositionSearch { scalar, .. }) => {
+                scalar.ok_or_else(|| RewriteError::MissingRole {
+                    role: "predicate_scalar".to_string(),
+                })
+            }
             _ => Err(RewriteError::MissingRole {
                 role: "predicate_scalar".to_string(),
             }),
@@ -59,6 +69,7 @@ impl RewriteRegion {
             Some(RegionRoles::BooleanCollectionReduction { result, .. }) => Ok(*result),
             Some(RegionRoles::PredicateCollectionReduction { result, .. }) => Ok(*result),
             Some(RegionRoles::ArithmeticOperation { result, .. }) => Ok(*result),
+            Some(RegionRoles::PositionSearch { result, .. }) => Ok(*result),
             _ => Err(RewriteError::MissingRole {
                 role: "result".to_string(),
             }),

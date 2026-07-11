@@ -354,6 +354,18 @@ impl SemanticEngine {
             self.db.add_region(region);
         }
 
+        let pos_recs =
+            crate::recognizers::position_search::recognize_position_search(func, analysis);
+        for (_concept, explanation, node_ids) in pos_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation);
+            self.db.add_region(region);
+        }
+
         // Merge overlapping regions so that related concepts
         // (e.g., all concepts for the same loop/array computation)
         // end up in a single region. This enables combined evidence
@@ -442,6 +454,32 @@ impl SemanticEngine {
                     if self.structural_db.region(rid).is_none() {
                         self.structural_db.add_description(new_desc);
                     }
+                }
+            }
+        }
+
+        // In v0.1 we reuse BooleanArray structure for array searches, and BitMask for scalar searches
+        for (rid, region) in self.db.regions() {
+            if region.contains(SemanticConcept::FirstOccurrence)
+                || region.contains(SemanticConcept::LastOccurrence)
+            {
+                // If not already populated by BooleanArray recognizer
+                if self.structural_db.region(rid).is_none() {
+                    let desc = crate::structure::StructuralDescription::new(
+                        rid,
+                        sir_transform::structures::SourceStructure::BooleanArray { length: 64 }, // stub
+                    );
+                    self.structural_db.add_description(desc);
+                }
+            } else if region.contains(SemanticConcept::TrailingZeroSearch)
+                || region.contains(SemanticConcept::LeadingZeroSearch)
+            {
+                if self.structural_db.region(rid).is_none() {
+                    let desc = crate::structure::StructuralDescription::new(
+                        rid,
+                        sir_transform::structures::SourceStructure::BitMask { width: 64 }, // stub
+                    );
+                    self.structural_db.add_description(desc);
                 }
             }
         }
@@ -660,6 +698,47 @@ impl SemanticEngine {
                             lhs,
                             rhs,
                             result: shr,
+                        });
+                    }
+                }
+            } else if region.contains(SemanticConcept::FirstOccurrence)
+                || region.contains(SemanticConcept::LastOccurrence)
+                || region.contains(SemanticConcept::TrailingZeroSearch)
+                || region.contains(SemanticConcept::LeadingZeroSearch)
+            {
+                let mut collection = None;
+                let mut scalar = None;
+                let mut result_node = None;
+
+                for node in func.arena.iter() {
+                    if region.nodes.contains(&node.id) {
+                        if let NodeKind::Loop { .. } = &node.kind {
+                            result_node = Some(node.id);
+                        }
+                    }
+                    if let NodeKind::Parameter { .. } = &node.kind {
+                        if let Type::Array { element, .. } = &node.ty {
+                            if matches!(element.as_ref(), &Type::Bool) {
+                                collection = Some(node.id);
+                            }
+                        } else if matches!(node.ty, Type::Integer { .. }) {
+                            println!("Found scalar parameter for PositionSearch: {:?}", node.id);
+                            scalar = Some(node.id); // Hacky for v0.1
+                        }
+                    }
+                }
+
+                println!(
+                    "PositionSearch roles assigned: collection={:?}, scalar={:?}, result={:?}",
+                    collection, scalar, result_node
+                );
+
+                if let Some(result) = result_node {
+                    if let Some(desc) = self.structural_db.region_mut(region_id) {
+                        desc.roles = Some(RegionRoles::PositionSearch {
+                            collection,
+                            scalar,
+                            result,
                         });
                     }
                 }

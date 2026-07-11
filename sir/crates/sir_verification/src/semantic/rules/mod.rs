@@ -2,6 +2,8 @@ pub mod all_to_equal_full_mask;
 pub mod count_filter_to_popcount;
 pub mod divide_to_shift;
 pub mod exists_to_not_equal_zero;
+pub mod first_true_to_trailing_zeros;
+pub mod last_true_to_leading_zeros;
 pub mod modulo_to_and;
 pub mod multiply_to_shift;
 pub mod parity_to_bitwise_and_one;
