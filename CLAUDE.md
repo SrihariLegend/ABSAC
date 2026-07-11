@@ -4,13 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**ABSAC** (Automatic Bitwise Superoptimization of Arbitrary Code) — a compiler toolchain that reads source code and produces an equivalent version where every fragment expressible as bitwise operations is expressed that way.
+**ABSAC** (Automatic Bitwise Superoptimization of Arbitrary Code)
+
+*Evolved Research Question (Phase 0020+):*
+> **Can a compiler recover the mathematical object implemented by arbitrary code and choose the best representation for that object?**
+
+ABSAC is a semantic compiler toolchain. It discovers mathematical domains (like Finite Sets or Logical Sequences) embedded in arbitrary source code, and systematically proves the equivalence of hardware-efficient representations (like BitSets).
 
 The active component is **SIR** (Semantic IR), located in `sir/`. SIR is a typed, SSA-form functional IR for representing program meaning — not instruction encoding. The raw `.xml` files at the repo root are external project data, not part of SIR.
 
-### Architecture Freeze (2026-07-03)
+### Architecture Freeze (2026-07-11 / Phase 0020)
 
-The reasoning substrate and core IR layers are frozen. The following crates are considered **architecturally stable** — no redesigns, no interface changes beyond extension (such as supporting IR evolution):
+The reasoning substrate, core IR layers, and feed-forward knowledge pipeline are officially frozen. The architecture has proven stable enough to absorb new optimization families by reframing them as semantic mathematical domains. The following crates are considered **architecturally stable** — no redesigns, no interface changes beyond extension (such as supporting IR evolution):
 
 | Crate | Status | Allowed changes |
 |-------|--------|-----------------|
@@ -59,7 +64,7 @@ SIR
 Compiler Facts           "What is provably true?"
       │
       ▼  sir_semantics
-Semantic Truths          "What computation is being performed?"
+Semantic Truths          "What mathematical object / domain does this represent?"
 Structural Descriptions  "How is the data organized?"
       │
       ▼  sir_inference
@@ -81,7 +86,7 @@ Verified Mutations       "Execute the selected winner."
 
 Each layer consumes only the knowledge of the immediately preceding layer. No layer reads upward or across. No layer below `sir_semantics` inspects SIR directly.
 
-*Note: The layers `sir_generation` and `sir_rewrite` (and the verification/rewrite phases) are under active development. While the strict feed-forward boundaries of the knowledge pipeline are the architectural target, they are considered aspirational during current prototyping.*
+*Note: The mathematical ontology (Boolean Algebra, Finite Sets, Sequences, Relations, Graphs) emerges structurally in `sir_semantics`. The choice of how to encode that ontology (e.g. `BitSet`) is handled purely by `sir_inference`.*
 
 ## Build & Test
 

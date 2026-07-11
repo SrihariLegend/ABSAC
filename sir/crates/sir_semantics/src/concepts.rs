@@ -45,6 +45,26 @@ pub enum SemanticConcept {
     TrailingZeroSearch,
     /// Operation: counting leading zeroes
     LeadingZeroSearch,
+
+    // ── Added for Set Algebra (Phase 0020) ───────────
+    /// Data: a finite mathematical set abstraction
+    FiniteSet,
+    /// Operation: testing if an item is present in a set
+    SetMembership,
+    /// Operation: elements present in either of two sets
+    SetUnion,
+    /// Operation: elements present in one set but not the other
+    SetDifference,
+    /// Operation: elements present in exactly one of two sets
+    SetSymmetricDifference,
+    /// Operation: testing if all elements of one set are present in another
+    SetSubset,
+    /// Operation: testing if two sets contain exactly the same elements
+    SetEquality,
+    /// Operation: testing if a set contains zero elements
+    SetEmpty,
+    /// Operation: counting the number of elements in a set
+    SetCardinality,
 }
 
 impl fmt::Display for SemanticConcept {
@@ -68,6 +88,15 @@ impl fmt::Display for SemanticConcept {
             SemanticConcept::LastOccurrence => write!(f, "LastOccurrence"),
             SemanticConcept::TrailingZeroSearch => write!(f, "TrailingZeroSearch"),
             SemanticConcept::LeadingZeroSearch => write!(f, "LeadingZeroSearch"),
+            SemanticConcept::FiniteSet => write!(f, "FiniteSet"),
+            SemanticConcept::SetMembership => write!(f, "SetMembership"),
+            SemanticConcept::SetUnion => write!(f, "SetUnion"),
+            SemanticConcept::SetDifference => write!(f, "SetDifference"),
+            SemanticConcept::SetSymmetricDifference => write!(f, "SetSymmetricDifference"),
+            SemanticConcept::SetSubset => write!(f, "SetSubset"),
+            SemanticConcept::SetEquality => write!(f, "SetEquality"),
+            SemanticConcept::SetEmpty => write!(f, "SetEmpty"),
+            SemanticConcept::SetCardinality => write!(f, "SetCardinality"),
         }
     }
 }

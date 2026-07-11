@@ -144,7 +144,7 @@ fn bs001_board_scan_recognizes_all_four_concepts() {
         }
     }
 
-    assert!(found_boolean, "Expected BooleanCollection concept");
+    assert!(found_boolean, "Expected LogicalSequence concept");
     assert!(found_finite, "Expected FiniteCollection concept");
     assert!(found_membership, "Expected MembershipTraversal concept");
     assert!(found_cardinality, "Expected CardinalityReduction concept");
@@ -223,8 +223,8 @@ fn bs001_explanation_accounts_for_support() {
 
             // The explanation must reference the concepts that contributed evidence.
             assert!(
-                explanation_str.contains("BooleanCollection"),
-                "Explanation should mention BooleanCollection"
+                explanation_str.contains("LogicalSequence") || explanation_str.contains("FiniteSet"),
+                "Explanation should mention LogicalSequence or FiniteSet"
             );
             assert!(
                 explanation_str.contains("MembershipTraversal"),

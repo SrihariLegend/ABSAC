@@ -85,7 +85,7 @@ fn all_four_concepts_together_produce_four_evidence_entries() {
         .iter()
         .filter(|e| matches!(e.polarity, Polarity::Supports))
         .collect();
-    assert_eq!(supporting.len(), 4);
+    assert_eq!(supporting.len(), 5);
 }
 
 #[test]

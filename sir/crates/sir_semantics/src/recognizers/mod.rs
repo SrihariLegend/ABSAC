@@ -12,4 +12,5 @@ pub mod modulo_power_of_two;
 pub mod multiply_power_of_two;
 pub mod position_search;
 pub mod predicate_collection;
+pub mod set_algebra;
 pub mod shift_mask;

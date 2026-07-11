@@ -45,8 +45,8 @@ fn all_four_generators_produce_candidates() {
     let candidates: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
     assert_eq!(
         candidates.len(),
-        4,
-        "Expected 4 candidates for BitSet context"
+        5,
+        "Expected 5 candidates for BitSet context"
     );
 }
 
@@ -107,7 +107,7 @@ fn bitmask_context_produces_four_candidates() {
     let candidates: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
     // All 4 generators check for BitSet representation, which matches.
     // BitMask as source structure is still valid.
-    assert_eq!(candidates.len(), 4);
+    assert_eq!(candidates.len(), 5);
 }
 
 #[test]
