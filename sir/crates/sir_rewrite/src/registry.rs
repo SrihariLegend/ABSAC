@@ -1,12 +1,16 @@
 use crate::recipe::{RecipeRegistry, RewriteRecipe};
 use crate::recipes::all::AllRecipe;
 use crate::recipes::any::AnyRecipe;
+use crate::recipes::bitscan_forward::BitScanForwardRecipe;
+use crate::recipes::bitscan_reverse::BitScanReverseRecipe;
 use crate::recipes::divide_shift::DivideShiftRecipe;
+use crate::recipes::leading_zero_count::LeadingZeroCountRecipe;
 use crate::recipes::modulo_and::BitwiseAndModuloRecipe;
 use crate::recipes::multiply_shift::MultiplyShiftRecipe;
 use crate::recipes::parity::ParityRecipe;
 use crate::recipes::popcount::PopcountRecipe;
 use crate::recipes::shift_mask::ShiftMaskRecipe;
+use crate::recipes::trailing_zero_count::TrailingZeroCountRecipe;
 use sir_transform::ids::DefinitionId;
 
 /// Create a default recipe registry populated with all known recipes.
@@ -38,6 +42,22 @@ pub fn default_registry() -> RecipeRegistry {
 
     // ID 103: ShiftMask
     registry.register(Box::new(ShiftMaskRecipe::new(DefinitionId::new(103))));
+
+    // ID 200: BitScanForward
+    registry.register(Box::new(BitScanForwardRecipe::new(DefinitionId::new(200))));
+
+    // ID 201: BitScanReverse
+    registry.register(Box::new(BitScanReverseRecipe::new(DefinitionId::new(201))));
+
+    // ID 202: TrailingZeroCount
+    registry.register(Box::new(TrailingZeroCountRecipe::new(DefinitionId::new(
+        202,
+    ))));
+
+    // ID 203: LeadingZeroCount
+    registry.register(Box::new(LeadingZeroCountRecipe::new(DefinitionId::new(
+        203,
+    ))));
 
     registry
 }

@@ -1,4 +1,5 @@
 pub mod arithmetic;
+pub mod bitscan;
 mod bitset;
 
 use crate::candidate::Candidate;
@@ -16,4 +17,5 @@ pub fn all_plans<'a>(
     bitset::all_bitset_plans(context, concepts)
         .into_iter()
         .chain(arithmetic::all_arithmetic_plans(context, concepts))
+        .chain(bitscan::all_bitscan_plans(context, concepts))
 }

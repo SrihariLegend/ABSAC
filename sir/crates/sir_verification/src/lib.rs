@@ -26,11 +26,15 @@ use crate::backends::exhaustive::ExhaustiveVerifier;
 use crate::backends::symbolic::SymbolicVerifier;
 use crate::definitions::all::AllDefinition;
 use crate::definitions::any::AnyDefinition;
+use crate::definitions::bitscan_forward::BitScanForwardDefinition;
+use crate::definitions::bitscan_reverse::BitScanReverseDefinition;
 use crate::definitions::divide_shift::DivideShiftDefinition;
+use crate::definitions::leading_zero_count::LeadingZeroCountDefinition;
 use crate::definitions::multiply_shift::MultiplyShiftDefinition;
 use crate::definitions::parity::ParityDefinition;
 use crate::definitions::popcount::PopcountDefinition;
 use crate::definitions::shift_mask::ShiftMaskDefinition;
+use crate::definitions::trailing_zero_count::TrailingZeroCountDefinition;
 use crate::obligation::{ProofObligation, ProofObligationDatabase};
 use crate::registry::TransformationRegistry;
 use crate::report::{ReportEntry, ReportStatus, VerificationReport};
@@ -153,6 +157,18 @@ impl Verifier {
         )));
         registry.register(Box::new(ShiftMaskDefinition::new(
             sir_transform::ids::DefinitionId::new(103),
+        )));
+        registry.register(Box::new(BitScanForwardDefinition::new(
+            sir_transform::ids::DefinitionId::new(200),
+        )));
+        registry.register(Box::new(BitScanReverseDefinition::new(
+            sir_transform::ids::DefinitionId::new(201),
+        )));
+        registry.register(Box::new(TrailingZeroCountDefinition::new(
+            sir_transform::ids::DefinitionId::new(202),
+        )));
+        registry.register(Box::new(LeadingZeroCountDefinition::new(
+            sir_transform::ids::DefinitionId::new(203),
         )));
 
         Self {

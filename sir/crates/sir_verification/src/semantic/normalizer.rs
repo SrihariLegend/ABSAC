@@ -165,6 +165,23 @@ impl Normalizer {
                 }
             }
 
+            SemanticExpression::FirstTrue(inner) => {
+                let normalized = self.normalize_recursive(inner, steps, depth + 1);
+                SemanticExpression::FirstTrue(Box::new(normalized))
+            }
+            SemanticExpression::LastTrue(inner) => {
+                let normalized = self.normalize_recursive(inner, steps, depth + 1);
+                SemanticExpression::LastTrue(Box::new(normalized))
+            }
+            SemanticExpression::TrailingZeros(inner) => {
+                let normalized = self.normalize_recursive(inner, steps, depth + 1);
+                SemanticExpression::TrailingZeros(Box::new(normalized))
+            }
+            SemanticExpression::LeadingZeros(inner) => {
+                let normalized = self.normalize_recursive(inner, steps, depth + 1);
+                SemanticExpression::LeadingZeros(Box::new(normalized))
+            }
+
             // Binary nodes
             SemanticExpression::Modulo(lhs, rhs) => SemanticExpression::Modulo(
                 Box::new(self.normalize_recursive(lhs, steps, depth + 1)),

@@ -584,6 +584,19 @@ impl RewriteBuilder {
                     nodes.insert(*rhs);
                     nodes.insert(*result);
                 }
+                sir_transform::roles::RegionRoles::PositionSearch {
+                    collection,
+                    scalar,
+                    result,
+                } => {
+                    if let Some(c) = collection {
+                        nodes.insert(*c);
+                    }
+                    if let Some(s) = scalar {
+                        nodes.insert(*s);
+                    }
+                    nodes.insert(*result);
+                }
             }
         }
         nodes

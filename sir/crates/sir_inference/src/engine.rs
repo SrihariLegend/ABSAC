@@ -162,6 +162,10 @@ impl InferenceEngine {
             for e in arith_evidence {
                 self.evidence_registry.add(e);
             }
+            let scan_evidence = crate::sources::bitscan_evidence::contribute(region);
+            for e in scan_evidence {
+                self.evidence_registry.add(e);
+            }
         }
 
         // 2. Aggregate evidence per (region, representation)

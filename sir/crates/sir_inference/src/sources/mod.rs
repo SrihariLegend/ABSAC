@@ -5,4 +5,5 @@
 //! calls each source during inference.
 
 pub mod arithmetic_evidence;
+pub mod bitscan_evidence;
 pub mod bitset_evidence;

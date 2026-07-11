@@ -250,6 +250,70 @@ impl Interpreter {
                 }
             }
 
+            SemanticExpression::FirstTrue(inner) => {
+                let val = self.evaluate(inner, env)?;
+                match val {
+                    Value::BooleanArray(bits) => {
+                        let idx = bits.iter().position(|b| *b).unwrap_or(bits.len());
+                        Ok(Value::Integer(idx as u64))
+                    }
+                    other => Err(InterpreterError::TypeMismatch {
+                        expected: "BooleanArray",
+                        found: other,
+                    }),
+                }
+            }
+
+            SemanticExpression::LastTrue(inner) => {
+                let val = self.evaluate(inner, env)?;
+                match val {
+                    Value::BooleanArray(bits) => {
+                        let idx = bits
+                            .iter()
+                            .rposition(|b| *b)
+                            .map(|i| i as u64)
+                            .unwrap_or(bits.len() as u64); // Return length as sentinel
+                        Ok(Value::Integer(idx))
+                    }
+                    other => Err(InterpreterError::TypeMismatch {
+                        expected: "BooleanArray",
+                        found: other,
+                    }),
+                }
+            }
+
+            SemanticExpression::TrailingZeros(inner) => {
+                let val = self.evaluate(inner, env)?;
+                match val {
+                    Value::BitVector(bv) => Ok(Value::Integer(bv.bits.trailing_zeros() as u64)),
+                    Value::Integer(i) => Ok(Value::Integer(i.trailing_zeros() as u64)),
+                    other => Err(InterpreterError::TypeMismatch {
+                        expected: "BitVector or Integer",
+                        found: other,
+                    }),
+                }
+            }
+
+            SemanticExpression::LeadingZeros(inner) => {
+                let val = self.evaluate(inner, env)?;
+                match val {
+                    Value::BitVector(bv) => {
+                        let leading = if bv.bits == 0 {
+                            bv.width as u64
+                        } else {
+                            let unused_bits = 128 - bv.width;
+                            (bv.bits.leading_zeros() - unused_bits as u32) as u64
+                        };
+                        Ok(Value::Integer(leading))
+                    }
+                    Value::Integer(i) => Ok(Value::Integer(i.leading_zeros() as u64)),
+                    other => Err(InterpreterError::TypeMismatch {
+                        expected: "BitVector or Integer",
+                        found: other,
+                    }),
+                }
+            }
+
             SemanticExpression::ShiftLeft(lhs, rhs) => {
                 let l = self.evaluate(lhs, env)?;
                 let r = self.evaluate(rhs, env)?;

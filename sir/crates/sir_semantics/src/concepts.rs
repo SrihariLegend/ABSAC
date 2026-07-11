@@ -35,6 +35,18 @@ pub enum SemanticConcept {
     DividePowerOfTwo,
     /// Operation: shift left followed by shift right, extracting a mask
     ShiftMask,
+
+    // ── Added for Positional Search (Phase 0018) ───────────
+    /// Operation: algorithmic search for a position based on a condition
+    PositionSearch,
+    /// Operation: finding the first element/bit that satisfies a condition
+    FirstOccurrence,
+    /// Operation: finding the last element/bit that satisfies a condition
+    LastOccurrence,
+    /// Operation: counting trailing zeroes
+    TrailingZeroSearch,
+    /// Operation: counting leading zeroes
+    LeadingZeroSearch,
 }
 
 impl fmt::Display for SemanticConcept {
@@ -54,6 +66,11 @@ impl fmt::Display for SemanticConcept {
             SemanticConcept::MultiplyPowerOfTwo => write!(f, "MultiplyPowerOfTwo"),
             SemanticConcept::DividePowerOfTwo => write!(f, "DividePowerOfTwo"),
             SemanticConcept::ShiftMask => write!(f, "ShiftMask"),
+            SemanticConcept::PositionSearch => write!(f, "PositionSearch"),
+            SemanticConcept::FirstOccurrence => write!(f, "FirstOccurrence"),
+            SemanticConcept::LastOccurrence => write!(f, "LastOccurrence"),
+            SemanticConcept::TrailingZeroSearch => write!(f, "TrailingZeroSearch"),
+            SemanticConcept::LeadingZeroSearch => write!(f, "LeadingZeroSearch"),
         }
     }
 }

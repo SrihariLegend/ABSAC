@@ -52,6 +52,14 @@ pub enum ImplementationStrategy {
     ShiftLeft,
     /// Shift right and shift left sequence extracting a mask.
     MaskExtract,
+    /// Hardware bit scan forward (find first set bit).
+    BitScanForward,
+    /// Hardware bit scan reverse (find last set bit).
+    BitScanReverse,
+    /// Hardware trailing zero count.
+    TrailingZeroCount,
+    /// Hardware leading zero count.
+    LeadingZeroCount,
 }
 
 impl fmt::Display for ImplementationStrategy {
@@ -68,6 +76,10 @@ impl fmt::Display for ImplementationStrategy {
             ImplementationStrategy::ShiftRight => write!(f, "ShiftRight"),
             ImplementationStrategy::ShiftLeft => write!(f, "ShiftLeft"),
             ImplementationStrategy::MaskExtract => write!(f, "MaskExtract"),
+            ImplementationStrategy::BitScanForward => write!(f, "BitScanForward"),
+            ImplementationStrategy::BitScanReverse => write!(f, "BitScanReverse"),
+            ImplementationStrategy::TrailingZeroCount => write!(f, "TrailingZeroCount"),
+            ImplementationStrategy::LeadingZeroCount => write!(f, "LeadingZeroCount"),
         }
     }
 }

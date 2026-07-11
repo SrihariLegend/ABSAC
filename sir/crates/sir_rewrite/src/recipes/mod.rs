@@ -1,9 +1,13 @@
 pub mod all;
 pub mod any;
+pub mod bitscan_forward;
+pub mod bitscan_reverse;
 pub mod divide_shift;
 pub mod helpers;
+pub mod leading_zero_count;
 pub mod modulo_and;
 pub mod multiply_shift;
 pub mod parity;
 pub mod popcount;
 pub mod shift_mask;
+pub mod trailing_zero_count;

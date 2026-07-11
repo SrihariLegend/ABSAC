@@ -74,6 +74,19 @@ pub enum SemanticExpression {
 
     /// Bitwise shift left `(x << y)`.
     ShiftLeft(Box<SemanticExpression>, Box<SemanticExpression>),
+
+    // ── Added for Positional Search (Phase 0018) ────────────
+    /// Index of the first true element in a boolean array. Returns the length if none found.
+    FirstTrue(Box<SemanticExpression>),
+
+    /// Index of the last true element in a boolean array. Returns -1 (or sentinel) if none found.
+    LastTrue(Box<SemanticExpression>),
+
+    /// Count of trailing zeros in a bitvector (equal to BitScanForward).
+    TrailingZeros(Box<SemanticExpression>),
+
+    /// Count of leading zeros in a bitvector (equal to BitScanReverse).
+    LeadingZeros(Box<SemanticExpression>),
 }
 
 /// A predicate for filtering collections.

@@ -10,5 +10,6 @@ pub mod finite_collection;
 pub mod membership_traversal;
 pub mod modulo_power_of_two;
 pub mod multiply_power_of_two;
+pub mod position_search;
 pub mod predicate_collection;
 pub mod shift_mask;
