@@ -1,8 +1,8 @@
 //! Integration tests for the Verifier with builder-constructed functions.
 
 use sir_builder::Builder;
-use sir_verify::Verifier;
 use sir_types::{ConstantData, Span, Type};
+use sir_verify::Verifier;
 
 fn i32_type() -> Type {
     Type::i32()
@@ -33,7 +33,11 @@ fn simple_add_passes_verification() {
 
 #[test]
 fn bitwise_function_passes_verification() {
-    let mut b = Builder::new("xor_eq", &[("a", u64_type()), ("b", u64_type())], Type::Bool);
+    let mut b = Builder::new(
+        "xor_eq",
+        &[("a", u64_type()), ("b", u64_type())],
+        Type::Bool,
+    );
     let a = b.parameter_index(0).unwrap();
     let b_param = b.parameter_index(1).unwrap();
     let xor_val = b.bit_xor(a, b_param, unknown_span()).unwrap();

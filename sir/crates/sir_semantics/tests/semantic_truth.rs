@@ -11,9 +11,9 @@
 use sir_analysis::manager::AnalysisManager;
 use sir_builder::Builder;
 use sir_inference::engine::InferenceEngine;
-use sir_transform::representation::Representation;
 use sir_semantics::concepts::SemanticConcept;
 use sir_semantics::semantics::SemanticEngine;
+use sir_transform::representation::Representation;
 use sir_types::{ConstantData, Span, Type};
 
 /// Build a SIR function that represents:
@@ -76,9 +76,7 @@ fn build_board_scan() -> sir_nodes::Function {
         .unwrap(); // %7
 
     // count = count + inc — accumulate (sum reduction)
-    let new_count = b
-        .add(count_initial, inc, Span::unknown())
-        .unwrap(); // %8
+    let new_count = b.add(count_initial, inc, Span::unknown()).unwrap(); // %8
 
     // i = i + 1 — increment loop counter
     let i_next = b.add(i_initial, i_step, Span::unknown()).unwrap(); // %9
@@ -149,13 +147,14 @@ fn bs001_board_scan_recognizes_all_four_concepts() {
     assert!(found_boolean, "Expected BooleanCollection concept");
     assert!(found_finite, "Expected FiniteCollection concept");
     assert!(found_membership, "Expected MembershipTraversal concept");
-    assert!(
-        found_cardinality,
-        "Expected CardinalityReduction concept"
-    );
+    assert!(found_cardinality, "Expected CardinalityReduction concept");
 
     // After region merging, all concepts should be in the same region.
-    assert_eq!(db.region_count(), 1, "All concepts should merge into one region");
+    assert_eq!(
+        db.region_count(),
+        1,
+        "All concepts should merge into one region"
+    );
 }
 
 #[test]

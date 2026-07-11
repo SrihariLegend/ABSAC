@@ -1,13 +1,13 @@
 use std::collections::HashSet;
 
 use sir_generation::generators;
-use sir_types::RegionId;
+use sir_semantics::concepts::SemanticConcept;
 use sir_transform::assumptions::Assumption;
 use sir_transform::constraints::Constraint;
 use sir_transform::context::TransformationContext;
 use sir_transform::representation::Representation;
 use sir_transform::structures::SourceStructure;
-use sir_semantics::concepts::SemanticConcept;
+use sir_types::RegionId;
 
 fn make_context() -> TransformationContext {
     let mut constraints = HashSet::new();
@@ -43,7 +43,11 @@ fn all_four_generators_produce_candidates() {
     let ctx = make_context();
     let concepts = make_all_concepts();
     let candidates: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
-    assert_eq!(candidates.len(), 4, "Expected 4 candidates for BitSet context");
+    assert_eq!(
+        candidates.len(),
+        4,
+        "Expected 4 candidates for BitSet context"
+    );
 }
 
 #[test]
@@ -61,8 +65,11 @@ fn each_candidate_has_effects() {
     let concepts = make_all_concepts();
     let candidates: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
     for c in &candidates {
-        assert!(!c.effects.is_empty(),
-            "{:?} should have at least one effect", c.strategy);
+        assert!(
+            !c.effects.is_empty(),
+            "{:?} should have at least one effect",
+            c.strategy
+        );
     }
 }
 
@@ -72,8 +79,11 @@ fn each_candidate_has_explanation() {
     let concepts = make_all_concepts();
     let candidates: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
     for c in &candidates {
-        assert!(!c.explanation.rationale.is_empty(),
-            "{:?} should have a non-empty rationale", c.strategy);
+        assert!(
+            !c.explanation.rationale.is_empty(),
+            "{:?} should have a non-empty rationale",
+            c.strategy
+        );
     }
 }
 
@@ -118,7 +128,10 @@ fn explanations_contain_source_concepts() {
     let concepts = make_all_concepts();
     let candidates: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
     for c in &candidates {
-        assert!(!c.explanation.source_concepts.is_empty(),
-            "{:?} explanation should reference source concepts", c.strategy);
+        assert!(
+            !c.explanation.source_concepts.is_empty(),
+            "{:?} explanation should reference source concepts",
+            c.strategy
+        );
     }
 }

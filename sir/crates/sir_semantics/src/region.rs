@@ -1,5 +1,5 @@
-use std::collections::{BTreeSet, HashMap};
 use sir_types::NodeId;
+use std::collections::{BTreeSet, HashMap};
 
 pub use sir_types::RegionId;
 

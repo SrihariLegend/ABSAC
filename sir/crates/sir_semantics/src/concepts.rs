@@ -31,6 +31,10 @@ pub enum SemanticConcept {
     ModuloPowerOfTwo,
     /// Operation: integer multiplication by a power of two
     MultiplyPowerOfTwo,
+    /// Operation: integer division by a power of two
+    DividePowerOfTwo,
+    /// Operation: shift left followed by shift right, extracting a mask
+    ShiftMask,
 }
 
 impl fmt::Display for SemanticConcept {
@@ -48,6 +52,8 @@ impl fmt::Display for SemanticConcept {
             SemanticConcept::SetIntersection => write!(f, "SetIntersection"),
             SemanticConcept::ModuloPowerOfTwo => write!(f, "ModuloPowerOfTwo"),
             SemanticConcept::MultiplyPowerOfTwo => write!(f, "MultiplyPowerOfTwo"),
+            SemanticConcept::DividePowerOfTwo => write!(f, "DividePowerOfTwo"),
+            SemanticConcept::ShiftMask => write!(f, "ShiftMask"),
         }
     }
 }

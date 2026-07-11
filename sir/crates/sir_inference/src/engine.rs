@@ -7,11 +7,11 @@ use sir_semantics::structure::StructuralDatabase;
 use sir_types::RegionMap;
 
 use crate::evidence::{EvidenceRegistry, Polarity};
+use crate::hypothesis::{Hypothesis, Support};
 use sir_transform::assumptions::Assumption;
 use sir_transform::constraints::Constraint;
 use sir_transform::context::{TransformationContext, TransformationContextDatabase};
 use sir_transform::representation::Representation;
-use crate::hypothesis::{Hypothesis, Support};
 
 /// The hypothesis database — stores representation beliefs per region.
 #[derive(Clone, Debug, Default)]
@@ -21,7 +21,9 @@ pub struct HypothesisDatabase {
 
 impl HypothesisDatabase {
     pub fn new() -> Self {
-        Self { map: RegionMap::new() }
+        Self {
+            map: RegionMap::new(),
+        }
     }
 
     /// Get all hypotheses for a region.
@@ -31,7 +33,10 @@ impl HypothesisDatabase {
 
     /// Get the highest-scoring hypothesis for a region.
     pub fn best(&self, region: RegionId) -> Option<&Hypothesis> {
-        self.map.get(region).iter().max_by_key(|h| h.support.score())
+        self.map
+            .get(region)
+            .iter()
+            .max_by_key(|h| h.support.score())
     }
 
     /// Find all regions that have at least one hypothesis for the
@@ -177,7 +182,9 @@ impl InferenceEngine {
         // 3. Form hypotheses and build TransformationContexts in a single pass.
         //    Consuming `aggregation` with into_iter() lets us move evidence_ids
         //    into the Hypothesis rather than cloning.
-        for ((region_id, representation), (positive, negative, evidence_ids)) in aggregation.into_iter() {
+        for ((region_id, representation), (positive, negative, evidence_ids)) in
+            aggregation.into_iter()
+        {
             if positive > 0 || negative > 0 {
                 let hypothesis = Hypothesis {
                     representation,
@@ -193,7 +200,8 @@ impl InferenceEngine {
                 let mut constraints = structural.constraints.clone();
                 constraints.insert(Constraint::FiniteIteration);
 
-                let assumptions: HashSet<Assumption> = DEFAULT_ASSUMPTIONS.iter().cloned().collect();
+                let assumptions: HashSet<Assumption> =
+                    DEFAULT_ASSUMPTIONS.iter().cloned().collect();
 
                 let ctx = TransformationContext::new(
                     region_id,

@@ -71,14 +71,10 @@ fn build_board_scan() -> sir_nodes::Function {
     // NOTE: false_val must be a separate zero constant, NOT count_initial,
     // because count_initial is in carried_inputs and using it would cause
     // each iteration to return the accumulated count instead of 0.
-    let inc = b
-        .select(elem, one_i32, zero_i32, Span::unknown())
-        .unwrap();
+    let inc = b.select(elem, one_i32, zero_i32, Span::unknown()).unwrap();
 
     // count = count + inc — accumulate (sum reduction)
-    let new_count = b
-        .add(count_initial, inc, Span::unknown())
-        .unwrap();
+    let new_count = b.add(count_initial, inc, Span::unknown()).unwrap();
 
     // i = i + 1 — increment loop counter
     let i_next = b.add(i_initial, i_step, Span::unknown()).unwrap();

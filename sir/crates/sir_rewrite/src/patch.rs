@@ -37,6 +37,10 @@ impl ReplacementPatch {
         roots: Vec<LocalNodeId>,
         replacements: Vec<ReplacementValue>,
     ) -> Self {
-        Self { arena, roots, replacements }
+        Self {
+            arena,
+            roots,
+            replacements,
+        }
     }
 }

@@ -61,25 +61,21 @@ impl TransformationDefinition for PopcountDefinition {
         // and we are abstracting the collection generation, we can leave the mathematical theorem the same
         // by verifying that `Popcount(Pack(BooleanArray(v)))` is equivalent to `Count(Filter(BooleanArray(v), True))`.
         // The Verification Engine models `PredicateCollection` by treating the boolean stream as a `BooleanArray`.
-        
+
         // Build the theorem: LHS = Count(Filter(BooleanArray(v), True))
-        let lhs = SemanticExpression::Count(Box::new(
-            SemanticExpression::Filter {
-                input: Box::new(SemanticExpression::BooleanArray {
-                    variable: board_var,
-                }),
-                predicate: Predicate::True,
-            },
-        ));
+        let lhs = SemanticExpression::Count(Box::new(SemanticExpression::Filter {
+            input: Box::new(SemanticExpression::BooleanArray {
+                variable: board_var,
+            }),
+            predicate: Predicate::True,
+        }));
 
         // RHS = Popcount(Pack(BooleanArray(v)))
-        let rhs = SemanticExpression::Popcount(Box::new(
-            SemanticExpression::Pack(Box::new(
-                SemanticExpression::BooleanArray {
-                    variable: board_var,
-                },
-            )),
-        ));
+        let rhs = SemanticExpression::Popcount(Box::new(SemanticExpression::Pack(Box::new(
+            SemanticExpression::BooleanArray {
+                variable: board_var,
+            },
+        ))));
 
         let theorem = Theorem::new(lhs, rhs);
 
@@ -108,17 +104,18 @@ impl TransformationDefinition for PopcountDefinition {
             domain: Some(domain),
         }
     }
-
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sir_generation::candidate::{
+        CandidateEffect, CandidateExplanation, CandidateId, ImplementationStrategy,
+    };
     use sir_transform::constraints::Constraint;
+    use sir_transform::context::ContextId;
     use sir_transform::structures::SourceStructure;
     use sir_types::RegionId;
-    use sir_generation::candidate::{CandidateEffect, CandidateExplanation, CandidateId, ImplementationStrategy};
-    use sir_transform::context::ContextId;
     use std::collections::HashSet;
 
     fn make_candidate() -> Candidate {
@@ -206,7 +203,9 @@ mod tests {
         let obl = def.obligation(&cand);
 
         assert!(obl.assumptions.contains(&Assumption::EquivalentCardinality));
-        assert!(obl.assumptions.contains(&Assumption::PreservesIterationOrder));
+        assert!(obl
+            .assumptions
+            .contains(&Assumption::PreservesIterationOrder));
         assert!(obl.assumptions.contains(&Assumption::PreservesLayout));
     }
 

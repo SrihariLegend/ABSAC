@@ -21,9 +21,7 @@ pub struct RewriteRegion {
 
 impl RewriteRegion {
     pub fn new(structural: StructuralDescription) -> Self {
-        Self {
-            structural,
-        }
+        Self { structural }
     }
 
     /// The boolean array collection being iterated (e.g., `board` in BS001).
@@ -100,9 +98,7 @@ impl RewriteRegion {
     /// The accumulator node, if one exists.
     pub fn accumulator(&self) -> Result<Option<NodeId>, RewriteError> {
         match &self.structural.roles {
-            Some(RegionRoles::BooleanCollectionReduction {
-                accumulator, ..
-            }) => Ok(*accumulator),
+            Some(RegionRoles::BooleanCollectionReduction { accumulator, .. }) => Ok(*accumulator),
             _ => Err(RewriteError::MissingRole {
                 role: "accumulator".to_string(),
             }),

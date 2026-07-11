@@ -4,16 +4,16 @@
 //! in a detached arena, then performing transactional graph surgery.
 //! Never discovers, never analyses, never proves — only executes.
 
-pub mod local_id;
+pub mod builder;
 pub mod detached_arena;
-pub mod subgraph_builder;
-pub mod region;
+pub mod engine;
 pub mod error;
+pub mod local_id;
 pub mod patch;
 pub mod plan;
 pub mod recipe;
-pub mod registry;
-pub mod builder;
-pub mod result;
-pub mod engine;
 pub mod recipes;
+pub mod region;
+pub mod registry;
+pub mod result;
+pub mod subgraph_builder;

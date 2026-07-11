@@ -3,9 +3,9 @@
 //! Analyzes Loop nodes: trip count, finiteness, nesting,
 //! carried variables, and reduction pattern detection.
 
-use std::collections::HashMap;
 use sir_nodes::{Function, NodeKind};
 use sir_types::NodeId;
+use std::collections::HashMap;
 
 use crate::facts::{LoopFact, ReductionVar};
 
@@ -87,12 +87,7 @@ fn estimate_trip_count(
 
 /// Try to compute a trip count when a carried variable is compared
 /// against a constant bound.
-fn try_count_loop(
-    func: &Function,
-    carried: NodeId,
-    lhs: NodeId,
-    rhs: NodeId,
-) -> Option<u64> {
+fn try_count_loop(func: &Function, carried: NodeId, lhs: NodeId, rhs: NodeId) -> Option<u64> {
     // Check if one operand is the carried variable and the other is a constant.
     let bound_side = if lhs == carried {
         rhs
@@ -205,7 +200,11 @@ fn detect_reductions(
                     | NodeKind::BoolAnd { lhs, rhs }
                     | NodeKind::BoolOr { lhs, rhs }
                     | NodeKind::Ne { lhs, rhs } => {
-                        if *lhs == carry { *rhs } else { *lhs }
+                        if *lhs == carry {
+                            *rhs
+                        } else {
+                            *lhs
+                        }
                     }
                     _ => continue,
                 };
@@ -227,9 +226,15 @@ mod tests {
     use sir_builder::Builder;
     use sir_types::{ConstantData, Span, Type};
 
-    fn i32_type() -> Type { Type::i32() }
-    fn u64_type() -> Type { Type::u64() }
-    fn unknown_span() -> Span { Span::unknown() }
+    fn i32_type() -> Type {
+        Type::i32()
+    }
+    fn u64_type() -> Type {
+        Type::u64()
+    }
+    fn unknown_span() -> Span {
+        Span::unknown()
+    }
 
     #[test]
     fn simple_counted_loop_has_trip_count() {
@@ -243,15 +248,16 @@ mod tests {
         // Termination: start < 64 (carried variable compared to constant bound).
         let cond = b.lt(start, bound, unknown_span()).unwrap();
 
-        let loop_node = b.r#loop(
-            &[next, cond],
-            cond,
-            &[next],
-            &[start],
-            u64_type(),
-            unknown_span(),
-        )
-        .unwrap();
+        let loop_node = b
+            .r#loop(
+                &[next, cond],
+                cond,
+                &[next],
+                &[start],
+                u64_type(),
+                unknown_span(),
+            )
+            .unwrap();
         b.return_value(loop_node, unknown_span()).unwrap();
         let func = b.build();
         let facts = run_loops(&func);
@@ -281,15 +287,9 @@ mod tests {
         let next = b.add(init, one, unknown_span()).unwrap();
         let cond = b.constant(ConstantData::Bool(true), Type::Bool, unknown_span());
 
-        let loop_node = b.r#loop(
-            &[next],
-            cond,
-            &[next],
-            &[init],
-            u64_type(),
-            unknown_span(),
-        )
-        .unwrap();
+        let loop_node = b
+            .r#loop(&[next], cond, &[next], &[init], u64_type(), unknown_span())
+            .unwrap();
         b.return_value(loop_node, unknown_span()).unwrap();
         let func = b.build();
         let facts = run_loops(&func);
@@ -309,18 +309,21 @@ mod tests {
         let next_x = b.add(x, one, unknown_span()).unwrap();
 
         // Inner loop.
-        let inner = b.r#loop(&[next_x], t, &[next_x], &[x], u64_type(), unknown_span()).unwrap();
+        let inner = b
+            .r#loop(&[next_x], t, &[next_x], &[x], u64_type(), unknown_span())
+            .unwrap();
 
         // Outer loop containing inner.
-        let outer = b.r#loop(
-            &[inner, next_x],
-            t,
-            &[next_x],
-            &[x],
-            u64_type(),
-            unknown_span(),
-        )
-        .unwrap();
+        let outer = b
+            .r#loop(
+                &[inner, next_x],
+                t,
+                &[next_x],
+                &[x],
+                u64_type(),
+                unknown_span(),
+            )
+            .unwrap();
         b.return_value(outer, unknown_span()).unwrap();
         let func = b.build();
         let facts = run_loops(&func);

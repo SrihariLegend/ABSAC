@@ -90,10 +90,7 @@ mod tests {
 
     #[test]
     fn display_effects() {
-        assert_eq!(
-            format!("{}", Effects::empty()),
-            "Pure"
-        );
+        assert_eq!(format!("{}", Effects::empty()), "Pure");
         let e = Effects::READ_MEMORY | Effects::IO;
         assert!(format!("{e}").contains("ReadMemory"));
         assert!(format!("{e}").contains("IO"));

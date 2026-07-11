@@ -17,13 +17,11 @@ impl NormalizationRule for ParityToBitwiseAndOne {
             SemanticExpression::Parity(inner) => match inner.as_ref() {
                 SemanticExpression::BooleanArray { variable } => {
                     Some(SemanticExpression::BitwiseAndOne(Box::new(
-                        SemanticExpression::Popcount(Box::new(
-                            SemanticExpression::Pack(Box::new(
-                                SemanticExpression::BooleanArray {
-                                    variable: *variable,
-                                },
-                            )),
-                        ))
+                        SemanticExpression::Popcount(Box::new(SemanticExpression::Pack(Box::new(
+                            SemanticExpression::BooleanArray {
+                                variable: *variable,
+                            },
+                        )))),
                     )))
                 }
                 _ => None,

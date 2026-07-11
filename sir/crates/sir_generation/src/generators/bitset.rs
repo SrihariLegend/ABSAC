@@ -1,14 +1,13 @@
-use std::collections::HashSet;
 use sir_semantics::concepts::SemanticConcept;
-use sir_transform::context::TransformationContext;
 use sir_transform::constraints::Constraint;
+use sir_transform::context::TransformationContext;
 use sir_transform::ids::DefinitionId;
 use sir_transform::representation::Representation;
 use sir_types::CostProfile;
+use std::collections::HashSet;
 
 use crate::candidate::{
-    Candidate, CandidateEffect, CandidateExplanation, CandidateId,
-    ImplementationStrategy,
+    Candidate, CandidateEffect, CandidateExplanation, CandidateId, ImplementationStrategy,
 };
 
 /// Data-driven strategy definition for a bitset transformation plan.
@@ -24,7 +23,7 @@ struct StrategyDef {
 impl StrategyDef {
     fn build(&self, context: &TransformationContext, length: usize) -> Candidate {
         Candidate {
-            id: CandidateId::new(0),       // assigned by database
+            id: CandidateId::new(0), // assigned by database
             region: context.region,
             context_id: context.context_id,
             strategy: self.strategy,
@@ -186,16 +185,28 @@ static STRATEGIES: &[StrategyDef] = &[
 ///
 /// Returns all applicable strategies when the context targets BitSet
 /// representation. Returns an empty vec for any other representation.
-pub fn all_bitset_plans(context: &TransformationContext, concepts: &HashSet<SemanticConcept>) -> Vec<Candidate> {
+pub fn all_bitset_plans(
+    context: &TransformationContext,
+    concepts: &HashSet<SemanticConcept>,
+) -> Vec<Candidate> {
     if context.representation != Representation::BitSet {
         return vec![];
     }
-    
-    let length = context.constraints.iter().find_map(|c| {
-        if let Constraint::FixedLength(len) = c { Some(*len) } else { None }
-    }).unwrap_or(64);
 
-    STRATEGIES.iter()
+    let length = context
+        .constraints
+        .iter()
+        .find_map(|c| {
+            if let Constraint::FixedLength(len) = c {
+                Some(*len)
+            } else {
+                None
+            }
+        })
+        .unwrap_or(64);
+
+    STRATEGIES
+        .iter()
         .filter(|s| s.source_concepts.iter().all(|c| concepts.contains(c)))
         .map(|s| s.build(context, length))
         .collect()

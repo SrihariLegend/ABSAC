@@ -225,7 +225,11 @@ impl Type {
 
     /// Check if this type is an integer or bitvector type.
     pub fn is_integer_or_bitvector(&self) -> bool {
-        if matches!(self, Type::BitVector { .. }) { true } else { matches!(self, Type::Integer { .. }) }
+        if matches!(self, Type::BitVector { .. }) {
+            true
+        } else {
+            matches!(self, Type::Integer { .. })
+        }
     }
 
     /// Check if this type is a float type.
@@ -274,7 +278,11 @@ impl Type {
         match self {
             Type::Unit => "()".to_string(),
             Type::Bool => "bool".to_string(),
-            Type::Integer { width, signed, overflow } => {
+            Type::Integer {
+                width,
+                signed,
+                overflow,
+            } => {
                 let sign = if *signed { "i" } else { "u" };
                 format!("{sign}{} ({overflow})", width.bits())
             }
@@ -438,7 +446,10 @@ mod tests {
     fn struct_display() {
         let s = Type::Struct {
             name: "Foo".to_string(),
-            fields: vec![("x".to_string(), Type::i32()), ("y".to_string(), Type::Bool)],
+            fields: vec![
+                ("x".to_string(), Type::i32()),
+                ("y".to_string(), Type::Bool),
+            ],
         };
         assert_eq!(format!("{s}"), "Foo");
     }

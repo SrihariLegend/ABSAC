@@ -4,9 +4,9 @@
 //!   Top (unknown) → Constant(ConstantData) → Bottom (overdefined)
 //! Worklist-based iterative fixpoint computation.
 
-use std::collections::{HashMap, VecDeque};
 use sir_nodes::{Function, NodeKind};
 use sir_types::{ConstantData, NodeId};
+use std::collections::{HashMap, VecDeque};
 
 use crate::facts::{ConstantFact, ConstantLattice};
 use crate::graph;
@@ -270,10 +270,7 @@ fn fold_binary_arith(
     ConstantLattice::Bottom
 }
 
-fn fold_binary_int(
-    inputs: &[&ConstantData],
-    f: fn(u64, u64) -> u64,
-) -> ConstantLattice {
+fn fold_binary_int(inputs: &[&ConstantData], f: fn(u64, u64) -> u64) -> ConstantLattice {
     if inputs.len() != 2 {
         return ConstantLattice::Bottom;
     }
@@ -283,20 +280,14 @@ fn fold_binary_int(
     ConstantLattice::Bottom
 }
 
-fn fold_unary_int(
-    inputs: &[&ConstantData],
-    f: fn(i64) -> i64,
-) -> ConstantLattice {
+fn fold_unary_int(inputs: &[&ConstantData], f: fn(i64) -> i64) -> ConstantLattice {
     if let Some(v) = inputs.first().and_then(|c| c.as_i64()) {
         return ConstantLattice::Constant(ConstantData::i64(f(v)));
     }
     ConstantLattice::Bottom
 }
 
-fn fold_cmp(
-    inputs: &[&ConstantData],
-    f: fn(i64, i64) -> bool,
-) -> ConstantLattice {
+fn fold_cmp(inputs: &[&ConstantData], f: fn(i64, i64) -> bool) -> ConstantLattice {
     if inputs.len() != 2 {
         return ConstantLattice::Bottom;
     }
@@ -306,10 +297,7 @@ fn fold_cmp(
     ConstantLattice::Bottom
 }
 
-fn fold_bool(
-    inputs: &[&ConstantData],
-    f: fn(bool, bool) -> bool,
-) -> ConstantLattice {
+fn fold_bool(inputs: &[&ConstantData], f: fn(bool, bool) -> bool) -> ConstantLattice {
     if inputs.len() != 2 {
         return ConstantLattice::Bottom;
     }
@@ -325,9 +313,15 @@ mod tests {
     use sir_builder::Builder;
     use sir_types::{Span, Type};
 
-    fn i32_type() -> Type { Type::i32() }
-    fn u64_type() -> Type { Type::u64() }
-    fn unknown_span() -> Span { Span::unknown() }
+    fn i32_type() -> Type {
+        Type::i32()
+    }
+    fn u64_type() -> Type {
+        Type::u64()
+    }
+    fn unknown_span() -> Span {
+        Span::unknown()
+    }
 
     #[test]
     fn constant_node_stays_constant() {
@@ -338,7 +332,10 @@ mod tests {
         let facts = run_constants(&func, None);
 
         let c_fact = facts.get(&c).unwrap();
-        assert_eq!(c_fact.value, ConstantLattice::Constant(ConstantData::i32(42)));
+        assert_eq!(
+            c_fact.value,
+            ConstantLattice::Constant(ConstantData::i32(42))
+        );
     }
 
     #[test]
@@ -363,7 +360,10 @@ mod tests {
         let facts = run_constants(&func, None);
 
         let sum_fact = facts.get(&sum).unwrap();
-        assert_eq!(sum_fact.value, ConstantLattice::Constant(ConstantData::i64(3)));
+        assert_eq!(
+            sum_fact.value,
+            ConstantLattice::Constant(ConstantData::i64(3))
+        );
     }
 
     #[test]
@@ -379,7 +379,10 @@ mod tests {
 
         let sel_fact = facts.get(&sel).unwrap();
         // Select with true condition returns true_val.
-        assert_eq!(sel_fact.value, ConstantLattice::Constant(ConstantData::i32(10)));
+        assert_eq!(
+            sel_fact.value,
+            ConstantLattice::Constant(ConstantData::i32(10))
+        );
     }
 
     #[test]

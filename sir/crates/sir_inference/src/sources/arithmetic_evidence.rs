@@ -31,5 +31,27 @@ pub fn contribute(region: &Region) -> Vec<Evidence> {
         });
     }
 
+    if region.contains(SemanticConcept::DividePowerOfTwo) {
+        evidence.push(Evidence {
+            region: region.id,
+            representation: Representation::BitwiseArithmetic,
+            polarity: Polarity::Supports,
+            weight: weights::ABSOLUTE,
+            source: SemanticConcept::DividePowerOfTwo,
+            explanation: "Division by a power of two is equivalent to right shift (with proper sign handling)",
+        });
+    }
+
+    if region.contains(SemanticConcept::ShiftMask) {
+        evidence.push(Evidence {
+            region: region.id,
+            representation: Representation::BitwiseArithmetic,
+            polarity: Polarity::Supports,
+            weight: weights::ABSOLUTE,
+            source: SemanticConcept::ShiftMask,
+            explanation: "Paired left and right shifts extract a bitmask which can be simplified",
+        });
+    }
+
     evidence
 }

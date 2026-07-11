@@ -3,9 +3,9 @@
 //! Interval arithmetic on integer values. Computes lower/upper bounds
 //! and detects special properties: nonzero, power-of-two, alignment.
 
-use std::collections::HashMap;
 use sir_nodes::{Function, NodeKind};
 use sir_types::{ConstantData, NodeId};
+use std::collections::HashMap;
 
 use crate::facts::RangeFact;
 use crate::graph;
@@ -80,10 +80,7 @@ fn compute_range(
     facts: &HashMap<NodeId, RangeFact>,
 ) -> RangeFact {
     let inputs = graph::dataflow_inputs(kind);
-    let input_ranges: Vec<&RangeFact> = inputs
-        .iter()
-        .filter_map(|iid| facts.get(iid))
-        .collect();
+    let input_ranges: Vec<&RangeFact> = inputs.iter().filter_map(|iid| facts.get(iid)).collect();
 
     let unknown = RangeFact {
         lower: None,
@@ -106,7 +103,7 @@ fn compute_range(
         }
         // Popcount: result is [0, bit_width_of_input_type].
         NodeKind::Popcount { .. } => {
-            // For v0.1, the max supported bit width is 64. 
+            // For v0.1, the max supported bit width is 64.
             // We use a conservative upper bound of 64 for all popcounts.
             return RangeFact {
                 lower: Some(0),
@@ -147,8 +144,12 @@ fn compute_range(
             if input_ranges.len() == 2 {
                 let a = input_ranges[0];
                 let b = input_ranges[1];
-                let lo = a.lower.and_then(|al| b.lower.map(|bl| al.saturating_add(bl)));
-                let hi = a.upper.and_then(|au| b.upper.map(|bu| au.saturating_add(bu)));
+                let lo = a
+                    .lower
+                    .and_then(|al| b.lower.map(|bl| al.saturating_add(bl)));
+                let hi = a
+                    .upper
+                    .and_then(|au| b.upper.map(|bu| au.saturating_add(bu)));
                 RangeFact {
                     lower: lo,
                     upper: hi,
@@ -167,10 +168,14 @@ fn compute_range(
                 let b = input_ranges[1];
                 // Conservative: max of products of bounds.
                 let candidates = [
-                    a.lower.and_then(|al| b.lower.map(|bl| al.saturating_mul(bl))),
-                    a.lower.and_then(|al| b.upper.map(|bu| al.saturating_mul(bu))),
-                    a.upper.and_then(|au| b.lower.map(|bl| au.saturating_mul(bl))),
-                    a.upper.and_then(|au| b.upper.map(|bu| au.saturating_mul(bu))),
+                    a.lower
+                        .and_then(|al| b.lower.map(|bl| al.saturating_mul(bl))),
+                    a.lower
+                        .and_then(|al| b.upper.map(|bu| al.saturating_mul(bu))),
+                    a.upper
+                        .and_then(|au| b.lower.map(|bl| au.saturating_mul(bl))),
+                    a.upper
+                        .and_then(|au| b.upper.map(|bu| au.saturating_mul(bu))),
                 ];
                 let lo = candidates.iter().filter_map(|&v| v).min();
                 let hi = candidates.iter().filter_map(|&v| v).max();
@@ -251,9 +256,15 @@ mod tests {
     use sir_builder::Builder;
     use sir_types::{Span, Type};
 
-    fn i32_type() -> Type { Type::i32() }
-    fn u64_type() -> Type { Type::u64() }
-    fn unknown_span() -> Span { Span::unknown() }
+    fn i32_type() -> Type {
+        Type::i32()
+    }
+    fn u64_type() -> Type {
+        Type::u64()
+    }
+    fn unknown_span() -> Span {
+        Span::unknown()
+    }
 
     #[test]
     fn constant_range() {

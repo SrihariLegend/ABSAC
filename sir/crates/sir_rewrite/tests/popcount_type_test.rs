@@ -1,6 +1,6 @@
+use sir_rewrite::local_id::LocalNodeId;
 use sir_rewrite::subgraph_builder::SubgraphBuilder;
 use sir_types::{Span, Type};
-use sir_rewrite::local_id::LocalNodeId;
 
 #[test]
 fn test_popcount_type() {

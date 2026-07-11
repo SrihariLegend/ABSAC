@@ -56,10 +56,7 @@ impl Normalizer {
     /// after any successful rule application, restarts from the first rule.
     ///
     /// Returns the normal form and the sequence of applied rules (proof trace).
-    pub fn normalize(
-        &self,
-        expr: &SemanticExpression,
-    ) -> (SemanticExpression, Vec<ProofStep>) {
+    pub fn normalize(&self, expr: &SemanticExpression) -> (SemanticExpression, Vec<ProofStep>) {
         let mut steps = Vec::new();
         let result = self.normalize_recursive(expr, &mut steps, 0);
         (result, steps)
@@ -167,6 +164,32 @@ impl Normalizer {
                     predicate: predicate.clone(),
                 }
             }
+
+            // Binary nodes
+            SemanticExpression::Modulo(lhs, rhs) => SemanticExpression::Modulo(
+                Box::new(self.normalize_recursive(lhs, steps, depth + 1)),
+                Box::new(self.normalize_recursive(rhs, steps, depth + 1)),
+            ),
+            SemanticExpression::BitwiseAnd(lhs, rhs) => SemanticExpression::BitwiseAnd(
+                Box::new(self.normalize_recursive(lhs, steps, depth + 1)),
+                Box::new(self.normalize_recursive(rhs, steps, depth + 1)),
+            ),
+            SemanticExpression::Divide(lhs, rhs) => SemanticExpression::Divide(
+                Box::new(self.normalize_recursive(lhs, steps, depth + 1)),
+                Box::new(self.normalize_recursive(rhs, steps, depth + 1)),
+            ),
+            SemanticExpression::ShiftRight(lhs, rhs) => SemanticExpression::ShiftRight(
+                Box::new(self.normalize_recursive(lhs, steps, depth + 1)),
+                Box::new(self.normalize_recursive(rhs, steps, depth + 1)),
+            ),
+            SemanticExpression::Multiply(lhs, rhs) => SemanticExpression::Multiply(
+                Box::new(self.normalize_recursive(lhs, steps, depth + 1)),
+                Box::new(self.normalize_recursive(rhs, steps, depth + 1)),
+            ),
+            SemanticExpression::ShiftLeft(lhs, rhs) => SemanticExpression::ShiftLeft(
+                Box::new(self.normalize_recursive(lhs, steps, depth + 1)),
+                Box::new(self.normalize_recursive(rhs, steps, depth + 1)),
+            ),
         }
     }
 }
@@ -194,9 +217,9 @@ mod tests {
         fn apply(&self, expr: &SemanticExpression) -> Option<SemanticExpression> {
             match expr {
                 SemanticExpression::Count(inner) => match inner.as_ref() {
-                    SemanticExpression::BooleanArray { .. } => {
-                        Some(SemanticExpression::Constant(sir_types::ConstantData::u64(0)))
-                    }
+                    SemanticExpression::BooleanArray { .. } => Some(SemanticExpression::Constant(
+                        sir_types::ConstantData::u64(0),
+                    )),
                     _ => None,
                 },
                 _ => None,
@@ -207,9 +230,9 @@ mod tests {
     #[test]
     fn normalizer_empty_rules_is_identity() {
         let normalizer = Normalizer::new(100);
-        let expr = SemanticExpression::Count(Box::new(
-            SemanticExpression::BooleanArray { variable: VariableId::new(0) },
-        ));
+        let expr = SemanticExpression::Count(Box::new(SemanticExpression::BooleanArray {
+            variable: VariableId::new(0),
+        }));
         let (result, steps) = normalizer.normalize(&expr);
         assert_eq!(result, expr);
         assert!(steps.is_empty());
@@ -220,9 +243,9 @@ mod tests {
         let mut normalizer = Normalizer::new(100);
         normalizer.add_rule(Box::new(CountToZero));
 
-        let expr = SemanticExpression::Count(Box::new(
-            SemanticExpression::BooleanArray { variable: VariableId::new(0) },
-        ));
+        let expr = SemanticExpression::Count(Box::new(SemanticExpression::BooleanArray {
+            variable: VariableId::new(0),
+        }));
         let (result, steps) = normalizer.normalize(&expr);
 
         assert_eq!(
@@ -230,7 +253,13 @@ mod tests {
             SemanticExpression::Constant(sir_types::ConstantData::u64(0))
         );
         assert_eq!(steps.len(), 1);
-        assert!(matches!(steps[0], ProofStep::Normalization { rule: "CountToZero", .. }));
+        assert!(matches!(
+            steps[0],
+            ProofStep::Normalization {
+                rule: "CountToZero",
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -240,9 +269,9 @@ mod tests {
         let mut normalizer = Normalizer::new(100);
         normalizer.add_rule(Box::new(CountToZero));
 
-        let expr = SemanticExpression::Count(Box::new(
-            SemanticExpression::BooleanArray { variable: VariableId::new(0) },
-        ));
+        let expr = SemanticExpression::Count(Box::new(SemanticExpression::BooleanArray {
+            variable: VariableId::new(0),
+        }));
         let (result, steps) = normalizer.normalize(&expr);
         assert_eq!(steps.len(), 1); // applied once, no more matches
 
@@ -258,18 +287,18 @@ mod tests {
         let mut normalizer = Normalizer::new(100);
         normalizer.add_rule(Box::new(CountToZero));
 
-        let expr = SemanticExpression::Pack(Box::new(
-            SemanticExpression::Count(Box::new(
-                SemanticExpression::BooleanArray { variable: VariableId::new(0) },
-            )),
-        ));
+        let expr = SemanticExpression::Pack(Box::new(SemanticExpression::Count(Box::new(
+            SemanticExpression::BooleanArray {
+                variable: VariableId::new(0),
+            },
+        ))));
         let (result, steps) = normalizer.normalize(&expr);
 
         assert_eq!(
             result,
-            SemanticExpression::Pack(Box::new(
-                SemanticExpression::Constant(sir_types::ConstantData::u64(0))
-            ))
+            SemanticExpression::Pack(Box::new(SemanticExpression::Constant(
+                sir_types::ConstantData::u64(0)
+            )))
         );
         assert_eq!(steps.len(), 1); // Count inside Pack was normalized
     }
@@ -280,7 +309,9 @@ mod tests {
         struct LoopingRule;
 
         impl NormalizationRule for LoopingRule {
-            fn name(&self) -> &'static str { "Loop" }
+            fn name(&self) -> &'static str {
+                "Loop"
+            }
             fn apply(&self, expr: &SemanticExpression) -> Option<SemanticExpression> {
                 match expr {
                     SemanticExpression::Count(_) => Some(expr.clone()),
@@ -292,9 +323,9 @@ mod tests {
         let mut normalizer = Normalizer::new(10);
         normalizer.add_rule(Box::new(LoopingRule));
 
-        let expr = SemanticExpression::Count(Box::new(
-            SemanticExpression::BooleanArray { variable: VariableId::new(0) },
-        ));
+        let expr = SemanticExpression::Count(Box::new(SemanticExpression::BooleanArray {
+            variable: VariableId::new(0),
+        }));
         let (_, steps) = normalizer.normalize(&expr);
 
         // Should stop at max_steps, not loop forever

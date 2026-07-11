@@ -10,9 +10,9 @@
 //! Consumes both `SemanticDatabase` and `StructuralDatabase` to produce
 //! hypotheses and transformation contexts.
 
+pub mod engine;
 pub mod evidence;
 pub mod hypothesis;
-pub mod engine;
 pub mod sources;
 
 pub mod concepts {

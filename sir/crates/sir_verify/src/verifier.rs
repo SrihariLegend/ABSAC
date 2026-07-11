@@ -76,12 +76,11 @@ impl<'a> Verifier<'a> {
         for node in &self.func.arena {
             if !seen.insert(node.id) {
                 // This should be unreachable with BTreeMap, but check anyway.
-                self.errors
-                    .push(VerificationError::InvalidInput {
-                        node: node.id,
-                        kind: node.kind.clone(),
-                        message: "duplicate NodeId detected (SSA violation)".to_string(),
-                    });
+                self.errors.push(VerificationError::InvalidInput {
+                    node: node.id,
+                    kind: node.kind.clone(),
+                    message: "duplicate NodeId detected (SSA violation)".to_string(),
+                });
             }
         }
     }
@@ -135,8 +134,7 @@ impl<'a> Verifier<'a> {
                                 // Back edge detected — check if allowed.
                                 let allowed = allowed_back_edges.contains(&(*current, child));
                                 if !allowed {
-                                    self.errors
-                                        .push(VerificationError::CycleDetected(*current));
+                                    self.errors.push(VerificationError::CycleDetected(*current));
                                 }
                             }
                             Some(0) => {
@@ -144,7 +142,7 @@ impl<'a> Verifier<'a> {
                                 stack.push((child, 0));
                             }
                             Some(2) => {} // Cross edge, fine.
-                            None => {} // Shouldn't happen after reference check.
+                            None => {}    // Shouldn't happen after reference check.
                             _ => {}
                         }
                     } else {
@@ -254,8 +252,7 @@ impl<'a> Verifier<'a> {
                 NodeKind::And { lhs, rhs }
                 | NodeKind::Or { lhs, rhs }
                 | NodeKind::Xor { lhs, rhs } => {
-                    if let (Some(lt), Some(rt)) = (self.node_type(*lhs), self.node_type(*rhs))
-                    {
+                    if let (Some(lt), Some(rt)) = (self.node_type(*lhs), self.node_type(*rhs)) {
                         if !lt.is_integer_or_bitvector() {
                             self.errors.push(VerificationError::TypeMismatch {
                                 node: node.id,
@@ -329,14 +326,10 @@ impl<'a> Verifier<'a> {
                 NodeKind::Pack { array } => {
                     if let Some(ty) = self.node_type(*array) {
                         match &ty {
-                            Type::Array {
-                                element,
-                                length,
-                            } if **element == Type::Bool => {
+                            Type::Array { element, length } if **element == Type::Bool => {
                                 // Verify output type is BitVector with matching width.
                                 match &node.ty {
-                                    Type::BitVector { width }
-                                        if *width == *length => {}
+                                    Type::BitVector { width } if *width == *length => {}
                                     Type::BitVector { .. } => {
                                         self.errors.push(VerificationError::TypeMismatch {
                                             node: node.id,
@@ -384,7 +377,11 @@ impl<'a> Verifier<'a> {
                     }
                 }
 
-                NodeKind::ArrayCmpMask { array, scalar, op: _ } => {
+                NodeKind::ArrayCmpMask {
+                    array,
+                    scalar,
+                    op: _,
+                } => {
                     // Type checks are primarily handled by the builder for now.
                     let _ = self.node_type(*array);
                     let _ = self.node_type(*scalar);
@@ -397,8 +394,7 @@ impl<'a> Verifier<'a> {
                 | NodeKind::Le { lhs, rhs }
                 | NodeKind::Gt { lhs, rhs }
                 | NodeKind::Ge { lhs, rhs } => {
-                    if let (Some(lt), Some(rt)) = (self.node_type(*lhs), self.node_type(*rhs))
-                    {
+                    if let (Some(lt), Some(rt)) = (self.node_type(*lhs), self.node_type(*rhs)) {
                         if lt != rt {
                             self.errors.push(VerificationError::TypeMismatch {
                                 node: node.id,
@@ -459,11 +455,10 @@ impl<'a> Verifier<'a> {
                 } => {
                     if let Some(ty) = self.node_type(*cond) {
                         if !ty.is_bool() {
-                            self.errors
-                                .push(VerificationError::SelectConditionNotBool {
-                                    node: node.id,
-                                    actual: ty,
-                                });
+                            self.errors.push(VerificationError::SelectConditionNotBool {
+                                node: node.id,
+                                actual: ty,
+                            });
                         }
                     }
                     if let (Some(tt), Some(ft)) =
@@ -630,9 +625,7 @@ impl<'a> Verifier<'a> {
                     self.errors.push(VerificationError::InvalidInput {
                         node: node.id,
                         kind: node.kind.clone(),
-                        message: format!(
-                            "duplicate parameter index {index}"
-                        ),
+                        message: format!("duplicate parameter index {index}"),
                     });
                 }
             }
@@ -671,11 +664,10 @@ impl<'a> Verifier<'a> {
                 // Termination must be Bool.
                 if let Some(term_ty) = self.node_type(*termination) {
                     if !term_ty.is_bool() {
-                        self.errors
-                            .push(VerificationError::LoopTerminationNotBool {
-                                loop_node: node.id,
-                                actual: term_ty,
-                            });
+                        self.errors.push(VerificationError::LoopTerminationNotBool {
+                            loop_node: node.id,
+                            actual: term_ty,
+                        });
                     }
                 }
 
@@ -870,7 +862,9 @@ mod tests {
         func.insert_node(node);
         let ret = sir_nodes::Node::new(
             NodeId::new(1),
-            NK::Return { value: NodeId::new(0) },
+            NK::Return {
+                value: NodeId::new(0),
+            },
             Type::Unit,
             Effects::empty(),
             sir_types::Span::unknown(),
@@ -880,10 +874,10 @@ mod tests {
 
         let mut v = Verifier::new(&func);
         assert!(!v.verify());
-        assert!(v.errors().iter().any(|e| matches!(
-            e,
-            VerificationError::ParameterIndexMismatch { .. }
-        )));
+        assert!(v
+            .errors()
+            .iter()
+            .any(|e| matches!(e, VerificationError::ParameterIndexMismatch { .. })));
     }
 
     #[test]
@@ -894,7 +888,7 @@ mod tests {
         let sel = sir_nodes::Node::new(
             NodeId::new(10),
             NK::Select {
-                cond: p,           // i32, NOT bool
+                cond: p, // i32, NOT bool
                 true_val: p,
                 false_val: p,
             },
@@ -905,7 +899,9 @@ mod tests {
         func.insert_node(sel);
         let ret = sir_nodes::Node::new(
             NodeId::new(11),
-            NK::Return { value: NodeId::new(10) },
+            NK::Return {
+                value: NodeId::new(10),
+            },
             Type::Unit,
             Effects::empty(),
             sir_types::Span::unknown(),
@@ -915,9 +911,10 @@ mod tests {
 
         let mut v = Verifier::new(&func);
         assert!(!v.verify());
-        assert!(v.errors().iter().any(
-            |e| matches!(e, VerificationError::SelectConditionNotBool { .. })
-        ));
+        assert!(v
+            .errors()
+            .iter()
+            .any(|e| matches!(e, VerificationError::SelectConditionNotBool { .. })));
     }
 
     #[test]
@@ -940,7 +937,9 @@ mod tests {
         func.insert_node(loop_node);
         let ret = sir_nodes::Node::new(
             NodeId::new(21),
-            NK::Return { value: NodeId::new(20) },
+            NK::Return {
+                value: NodeId::new(20),
+            },
             Type::Unit,
             Effects::empty(),
             sir_types::Span::unknown(),
@@ -950,8 +949,9 @@ mod tests {
 
         let mut v = Verifier::new(&func);
         assert!(!v.verify());
-        assert!(v.errors().iter().any(
-            |e| matches!(e, VerificationError::LoopTerminationNotBool { .. })
-        ));
+        assert!(v
+            .errors()
+            .iter()
+            .any(|e| matches!(e, VerificationError::LoopTerminationNotBool { .. })));
     }
 }
