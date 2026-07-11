@@ -166,6 +166,10 @@ impl InferenceEngine {
             for e in scan_evidence {
                 self.evidence_registry.add(e);
             }
+            let mask_evidence = crate::sources::mask_algebra_evidence::contribute(region);
+            for e in mask_evidence {
+                self.evidence_registry.add(e);
+            }
         }
 
         // 2. Aggregate evidence per (region, representation)

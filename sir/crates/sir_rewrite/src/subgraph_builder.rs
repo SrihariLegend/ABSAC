@@ -255,6 +255,17 @@ impl<'a> SubgraphBuilder<'a> {
         )
     }
 
+    pub fn intrinsic(&mut self, name: String, args: Vec<LocalNodeId>, ty: Type, span: Span) -> LocalNodeId {
+        self.alloc_node(
+            NodeKind::Intrinsic {
+                name,
+                args: args.into_iter().map(|id| NodeId::new(id.as_u64())).collect(),
+            },
+            ty,
+            span,
+        )
+    }
+
     // ── Pack & VectorCmp ──────────────────────────────────────────
 
     pub fn array_cmp_mask(

@@ -65,6 +65,12 @@ pub enum SemanticConcept {
     SetEmpty,
     /// Operation: counting the number of elements in a set
     SetCardinality,
+
+    // ── Added for Mask Algebra (Phase II.1) ───────────
+    /// Operation: isolating the lowest set bit
+    LowestSetBit,
+    /// Operation: clearing the lowest set bit
+    ClearLowestSetBit,
 }
 
 impl fmt::Display for SemanticConcept {
@@ -97,6 +103,8 @@ impl fmt::Display for SemanticConcept {
             SemanticConcept::SetEquality => write!(f, "SetEquality"),
             SemanticConcept::SetEmpty => write!(f, "SetEmpty"),
             SemanticConcept::SetCardinality => write!(f, "SetCardinality"),
+            SemanticConcept::LowestSetBit => write!(f, "LowestSetBit"),
+            SemanticConcept::ClearLowestSetBit => write!(f, "ClearLowestSetBit"),
         }
     }
 }

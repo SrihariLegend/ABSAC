@@ -598,6 +598,13 @@ impl RewriteBuilder {
                     }
                     nodes.insert(*result);
                 }
+                sir_transform::roles::RegionRoles::MaskOperation {
+                    operand,
+                    result,
+                } => {
+                    nodes.insert(*operand);
+                    nodes.insert(*result);
+                }
             }
         }
         nodes

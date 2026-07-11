@@ -49,4 +49,11 @@ pub enum RegionRoles {
         /// The result node that produces the found index/count.
         result: NodeId,
     },
+    /// A bitwise operation corresponding to mask algebra.
+    MaskOperation {
+        /// The operand representing the bitmask.
+        operand: NodeId,
+        /// The node representing the final output result to replace.
+        result: NodeId,
+    },
 }

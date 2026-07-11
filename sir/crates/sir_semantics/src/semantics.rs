@@ -216,8 +216,19 @@ impl SemanticEngine {
             boolean_collection, cardinality_reduction, conjunctive_reduction,
             disjunctive_reduction, divide_power_of_two, exclusive_reduction, finite_collection,
             membership_traversal, modulo_power_of_two, multiply_power_of_two, predicate_collection,
-            shift_mask, set_algebra,
+            shift_mask, set_algebra, mask_algebra,
         };
+
+        let mask_recs = mask_algebra::recognize_mask_algebra(func, analysis);
+        for (_concept, explanation, node_ids) in mask_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation);
+            self.db.add_region(region);
+        }
 
         let sa_recs = set_algebra::recognize_set_algebra(func, analysis);
         for (_concept, explanation, node_ids) in sa_recs {
@@ -389,6 +400,18 @@ impl SemanticEngine {
             modulo_power_of_two as struct_modulo, multiply_power_of_two as struct_multiply,
             shift_mask as struct_shift_mask,
         };
+
+        // For mask algebra, we just set the structural description to MaskAlgebraExpression
+        for (rid, region) in self.db.regions() {
+            if region.contains(SemanticConcept::ClearLowestSetBit) || region.contains(SemanticConcept::LowestSetBit) {
+                use sir_transform::structures::SourceStructure;
+                let desc = crate::structure::StructuralDescription::new(
+                    rid,
+                    SourceStructure::MaskAlgebraExpression,
+                );
+                self.structural_db.add_description(desc);
+            }
+        }
 
         let bool_array_recs = boolean_array::recognize_boolean_array(func, analysis);
         for (_region_id, desc) in bool_array_recs {
@@ -688,6 +711,34 @@ impl SemanticEngine {
                             lhs,
                             rhs,
                             result: mul,
+                        });
+                    }
+                }
+            } else if region.contains(SemanticConcept::ClearLowestSetBit) {
+                let mut op_info = None;
+                for node in func.arena.iter() {
+                    if let NodeKind::And { .. } = &node.kind {
+                        if region.nodes.contains(&node.id) {
+                            op_info = Some(node.id);
+                            break;
+                        }
+                    }
+                }
+                if let Some(and_node) = op_info {
+                    if let Some(desc) = self.structural_db.region_mut(region_id) {
+                        let mut operand = and_node; 
+                        if let NodeKind::And { lhs, rhs } = func.get_node(and_node).unwrap().kind {
+                            if let Some(lhs_node) = func.get_node(lhs) {
+                                if matches!(lhs_node.kind, NodeKind::Sub { .. }) {
+                                    operand = rhs;
+                                } else {
+                                    operand = lhs;
+                                }
+                            }
+                        }
+                        desc.roles = Some(RegionRoles::MaskOperation {
+                            operand,
+                            result: and_node,
                         });
                     }
                 }

@@ -170,6 +170,9 @@ impl Verifier {
         registry.register(Box::new(LeadingZeroCountDefinition::new(
             sir_transform::ids::DefinitionId::new(203),
         )));
+        registry.register(Box::new(definitions::clear_lowest_set_bit::ClearLowestSetBitDefinition::new(
+            sir_transform::ids::DefinitionId::new(300),
+        )));
 
         Self {
             registry,

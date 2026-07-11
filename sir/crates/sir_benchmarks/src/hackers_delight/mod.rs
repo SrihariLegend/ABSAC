@@ -86,10 +86,12 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::framework::run_benchmark;
     
     #[test]
-    fn test_popcount() {
-        let def = benchmarks().into_iter().find(|b| b.spec.id == "BR001").unwrap();
-        ((def.func)(), &def.spec);
+    fn test_arithmetic() {
+        for def in benchmarks() {
+            run_benchmark((def.func)(), &def.spec);
+        }
     }
 }

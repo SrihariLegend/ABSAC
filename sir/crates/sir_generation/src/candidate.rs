@@ -60,6 +60,8 @@ pub enum ImplementationStrategy {
     TrailingZeroCount,
     /// Hardware leading zero count.
     LeadingZeroCount,
+    /// Clear the lowest set bit.
+    ClearLowestBit,
 }
 
 impl fmt::Display for ImplementationStrategy {
@@ -80,6 +82,7 @@ impl fmt::Display for ImplementationStrategy {
             ImplementationStrategy::BitScanReverse => write!(f, "BitScanReverse"),
             ImplementationStrategy::TrailingZeroCount => write!(f, "TrailingZeroCount"),
             ImplementationStrategy::LeadingZeroCount => write!(f, "LeadingZeroCount"),
+            ImplementationStrategy::ClearLowestBit => write!(f, "ClearLowestBit"),
         }
     }
 }
