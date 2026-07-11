@@ -4,9 +4,9 @@
 //! if it is returned, stored, passed to an external call, or captured
 //! by a loop construct.
 
-use std::collections::HashMap;
 use sir_nodes::{Function, NodeKind};
 use sir_types::NodeId;
+use std::collections::HashMap;
 
 use crate::facts::{EscapeFact, EscapeKind};
 use crate::graph;
@@ -23,7 +23,12 @@ pub fn run_escape(func: &Function) -> HashMap<NodeId, EscapeFact> {
 
     // Initialize all nodes as NeverEscapes.
     for &id in &all_ids {
-        facts.insert(id, EscapeFact { kind: EscapeKind::NeverEscapes });
+        facts.insert(
+            id,
+            EscapeFact {
+                kind: EscapeKind::NeverEscapes,
+            },
+        );
     }
 
     // Phase 1: Mark operands of escape points.
@@ -34,20 +39,40 @@ pub fn run_escape(func: &Function) -> HashMap<NodeId, EscapeFact> {
         };
         match &node.kind {
             NodeKind::Return { value } => {
-                facts.insert(*value, EscapeFact { kind: EscapeKind::Returned });
+                facts.insert(
+                    *value,
+                    EscapeFact {
+                        kind: EscapeKind::Returned,
+                    },
+                );
             }
             NodeKind::Store { value, .. } => {
                 // The stored value escapes.
-                facts.insert(*value, EscapeFact { kind: EscapeKind::StoredGlobally });
+                facts.insert(
+                    *value,
+                    EscapeFact {
+                        kind: EscapeKind::StoredGlobally,
+                    },
+                );
             }
             NodeKind::ExternalCall { args, .. } | NodeKind::Intrinsic { args, .. } => {
                 for &arg in args {
-                    facts.insert(arg, EscapeFact { kind: EscapeKind::PassedExternally });
+                    facts.insert(
+                        arg,
+                        EscapeFact {
+                            kind: EscapeKind::PassedExternally,
+                        },
+                    );
                 }
             }
             NodeKind::Loop { carried_inputs, .. } => {
                 for &carry in carried_inputs {
-                    facts.insert(carry, EscapeFact { kind: EscapeKind::Captured });
+                    facts.insert(
+                        carry,
+                        EscapeFact {
+                            kind: EscapeKind::Captured,
+                        },
+                    );
                 }
             }
             _ => {}
@@ -70,7 +95,10 @@ pub fn run_escape(func: &Function) -> HashMap<NodeId, EscapeFact> {
     while changed {
         changed = false;
         for &id in &all_ids {
-            let user_escape = facts.get(&id).map(|f| f.kind.clone()).unwrap_or(EscapeKind::NeverEscapes);
+            let user_escape = facts
+                .get(&id)
+                .map(|f| f.kind.clone())
+                .unwrap_or(EscapeKind::NeverEscapes);
             if user_escape == EscapeKind::NeverEscapes {
                 continue;
             }
@@ -101,7 +129,11 @@ fn merge_escape(a: EscapeKind, b: EscapeKind) -> EscapeKind {
             EscapeKind::Returned => 4,
         }
     }
-    if severity(&a) >= severity(&b) { a } else { b }
+    if severity(&a) >= severity(&b) {
+        a
+    } else {
+        b
+    }
 }
 
 #[cfg(test)]
@@ -110,9 +142,15 @@ mod tests {
     use sir_builder::Builder;
     use sir_types::{ConstantData, Span, Type};
 
-    fn i32_type() -> Type { Type::i32() }
-    fn u64_type() -> Type { Type::u64() }
-    fn unknown_span() -> Span { Span::unknown() }
+    fn i32_type() -> Type {
+        Type::i32()
+    }
+    fn u64_type() -> Type {
+        Type::u64()
+    }
+    fn unknown_span() -> Span {
+        Span::unknown()
+    }
 
     #[test]
     fn returned_value_escapes() {

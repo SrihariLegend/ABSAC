@@ -51,7 +51,11 @@ mod tests {
     use sir_types::Type;
 
     fn build_add_function() -> Function {
-        let mut b = Builder::new("add", &[("a", Type::i32()), ("b", Type::i32())], Type::i32());
+        let mut b = Builder::new(
+            "add",
+            &[("a", Type::i32()), ("b", Type::i32())],
+            Type::i32(),
+        );
         let a = b.parameter_index(0).unwrap();
         let b_ = b.parameter_index(1).unwrap();
         let sum = b.add(a, b_, sir_types::Span::unknown()).unwrap();

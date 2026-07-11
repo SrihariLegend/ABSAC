@@ -29,11 +29,7 @@ impl TextPrinter {
     }
 
     /// Print a Function to a writer.
-    pub fn write_function(
-        &self,
-        func: &Function,
-        w: &mut impl Write,
-    ) -> std::fmt::Result {
+    pub fn write_function(&self, func: &Function, w: &mut impl Write) -> std::fmt::Result {
         if self.compact {
             self.write_function_compact(func, w)
         } else {
@@ -108,11 +104,7 @@ impl TextPrinter {
 
     // ── Private helpers ─────────────────────────────────────
 
-    fn write_function_compact(
-        &self,
-        func: &Function,
-        w: &mut impl Write,
-    ) -> std::fmt::Result {
+    fn write_function_compact(&self, func: &Function, w: &mut impl Write) -> std::fmt::Result {
         writeln!(w, "Function {}", func.name)?;
         for param in &func.params {
             writeln!(w, "Parameter {} ({})", param.name, param.ty)?;
@@ -138,11 +130,7 @@ impl TextPrinter {
         Ok(())
     }
 
-    fn write_node_compact_args(
-        &self,
-        w: &mut impl Write,
-        node: &Node,
-    ) -> std::fmt::Result {
+    fn write_node_compact_args(&self, w: &mut impl Write, node: &Node) -> std::fmt::Result {
         match &node.kind {
             NodeKind::Constant(data) => write!(w, " {data}"),
             NodeKind::Add { lhs, rhs }
@@ -195,11 +183,7 @@ impl TextPrinter {
         }
     }
 
-    fn write_function_detailed(
-        &self,
-        func: &Function,
-        w: &mut impl Write,
-    ) -> std::fmt::Result {
+    fn write_function_detailed(&self, func: &Function, w: &mut impl Write) -> std::fmt::Result {
         writeln!(
             w,
             "Function {} (params: [{}], returns: {})",
@@ -237,8 +221,7 @@ impl TextPrinter {
 /// Parameters come first, then dataflow order, return comes last.
 fn topological_order(func: &Function) -> Vec<NodeId> {
     let mut order = Vec::new();
-    let all_ids: std::collections::BTreeSet<NodeId> =
-        func.arena.nodes().keys().copied().collect();
+    let all_ids: std::collections::BTreeSet<NodeId> = func.arena.nodes().keys().copied().collect();
 
     // Start with parameters (they have no inputs).
     for &id in &all_ids {
@@ -303,7 +286,11 @@ mod tests {
 
     #[test]
     fn compact_print_add_function() {
-        let mut b = Builder::new("add", &[("a", Type::i32()), ("b", Type::i32())], Type::i32());
+        let mut b = Builder::new(
+            "add",
+            &[("a", Type::i32()), ("b", Type::i32())],
+            Type::i32(),
+        );
         let a = b.parameter_index(0).unwrap();
         let b_ = b.parameter_index(1).unwrap();
         let sum = b.add(a, b_, sir_types::Span::unknown()).unwrap();
@@ -321,7 +308,11 @@ mod tests {
 
     #[test]
     fn detailed_print_add_function() {
-        let mut b = Builder::new("add", &[("a", Type::i32()), ("b", Type::i32())], Type::i32());
+        let mut b = Builder::new(
+            "add",
+            &[("a", Type::i32()), ("b", Type::i32())],
+            Type::i32(),
+        );
         let a = b.parameter_index(0).unwrap();
         let b_ = b.parameter_index(1).unwrap();
         let sum = b.add(a, b_, sir_types::Span::unknown()).unwrap();

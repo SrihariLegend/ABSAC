@@ -4,9 +4,9 @@ use sir_types::{ConstantData, Span, Type};
 use crate::error::RewriteError;
 use crate::patch::{ReplacementPatch, ReplacementValue};
 use crate::recipe::RewriteRecipe;
+use crate::recipes::helpers::emit_pack;
 use crate::region::RewriteRegion;
 use crate::subgraph_builder::SubgraphBuilder;
-use crate::recipes::helpers::emit_pack;
 
 /// Recipe for the All transformation.
 ///
@@ -33,18 +33,27 @@ impl RewriteRecipe for AllRecipe {
 
     fn build_patch(
         &self,
+        function: &sir_nodes::Function,
         region: &RewriteRegion,
         mut builder: SubgraphBuilder,
     ) -> Result<ReplacementPatch, RewriteError> {
-        let packed = emit_pack(region, &mut builder)?;
-        
+        let packed = emit_pack(function, region, &mut builder)?;
+
         let width = match builder.get_type(packed) {
             Some(Type::BitVector { width }) => width,
             _ => 64, // Default
         };
 
-        let full_mask_val = if width == 64 { u64::MAX } else { (1u64 << width) - 1 };
-        let full_mask = builder.constant(ConstantData::u64(full_mask_val), Type::BitVector { width }, Span::unknown());
+        let full_mask_val = if width == 64 {
+            u64::MAX
+        } else {
+            (1u64 << width) - 1
+        };
+        let full_mask = builder.constant(
+            ConstantData::u64(full_mask_val),
+            Type::BitVector { width },
+            Span::unknown(),
+        );
         let eq_mask = builder.eq(packed, full_mask, Span::unknown());
 
         let result = region.result()?;

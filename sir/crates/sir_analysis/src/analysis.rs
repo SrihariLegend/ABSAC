@@ -1,9 +1,9 @@
 //! The Analysis trait and AnalysisResult container.
 
+use crate::facts::FactDatabase;
+use sir_nodes::Function;
 use std::fmt::Debug;
 use std::time::Duration;
-use sir_nodes::Function;
-use crate::facts::FactDatabase;
 
 /// Every analysis implements this trait.
 ///

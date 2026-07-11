@@ -61,25 +61,21 @@ impl TransformationDefinition for PopcountDefinition {
         // and we are abstracting the collection generation, we can leave the mathematical theorem the same
         // by verifying that `Popcount(Pack(BooleanArray(v)))` is equivalent to `Count(Filter(BooleanArray(v), True))`.
         // The Verification Engine models `PredicateCollection` by treating the boolean stream as a `BooleanArray`.
-        
+
         // Build the theorem: LHS = Count(Filter(BooleanArray(v), True))
-        let lhs = SemanticExpression::Count(Box::new(
-            SemanticExpression::Filter {
-                input: Box::new(SemanticExpression::BooleanArray {
-                    variable: board_var,
-                }),
-                predicate: Predicate::True,
-            },
-        ));
+        let lhs = SemanticExpression::Count(Box::new(SemanticExpression::Filter {
+            input: Box::new(SemanticExpression::LogicalSequence {
+                variable: board_var,
+            }),
+            predicate: Predicate::True,
+        }));
 
         // RHS = Popcount(Pack(BooleanArray(v)))
-        let rhs = SemanticExpression::Popcount(Box::new(
-            SemanticExpression::Pack(Box::new(
-                SemanticExpression::BooleanArray {
-                    variable: board_var,
-                },
-            )),
-        ));
+        let rhs = SemanticExpression::Popcount(Box::new(SemanticExpression::Pack(Box::new(
+            SemanticExpression::LogicalSequence {
+                variable: board_var,
+            },
+        ))));
 
         let theorem = Theorem::new(lhs, rhs);
 
@@ -87,7 +83,7 @@ impl TransformationDefinition for PopcountDefinition {
         let domain = FiniteDomain {
             variables: vec![VariableSpec {
                 id: board_var,
-                kind: VariableKind::BooleanArray { length },
+                kind: VariableKind::LogicalSequence { length },
             }],
         };
 
@@ -108,17 +104,18 @@ impl TransformationDefinition for PopcountDefinition {
             domain: Some(domain),
         }
     }
-
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sir_generation::candidate::{
+        CandidateEffect, CandidateExplanation, CandidateId, ImplementationStrategy,
+    };
     use sir_transform::constraints::Constraint;
+    use sir_transform::context::ContextId;
     use sir_transform::structures::SourceStructure;
     use sir_types::RegionId;
-    use sir_generation::candidate::{CandidateEffect, CandidateExplanation, CandidateId, ImplementationStrategy};
-    use sir_transform::context::ContextId;
     use std::collections::HashSet;
 
     fn make_candidate() -> Candidate {
@@ -148,7 +145,7 @@ mod tests {
                 critical_path_depth: 0,
             },
             representation: Representation::BitSet,
-            source_structure: SourceStructure::BooleanArray { length: 64 },
+            source_structure: SourceStructure::LogicalSequence { length: 64 },
             constraints,
             assumptions,
         }
@@ -173,7 +170,7 @@ mod tests {
                 SemanticExpression::Filter { input, predicate } => {
                     assert_eq!(*predicate, Predicate::True);
                     match input.as_ref() {
-                        SemanticExpression::BooleanArray { variable } => {
+                        SemanticExpression::LogicalSequence { variable } => {
                             assert_eq!(*variable, VariableId::new(0));
                         }
                         _ => panic!("Expected BooleanArray in Filter input"),
@@ -188,7 +185,7 @@ mod tests {
         match &obl.theorem.rhs {
             SemanticExpression::Popcount(inner) => match inner.as_ref() {
                 SemanticExpression::Pack(inner2) => match inner2.as_ref() {
-                    SemanticExpression::BooleanArray { variable } => {
+                    SemanticExpression::LogicalSequence { variable } => {
                         assert_eq!(*variable, VariableId::new(0));
                     }
                     _ => panic!("Expected BooleanArray inside Pack"),
@@ -206,7 +203,9 @@ mod tests {
         let obl = def.obligation(&cand);
 
         assert!(obl.assumptions.contains(&Assumption::EquivalentCardinality));
-        assert!(obl.assumptions.contains(&Assumption::PreservesIterationOrder));
+        assert!(obl
+            .assumptions
+            .contains(&Assumption::PreservesIterationOrder));
         assert!(obl.assumptions.contains(&Assumption::PreservesLayout));
     }
 
@@ -220,7 +219,7 @@ mod tests {
         let domain = obl.domain.unwrap();
         assert_eq!(domain.variables.len(), 1);
         match &domain.variables[0].kind {
-            VariableKind::BooleanArray { length } => assert_eq!(*length, 64),
+            VariableKind::LogicalSequence { length } => assert_eq!(*length, 64),
         }
     }
 

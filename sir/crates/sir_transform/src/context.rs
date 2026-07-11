@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{HashSet};
+use std::collections::HashSet;
 use std::fmt;
 
 use sir_types::{RegionId, RegionMap};
@@ -14,7 +14,9 @@ use crate::structures::SourceStructure;
 pub struct ContextId(pub u64);
 
 impl ContextId {
-    pub fn new(id: u64) -> Self { Self(id) }
+    pub fn new(id: u64) -> Self {
+        Self(id)
+    }
 }
 
 impl fmt::Display for ContextId {
@@ -34,12 +36,15 @@ pub enum ValidationError {
 impl fmt::Display for ValidationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ValidationError::MissingSourceStructure =>
-                write!(f, "TransformationContext must have a source structure"),
-            ValidationError::ContradictoryConstraints(msg) =>
-                write!(f, "Contradictory constraints: {}", msg),
-            ValidationError::EmptyRegion =>
-                write!(f, "TransformationContext region must not be empty"),
+            ValidationError::MissingSourceStructure => {
+                write!(f, "TransformationContext must have a source structure")
+            }
+            ValidationError::ContradictoryConstraints(msg) => {
+                write!(f, "Contradictory constraints: {}", msg)
+            }
+            ValidationError::EmptyRegion => {
+                write!(f, "TransformationContext region must not be empty")
+            }
         }
     }
 }
@@ -67,7 +72,14 @@ impl TransformationContext {
         constraints: HashSet<Constraint>,
         assumptions: HashSet<Assumption>,
     ) -> Self {
-        Self { region, representation, source_structure, constraints, assumptions, context_id: ContextId::new(0) }
+        Self {
+            region,
+            representation,
+            source_structure,
+            constraints,
+            assumptions,
+            context_id: ContextId::new(0),
+        }
     }
 
     /// Validate invariants: source structure present, no contradictions.

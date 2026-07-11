@@ -26,24 +26,27 @@ pub fn recognize_boolean_collection(
             if matches!(element.as_ref(), &Type::Bool) {
                 let related = collect_array_related_nodes(func, node.id);
                 results.push((
-                    SemanticConcept::BooleanCollection,
+                    SemanticConcept::LogicalSequence,
                     RecognitionExplanation {
-                        concept: SemanticConcept::BooleanCollection,
-                        triggering_facts: vec![
-                            "Array element type is Bool",
-                        ],
+                        concept: SemanticConcept::LogicalSequence,
+                        triggering_facts: vec!["Array element type is Bool"],
                     },
                     related,
                 ));
             }
         }
-        
+
         // Also recognize dynamically generated boolean collections
-        if let NodeKind::ArrayCmpMask { array, scalar, op: _ } = &node.kind {
+        if let NodeKind::ArrayCmpMask {
+            array,
+            scalar,
+            op: _,
+        } = &node.kind
+        {
             results.push((
-                SemanticConcept::BooleanCollection,
+                SemanticConcept::LogicalSequence,
                 RecognitionExplanation {
-                    concept: SemanticConcept::BooleanCollection,
+                    concept: SemanticConcept::LogicalSequence,
                     triggering_facts: vec![
                         "Dynamic comparison over array constructs boolean collection",
                     ],

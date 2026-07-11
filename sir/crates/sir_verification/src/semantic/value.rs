@@ -4,8 +4,8 @@
 //! `BitVectorValue` (a fixed-width bitvector), `pack_bits` (canonical boolean
 //! array to bitvector conversion), and `Environment` (variable to value mapping).
 
-use std::collections::BTreeMap;
 use sir_transform::ids::VariableId;
+use std::collections::BTreeMap;
 
 use crate::errors::InterpreterError;
 
@@ -16,8 +16,8 @@ pub enum Value {
     Bool(bool),
     /// A fixed-width unsigned integer value.
     Integer(u64),
-    /// A fixed-size array of boolean values.
-    BooleanArray(Vec<bool>),
+    /// A finite sequence of boolean values.
+    LogicalSequence(Vec<bool>),
     /// A bitvector value with explicit width.
     BitVector(BitVectorValue),
 }
@@ -172,24 +172,18 @@ mod tests {
         let result = pack_bits(&input);
         assert!(matches!(
             result,
-            Err(InterpreterError::InputTooLarge { max: 128, found: 200 })
+            Err(InterpreterError::InputTooLarge {
+                max: 128,
+                found: 200
+            })
         ));
     }
 
     #[test]
     fn bitvector_value_equality_uses_width() {
-        let a = BitVectorValue {
-            bits: 0,
-            width: 4,
-        };
-        let b = BitVectorValue {
-            bits: 0,
-            width: 8,
-        };
-        assert_ne!(
-            a, b,
-            "Same bits but different widths must not be equal"
-        );
+        let a = BitVectorValue { bits: 0, width: 4 };
+        let b = BitVectorValue { bits: 0, width: 8 };
+        assert_ne!(a, b, "Same bits but different widths must not be equal");
     }
 
     #[test]

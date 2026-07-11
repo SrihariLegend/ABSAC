@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 
 use sir_semantics::structure::StructuralDescription;
 use sir_transform::roles::RegionRoles;
@@ -21,9 +20,7 @@ pub struct RewriteRegion {
 
 impl RewriteRegion {
     pub fn new(structural: StructuralDescription) -> Self {
-        Self {
-            structural,
-        }
+        Self { structural }
     }
 
     /// The boolean array collection being iterated (e.g., `board` in BS001).
@@ -31,6 +28,11 @@ impl RewriteRegion {
         match &self.structural.roles {
             Some(RegionRoles::BooleanCollectionReduction { collection, .. }) => Ok(*collection),
             Some(RegionRoles::PredicateCollectionReduction { collection, .. }) => Ok(*collection),
+            Some(RegionRoles::PositionSearch { collection, .. }) => {
+                collection.ok_or_else(|| RewriteError::MissingRole {
+                    role: "collection".to_string(),
+                })
+            }
             _ => Err(RewriteError::MissingRole {
                 role: "collection".to_string(),
             }),
@@ -40,6 +42,11 @@ impl RewriteRegion {
     pub fn predicate_scalar(&self) -> Result<NodeId, RewriteError> {
         match &self.structural.roles {
             Some(RegionRoles::PredicateCollectionReduction { scalar, .. }) => Ok(*scalar),
+            Some(RegionRoles::PositionSearch { scalar, .. }) => {
+                scalar.ok_or_else(|| RewriteError::MissingRole {
+                    role: "predicate_scalar".to_string(),
+                })
+            }
             _ => Err(RewriteError::MissingRole {
                 role: "predicate_scalar".to_string(),
             }),
@@ -61,6 +68,7 @@ impl RewriteRegion {
             Some(RegionRoles::BooleanCollectionReduction { result, .. }) => Ok(*result),
             Some(RegionRoles::PredicateCollectionReduction { result, .. }) => Ok(*result),
             Some(RegionRoles::ArithmeticOperation { result, .. }) => Ok(*result),
+            Some(RegionRoles::PositionSearch { result, .. }) => Ok(*result),
             _ => Err(RewriteError::MissingRole {
                 role: "result".to_string(),
             }),
@@ -100,9 +108,7 @@ impl RewriteRegion {
     /// The accumulator node, if one exists.
     pub fn accumulator(&self) -> Result<Option<NodeId>, RewriteError> {
         match &self.structural.roles {
-            Some(RegionRoles::BooleanCollectionReduction {
-                accumulator, ..
-            }) => Ok(*accumulator),
+            Some(RegionRoles::BooleanCollectionReduction { accumulator, .. }) => Ok(*accumulator),
             _ => Err(RewriteError::MissingRole {
                 role: "accumulator".to_string(),
             }),

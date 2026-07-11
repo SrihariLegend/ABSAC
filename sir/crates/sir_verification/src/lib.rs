@@ -7,12 +7,12 @@
 pub mod errors;
 pub mod obligation;
 pub mod registry;
-pub mod validation;
 pub mod report;
+pub mod validation;
 
-pub mod semantic;
-pub mod definitions;
 pub mod backends;
+pub mod definitions;
+pub mod semantic;
 
 use crate::errors::RejectReason;
 use crate::errors::UnknownReason;
@@ -24,10 +24,17 @@ use sir_transform::context::{TransformationContext, TransformationContextDatabas
 
 use crate::backends::exhaustive::ExhaustiveVerifier;
 use crate::backends::symbolic::SymbolicVerifier;
-use crate::definitions::popcount::PopcountDefinition;
-use crate::definitions::any::AnyDefinition;
 use crate::definitions::all::AllDefinition;
+use crate::definitions::any::AnyDefinition;
+use crate::definitions::bitscan_forward::BitScanForwardDefinition;
+use crate::definitions::bitscan_reverse::BitScanReverseDefinition;
+use crate::definitions::divide_shift::DivideShiftDefinition;
+use crate::definitions::leading_zero_count::LeadingZeroCountDefinition;
+use crate::definitions::multiply_shift::MultiplyShiftDefinition;
 use crate::definitions::parity::ParityDefinition;
+use crate::definitions::popcount::PopcountDefinition;
+use crate::definitions::shift_mask::ShiftMaskDefinition;
+use crate::definitions::trailing_zero_count::TrailingZeroCountDefinition;
 use crate::obligation::{ProofObligation, ProofObligationDatabase};
 use crate::registry::TransformationRegistry;
 use crate::report::{ReportEntry, ReportStatus, VerificationReport};
@@ -56,9 +63,7 @@ pub enum ProofStep {
         after: SemanticExpression,
     },
     /// Exhaustive enumeration covered all inputs.
-    ExhaustiveCheck {
-        states_checked: u64,
-    },
+    ExhaustiveCheck { states_checked: u64 },
 }
 
 /// Which verification backend discharged a proof.
@@ -144,6 +149,27 @@ impl Verifier {
         registry.register(Box::new(definitions::modulo_and::ModuloAndDefinition::new(
             sir_transform::ids::DefinitionId::new(100),
         )));
+        registry.register(Box::new(DivideShiftDefinition::new(
+            sir_transform::ids::DefinitionId::new(101),
+        )));
+        registry.register(Box::new(MultiplyShiftDefinition::new(
+            sir_transform::ids::DefinitionId::new(102),
+        )));
+        registry.register(Box::new(ShiftMaskDefinition::new(
+            sir_transform::ids::DefinitionId::new(103),
+        )));
+        registry.register(Box::new(BitScanForwardDefinition::new(
+            sir_transform::ids::DefinitionId::new(200),
+        )));
+        registry.register(Box::new(BitScanReverseDefinition::new(
+            sir_transform::ids::DefinitionId::new(201),
+        )));
+        registry.register(Box::new(TrailingZeroCountDefinition::new(
+            sir_transform::ids::DefinitionId::new(202),
+        )));
+        registry.register(Box::new(LeadingZeroCountDefinition::new(
+            sir_transform::ids::DefinitionId::new(203),
+        )));
 
         Self {
             registry,
@@ -185,7 +211,7 @@ impl Verifier {
             }
 
             // Find the first context this definition is applicable to
-            for ctx in ctx_list {
+            for _ctx in ctx_list {
                 if let Some(def) = self.registry.find_for(candidate) {
                     let mut obligation = def.obligation(candidate);
                     obligation.candidate = candidate.id;
@@ -207,17 +233,13 @@ impl Verifier {
     ) -> VerificationResult {
         // Step 0: Validate assumptions
         if let Err(assumption) = AssumptionValidator::validate(obligation, context) {
-            return VerificationResult::Rejected(
-                crate::errors::RejectReason::AssumptionViolated {
-                    assumption,
-                },
-            );
+            return VerificationResult::Rejected(crate::errors::RejectReason::AssumptionViolated {
+                assumption,
+            });
         }
 
         match self.policy {
-            VerificationPolicy::SymbolicOnly => {
-                SymbolicVerifier::new().verify(obligation)
-            }
+            VerificationPolicy::SymbolicOnly => SymbolicVerifier::new().verify(obligation),
 
             VerificationPolicy::ExhaustiveOnly => {
                 ExhaustiveVerifier::new(self.limits.clone()).verify(obligation)
@@ -245,10 +267,7 @@ impl Verifier {
     }
 
     /// Generate a human-readable verification report.
-    pub fn report(
-        &self,
-        results: &[(ProofObligation, VerificationResult)],
-    ) -> VerificationReport {
+    pub fn report(&self, results: &[(ProofObligation, VerificationResult)]) -> VerificationReport {
         let mut report = VerificationReport::new();
 
         for (obligation, result) in results {
@@ -284,9 +303,10 @@ impl Verifier {
 
                     (ReportStatus::Proven, Some(detail))
                 }
-                VerificationResult::Rejected(reason) => {
-                    (ReportStatus::Rejected, Some(format!("Reason: {:?}", reason)))
-                }
+                VerificationResult::Rejected(reason) => (
+                    ReportStatus::Rejected,
+                    Some(format!("Reason: {:?}", reason)),
+                ),
                 VerificationResult::Unknown(reason) => {
                     (ReportStatus::Unknown, Some(format!("Reason: {:?}", reason)))
                 }

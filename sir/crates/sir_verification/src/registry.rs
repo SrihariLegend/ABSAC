@@ -55,10 +55,7 @@ impl TransformationRegistry {
 
     /// Find a definition applicable to the given candidate.
     /// Checks both applicability and definition_id match.
-    pub fn find_for(
-        &self,
-        candidate: &Candidate,
-    ) -> Option<&dyn TransformationDefinition> {
+    pub fn find_for(&self, candidate: &Candidate) -> Option<&dyn TransformationDefinition> {
         self.definitions.iter().find_map(|def| {
             if def.id() == candidate.definition_id && def.applicability(candidate) {
                 Some(def.as_ref())

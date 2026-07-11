@@ -1,22 +1,24 @@
 use serde::{Deserialize, Serialize};
-use std::fmt;
 use std::collections::HashSet;
+use std::fmt;
 
 use sir_semantics::concepts::SemanticConcept;
-use sir_types::RegionId;
+use sir_transform::assumptions::Assumption;
+use sir_transform::constraints::Constraint;
 use sir_transform::context::ContextId;
 use sir_transform::ids::DefinitionId;
 use sir_transform::representation::Representation;
 use sir_transform::structures::SourceStructure;
-use sir_transform::constraints::Constraint;
-use sir_transform::assumptions::Assumption;
+use sir_types::RegionId;
 
 /// Unique identifier for a candidate plan.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct CandidateId(pub u64);
 
 impl CandidateId {
-    pub fn new(id: u64) -> Self { Self(id) }
+    pub fn new(id: u64) -> Self {
+        Self(id)
+    }
 }
 
 impl fmt::Display for CandidateId {
@@ -44,6 +46,20 @@ pub enum ImplementationStrategy {
     Parity,
     /// Bitwise AND operation (for modulo).
     BitwiseAnd,
+    /// Right shift operation (for division).
+    ShiftRight,
+    /// Left shift operation (for multiplication).
+    ShiftLeft,
+    /// Shift right and shift left sequence extracting a mask.
+    MaskExtract,
+    /// Hardware bit scan forward (find first set bit).
+    BitScanForward,
+    /// Hardware bit scan reverse (find last set bit).
+    BitScanReverse,
+    /// Hardware trailing zero count.
+    TrailingZeroCount,
+    /// Hardware leading zero count.
+    LeadingZeroCount,
 }
 
 impl fmt::Display for ImplementationStrategy {
@@ -57,6 +73,13 @@ impl fmt::Display for ImplementationStrategy {
             ImplementationStrategy::All => write!(f, "All"),
             ImplementationStrategy::Parity => write!(f, "Parity"),
             ImplementationStrategy::BitwiseAnd => write!(f, "BitwiseAnd"),
+            ImplementationStrategy::ShiftRight => write!(f, "ShiftRight"),
+            ImplementationStrategy::ShiftLeft => write!(f, "ShiftLeft"),
+            ImplementationStrategy::MaskExtract => write!(f, "MaskExtract"),
+            ImplementationStrategy::BitScanForward => write!(f, "BitScanForward"),
+            ImplementationStrategy::BitScanReverse => write!(f, "BitScanReverse"),
+            ImplementationStrategy::TrailingZeroCount => write!(f, "TrailingZeroCount"),
+            ImplementationStrategy::LeadingZeroCount => write!(f, "LeadingZeroCount"),
         }
     }
 }

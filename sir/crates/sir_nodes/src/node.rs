@@ -24,13 +24,7 @@ pub struct Node {
 
 impl Node {
     /// Create a new node.
-    pub fn new(
-        id: NodeId,
-        kind: NodeKind,
-        ty: Type,
-        effects: Effects,
-        span: Span,
-    ) -> Self {
+    pub fn new(id: NodeId, kind: NodeKind, ty: Type, effects: Effects, span: Span) -> Self {
         Self {
             id,
             kind,
@@ -62,7 +56,10 @@ impl Node {
 
     /// Return a short description of this node for debugging.
     pub fn describe(&self) -> String {
-        format!("{}: {} = {} (effects: {})", self.id, self.ty, self.kind, self.effects)
+        format!(
+            "{}: {} = {} (effects: {})",
+            self.id, self.ty, self.kind, self.effects
+        )
     }
 }
 

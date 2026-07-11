@@ -4,5 +4,6 @@
 //! and returns evidence entries. The engine owns the registry and
 //! calls each source during inference.
 
-pub mod bitset_evidence;
 pub mod arithmetic_evidence;
+pub mod bitscan_evidence;
+pub mod bitset_evidence;

@@ -32,13 +32,14 @@ impl<'a> SelectionResult<'a> {
     /// Convert to the owned form for persistent storage.
     pub fn to_owned(&self) -> crate::database::SelectionResultOwned {
         crate::database::SelectionResultOwned {
-            chosen: self.chosen.as_ref().map(|s| {
-                crate::database::SelectedCandidateOwned {
+            chosen: self
+                .chosen
+                .as_ref()
+                .map(|s| crate::database::SelectedCandidateOwned {
                     candidate: s.candidate.clone(),
                     proof: s.proof.clone(),
                     score: s.score.clone(),
-                }
-            }),
+                }),
             rejected: self.rejected.clone(),
             report: self.report.clone(),
         }

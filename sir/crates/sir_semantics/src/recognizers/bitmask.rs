@@ -48,9 +48,7 @@ fn build_bitwise_use_map(func: &Function) -> HashMap<NodeId, bool> {
     for node in func.arena.iter() {
         use sir_nodes::NodeKind;
         match &node.kind {
-            NodeKind::And { lhs, rhs }
-            | NodeKind::Or { lhs, rhs }
-            | NodeKind::Xor { lhs, rhs } => {
+            NodeKind::And { lhs, rhs } | NodeKind::Or { lhs, rhs } | NodeKind::Xor { lhs, rhs } => {
                 map.insert(*lhs, true);
                 map.insert(*rhs, true);
             }

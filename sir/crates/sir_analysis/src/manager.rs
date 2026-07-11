@@ -3,16 +3,14 @@
 //! The manager owns the FactDatabase and orchestrates analysis
 //! execution. Analyses are computed on demand and cached per-function.
 
+use sir_nodes::Function;
 use std::any::TypeId;
 use std::time::Instant;
-use sir_nodes::Function;
 
 use crate::analysis::{Analysis, AnalysisResult};
 use crate::cache::AnalysisCache;
 use crate::facts::FactDatabase;
-use crate::{
-    use_def, dominance, constants, purity, ranges, alias, escape, loops, value_numbering,
-};
+use crate::{alias, constants, dominance, escape, loops, purity, ranges, use_def, value_numbering};
 
 /// Statistics collected across all analysis runs.
 #[derive(Clone, Debug, Default)]
@@ -83,7 +81,10 @@ impl AnalysisManager {
 
     fn run_use_def(&mut self, func: &Function) {
         let id = TypeId::of::<UseDefAnalysis>();
-        if self.cache.is_valid(id, func) { self.stats.cache_hits += 1; return; }
+        if self.cache.is_valid(id, func) {
+            self.stats.cache_hits += 1;
+            return;
+        }
         self.stats.cache_misses += 1;
         let start = Instant::now();
         let result = use_def::run_use_def(func);
@@ -96,7 +97,10 @@ impl AnalysisManager {
 
     fn run_dominance(&mut self, func: &Function) {
         let id = TypeId::of::<DominanceAnalysis>();
-        if self.cache.is_valid(id, func) { self.stats.cache_hits += 1; return; }
+        if self.cache.is_valid(id, func) {
+            self.stats.cache_hits += 1;
+            return;
+        }
         self.stats.cache_misses += 1;
         let start = Instant::now();
         let result = dominance::run_dominance(func);
@@ -109,7 +113,10 @@ impl AnalysisManager {
 
     fn run_constants(&mut self, func: &Function) {
         let id = TypeId::of::<ConstantAnalysis>();
-        if self.cache.is_valid(id, func) { self.stats.cache_hits += 1; return; }
+        if self.cache.is_valid(id, func) {
+            self.stats.cache_hits += 1;
+            return;
+        }
         self.stats.cache_misses += 1;
         let start = Instant::now();
         let result = constants::run_constants(func, Some(&self.db.use_def));
@@ -122,7 +129,10 @@ impl AnalysisManager {
 
     fn run_purity(&mut self, func: &Function) {
         let id = TypeId::of::<PurityAnalysis>();
-        if self.cache.is_valid(id, func) { self.stats.cache_hits += 1; return; }
+        if self.cache.is_valid(id, func) {
+            self.stats.cache_hits += 1;
+            return;
+        }
         self.stats.cache_misses += 1;
         let start = Instant::now();
         let result = purity::run_purity(func);
@@ -135,7 +145,10 @@ impl AnalysisManager {
 
     fn run_ranges(&mut self, func: &Function) {
         let id = TypeId::of::<RangeAnalysis>();
-        if self.cache.is_valid(id, func) { self.stats.cache_hits += 1; return; }
+        if self.cache.is_valid(id, func) {
+            self.stats.cache_hits += 1;
+            return;
+        }
         self.stats.cache_misses += 1;
         let start = Instant::now();
         let result = ranges::run_ranges(func);
@@ -148,7 +161,10 @@ impl AnalysisManager {
 
     fn run_alias(&mut self, func: &Function) {
         let id = TypeId::of::<AliasAnalysis>();
-        if self.cache.is_valid(id, func) { self.stats.cache_hits += 1; return; }
+        if self.cache.is_valid(id, func) {
+            self.stats.cache_hits += 1;
+            return;
+        }
         self.stats.cache_misses += 1;
         let start = Instant::now();
         let result = alias::run_alias(func);
@@ -161,7 +177,10 @@ impl AnalysisManager {
 
     fn run_escape(&mut self, func: &Function) {
         let id = TypeId::of::<EscapeAnalysis>();
-        if self.cache.is_valid(id, func) { self.stats.cache_hits += 1; return; }
+        if self.cache.is_valid(id, func) {
+            self.stats.cache_hits += 1;
+            return;
+        }
         self.stats.cache_misses += 1;
         let start = Instant::now();
         let result = escape::run_escape(func);
@@ -174,7 +193,10 @@ impl AnalysisManager {
 
     fn run_loops(&mut self, func: &Function) {
         let id = TypeId::of::<LoopAnalysis>();
-        if self.cache.is_valid(id, func) { self.stats.cache_hits += 1; return; }
+        if self.cache.is_valid(id, func) {
+            self.stats.cache_hits += 1;
+            return;
+        }
         self.stats.cache_misses += 1;
         let start = Instant::now();
         let result = loops::run_loops(func);
@@ -187,7 +209,10 @@ impl AnalysisManager {
 
     fn run_value_numbering(&mut self, func: &Function) {
         let id = TypeId::of::<ValueNumberingAnalysis>();
-        if self.cache.is_valid(id, func) { self.stats.cache_hits += 1; return; }
+        if self.cache.is_valid(id, func) {
+            self.stats.cache_hits += 1;
+            return;
+        }
         self.stats.cache_misses += 1;
         let start = Instant::now();
         let result = value_numbering::run_value_numbering(func);
@@ -205,7 +230,9 @@ impl AnalysisManager {
 pub struct UseDefAnalysis;
 impl Analysis for UseDefAnalysis {
     type Output = std::collections::HashMap<sir_types::NodeId, crate::facts::UseDefFact>;
-    fn name() -> &'static str { "UseDef" }
+    fn name() -> &'static str {
+        "UseDef"
+    }
     fn analyze(func: &Function, _facts: Option<&FactDatabase>) -> AnalysisResult<Self::Output> {
         let start = Instant::now();
         let result = use_def::run_use_def(func);
@@ -218,7 +245,9 @@ impl Analysis for UseDefAnalysis {
 pub struct DominanceAnalysis;
 impl Analysis for DominanceAnalysis {
     type Output = std::collections::HashMap<sir_types::NodeId, crate::facts::DominanceFact>;
-    fn name() -> &'static str { "Dominance" }
+    fn name() -> &'static str {
+        "Dominance"
+    }
     fn analyze(func: &Function, _facts: Option<&FactDatabase>) -> AnalysisResult<Self::Output> {
         let start = Instant::now();
         let result = dominance::run_dominance(func);
@@ -230,7 +259,9 @@ impl Analysis for DominanceAnalysis {
 pub struct ConstantAnalysis;
 impl Analysis for ConstantAnalysis {
     type Output = std::collections::HashMap<sir_types::NodeId, crate::facts::ConstantFact>;
-    fn name() -> &'static str { "Constants" }
+    fn name() -> &'static str {
+        "Constants"
+    }
     fn analyze(func: &Function, facts: Option<&FactDatabase>) -> AnalysisResult<Self::Output> {
         let start = Instant::now();
         let use_def = facts.map(|db| &db.use_def);
@@ -243,7 +274,9 @@ impl Analysis for ConstantAnalysis {
 pub struct PurityAnalysis;
 impl Analysis for PurityAnalysis {
     type Output = std::collections::HashMap<sir_types::NodeId, crate::facts::PurityFact>;
-    fn name() -> &'static str { "Purity" }
+    fn name() -> &'static str {
+        "Purity"
+    }
     fn analyze(func: &Function, _facts: Option<&FactDatabase>) -> AnalysisResult<Self::Output> {
         let start = Instant::now();
         let result = purity::run_purity(func);
@@ -255,7 +288,9 @@ impl Analysis for PurityAnalysis {
 pub struct RangeAnalysis;
 impl Analysis for RangeAnalysis {
     type Output = std::collections::HashMap<sir_types::NodeId, crate::facts::RangeFact>;
-    fn name() -> &'static str { "Ranges" }
+    fn name() -> &'static str {
+        "Ranges"
+    }
     fn analyze(func: &Function, _facts: Option<&FactDatabase>) -> AnalysisResult<Self::Output> {
         let start = Instant::now();
         let result = ranges::run_ranges(func);
@@ -267,7 +302,9 @@ impl Analysis for RangeAnalysis {
 pub struct AliasAnalysis;
 impl Analysis for AliasAnalysis {
     type Output = std::collections::HashMap<sir_types::NodeId, crate::facts::AliasFact>;
-    fn name() -> &'static str { "Alias" }
+    fn name() -> &'static str {
+        "Alias"
+    }
     fn analyze(func: &Function, _facts: Option<&FactDatabase>) -> AnalysisResult<Self::Output> {
         let start = Instant::now();
         let result = alias::run_alias(func);
@@ -279,7 +316,9 @@ impl Analysis for AliasAnalysis {
 pub struct EscapeAnalysis;
 impl Analysis for EscapeAnalysis {
     type Output = std::collections::HashMap<sir_types::NodeId, crate::facts::EscapeFact>;
-    fn name() -> &'static str { "Escape" }
+    fn name() -> &'static str {
+        "Escape"
+    }
     fn analyze(func: &Function, _facts: Option<&FactDatabase>) -> AnalysisResult<Self::Output> {
         let start = Instant::now();
         let result = escape::run_escape(func);
@@ -291,7 +330,9 @@ impl Analysis for EscapeAnalysis {
 pub struct LoopAnalysis;
 impl Analysis for LoopAnalysis {
     type Output = std::collections::HashMap<sir_types::NodeId, crate::facts::LoopFact>;
-    fn name() -> &'static str { "Loops" }
+    fn name() -> &'static str {
+        "Loops"
+    }
     fn analyze(func: &Function, _facts: Option<&FactDatabase>) -> AnalysisResult<Self::Output> {
         let start = Instant::now();
         let result = loops::run_loops(func);
@@ -303,7 +344,9 @@ impl Analysis for LoopAnalysis {
 pub struct ValueNumberingAnalysis;
 impl Analysis for ValueNumberingAnalysis {
     type Output = std::collections::HashMap<sir_types::NodeId, crate::facts::ValueNumberFact>;
-    fn name() -> &'static str { "ValueNumbering" }
+    fn name() -> &'static str {
+        "ValueNumbering"
+    }
     fn analyze(func: &Function, _facts: Option<&FactDatabase>) -> AnalysisResult<Self::Output> {
         let start = Instant::now();
         let result = value_numbering::run_value_numbering(func);
@@ -317,8 +360,12 @@ mod tests {
     use sir_builder::Builder;
     use sir_types::{Span, Type};
 
-    fn i32_type() -> Type { Type::i32() }
-    fn unknown_span() -> Span { Span::unknown() }
+    fn i32_type() -> Type {
+        Type::i32()
+    }
+    fn unknown_span() -> Span {
+        Span::unknown()
+    }
 
     fn build_add() -> Function {
         let mut b = Builder::new("add", &[("a", i32_type()), ("b", i32_type())], i32_type());

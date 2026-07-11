@@ -4,12 +4,17 @@
 //! compares structurally. Handles infinite domains because
 //! it never enumerates inputs.
 
-use crate::errors::{RejectReason, UnknownReason};
+use crate::errors::UnknownReason;
 use crate::obligation::ProofObligation;
 use crate::semantic::normalizer::Normalizer;
-use crate::semantic::rules::count_filter_to_popcount::CountFilterToPopcount;
-use crate::semantic::rules::exists_to_not_equal_zero::ExistsToNotEqualZero;
 use crate::semantic::rules::all_to_equal_full_mask::AllToEqualFullMask;
+use crate::semantic::rules::count_filter_to_popcount::CountFilterToPopcount;
+use crate::semantic::rules::divide_to_shift::DivideToShift;
+use crate::semantic::rules::exists_to_not_equal_zero::ExistsToNotEqualZero;
+use crate::semantic::rules::first_true_to_trailing_zeros::FirstTrueToTrailingZeros;
+use crate::semantic::rules::last_true_to_leading_zeros::LastTrueToLeadingZeros;
+use crate::semantic::rules::modulo_to_and::ModuloToAnd;
+use crate::semantic::rules::multiply_to_shift::MultiplyToShift;
 use crate::semantic::rules::parity_to_bitwise_and_one::ParityToBitwiseAndOne;
 use crate::{Proof, ProofStep, VerificationBackend, VerificationResult};
 
@@ -30,6 +35,11 @@ impl SymbolicVerifier {
         normalizer.add_rule(Box::new(ExistsToNotEqualZero));
         normalizer.add_rule(Box::new(AllToEqualFullMask));
         normalizer.add_rule(Box::new(ParityToBitwiseAndOne));
+        normalizer.add_rule(Box::new(ModuloToAnd));
+        normalizer.add_rule(Box::new(DivideToShift));
+        normalizer.add_rule(Box::new(MultiplyToShift));
+        normalizer.add_rule(Box::new(FirstTrueToTrailingZeros));
+        normalizer.add_rule(Box::new(LastTrueToLeadingZeros));
         Self { normalizer }
     }
 
@@ -44,10 +54,7 @@ impl SymbolicVerifier {
         if lhs_nf == rhs_nf {
             VerificationResult::Proven(Proof {
                 theorem: obligation.theorem.clone(),
-                normalized_theorem: crate::semantic::theorem::Theorem::new(
-                    lhs_nf,
-                    rhs_nf,
-                ),
+                normalized_theorem: crate::semantic::theorem::Theorem::new(lhs_nf, rhs_nf),
                 backend: VerificationBackend::Symbolic,
                 steps,
             })
@@ -78,17 +85,13 @@ mod tests {
 
     fn make_bs001_obligation() -> ProofObligation {
         let v = VariableId::new(0);
-        let lhs = SemanticExpression::Count(Box::new(
-            SemanticExpression::Filter {
-                input: Box::new(SemanticExpression::BooleanArray { variable: v }),
-                predicate: Predicate::True,
-            },
-        ));
-        let rhs = SemanticExpression::Popcount(Box::new(
-            SemanticExpression::Pack(Box::new(
-                SemanticExpression::BooleanArray { variable: v },
-            )),
-        ));
+        let lhs = SemanticExpression::Count(Box::new(SemanticExpression::Filter {
+            input: Box::new(SemanticExpression::LogicalSequence { variable: v }),
+            predicate: Predicate::True,
+        }));
+        let rhs = SemanticExpression::Popcount(Box::new(SemanticExpression::Pack(Box::new(
+            SemanticExpression::LogicalSequence { variable: v },
+        ))));
 
         ProofObligation {
             id: ObligationId::new(0),
@@ -100,7 +103,7 @@ mod tests {
             domain: Some(FiniteDomain {
                 variables: vec![VariableSpec {
                     id: v,
-                    kind: VariableKind::BooleanArray { length: 64 },
+                    kind: VariableKind::LogicalSequence { length: 64 },
                 }],
             }),
         }
@@ -119,13 +122,13 @@ mod tests {
                 // At least one normalization step from CountFilterToPopcount
                 assert!(proof.steps.iter().any(|s| matches!(
                     s,
-                    ProofStep::Normalization { rule: "CountFilterToPopcount", .. }
+                    ProofStep::Normalization {
+                        rule: "CountFilterToPopcount",
+                        ..
+                    }
                 )));
                 // The normalized theorem should be structurally equal
-                assert_eq!(
-                    proof.normalized_theorem.lhs,
-                    proof.normalized_theorem.rhs
-                );
+                assert_eq!(proof.normalized_theorem.lhs, proof.normalized_theorem.rhs);
             }
             other => panic!("Expected Proven, got {:?}", other),
         }
@@ -137,14 +140,12 @@ mod tests {
         // Theorem: Count(BooleanArray(v)) ≡ Popcount(Pack(BooleanArray(v)))
         // Missing the Filter — the rule won't match the LHS
         let v = VariableId::new(0);
-        let lhs = SemanticExpression::Count(Box::new(
-            SemanticExpression::BooleanArray { variable: v },
-        ));
-        let rhs = SemanticExpression::Popcount(Box::new(
-            SemanticExpression::Pack(Box::new(
-                SemanticExpression::BooleanArray { variable: v },
-            )),
-        ));
+        let lhs = SemanticExpression::Count(Box::new(SemanticExpression::LogicalSequence {
+            variable: v,
+        }));
+        let rhs = SemanticExpression::Popcount(Box::new(SemanticExpression::Pack(Box::new(
+            SemanticExpression::LogicalSequence { variable: v },
+        ))));
 
         let mut obl = make_bs001_obligation();
         obl.theorem = Theorem::new(lhs, rhs);
@@ -165,7 +166,10 @@ mod tests {
         if let VerificationResult::Proven(proof) = result {
             // Normalizing again should produce the same result
             let (lhs2, steps2) = verifier.normalizer.normalize(&proof.normalized_theorem.lhs);
-            assert!(steps2.is_empty(), "Already-normalized form should not change");
+            assert!(
+                steps2.is_empty(),
+                "Already-normalized form should not change"
+            );
             assert_eq!(lhs2, proof.normalized_theorem.lhs);
         } else {
             panic!("Expected Proven");

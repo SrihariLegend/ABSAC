@@ -22,10 +22,7 @@ pub enum ConstantData {
         signed: bool,
     },
     /// A floating-point constant. Value is stored as a decimal string.
-    Float {
-        value: String,
-        width: FloatWidth,
-    },
+    Float { value: String, width: FloatWidth },
     /// A string literal constant.
     StringLiteral(String),
 }
@@ -134,7 +131,8 @@ impl ConstantData {
         match self {
             ConstantData::Integer {
                 value,
-                signed: true, ..
+                signed: true,
+                ..
             } => value.parse().ok(),
             _ => None,
         }

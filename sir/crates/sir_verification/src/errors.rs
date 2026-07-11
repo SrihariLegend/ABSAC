@@ -13,9 +13,7 @@ use crate::semantic::value::{Environment, Value};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RejectReason {
     /// A required assumption was violated by the context.
-    AssumptionViolated {
-        assumption: Assumption,
-    },
+    AssumptionViolated { assumption: Assumption },
     /// The normalized expressions differ structurally.
     SemanticMismatch {
         lhs: SemanticExpression,
@@ -28,9 +26,7 @@ pub enum RejectReason {
         rhs: Value,
     },
     /// An expression variant is not supported by any backend.
-    UnsupportedExpression {
-        expr: SemanticExpression,
-    },
+    UnsupportedExpression { expr: SemanticExpression },
 }
 
 /// Reason the verifier could not determine equivalence.
@@ -39,20 +35,13 @@ pub enum UnknownReason {
     /// No backend is applicable to this obligation.
     NoApplicableBackend,
     /// The domain is too large for exhaustive verification.
-    DomainTooLarge {
-        states: Option<u64>,
-        max: u64,
-    },
+    DomainTooLarge { states: Option<u64>, max: u64 },
     /// The domain state count overflowed u64 during computation.
     DomainOverflow,
     /// A SemanticExpression variant has no handler in any backend.
-    UnsupportedExpression {
-        expr: SemanticExpression,
-    },
+    UnsupportedExpression { expr: SemanticExpression },
     /// Normalization exceeded the maximum step count.
-    NonTerminatingNormalization {
-        steps: usize,
-    },
+    NonTerminatingNormalization { steps: usize },
     /// The symbolic verifier could not reduce both sides to the same normal form
     /// (likely missing a structural rewrite rule).
     UnsupportedRule {
@@ -72,15 +61,9 @@ pub enum InterpreterError {
         found: Value,
     },
     /// The input is too large to pack into a u128 bitvector.
-    InputTooLarge {
-        max: usize,
-        found: usize,
-    },
+    InputTooLarge { max: usize, found: usize },
     /// A ConstantData string could not be parsed to its expected type.
-    MalformedConstant {
-        value: String,
-        reason: &'static str,
-    },
+    MalformedConstant { value: String, reason: &'static str },
 }
 
 #[cfg(test)]
@@ -120,10 +103,7 @@ mod tests {
     fn reject_reason_unsupported_expression() {
         let expr = SemanticExpression::Variable(VariableId::new(0));
         let reason = RejectReason::UnsupportedExpression { expr };
-        assert!(matches!(
-            reason,
-            RejectReason::UnsupportedExpression { .. }
-        ));
+        assert!(matches!(reason, RejectReason::UnsupportedExpression { .. }));
     }
 
     #[test]

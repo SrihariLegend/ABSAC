@@ -17,7 +17,7 @@ fn valid_context_passes_validation() {
     let ctx = TransformationContext::new(
         RegionId::new(0),
         Representation::BitSet,
-        SourceStructure::BooleanArray { length: 64 },
+        SourceStructure::LogicalSequence { length: 64 },
         constraints,
         assumptions,
     );

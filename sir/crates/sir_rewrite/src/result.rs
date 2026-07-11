@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use sir_nodes::Function;
-use sir_types::NodeId;
 use sir_transform::ids::DefinitionId;
+use sir_types::NodeId;
 use sir_verification::Proof;
 
 /// The result of a successful rewrite.

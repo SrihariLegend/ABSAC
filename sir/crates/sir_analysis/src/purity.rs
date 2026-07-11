@@ -3,9 +3,9 @@
 //! Bottom-up propagation: a node's subgraph is pure if the node itself
 //! has no effects AND all its dataflow inputs are pure.
 
-use std::collections::HashMap;
 use sir_nodes::Function;
 use sir_types::NodeId;
+use std::collections::HashMap;
 
 use crate::facts::{PurityFact, PurityLevel};
 use crate::graph;
@@ -48,12 +48,9 @@ pub fn run_purity(func: &Function) -> HashMap<NodeId, PurityFact> {
 
         // Subgraph purity: this node + all inputs must be pure.
         let inputs = graph::dataflow_inputs(&node.kind);
-        let all_inputs_pure = inputs.iter().all(|iid| {
-            facts
-                .get(iid)
-                .map(|f| f.subgraph_is_pure)
-                .unwrap_or(false)
-        });
+        let all_inputs_pure = inputs
+            .iter()
+            .all(|iid| facts.get(iid).map(|f| f.subgraph_is_pure).unwrap_or(false));
         let subgraph_is_pure = node_pure && all_inputs_pure;
 
         facts.insert(
@@ -74,9 +71,15 @@ mod tests {
     use sir_builder::Builder;
     use sir_types::{ConstantData, Span, Type};
 
-    fn i32_type() -> Type { Type::i32() }
-    fn u64_type() -> Type { Type::u64() }
-    fn unknown_span() -> Span { Span::unknown() }
+    fn i32_type() -> Type {
+        Type::i32()
+    }
+    fn u64_type() -> Type {
+        Type::u64()
+    }
+    fn unknown_span() -> Span {
+        Span::unknown()
+    }
 
     #[test]
     fn pure_arithmetic_is_pure() {
@@ -160,7 +163,11 @@ mod tests {
 
     #[test]
     fn select_with_impure_branch() {
-        let mut b = Builder::new("sel_impure", &[("cond", Type::Bool), ("x", i32_type())], i32_type());
+        let mut b = Builder::new(
+            "sel_impure",
+            &[("cond", Type::Bool), ("x", i32_type())],
+            i32_type(),
+        );
         let cond = b.parameter_index(0).unwrap();
         let x = b.parameter_index(1).unwrap();
 

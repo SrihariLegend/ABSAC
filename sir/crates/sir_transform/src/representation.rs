@@ -12,6 +12,8 @@ pub enum Representation {
     BitSet,
     /// Arithmetic operations expressed as bitwise equivalents (e.g. shifts, masks).
     BitwiseArithmetic,
+    /// Positional algorithms (scans for bits).
+    BitScan,
 }
 
 impl fmt::Display for Representation {
@@ -19,6 +21,7 @@ impl fmt::Display for Representation {
         match self {
             Representation::BitSet => write!(f, "BitSet"),
             Representation::BitwiseArithmetic => write!(f, "BitwiseArithmetic"),
+            Representation::BitScan => write!(f, "BitScan"),
         }
     }
 }

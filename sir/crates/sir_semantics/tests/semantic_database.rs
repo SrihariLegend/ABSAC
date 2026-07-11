@@ -1,5 +1,5 @@
 use sir_semantics::concepts::SemanticConcept;
-use sir_semantics::region::{Region, RegionId, RecognitionExplanation};
+use sir_semantics::region::{RecognitionExplanation, Region, RegionId};
 use sir_semantics::semantics::SemanticDatabase;
 
 #[test]
@@ -15,9 +15,9 @@ fn database_stores_and_retrieves_region() {
     let rid = RegionId::new(0);
     let mut region = Region::new(rid);
     region.add_concept(
-        SemanticConcept::BooleanCollection,
+        SemanticConcept::LogicalSequence,
         RecognitionExplanation {
-            concept: SemanticConcept::BooleanCollection,
+            concept: SemanticConcept::LogicalSequence,
             triggering_facts: vec!["Array<bool>"],
         },
     );
@@ -25,7 +25,7 @@ fn database_stores_and_retrieves_region() {
 
     assert_eq!(db.region_count(), 1);
     let retrieved = db.region(rid).unwrap();
-    assert!(retrieved.contains(SemanticConcept::BooleanCollection));
+    assert!(retrieved.contains(SemanticConcept::LogicalSequence));
     assert!(!retrieved.contains(SemanticConcept::MembershipTraversal));
 }
 
@@ -54,21 +54,26 @@ fn database_explain_returns_explanation() {
     let rid = RegionId::new(0);
     let mut region = Region::new(rid);
     region.add_concept(
-        SemanticConcept::BooleanCollection,
+        SemanticConcept::LogicalSequence,
         RecognitionExplanation {
-            concept: SemanticConcept::BooleanCollection,
+            concept: SemanticConcept::LogicalSequence,
             triggering_facts: vec!["Array element type is Bool"],
         },
     );
     db.add_region(region);
 
-    let explanation = db.explain(rid, SemanticConcept::BooleanCollection);
+    let explanation = db.explain(rid, SemanticConcept::LogicalSequence);
     assert!(explanation.is_some());
-    assert!(explanation.unwrap().triggering_facts.contains(&"Array element type is Bool"));
+    assert!(explanation
+        .unwrap()
+        .triggering_facts
+        .contains(&"Array element type is Bool"));
 }
 
 #[test]
 fn database_explain_unknown_returns_none() {
     let db = SemanticDatabase::new();
-    assert!(db.explain(RegionId::new(99), SemanticConcept::BooleanCollection).is_none());
+    assert!(db
+        .explain(RegionId::new(99), SemanticConcept::LogicalSequence)
+        .is_none());
 }

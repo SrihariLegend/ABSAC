@@ -78,7 +78,11 @@ pub enum NodeKind {
     /// Maps `bool[n]` to `bv<n>` where bit i = array[i].
     Pack { array: NodeId },
     /// Vectorized comparison of an array against a scalar, producing a bitvector mask.
-    ArrayCmpMask { array: NodeId, scalar: NodeId, op: CmpOperator },
+    ArrayCmpMask {
+        array: NodeId,
+        scalar: NodeId,
+        op: CmpOperator,
+    },
 
     // ── Comparisons ─────────────────────────────────────────
     /// Equality: `lhs == rhs`. Result type is always `Bool`.
@@ -122,32 +126,17 @@ pub enum NodeKind {
     /// Deallocate memory at the given pointer.
     Deallocate { ptr: NodeId },
     /// Access a named field of a struct.
-    FieldAccess {
-        base: NodeId,
-        field: String,
-    },
+    FieldAccess { base: NodeId, field: String },
     /// Access an element of an array or slice by index.
-    ArrayAccess {
-        base: NodeId,
-        index: NodeId,
-    },
+    ArrayAccess { base: NodeId, index: NodeId },
 
     // ── Calls ───────────────────────────────────────────────
     /// Call a function (local or known).
-    Call {
-        callee: NodeId,
-        args: Vec<NodeId>,
-    },
+    Call { callee: NodeId, args: Vec<NodeId> },
     /// Call a compiler intrinsic (e.g., `ctpop`, `ctlz`).
-    Intrinsic {
-        name: String,
-        args: Vec<NodeId>,
-    },
+    Intrinsic { name: String, args: Vec<NodeId> },
     /// Call an externally-defined function (FFI).
-    ExternalCall {
-        name: String,
-        args: Vec<NodeId>,
-    },
+    ExternalCall { name: String, args: Vec<NodeId> },
 
     // ── Loops ───────────────────────────────────────────────
     /// A loop construct. The body is a subgraph of nodes.
@@ -165,9 +154,7 @@ pub enum NodeKind {
         carried_inputs: Vec<NodeId>,
     },
     /// An iterator node producing successive elements from a collection.
-    Iterator {
-        collection: NodeId,
-    },
+    Iterator { collection: NodeId },
 
     // ── Control flow ────────────────────────────────────────
     /// Return a value from the function.
@@ -317,9 +304,20 @@ mod tests {
             .kind_name(),
             "Add"
         );
-        assert_eq!(NodeKind::Constant(ConstantData::Unit).kind_name(), "Constant");
+        assert_eq!(
+            NodeKind::Constant(ConstantData::Unit).kind_name(),
+            "Constant"
+        );
         assert_eq!(NodeKind::Parameter { index: 0 }.kind_name(), "Parameter");
-        assert_eq!(NodeKind::Select { cond: nid(0), true_val: nid(1), false_val: nid(2) }.kind_name(), "Select");
+        assert_eq!(
+            NodeKind::Select {
+                cond: nid(0),
+                true_val: nid(1),
+                false_val: nid(2)
+            }
+            .kind_name(),
+            "Select"
+        );
         assert_eq!(
             NodeKind::Loop {
                 body: vec![],

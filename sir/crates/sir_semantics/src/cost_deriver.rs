@@ -29,10 +29,7 @@ impl CostDeriver {
     /// `sir_analysis::graph` algorithms. This is an approximation
     /// sufficient for v0.1 and can be replaced with a proper latency
     /// model later.
-    pub fn derive(
-        function: &Function,
-        structural: &StructuralDatabase,
-    ) -> CostDatabase {
+    pub fn derive(function: &Function, structural: &StructuralDatabase) -> CostDatabase {
         let mut db = CostDatabase::new();
 
         for (region_id, _desc) in structural.regions() {

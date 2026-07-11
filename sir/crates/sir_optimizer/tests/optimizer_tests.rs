@@ -12,8 +12,7 @@ fn make_empty_registry() -> RecipeRegistry {
 /// Build a minimal function: `fn empty() -> i32 { 0 }`
 fn build_empty_function() -> sir_nodes::Function {
     let mut b = Builder::new("empty", &[], Type::i32());
-    let zero = b
-        .constant(ConstantData::i32(0), Type::i32(), Span::unknown());
+    let zero = b.constant(ConstantData::i32(0), Type::i32(), Span::unknown());
     b.return_value(zero, Span::unknown()).unwrap();
     b.build()
 }

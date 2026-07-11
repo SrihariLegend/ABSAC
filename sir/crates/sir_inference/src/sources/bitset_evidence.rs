@@ -15,24 +15,24 @@ use sir_transform::representation::Representation;
 pub fn contribute(region: &Region) -> Vec<Evidence> {
     let mut evidence = Vec::new();
 
-    if region.contains(SemanticConcept::BooleanCollection) {
+    if region.contains(SemanticConcept::LogicalSequence) {
         evidence.push(Evidence {
             region: region.id,
             representation: Representation::BitSet,
             polarity: Polarity::Supports,
             weight: weights::STRONG,
-            source: SemanticConcept::BooleanCollection,
+            source: SemanticConcept::LogicalSequence,
             explanation: "Boolean arrays often represent bitsets",
         });
     }
 
-    if region.contains(SemanticConcept::PredicateCollection) {
+    if region.contains(SemanticConcept::LogicalSequence) {
         evidence.push(Evidence {
             region: region.id,
             representation: Representation::BitSet,
             polarity: Polarity::Supports,
             weight: weights::STRONG,
-            source: SemanticConcept::PredicateCollection,
+            source: SemanticConcept::LogicalSequence,
             explanation: "Dynamic predicates evaluated over arrays can form bitsets",
         });
     }

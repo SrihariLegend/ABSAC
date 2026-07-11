@@ -33,7 +33,11 @@ pub fn recognize_cardinality_reduction(
                 // and the actual counting reduction (count = count + inc).
                 // Require at least 2 sum reductions — one is the loop counter, the
                 // other is the cardinality reduction.
-                let sum_reductions: Vec<_> = loop_fact.reductions.iter().filter(|r| r.reduction_kind == "sum").collect();
+                let sum_reductions: Vec<_> = loop_fact
+                    .reductions
+                    .iter()
+                    .filter(|r| r.reduction_kind == "sum")
+                    .collect();
                 if sum_reductions.len() >= 2 {
                     let mut related = vec![node.id];
                     for reduction in sum_reductions {

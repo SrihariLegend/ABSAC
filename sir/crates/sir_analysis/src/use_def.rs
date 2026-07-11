@@ -4,9 +4,9 @@
 //! For each node, records which nodes define its inputs and which
 //! nodes use its result. Also detects dead code.
 
-use std::collections::HashMap;
 use sir_nodes::Function;
 use sir_types::NodeId;
+use std::collections::HashMap;
 
 use crate::facts::UseDefFact;
 use crate::graph;
@@ -73,8 +73,12 @@ mod tests {
     use sir_builder::Builder;
     use sir_types::{ConstantData, Span, Type};
 
-    fn i32_type() -> Type { Type::i32() }
-    fn unknown_span() -> Span { Span::unknown() }
+    fn i32_type() -> Type {
+        Type::i32()
+    }
+    fn unknown_span() -> Span {
+        Span::unknown()
+    }
 
     #[test]
     fn empty_function_has_no_use_def() {
@@ -93,7 +97,7 @@ mod tests {
 
         let c_fact = facts.get(&c).unwrap();
         assert!(c_fact.definitions.is_empty()); // constant has no inputs
-        assert!(!c_fact.is_dead);               // used by return
+        assert!(!c_fact.is_dead); // used by return
         assert_eq!(c_fact.use_count, 1);
     }
 

@@ -38,7 +38,11 @@ fn milestone1_simple_add() {
 
 #[test]
 fn milestone1_complex_arithmetic() {
-    let mut b = Builder::new("compute", &[("x", i32_type()), ("y", i32_type())], i32_type());
+    let mut b = Builder::new(
+        "compute",
+        &[("x", i32_type()), ("y", i32_type())],
+        i32_type(),
+    );
     let x = b.parameter_index(0).unwrap();
     let y = b.parameter_index(1).unwrap();
     let sum = b.add(x, y, unknown_span()).unwrap();
@@ -52,7 +56,11 @@ fn milestone1_complex_arithmetic() {
 
 #[test]
 fn milestone1_bitwise_operations() {
-    let mut b = Builder::new("bitops", &[("a", u64_type()), ("b", u64_type())], u64_type());
+    let mut b = Builder::new(
+        "bitops",
+        &[("a", u64_type()), ("b", u64_type())],
+        u64_type(),
+    );
     let a = b.parameter_index(0).unwrap();
     let b_param = b.parameter_index(1).unwrap();
     let and_val = b.bit_and(a, b_param, unknown_span()).unwrap();
@@ -109,14 +117,15 @@ fn milestone4_memory_operations() {
 fn milestone5_intrinsic_call() {
     let mut b = Builder::new("use_intrinsic", &[("x", u64_type())], u64_type());
     let x = b.parameter_index(0).unwrap();
-    let pop = b.intrinsic(
-        "ctpop",
-        &[x],
-        u64_type(),
-        sir_types::Effects::empty(),
-        unknown_span(),
-    )
-    .unwrap();
+    let pop = b
+        .intrinsic(
+            "ctpop",
+            &[x],
+            u64_type(),
+            sir_types::Effects::empty(),
+            unknown_span(),
+        )
+        .unwrap();
     b.return_value(pop, unknown_span()).unwrap();
     let func = b.build();
     assert!(func.node_count() > 0);
@@ -130,7 +139,10 @@ fn type_mismatch_across_operations() {
     let x = b.parameter_index(0).unwrap();
     let y = b.parameter_index(1).unwrap();
     // i32 + f64 → error
-    assert!(matches!(b.add(x, y, unknown_span()), Err(BuildError::TypeMismatch { .. })));
+    assert!(matches!(
+        b.add(x, y, unknown_span()),
+        Err(BuildError::TypeMismatch { .. })
+    ));
 }
 
 #[test]

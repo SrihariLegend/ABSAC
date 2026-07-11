@@ -20,29 +20,39 @@ fn build_predicate_reduction() -> sir_nodes::Function {
     let i_initial = b.constant(ConstantData::u64(0), Type::u64(), Span::unknown());
     let i_step = b.constant(ConstantData::u64(1), Type::u64(), Span::unknown());
     let limit = b.constant(ConstantData::u64(64), Type::u64(), Span::unknown());
-    
+
     let count_initial = b.constant(ConstantData::i32(0), Type::i32(), Span::unknown());
 
-    let elem = b.array_access(array, i_initial, Type::i32(), Span::unknown()).unwrap();
+    let elem = b
+        .array_access(array, i_initial, Type::i32(), Span::unknown())
+        .unwrap();
     let threshold = b.constant(ConstantData::i32(10), Type::i32(), Span::unknown());
     let cond = b.gt(elem, threshold, Span::unknown()).unwrap();
 
     let count_zero = b.constant(ConstantData::i32(0), Type::i32(), Span::unknown());
     let count_one = b.constant(ConstantData::i32(1), Type::i32(), Span::unknown());
-    let inc = b.select(cond, count_one, count_zero, Span::unknown()).unwrap();
+    let inc = b
+        .select(cond, count_one, count_zero, Span::unknown())
+        .unwrap();
     let next_count = b.add(count_initial, inc, Span::unknown()).unwrap();
 
     let next_i = b.add(i_initial, i_step, Span::unknown()).unwrap();
     let loop_cond = b.lt(i_initial, limit, Span::unknown()).unwrap();
 
-    let loop_node = b.r#loop(
-        &[elem, threshold, cond, count_zero, count_one, inc, next_count, next_i, loop_cond],
-        loop_cond,
-        &[next_count, next_i],
-        &[count_initial, i_initial],
-        Type::Tuple { elements: vec![Type::i32(), Type::u64()] },
-        Span::unknown(),
-    ).unwrap();
+    let loop_node = b
+        .r#loop(
+            &[
+                elem, threshold, cond, count_zero, count_one, inc, next_count, next_i, loop_cond,
+            ],
+            loop_cond,
+            &[next_count, next_i],
+            &[count_initial, i_initial],
+            Type::Tuple {
+                elements: vec![Type::i32(), Type::u64()],
+            },
+            Span::unknown(),
+        )
+        .unwrap();
 
     b.return_value(loop_node, Span::unknown()).unwrap();
     b.build()
@@ -50,9 +60,7 @@ fn build_predicate_reduction() -> sir_nodes::Function {
 
 #[test]
 fn validate_predicate_reductions() {
-    let benchmarks = vec![
-        ("PredicateCount", build_predicate_reduction()),
-    ];
+    let benchmarks = vec![("PredicateCount", build_predicate_reduction())];
 
     let mut all_passed = true;
 
@@ -71,14 +79,19 @@ fn validate_predicate_reductions() {
         let selected = rec.map(|r| r.candidates_selected > 0).unwrap_or(false);
         let rewritten = result.rewrites_applied > 0;
 
-        let has_loop = result.function.arena.iter().any(|n| matches!(n.kind, sir_nodes::NodeKind::Loop { .. }));
+        let has_loop = result
+            .function
+            .arena
+            .iter()
+            .any(|n| matches!(n.kind, sir_nodes::NodeKind::Loop { .. }));
         let expected_output = rewritten && !has_loop;
 
         if !expected_output {
             all_passed = false;
         }
 
-        println!("| {:<13} | {:<10} | {:<6} | {:<8} | {:<9} | {:<16} |", 
+        println!(
+            "| {:<13} | {:<10} | {:<6} | {:<8} | {:<9} | {:<16} |",
             name,
             if recognized { "✓" } else { "✗" },
             if proven { "✓" } else { "✗" },
@@ -86,7 +99,7 @@ fn validate_predicate_reductions() {
             if rewritten { "✓" } else { "✗" },
             if expected_output { "✓" } else { "✗" }
         );
-        
+
         // Print the rewritten SIR for visual confirmation
         if rewritten {
             println!("\n--- {} Rewritten SIR ---", name);
@@ -97,5 +110,8 @@ fn validate_predicate_reductions() {
         }
     }
 
-    assert!(all_passed, "Predicate reduction validation must complete the pipeline successfully.");
+    assert!(
+        all_passed,
+        "Predicate reduction validation must complete the pipeline successfully."
+    );
 }
