@@ -1,18 +1,18 @@
 # Contributing to ABSAC
 
-Welcome to ABSAC. This is a research project, not a production compiler. Our goal is to explore the limits of automatic semantic knowledge acquisition, not to ship the fastest binaries at any cost.
+Welcome to ABSAC. Our ultimate goal is crystal clear: **Speed**. 
+
+ABSAC exists to automate the rewriting of arbitrary code into superoptimized bitwise code. We are building a semantic research platform because it is the only robust way to achieve this goal at scale without breaking programs, but make no mistake—the objective is to produce the fastest possible bitwise implementations.
 
 If you are contributing to this repository, please internalize the following core principles.
 
-## Principle 1: ABSAC is allowed to say "I don't know."
+## Principle 1: Correctness through Understanding
 
-Most optimizers are rewarded simply for transforming code. **ABSAC is rewarded for only transforming code it understands.** 
-
-We do not want heuristic guesses or brittle syntactic pattern-matching. We want a rigorous chain of reasoning.
+To achieve aggressive bitwise superoptimization on arbitrary code, we must mathematically prove our rewrites. Most optimizers guess using heuristics or syntactic patterns. **ABSAC relies on deep semantic understanding.**
 
 ### The Semantic Chain Invariant
 
-Every optimization performed by ABSAC **must** correspond to an explicit chain of semantic understanding:
+While our target is speed, our method is rigor. Every optimization performed by ABSAC **must** correspond to an explicit chain of semantic understanding:
 
 ```text
 Program
