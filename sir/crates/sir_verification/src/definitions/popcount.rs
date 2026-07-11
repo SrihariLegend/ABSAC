@@ -64,7 +64,7 @@ impl TransformationDefinition for PopcountDefinition {
 
         // Build the theorem: LHS = Count(Filter(BooleanArray(v), True))
         let lhs = SemanticExpression::Count(Box::new(SemanticExpression::Filter {
-            input: Box::new(SemanticExpression::BooleanArray {
+            input: Box::new(SemanticExpression::LogicalSequence {
                 variable: board_var,
             }),
             predicate: Predicate::True,
@@ -72,7 +72,7 @@ impl TransformationDefinition for PopcountDefinition {
 
         // RHS = Popcount(Pack(BooleanArray(v)))
         let rhs = SemanticExpression::Popcount(Box::new(SemanticExpression::Pack(Box::new(
-            SemanticExpression::BooleanArray {
+            SemanticExpression::LogicalSequence {
                 variable: board_var,
             },
         ))));
@@ -83,7 +83,7 @@ impl TransformationDefinition for PopcountDefinition {
         let domain = FiniteDomain {
             variables: vec![VariableSpec {
                 id: board_var,
-                kind: VariableKind::BooleanArray { length },
+                kind: VariableKind::LogicalSequence { length },
             }],
         };
 
@@ -145,7 +145,7 @@ mod tests {
                 critical_path_depth: 0,
             },
             representation: Representation::BitSet,
-            source_structure: SourceStructure::BooleanArray { length: 64 },
+            source_structure: SourceStructure::LogicalSequence { length: 64 },
             constraints,
             assumptions,
         }
@@ -170,7 +170,7 @@ mod tests {
                 SemanticExpression::Filter { input, predicate } => {
                     assert_eq!(*predicate, Predicate::True);
                     match input.as_ref() {
-                        SemanticExpression::BooleanArray { variable } => {
+                        SemanticExpression::LogicalSequence { variable } => {
                             assert_eq!(*variable, VariableId::new(0));
                         }
                         _ => panic!("Expected BooleanArray in Filter input"),
@@ -185,7 +185,7 @@ mod tests {
         match &obl.theorem.rhs {
             SemanticExpression::Popcount(inner) => match inner.as_ref() {
                 SemanticExpression::Pack(inner2) => match inner2.as_ref() {
-                    SemanticExpression::BooleanArray { variable } => {
+                    SemanticExpression::LogicalSequence { variable } => {
                         assert_eq!(*variable, VariableId::new(0));
                     }
                     _ => panic!("Expected BooleanArray inside Pack"),
@@ -219,7 +219,7 @@ mod tests {
         let domain = obl.domain.unwrap();
         assert_eq!(domain.variables.len(), 1);
         match &domain.variables[0].kind {
-            VariableKind::BooleanArray { length } => assert_eq!(*length, 64),
+            VariableKind::LogicalSequence { length } => assert_eq!(*length, 64),
         }
     }
 

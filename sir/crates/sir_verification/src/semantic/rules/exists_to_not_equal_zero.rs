@@ -15,9 +15,9 @@ impl NormalizationRule for ExistsToNotEqualZero {
     fn apply(&self, expr: &SemanticExpression) -> Option<SemanticExpression> {
         match expr {
             SemanticExpression::Exists(inner) => match inner.as_ref() {
-                SemanticExpression::BooleanArray { variable } => {
+                SemanticExpression::LogicalSequence { variable } => {
                     Some(SemanticExpression::NotEqualZero(Box::new(
-                        SemanticExpression::Pack(Box::new(SemanticExpression::BooleanArray {
+                        SemanticExpression::Pack(Box::new(SemanticExpression::LogicalSequence {
                             variable: *variable,
                         })),
                     )))

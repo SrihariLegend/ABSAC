@@ -382,7 +382,7 @@ impl SemanticEngine {
         let bool_array_recs = boolean_array::recognize_boolean_array(func, analysis);
         for (_region_id, desc) in bool_array_recs {
             for (rid, region) in self.db.regions() {
-                if region.contains(SemanticConcept::BooleanCollection) {
+                if region.contains(SemanticConcept::LogicalSequence) {
                     let mut new_desc = desc.clone();
                     new_desc.region = rid;
                     if self.structural_db.region(rid).is_none() {
@@ -396,7 +396,7 @@ impl SemanticEngine {
             predicate_collection::recognize_dynamic_boolean_sequence(func, analysis);
         for (_region_id, desc) in dyn_bool_seq_recs {
             for (rid, region) in self.db.regions() {
-                if region.contains(SemanticConcept::PredicateCollection) {
+                if region.contains(SemanticConcept::LogicalSequence) {
                     let mut new_desc = desc.clone();
                     new_desc.region = rid;
                     if self.structural_db.region(rid).is_none() {
@@ -467,7 +467,7 @@ impl SemanticEngine {
                 if self.structural_db.region(rid).is_none() {
                     let desc = crate::structure::StructuralDescription::new(
                         rid,
-                        sir_transform::structures::SourceStructure::BooleanArray { length: 64 }, // stub
+                        sir_transform::structures::SourceStructure::LogicalSequence { length: 64 }, // stub
                     );
                     self.structural_db.add_description(desc);
                 }

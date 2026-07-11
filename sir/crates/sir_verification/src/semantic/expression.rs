@@ -20,7 +20,7 @@ pub enum SemanticExpression {
 
     /// A fixed-size array of boolean values.
     /// Length is obtained from the domain/environment at evaluation time.
-    BooleanArray { variable: VariableId },
+    LogicalSequence { variable: VariableId },
 
     /// Pack a sequence of booleans into a single bitvector.
     Pack(Box<SemanticExpression>),
@@ -105,12 +105,12 @@ mod tests {
         let board = VariableId::new(0);
         // Count(Filter(BooleanArray(board), True))
         let lhs = SemanticExpression::Count(Box::new(SemanticExpression::Filter {
-            input: Box::new(SemanticExpression::BooleanArray { variable: board }),
+            input: Box::new(SemanticExpression::LogicalSequence { variable: board }),
             predicate: Predicate::True,
         }));
         // Popcount(Pack(BooleanArray(board)))
         let rhs = SemanticExpression::Popcount(Box::new(SemanticExpression::Pack(Box::new(
-            SemanticExpression::BooleanArray { variable: board },
+            SemanticExpression::LogicalSequence { variable: board },
         ))));
         // Verify they are not equal (different structure)
         assert_ne!(lhs, rhs);

@@ -35,7 +35,7 @@ mod tests {
             effects: vec![CandidateEffect::CountingStrategyChange],
             expected_cost,
             representation: sir_transform::representation::Representation::BitSet,
-            source_structure: sir_transform::structures::SourceStructure::BooleanArray {
+            source_structure: sir_transform::structures::SourceStructure::LogicalSequence {
                 length: 64,
             },
             constraints: std::collections::HashSet::new(),

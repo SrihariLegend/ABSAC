@@ -130,7 +130,7 @@ fn bs001_board_scan_recognizes_all_four_concepts() {
     let mut found_cardinality = false;
 
     for (_rid, region) in db.regions() {
-        if region.contains(SemanticConcept::BooleanCollection) {
+        if region.contains(SemanticConcept::LogicalSequence) {
             found_boolean = true;
         }
         if region.contains(SemanticConcept::FiniteCollection) {

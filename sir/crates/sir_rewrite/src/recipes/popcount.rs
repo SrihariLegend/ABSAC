@@ -62,7 +62,7 @@ mod tests {
     fn make_test_region() -> RewriteRegion {
         let structural = StructuralDescription::new(
             RegionId::new(0),
-            SourceStructure::BooleanArray { length: 64 },
+            SourceStructure::LogicalSequence { length: 64 },
         )
         .with_roles(RegionRoles::BooleanCollectionReduction {
             collection: sir_types::NodeId::new(10),
@@ -107,7 +107,7 @@ mod tests {
         // Create a region without roles
         let structural = StructuralDescription::new(
             RegionId::new(0),
-            SourceStructure::BooleanArray { length: 64 },
+            SourceStructure::LogicalSequence { length: 64 },
         );
         let region = RewriteRegion::new(structural);
         let builder = SubgraphBuilder::new();

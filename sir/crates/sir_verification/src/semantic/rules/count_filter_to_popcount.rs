@@ -26,11 +26,11 @@ impl NormalizationRule for CountFilterToPopcount {
                         return None;
                     }
                     match input.as_ref() {
-                        SemanticExpression::BooleanArray { variable } => {
+                        SemanticExpression::LogicalSequence { variable } => {
                             // Rewrite to: Popcount(Pack(BooleanArray(v)))
                             Some(SemanticExpression::Popcount(Box::new(
                                 SemanticExpression::Pack(Box::new(
-                                    SemanticExpression::BooleanArray {
+                                    SemanticExpression::LogicalSequence {
                                         variable: *variable,
                                     },
                                 )),
@@ -54,7 +54,7 @@ mod tests {
     #[test]
     fn rule_matches_count_filter_true_boolean_array() {
         let expr = SemanticExpression::Count(Box::new(SemanticExpression::Filter {
-            input: Box::new(SemanticExpression::BooleanArray {
+            input: Box::new(SemanticExpression::LogicalSequence {
                 variable: VariableId::new(0),
             }),
             predicate: Predicate::True,
@@ -69,7 +69,7 @@ mod tests {
         match rewritten {
             SemanticExpression::Popcount(inner) => match inner.as_ref() {
                 SemanticExpression::Pack(inner2) => match inner2.as_ref() {
-                    SemanticExpression::BooleanArray { variable } => {
+                    SemanticExpression::LogicalSequence { variable } => {
                         assert_eq!(*variable, VariableId::new(0));
                     }
                     _ => panic!("Inner should be BooleanArray"),
@@ -82,7 +82,7 @@ mod tests {
 
     #[test]
     fn rule_does_not_match_non_count() {
-        let expr = SemanticExpression::Popcount(Box::new(SemanticExpression::BooleanArray {
+        let expr = SemanticExpression::Popcount(Box::new(SemanticExpression::LogicalSequence {
             variable: VariableId::new(0),
         }));
         let rule = CountFilterToPopcount;
@@ -91,7 +91,7 @@ mod tests {
 
     #[test]
     fn rule_does_not_match_count_without_filter() {
-        let expr = SemanticExpression::Count(Box::new(SemanticExpression::BooleanArray {
+        let expr = SemanticExpression::Count(Box::new(SemanticExpression::LogicalSequence {
             variable: VariableId::new(0),
         }));
         let rule = CountFilterToPopcount;
@@ -112,13 +112,13 @@ mod tests {
     fn bs001_theorem_normalizes_to_identity() {
         // Count(Filter(BooleanArray(v), True)) normalizes to Popcount(Pack(BooleanArray(v)))
         let lhs = SemanticExpression::Count(Box::new(SemanticExpression::Filter {
-            input: Box::new(SemanticExpression::BooleanArray {
+            input: Box::new(SemanticExpression::LogicalSequence {
                 variable: VariableId::new(0),
             }),
             predicate: Predicate::True,
         }));
         let rhs = SemanticExpression::Popcount(Box::new(SemanticExpression::Pack(Box::new(
-            SemanticExpression::BooleanArray {
+            SemanticExpression::LogicalSequence {
                 variable: VariableId::new(0),
             },
         ))));

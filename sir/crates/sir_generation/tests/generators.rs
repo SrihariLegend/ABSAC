@@ -23,7 +23,7 @@ fn make_context() -> TransformationContext {
     TransformationContext::new(
         RegionId::new(0),
         Representation::BitSet,
-        SourceStructure::BooleanArray { length: 64 },
+        SourceStructure::LogicalSequence { length: 64 },
         constraints,
         assumptions,
     )
@@ -31,7 +31,7 @@ fn make_context() -> TransformationContext {
 
 fn make_all_concepts() -> HashSet<SemanticConcept> {
     let mut concepts = HashSet::new();
-    concepts.insert(SemanticConcept::BooleanCollection);
+    concepts.insert(SemanticConcept::LogicalSequence);
     concepts.insert(SemanticConcept::FiniteCollection);
     concepts.insert(SemanticConcept::MembershipTraversal);
     concepts.insert(SemanticConcept::CardinalityReduction);

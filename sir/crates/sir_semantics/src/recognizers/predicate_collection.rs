@@ -37,9 +37,9 @@ pub fn recognize_predicate_collection(
 
                 if lhs_is_access || rhs_is_access {
                     results.push((
-                        SemanticConcept::PredicateCollection,
+                        SemanticConcept::LogicalSequence,
                         RecognitionExplanation {
-                            concept: SemanticConcept::PredicateCollection,
+                            concept: SemanticConcept::LogicalSequence,
                             triggering_facts: vec![
                                 "Comparison operator forms a dynamic boolean sequence from an array",
                             ],

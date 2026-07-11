@@ -34,8 +34,8 @@ impl Interpreter {
 
             SemanticExpression::Constant(c) => Self::constant_to_value(c),
 
-            SemanticExpression::BooleanArray { variable } => match env.lookup(*variable) {
-                Some(Value::BooleanArray(bits)) => Ok(Value::BooleanArray(bits.clone())),
+            SemanticExpression::LogicalSequence { variable } => match env.lookup(*variable) {
+                Some(Value::LogicalSequence(bits)) => Ok(Value::LogicalSequence(bits.clone())),
                 Some(other) => Err(InterpreterError::TypeMismatch {
                     expected: "BooleanArray",
                     found: other.clone(),
@@ -46,7 +46,7 @@ impl Interpreter {
             SemanticExpression::Pack(inner) => {
                 let val = self.evaluate(inner, env)?;
                 match val {
-                    Value::BooleanArray(bits) => Ok(Value::BitVector(pack_bits(&bits)?)),
+                    Value::LogicalSequence(bits) => Ok(Value::BitVector(pack_bits(&bits)?)),
                     other => Err(InterpreterError::TypeMismatch {
                         expected: "BooleanArray",
                         found: other,
@@ -57,10 +57,10 @@ impl Interpreter {
             SemanticExpression::Filter { input, predicate } => {
                 let val = self.evaluate(input, env)?;
                 match val {
-                    Value::BooleanArray(bits) => {
+                    Value::LogicalSequence(bits) => {
                         let filtered: Vec<bool> =
                             bits.into_iter().filter(|b| predicate.test(*b)).collect();
-                        Ok(Value::BooleanArray(filtered))
+                        Ok(Value::LogicalSequence(filtered))
                     }
                     other => Err(InterpreterError::TypeMismatch {
                         expected: "BooleanArray",
@@ -72,7 +72,7 @@ impl Interpreter {
             SemanticExpression::Count(inner) => {
                 let val = self.evaluate(inner, env)?;
                 match val {
-                    Value::BooleanArray(bits) => {
+                    Value::LogicalSequence(bits) => {
                         let count = bits.iter().filter(|b| **b).count() as u64;
                         Ok(Value::Integer(count))
                     }
@@ -97,7 +97,7 @@ impl Interpreter {
             SemanticExpression::Exists(inner) => {
                 let val = self.evaluate(inner, env)?;
                 match val {
-                    Value::BooleanArray(bits) => Ok(Value::Bool(bits.iter().any(|b| *b))),
+                    Value::LogicalSequence(bits) => Ok(Value::Bool(bits.iter().any(|b| *b))),
                     other => Err(InterpreterError::TypeMismatch {
                         expected: "BooleanArray",
                         found: other,
@@ -108,7 +108,7 @@ impl Interpreter {
             SemanticExpression::All(inner) => {
                 let val = self.evaluate(inner, env)?;
                 match val {
-                    Value::BooleanArray(bits) => Ok(Value::Bool(bits.iter().all(|b| *b))),
+                    Value::LogicalSequence(bits) => Ok(Value::Bool(bits.iter().all(|b| *b))),
                     other => Err(InterpreterError::TypeMismatch {
                         expected: "BooleanArray",
                         found: other,
@@ -119,7 +119,7 @@ impl Interpreter {
             SemanticExpression::Parity(inner) => {
                 let val = self.evaluate(inner, env)?;
                 match val {
-                    Value::BooleanArray(bits) => {
+                    Value::LogicalSequence(bits) => {
                         let count = bits.iter().filter(|b| **b).count();
                         Ok(Value::Bool(count % 2 == 1))
                     }
@@ -253,7 +253,7 @@ impl Interpreter {
             SemanticExpression::FirstTrue(inner) => {
                 let val = self.evaluate(inner, env)?;
                 match val {
-                    Value::BooleanArray(bits) => {
+                    Value::LogicalSequence(bits) => {
                         let idx = bits.iter().position(|b| *b).unwrap_or(bits.len());
                         Ok(Value::Integer(idx as u64))
                     }
@@ -267,7 +267,7 @@ impl Interpreter {
             SemanticExpression::LastTrue(inner) => {
                 let val = self.evaluate(inner, env)?;
                 match val {
-                    Value::BooleanArray(bits) => {
+                    Value::LogicalSequence(bits) => {
                         let idx = bits
                             .iter()
                             .rposition(|b| *b)
@@ -373,7 +373,7 @@ mod tests {
     use sir_transform::ids::VariableId;
     fn board_env(bits: Vec<bool>) -> Environment {
         let mut env = Environment::new();
-        env.bind(VariableId::new(0), Value::BooleanArray(bits));
+        env.bind(VariableId::new(0), Value::LogicalSequence(bits));
         env
     }
 
@@ -382,7 +382,10 @@ mod tests {
         let env = board_env(vec![true, false, true, false]);
         let expr = SemanticExpression::Variable(VariableId::new(0));
         let result = Interpreter.evaluate(&expr, &env).unwrap();
-        assert_eq!(result, Value::BooleanArray(vec![true, false, true, false]));
+        assert_eq!(
+            result,
+            Value::LogicalSequence(vec![true, false, true, false])
+        );
     }
 
     #[test]
@@ -396,17 +399,20 @@ mod tests {
     #[test]
     fn evaluate_boolean_array() {
         let env = board_env(vec![true, false, true, false]);
-        let expr = SemanticExpression::BooleanArray {
+        let expr = SemanticExpression::LogicalSequence {
             variable: VariableId::new(0),
         };
         let result = Interpreter.evaluate(&expr, &env).unwrap();
-        assert_eq!(result, Value::BooleanArray(vec![true, false, true, false]));
+        assert_eq!(
+            result,
+            Value::LogicalSequence(vec![true, false, true, false])
+        );
     }
 
     #[test]
     fn evaluate_pack() {
         let env = board_env(vec![true, false, true, false]);
-        let expr = SemanticExpression::Pack(Box::new(SemanticExpression::BooleanArray {
+        let expr = SemanticExpression::Pack(Box::new(SemanticExpression::LogicalSequence {
             variable: VariableId::new(0),
         }));
         let result = Interpreter.evaluate(&expr, &env).unwrap();
@@ -423,20 +429,23 @@ mod tests {
     fn evaluate_filter_true() {
         let env = board_env(vec![true, false, true, false]);
         let expr = SemanticExpression::Filter {
-            input: Box::new(SemanticExpression::BooleanArray {
+            input: Box::new(SemanticExpression::LogicalSequence {
                 variable: VariableId::new(0),
             }),
             predicate: Predicate::True,
         };
         let result = Interpreter.evaluate(&expr, &env).unwrap();
         // True predicate is identity — all elements pass
-        assert_eq!(result, Value::BooleanArray(vec![true, false, true, false]));
+        assert_eq!(
+            result,
+            Value::LogicalSequence(vec![true, false, true, false])
+        );
     }
 
     #[test]
     fn evaluate_count() {
         let env = board_env(vec![true, false, true, false]);
-        let expr = SemanticExpression::Count(Box::new(SemanticExpression::BooleanArray {
+        let expr = SemanticExpression::Count(Box::new(SemanticExpression::LogicalSequence {
             variable: VariableId::new(0),
         }));
         let result = Interpreter.evaluate(&expr, &env).unwrap();
@@ -466,7 +475,7 @@ mod tests {
         // Count(Filter(BooleanArray(v), True))
         let env = board_env(vec![true, true, false, true]); // 3 true
         let lhs = SemanticExpression::Count(Box::new(SemanticExpression::Filter {
-            input: Box::new(SemanticExpression::BooleanArray {
+            input: Box::new(SemanticExpression::LogicalSequence {
                 variable: VariableId::new(0),
             }),
             predicate: Predicate::True,
@@ -480,7 +489,7 @@ mod tests {
         // Popcount(Pack(BooleanArray(v)))
         let env = board_env(vec![true, true, false, true]); // 3 true
         let rhs = SemanticExpression::Popcount(Box::new(SemanticExpression::Pack(Box::new(
-            SemanticExpression::BooleanArray {
+            SemanticExpression::LogicalSequence {
                 variable: VariableId::new(0),
             },
         ))));
@@ -493,13 +502,13 @@ mod tests {
         // For any given input, the lhs and rhs produce the same result
         let env = board_env(vec![false, true, false, true, true, false, false, true]); // 4 true
         let lhs = SemanticExpression::Count(Box::new(SemanticExpression::Filter {
-            input: Box::new(SemanticExpression::BooleanArray {
+            input: Box::new(SemanticExpression::LogicalSequence {
                 variable: VariableId::new(0),
             }),
             predicate: Predicate::True,
         }));
         let rhs = SemanticExpression::Popcount(Box::new(SemanticExpression::Pack(Box::new(
-            SemanticExpression::BooleanArray {
+            SemanticExpression::LogicalSequence {
                 variable: VariableId::new(0),
             },
         ))));

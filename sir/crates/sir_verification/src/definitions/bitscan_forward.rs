@@ -39,11 +39,11 @@ impl TransformationDefinition for BitScanForwardDefinition {
             candidate: candidate.id,
             definition: self.id,
             theorem: Theorem::new(
-                SemanticExpression::FirstTrue(Box::new(SemanticExpression::BooleanArray {
+                SemanticExpression::FirstTrue(Box::new(SemanticExpression::LogicalSequence {
                     variable: var,
                 })),
                 SemanticExpression::TrailingZeros(Box::new(SemanticExpression::Pack(Box::new(
-                    SemanticExpression::BooleanArray { variable: var },
+                    SemanticExpression::LogicalSequence { variable: var },
                 )))),
             ),
             assumptions: vec![],

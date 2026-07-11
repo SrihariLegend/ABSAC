@@ -116,7 +116,7 @@ impl Normalizer {
             // Leaf nodes — no children to normalize
             SemanticExpression::Variable(_)
             | SemanticExpression::Constant(_)
-            | SemanticExpression::BooleanArray { .. } => expr.clone(),
+            | SemanticExpression::LogicalSequence { .. } => expr.clone(),
 
             // Unary nodes — normalize the single child
             SemanticExpression::Pack(inner) => {
@@ -234,9 +234,9 @@ mod tests {
         fn apply(&self, expr: &SemanticExpression) -> Option<SemanticExpression> {
             match expr {
                 SemanticExpression::Count(inner) => match inner.as_ref() {
-                    SemanticExpression::BooleanArray { .. } => Some(SemanticExpression::Constant(
-                        sir_types::ConstantData::u64(0),
-                    )),
+                    SemanticExpression::LogicalSequence { .. } => Some(
+                        SemanticExpression::Constant(sir_types::ConstantData::u64(0)),
+                    ),
                     _ => None,
                 },
                 _ => None,
@@ -247,7 +247,7 @@ mod tests {
     #[test]
     fn normalizer_empty_rules_is_identity() {
         let normalizer = Normalizer::new(100);
-        let expr = SemanticExpression::Count(Box::new(SemanticExpression::BooleanArray {
+        let expr = SemanticExpression::Count(Box::new(SemanticExpression::LogicalSequence {
             variable: VariableId::new(0),
         }));
         let (result, steps) = normalizer.normalize(&expr);
@@ -260,7 +260,7 @@ mod tests {
         let mut normalizer = Normalizer::new(100);
         normalizer.add_rule(Box::new(CountToZero));
 
-        let expr = SemanticExpression::Count(Box::new(SemanticExpression::BooleanArray {
+        let expr = SemanticExpression::Count(Box::new(SemanticExpression::LogicalSequence {
             variable: VariableId::new(0),
         }));
         let (result, steps) = normalizer.normalize(&expr);
@@ -286,7 +286,7 @@ mod tests {
         let mut normalizer = Normalizer::new(100);
         normalizer.add_rule(Box::new(CountToZero));
 
-        let expr = SemanticExpression::Count(Box::new(SemanticExpression::BooleanArray {
+        let expr = SemanticExpression::Count(Box::new(SemanticExpression::LogicalSequence {
             variable: VariableId::new(0),
         }));
         let (result, steps) = normalizer.normalize(&expr);
@@ -305,7 +305,7 @@ mod tests {
         normalizer.add_rule(Box::new(CountToZero));
 
         let expr = SemanticExpression::Pack(Box::new(SemanticExpression::Count(Box::new(
-            SemanticExpression::BooleanArray {
+            SemanticExpression::LogicalSequence {
                 variable: VariableId::new(0),
             },
         ))));
@@ -340,7 +340,7 @@ mod tests {
         let mut normalizer = Normalizer::new(10);
         normalizer.add_rule(Box::new(LoopingRule));
 
-        let expr = SemanticExpression::Count(Box::new(SemanticExpression::BooleanArray {
+        let expr = SemanticExpression::Count(Box::new(SemanticExpression::LogicalSequence {
             variable: VariableId::new(0),
         }));
         let (_, steps) = normalizer.normalize(&expr);

@@ -29,7 +29,7 @@ fn run_inference(concepts: &[SemanticConcept]) -> Vec<sir_inference::hypothesis:
 #[test]
 fn bare_boolean_collection_alone_is_not_strong_bitset() {
     // BooleanCollection alone is weak evidence — shouldn't reach Strong (-50 threshold)
-    let hyps = run_inference(&[SemanticConcept::BooleanCollection]);
+    let hyps = run_inference(&[SemanticConcept::LogicalSequence]);
     if let Some(h) = hyps.first() {
         assert!(
             h.support.score() < 50,
@@ -42,7 +42,7 @@ fn bare_boolean_collection_alone_is_not_strong_bitset() {
 #[test]
 fn single_concept_insufficient_for_strong_confidence() {
     for concept in &[
-        SemanticConcept::BooleanCollection,
+        SemanticConcept::LogicalSequence,
         SemanticConcept::FiniteCollection,
         SemanticConcept::MembershipTraversal,
         SemanticConcept::CardinalityReduction,
@@ -69,7 +69,7 @@ fn no_concepts_produces_no_hypotheses() {
 fn bitset_is_only_representation_returned() {
     // All four concepts together should only produce BitSet, nothing else
     let hyps = run_inference(&[
-        SemanticConcept::BooleanCollection,
+        SemanticConcept::LogicalSequence,
         SemanticConcept::FiniteCollection,
         SemanticConcept::MembershipTraversal,
         SemanticConcept::CardinalityReduction,

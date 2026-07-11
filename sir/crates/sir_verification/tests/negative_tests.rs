@@ -34,7 +34,7 @@ fn make_context() -> TransformationContext {
     TransformationContext::new(
         RegionId::new(0),
         Representation::BitSet,
-        SourceStructure::BooleanArray { length: 64 },
+        SourceStructure::LogicalSequence { length: 64 },
         constraints,
         assumptions,
     )
@@ -45,7 +45,7 @@ fn make_domain_4() -> FiniteDomain {
     FiniteDomain {
         variables: vec![VariableSpec {
             id: VariableId::new(0),
-            kind: VariableKind::BooleanArray { length: 4 },
+            kind: VariableKind::LogicalSequence { length: 4 },
         }],
     }
 }
@@ -80,9 +80,11 @@ fn symbolic_returns_unknown_broken_theorem() {
     //
     // Since the two normalized forms differ, symbolic returns unknown.
     let v = VariableId::new(0);
-    let lhs = SemanticExpression::Count(Box::new(SemanticExpression::BooleanArray { variable: v }));
+    let lhs = SemanticExpression::Count(Box::new(SemanticExpression::LogicalSequence {
+        variable: v,
+    }));
     let rhs = SemanticExpression::Popcount(Box::new(SemanticExpression::Pack(Box::new(
-        SemanticExpression::BooleanArray { variable: v },
+        SemanticExpression::LogicalSequence { variable: v },
     ))));
 
     let obligation = make_obligation(lhs, rhs, None);
@@ -108,7 +110,9 @@ fn symbolic_returns_unknown_for_count_without_filter() {
     // Explicit test: Count(BooleanArray(v)) on LHS without Filter.
     // The symbolic normalizer has no rule for this case.
     let v = VariableId::new(0);
-    let lhs = SemanticExpression::Count(Box::new(SemanticExpression::BooleanArray { variable: v }));
+    let lhs = SemanticExpression::Count(Box::new(SemanticExpression::LogicalSequence {
+        variable: v,
+    }));
     let rhs = SemanticExpression::Constant(ConstantData::u64(0));
 
     let obligation = make_obligation(lhs, rhs, None);
@@ -139,7 +143,7 @@ fn exhaustive_rejects_broken_theorem() {
     // exhaustive enumeration finds a counterexample.
     let v = VariableId::new(0);
     let lhs = SemanticExpression::Count(Box::new(SemanticExpression::Filter {
-        input: Box::new(SemanticExpression::BooleanArray { variable: v }),
+        input: Box::new(SemanticExpression::LogicalSequence { variable: v }),
         predicate: Predicate::True,
     }));
     let rhs = SemanticExpression::Constant(ConstantData::u64(0));
@@ -176,7 +180,7 @@ fn exhaustive_rejects_constant_zero_on_nonempty_input() {
     // triggers the rejection. Use a small domain for speed.
     let v = VariableId::new(0);
     let lhs = SemanticExpression::Count(Box::new(SemanticExpression::Filter {
-        input: Box::new(SemanticExpression::BooleanArray { variable: v }),
+        input: Box::new(SemanticExpression::LogicalSequence { variable: v }),
         predicate: Predicate::True,
     }));
     let rhs = SemanticExpression::Constant(ConstantData::u64(0));
@@ -184,7 +188,7 @@ fn exhaustive_rejects_constant_zero_on_nonempty_input() {
     let domain = FiniteDomain {
         variables: vec![VariableSpec {
             id: VariableId::new(0),
-            kind: VariableKind::BooleanArray { length: 2 },
+            kind: VariableKind::LogicalSequence { length: 2 },
         }],
     };
 

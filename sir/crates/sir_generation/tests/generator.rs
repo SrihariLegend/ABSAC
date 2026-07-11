@@ -34,7 +34,9 @@ fn database_validate_rejects_duplicate_ids() {
         effects: vec![CandidateEffect::TraversalChange],
         expected_cost: CostProfile::default(),
         representation: sir_transform::representation::Representation::BitSet,
-        source_structure: sir_transform::structures::SourceStructure::BooleanArray { length: 64 },
+        source_structure: sir_transform::structures::SourceStructure::LogicalSequence {
+            length: 64,
+        },
         constraints: std::collections::HashSet::new(),
         assumptions: std::collections::HashSet::new(),
     };
@@ -60,7 +62,9 @@ fn database_validate_rejects_empty_effects() {
         effects: vec![],
         expected_cost: CostProfile::default(),
         representation: sir_transform::representation::Representation::BitSet,
-        source_structure: sir_transform::structures::SourceStructure::BooleanArray { length: 64 },
+        source_structure: sir_transform::structures::SourceStructure::LogicalSequence {
+            length: 64,
+        },
         constraints: std::collections::HashSet::new(),
         assumptions: std::collections::HashSet::new(),
     };

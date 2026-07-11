@@ -57,13 +57,13 @@ impl TransformationDefinition for AnyDefinition {
             .unwrap_or(64); // default for BS001
 
         // Build the theorem: LHS = Exists(BooleanArray(v))
-        let lhs = SemanticExpression::Exists(Box::new(SemanticExpression::BooleanArray {
+        let lhs = SemanticExpression::Exists(Box::new(SemanticExpression::LogicalSequence {
             variable: board_var,
         }));
 
         // RHS = NotEqualZero(Pack(BooleanArray(v)))
         let rhs = SemanticExpression::NotEqualZero(Box::new(SemanticExpression::Pack(Box::new(
-            SemanticExpression::BooleanArray {
+            SemanticExpression::LogicalSequence {
                 variable: board_var,
             },
         ))));
@@ -74,7 +74,7 @@ impl TransformationDefinition for AnyDefinition {
         let domain = FiniteDomain {
             variables: vec![VariableSpec {
                 id: board_var,
-                kind: VariableKind::BooleanArray { length },
+                kind: VariableKind::LogicalSequence { length },
             }],
         };
 
@@ -136,7 +136,7 @@ mod tests {
                 critical_path_depth: 0,
             },
             representation: Representation::BitSet,
-            source_structure: SourceStructure::BooleanArray { length: 64 },
+            source_structure: SourceStructure::LogicalSequence { length: 64 },
             constraints,
             assumptions,
         }
@@ -158,7 +158,7 @@ mod tests {
         // LHS: Exists(BooleanArray(v))
         match &obl.theorem.lhs {
             SemanticExpression::Exists(inner) => match inner.as_ref() {
-                SemanticExpression::BooleanArray { variable } => {
+                SemanticExpression::LogicalSequence { variable } => {
                     assert_eq!(*variable, VariableId::new(0));
                 }
                 _ => panic!("Expected BooleanArray inside Exists"),
@@ -170,7 +170,7 @@ mod tests {
         match &obl.theorem.rhs {
             SemanticExpression::NotEqualZero(inner) => match inner.as_ref() {
                 SemanticExpression::Pack(inner2) => match inner2.as_ref() {
-                    SemanticExpression::BooleanArray { variable } => {
+                    SemanticExpression::LogicalSequence { variable } => {
                         assert_eq!(*variable, VariableId::new(0));
                     }
                     _ => panic!("Expected BooleanArray inside Pack"),
@@ -204,7 +204,7 @@ mod tests {
         let domain = obl.domain.unwrap();
         assert_eq!(domain.variables.len(), 1);
         match &domain.variables[0].kind {
-            VariableKind::BooleanArray { length } => assert_eq!(*length, 64),
+            VariableKind::LogicalSequence { length } => assert_eq!(*length, 64),
         }
     }
 

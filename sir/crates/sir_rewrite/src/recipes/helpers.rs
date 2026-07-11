@@ -30,7 +30,7 @@ pub fn emit_pack(
     }
 
     let mut width = 64;
-    if let sir_transform::structures::SourceStructure::BooleanArray { length } =
+    if let sir_transform::structures::SourceStructure::LogicalSequence { length } =
         region.structural.source_structure
     {
         width = length;

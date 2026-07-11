@@ -29,7 +29,7 @@ fn run_inference(concepts: &[SemanticConcept]) -> Vec<sir_inference::hypothesis:
 fn ambiguous_case_has_low_confidence() {
     // Just two concepts — the engine should express uncertainty
     let hyps = run_inference(&[
-        SemanticConcept::BooleanCollection,
+        SemanticConcept::LogicalSequence,
         SemanticConcept::FiniteCollection,
     ]);
     if let Some(h) = hyps.first() {
@@ -87,7 +87,7 @@ fn order_of_concepts_does_not_affect_result() {
 fn support_is_never_negative_for_pure_positive_evidence() {
     // All positive evidence — support.positive should exactly equal sum of weights
     let hyps = run_inference(&[
-        SemanticConcept::BooleanCollection,
+        SemanticConcept::LogicalSequence,
         SemanticConcept::FiniteCollection,
         SemanticConcept::MembershipTraversal,
         SemanticConcept::CardinalityReduction,
