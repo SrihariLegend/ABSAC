@@ -34,7 +34,7 @@ fn make_context() -> TransformationContext {
     TransformationContext::new(
         RegionId::new(0),
         Representation::BitSet,
-        SourceStructure::BooleanArray { length: 64 },
+        SourceStructure::LogicalSequence { length: 64 },
         constraints,
         assumptions,
     )
@@ -60,14 +60,14 @@ fn make_obligation(
 /// Build a valid BS001 theorem expression pair.
 fn bs001_lhs(v: VariableId) -> SemanticExpression {
     SemanticExpression::Count(Box::new(SemanticExpression::Filter {
-        input: Box::new(SemanticExpression::BooleanArray { variable: v }),
+        input: Box::new(SemanticExpression::LogicalSequence { variable: v }),
         predicate: Predicate::True,
     }))
 }
 
 fn bs001_rhs(v: VariableId) -> SemanticExpression {
     SemanticExpression::Popcount(Box::new(SemanticExpression::Pack(Box::new(
-        SemanticExpression::BooleanArray { variable: v },
+        SemanticExpression::LogicalSequence { variable: v },
     ))))
 }
 
@@ -83,7 +83,7 @@ fn exhaustive_returns_unknown_for_overflowed_domain() {
     let domain = FiniteDomain {
         variables: vec![VariableSpec {
             id: v,
-            kind: VariableKind::BooleanArray { length: 64 },
+            kind: VariableKind::LogicalSequence { length: 64 },
         }],
     };
 
@@ -111,7 +111,7 @@ fn exhaustive_returns_unknown_for_overflowed_bool65() {
     let domain = FiniteDomain {
         variables: vec![VariableSpec {
             id: v,
-            kind: VariableKind::BooleanArray { length: 65 },
+            kind: VariableKind::LogicalSequence { length: 65 },
         }],
     };
 
@@ -166,7 +166,7 @@ fn exhaustive_returns_unknown_for_too_large_domain() {
     let domain = FiniteDomain {
         variables: vec![VariableSpec {
             id: v,
-            kind: VariableKind::BooleanArray { length: 21 },
+            kind: VariableKind::LogicalSequence { length: 21 },
         }],
     };
 

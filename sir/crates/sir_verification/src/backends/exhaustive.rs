@@ -113,11 +113,11 @@ mod tests {
     fn make_bs001_obligation_with_length(length: usize) -> ProofObligation {
         let v = VariableId::new(0);
         let lhs = SemanticExpression::Count(Box::new(SemanticExpression::Filter {
-            input: Box::new(SemanticExpression::BooleanArray { variable: v }),
+            input: Box::new(SemanticExpression::LogicalSequence { variable: v }),
             predicate: Predicate::True,
         }));
         let rhs = SemanticExpression::Popcount(Box::new(SemanticExpression::Pack(Box::new(
-            SemanticExpression::BooleanArray { variable: v },
+            SemanticExpression::LogicalSequence { variable: v },
         ))));
 
         ProofObligation {
@@ -130,7 +130,7 @@ mod tests {
             domain: Some(FiniteDomain {
                 variables: vec![VariableSpec {
                     id: v,
-                    kind: VariableKind::BooleanArray { length },
+                    kind: VariableKind::LogicalSequence { length },
                 }],
             }),
         }

@@ -27,7 +27,7 @@ fn empty_region_produces_no_evidence() {
 
 #[test]
 fn boolean_collection_supports_bitset() {
-    let region = make_region(&[SemanticConcept::BooleanCollection]);
+    let region = make_region(&[SemanticConcept::LogicalSequence]);
     let evidence = bitset_evidence::contribute(&region);
 
     assert!(!evidence.is_empty());
@@ -74,7 +74,7 @@ fn cardinality_reduction_supports_bitset() {
 #[test]
 fn all_four_concepts_together_produce_four_evidence_entries() {
     let region = make_region(&[
-        SemanticConcept::BooleanCollection,
+        SemanticConcept::LogicalSequence,
         SemanticConcept::FiniteCollection,
         SemanticConcept::MembershipTraversal,
         SemanticConcept::CardinalityReduction,
@@ -90,7 +90,7 @@ fn all_four_concepts_together_produce_four_evidence_entries() {
 
 #[test]
 fn evidence_contains_explanatory_text() {
-    let region = make_region(&[SemanticConcept::BooleanCollection]);
+    let region = make_region(&[SemanticConcept::LogicalSequence]);
     let evidence = bitset_evidence::contribute(&region);
     let ev = evidence.first().unwrap();
     assert!(!ev.explanation.is_empty());
@@ -99,7 +99,7 @@ fn evidence_contains_explanatory_text() {
 #[test]
 fn evidence_is_all_supports_for_positive_concepts() {
     let region = make_region(&[
-        SemanticConcept::BooleanCollection,
+        SemanticConcept::LogicalSequence,
         SemanticConcept::FiniteCollection,
         SemanticConcept::MembershipTraversal,
         SemanticConcept::CardinalityReduction,

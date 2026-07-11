@@ -20,7 +20,7 @@ pub fn recognize_boolean_array(
             if matches!(element.as_ref(), &Type::Bool) {
                 let desc = StructuralDescription::new(
                     RegionId::new(0), // merged later
-                    SourceStructure::BooleanArray { length: *length },
+                    SourceStructure::LogicalSequence { length: *length },
                 )
                 .with_constraint(Constraint::FixedLength(*length));
 

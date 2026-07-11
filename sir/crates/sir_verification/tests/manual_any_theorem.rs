@@ -11,12 +11,12 @@ use sir_verification::semantic::theorem::Theorem;
 fn manual_test_any_symbolic() {
     let board_var = VariableId::new(0);
 
-    let lhs = SemanticExpression::Exists(Box::new(SemanticExpression::BooleanArray {
+    let lhs = SemanticExpression::Exists(Box::new(SemanticExpression::LogicalSequence {
         variable: board_var,
     }));
 
     let rhs = SemanticExpression::NotEqualZero(Box::new(SemanticExpression::Pack(Box::new(
-        SemanticExpression::BooleanArray {
+        SemanticExpression::LogicalSequence {
             variable: board_var,
         },
     ))));

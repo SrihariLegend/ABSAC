@@ -16,8 +16,8 @@ pub enum Value {
     Bool(bool),
     /// A fixed-width unsigned integer value.
     Integer(u64),
-    /// A fixed-size array of boolean values.
-    BooleanArray(Vec<bool>),
+    /// A finite sequence of boolean values.
+    LogicalSequence(Vec<bool>),
     /// A bitvector value with explicit width.
     BitVector(BitVectorValue),
 }

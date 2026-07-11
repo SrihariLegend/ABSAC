@@ -448,6 +448,34 @@ pub fn generate_semantic_zoo() -> Vec<ZooProgram> {
         expected_rewrites: 1,
     });
 
+    // 4. Predicate Reductions
+    for len in [16, 64] {
+        zoo.push(build_predicate_reduction(
+            &format!("pred_count_eq_{}", len),
+            len,
+            "count",
+            "eq",
+        ));
+        zoo.push(build_predicate_reduction(
+            &format!("pred_any_gt_{}", len),
+            len,
+            "any",
+            "gt",
+        ));
+        zoo.push(build_predicate_reduction(
+            &format!("pred_all_ne_{}", len),
+            len,
+            "all",
+            "ne",
+        ));
+        zoo.push(build_predicate_reduction(
+            &format!("pred_parity_lt_{}", len),
+            len,
+            "parity",
+            "lt",
+        ));
+    }
+
     // Add unoptimizable (non-power of two)
     zoo.push(build_arithmetic("arith_mod_unsigned_3", "modulo", 3, false));
     if let Some(last) = zoo.last_mut() {
@@ -533,4 +561,100 @@ fn semantic_zoo_evaluation() {
         total_proven,
         total_rewrites
     );
+}
+// Append to end of semantic_zoo.rs
+
+fn build_predicate_reduction(
+    name: &str,
+    len: usize,
+    reduction: &str,
+    predicate: &str,
+) -> ZooProgram {
+    let ret_ty = match reduction {
+        "count" => i32_type(),
+        "any" | "all" | "parity" => bool_type(),
+        _ => panic!("Unknown reduction"),
+    };
+
+    let mut b = Builder::new(
+        name,
+        &[
+            (
+                "values",
+                Type::Array {
+                    element: Box::new(Type::i32()),
+                    length: len,
+                },
+            ),
+            ("scalar", i32_type()),
+        ],
+        ret_ty.clone(),
+    );
+    let values = b.parameter_index(0).unwrap();
+    let scalar = b.parameter_index(1).unwrap();
+    let i_init = b.constant(ConstantData::u64(0), u64_type(), unknown());
+    let i_step = b.constant(ConstantData::u64(1), u64_type(), unknown());
+    let limit = b.constant(ConstantData::u64(len as u64), u64_type(), unknown());
+
+    let acc_init = match reduction {
+        "count" => b.constant(ConstantData::i32(0), i32_type(), unknown()),
+        "any" | "all" => {
+            let init = if reduction == "any" { false } else { true };
+            b.constant(ConstantData::boolean(init), bool_type(), unknown())
+        }
+        "parity" => b.constant(ConstantData::boolean(false), bool_type(), unknown()),
+        _ => unreachable!(),
+    };
+
+    let val = b
+        .array_access(values, i_init, i32_type(), unknown())
+        .unwrap();
+    let elem = match predicate {
+        "eq" => b.eq(val, scalar, unknown()).unwrap(),
+        "ne" => b.ne(val, scalar, unknown()).unwrap(),
+        "lt" => b.lt(val, scalar, unknown()).unwrap(),
+        "le" => b.le(val, scalar, unknown()).unwrap(),
+        "gt" => b.gt(val, scalar, unknown()).unwrap(),
+        "ge" => b.ge(val, scalar, unknown()).unwrap(),
+        _ => panic!("Unknown predicate"),
+    };
+
+    let acc_next = match reduction {
+        "count" => {
+            let one = b.constant(ConstantData::i32(1), i32_type(), unknown());
+            let zero = b.constant(ConstantData::i32(0), i32_type(), unknown());
+            let inc = b.select(elem, one, zero, unknown()).unwrap();
+            b.add(acc_init, inc, unknown()).unwrap()
+        }
+        "any" => b.bool_or(acc_init, elem, unknown()).unwrap(),
+        "all" => b.bool_and(acc_init, elem, unknown()).unwrap(),
+        "parity" => b.ne(acc_init, elem, unknown()).unwrap(), // parity = xor
+        _ => unreachable!(),
+    };
+
+    let i_next = b.add(i_init, i_step, unknown()).unwrap();
+    let cond = b.lt(i_init, limit, unknown()).unwrap();
+
+    let loop_node = b
+        .r#loop(
+            &[val, elem, acc_next, i_next, cond],
+            cond,
+            &[acc_next, i_next],
+            &[acc_init, i_init],
+            Type::Tuple {
+                elements: vec![ret_ty.clone(), u64_type()],
+            },
+            unknown(),
+        )
+        .unwrap();
+
+    let res = b.field_access(loop_node, "0", ret_ty, unknown()).unwrap();
+    b.return_value(res, unknown()).unwrap();
+
+    ZooProgram {
+        name: name.to_string(),
+        family: Family::PredicateReduction,
+        function: b.build(),
+        expected_rewrites: 1,
+    }
 }

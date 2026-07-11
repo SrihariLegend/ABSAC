@@ -90,7 +90,7 @@ fn evidence_supports_bit_set_from_boolean_collection() {
         representation: Representation::BitSet,
         polarity: Polarity::Supports,
         weight: 30,
-        source: SemanticConcept::BooleanCollection,
+        source: SemanticConcept::LogicalSequence,
         explanation: "Boolean arrays often represent bitsets",
     };
     assert_eq!(evidence.representation, Representation::BitSet);

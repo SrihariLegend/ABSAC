@@ -54,7 +54,7 @@ mod tests {
         let ctx = TransformationContext::new(
             RegionId::new(0),
             Representation::BitSet,
-            SourceStructure::BooleanArray { length: 64 },
+            SourceStructure::LogicalSequence { length: 64 },
             HashSet::new(),
             assumptions,
         );
@@ -87,7 +87,7 @@ mod tests {
         let ctx = TransformationContext::new(
             RegionId::new(0),
             Representation::BitSet,
-            SourceStructure::BooleanArray { length: 64 },
+            SourceStructure::LogicalSequence { length: 64 },
             HashSet::new(),
             assumptions,
         );
@@ -118,7 +118,7 @@ mod tests {
         let ctx = TransformationContext::new(
             RegionId::new(0),
             Representation::BitSet,
-            SourceStructure::BooleanArray { length: 64 },
+            SourceStructure::LogicalSequence { length: 64 },
             HashSet::new(),
             HashSet::new(),
         );

@@ -7,8 +7,8 @@ use std::fmt;
 /// - **Operation concepts:** describe what the computation does with the data
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SemanticConcept {
-    /// Data: collection of boolean values (e.g., `bool[64]`)
-    BooleanCollection,
+    /// Data: sequence of boolean values, whether physical (array) or virtual (predicates)
+    LogicalSequence,
     /// Data: collection with a statically known bound
     FiniteCollection,
     /// Operation: iterating over elements and testing membership
@@ -23,8 +23,6 @@ pub enum SemanticConcept {
     ExclusiveReduction,
     /// Operation: finding the first element that satisfies a condition
     FindFirst,
-    /// Data: a stream of booleans generated dynamically by comparing elements
-    PredicateCollection,
     /// Operation: checking if elements are present in two collections simultaneously
     SetIntersection,
     /// Operation: integer modulo by a power of two
@@ -52,14 +50,13 @@ pub enum SemanticConcept {
 impl fmt::Display for SemanticConcept {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SemanticConcept::BooleanCollection => write!(f, "BooleanCollection"),
+            SemanticConcept::LogicalSequence => write!(f, "LogicalSequence"),
             SemanticConcept::FiniteCollection => write!(f, "FiniteCollection"),
             SemanticConcept::MembershipTraversal => write!(f, "MembershipTraversal"),
             SemanticConcept::CardinalityReduction => write!(f, "CardinalityReduction"),
             SemanticConcept::DisjunctiveReduction => write!(f, "DisjunctiveReduction"),
             SemanticConcept::ConjunctiveReduction => write!(f, "ConjunctiveReduction"),
             SemanticConcept::ExclusiveReduction => write!(f, "ExclusiveReduction"),
-            SemanticConcept::PredicateCollection => write!(f, "PredicateCollection"),
             SemanticConcept::FindFirst => write!(f, "FindFirst"),
             SemanticConcept::SetIntersection => write!(f, "SetIntersection"),
             SemanticConcept::ModuloPowerOfTwo => write!(f, "ModuloPowerOfTwo"),

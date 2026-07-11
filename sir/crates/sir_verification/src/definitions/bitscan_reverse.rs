@@ -39,11 +39,11 @@ impl TransformationDefinition for BitScanReverseDefinition {
             candidate: candidate.id,
             definition: self.id,
             theorem: Theorem::new(
-                SemanticExpression::LastTrue(Box::new(SemanticExpression::BooleanArray {
+                SemanticExpression::LastTrue(Box::new(SemanticExpression::LogicalSequence {
                     variable: var,
                 })),
                 SemanticExpression::LeadingZeros(Box::new(SemanticExpression::Pack(Box::new(
-                    SemanticExpression::BooleanArray { variable: var },
+                    SemanticExpression::LogicalSequence { variable: var },
                 )))),
             ),
             assumptions: vec![],
