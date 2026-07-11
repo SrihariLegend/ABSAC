@@ -8,9 +8,15 @@ use sir_builder::Builder;
 use sir_types::{ConstantData, Span, Type};
 use sir_verify::Verifier;
 
-fn i32_type() -> Type { Type::i32() }
-fn u64_type() -> Type { Type::u64() }
-fn unknown_span() -> Span { Span::unknown() }
+fn i32_type() -> Type {
+    Type::i32()
+}
+fn u64_type() -> Type {
+    Type::u64()
+}
+fn unknown_span() -> Span {
+    Span::unknown()
+}
 
 // ── Milestone 1: Simple add function ───────────────────────
 
@@ -112,10 +118,7 @@ fn milestone4_memory_analysis() {
     assert!(db.aliases.get(&ptr).unwrap().allocation_site.is_some());
 
     // Escape: loaded escapes (returned).
-    assert_eq!(
-        db.escapes.get(&loaded).unwrap().kind,
-        EscapeKind::Returned
-    );
+    assert_eq!(db.escapes.get(&loaded).unwrap().kind, EscapeKind::Returned);
 }
 
 // ── Milestone 5: Intrinsic call ────────────────────────────
@@ -194,7 +197,11 @@ fn diamond_pattern_analysis() {
 
 #[test]
 fn full_pipeline_produces_stats() {
-    let mut b = Builder::new("compute", &[("a", i32_type()), ("b", i32_type())], i32_type());
+    let mut b = Builder::new(
+        "compute",
+        &[("a", i32_type()), ("b", i32_type())],
+        i32_type(),
+    );
     let a = b.parameter_index(0).unwrap();
     let b_param = b.parameter_index(1).unwrap();
     let s1 = b.add(a, b_param, unknown_span()).unwrap();

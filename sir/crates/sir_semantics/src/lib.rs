@@ -9,7 +9,7 @@
 pub mod concepts;
 pub mod cost;
 pub mod cost_deriver;
+pub mod recognizers;
 pub mod region;
 pub mod semantics;
-pub mod recognizers;
 pub mod structure;

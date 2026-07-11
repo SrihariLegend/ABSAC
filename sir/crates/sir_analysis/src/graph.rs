@@ -5,9 +5,9 @@
 //! edges (operands), filtering out Loop containment edges (body, outputs,
 //! carried_inputs) that `NodeKind::input_nodes()` includes.
 
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use sir_nodes::{Function, NodeArena, NodeKind};
 use sir_types::NodeId;
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
 /// Return only the dataflow input NodeIds for a node kind.
 ///
@@ -53,7 +53,11 @@ pub fn dataflow_inputs(kind: &NodeKind) -> Vec<NodeId> {
         NodeKind::Pack { array } => vec![*array],
 
         // Select: condition + two value branches.
-        NodeKind::Select { cond, true_val, false_val } => vec![*cond, *true_val, *false_val],
+        NodeKind::Select {
+            cond,
+            true_val,
+            false_val,
+        } => vec![*cond, *true_val, *false_val],
 
         // Memory: pointer + value.
         NodeKind::Load { ptr } => vec![*ptr],
@@ -75,7 +79,11 @@ pub fn dataflow_inputs(kind: &NodeKind) -> Vec<NodeId> {
 
         // Loop: only the termination condition is a dataflow edge.
         // body, outputs, carried_inputs are containment, not dataflow.
-        NodeKind::Loop { termination, carried_inputs, .. } => {
+        NodeKind::Loop {
+            termination,
+            carried_inputs,
+            ..
+        } => {
             let mut v = vec![*termination];
             v.extend(carried_inputs);
             v
@@ -85,7 +93,11 @@ pub fn dataflow_inputs(kind: &NodeKind) -> Vec<NodeId> {
         NodeKind::Iterator { collection } => vec![*collection],
 
         // Return: value is the dataflow edge.
-        NodeKind::ArrayCmpMask { array, scalar, op: _ } => vec![*array, *scalar],
+        NodeKind::ArrayCmpMask {
+            array,
+            scalar,
+            op: _,
+        } => vec![*array, *scalar],
         NodeKind::Return { value } => vec![*value],
     }
 }
@@ -262,8 +274,12 @@ mod tests {
     use sir_builder::Builder;
     use sir_types::{ConstantData, Span, Type};
 
-    fn i32_type() -> Type { Type::i32() }
-    fn unknown_span() -> Span { Span::unknown() }
+    fn i32_type() -> Type {
+        Type::i32()
+    }
+    fn unknown_span() -> Span {
+        Span::unknown()
+    }
 
     #[test]
     fn dataflow_inputs_constant_is_empty() {
@@ -273,7 +289,10 @@ mod tests {
 
     #[test]
     fn dataflow_inputs_add_returns_two() {
-        let add = NodeKind::Add { lhs: NodeId::new(1), rhs: NodeId::new(2) };
+        let add = NodeKind::Add {
+            lhs: NodeId::new(1),
+            rhs: NodeId::new(2),
+        };
         assert_eq!(dataflow_inputs(&add), vec![NodeId::new(1), NodeId::new(2)]);
     }
 
@@ -337,13 +356,21 @@ mod tests {
     fn is_leaf_for_constant_and_parameter() {
         assert!(is_leaf(&NodeKind::Constant(ConstantData::Unit)));
         assert!(is_leaf(&NodeKind::Parameter { index: 0 }));
-        assert!(!is_leaf(&NodeKind::Add { lhs: NodeId::new(0), rhs: NodeId::new(1) }));
+        assert!(!is_leaf(&NodeKind::Add {
+            lhs: NodeId::new(0),
+            rhs: NodeId::new(1)
+        }));
     }
 
     #[test]
     fn is_return_detection() {
-        assert!(is_return(&NodeKind::Return { value: NodeId::new(0) }));
-        assert!(!is_return(&NodeKind::Add { lhs: NodeId::new(0), rhs: NodeId::new(1) }));
+        assert!(is_return(&NodeKind::Return {
+            value: NodeId::new(0)
+        }));
+        assert!(!is_return(&NodeKind::Add {
+            lhs: NodeId::new(0),
+            rhs: NodeId::new(1)
+        }));
     }
 
     #[test]

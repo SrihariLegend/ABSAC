@@ -17,7 +17,15 @@ pub fn recognize_predicate_collection(
 
     // Look for comparisons where one side is derived from an ArrayAccess
     for node in func.arena.iter() {
-        if matches!(node.kind, NodeKind::Eq {..} | NodeKind::Ne {..} | NodeKind::Lt {..} | NodeKind::Le {..} | NodeKind::Gt {..} | NodeKind::Ge {..}) {
+        if matches!(
+            node.kind,
+            NodeKind::Eq { .. }
+                | NodeKind::Ne { .. }
+                | NodeKind::Lt { .. }
+                | NodeKind::Le { .. }
+                | NodeKind::Gt { .. }
+                | NodeKind::Ge { .. }
+        ) {
             // Find the inputs
             let inputs = node.kind.input_nodes();
             if inputs.len() == 2 {
@@ -29,9 +37,9 @@ pub fn recognize_predicate_collection(
 
                 if lhs_is_access || rhs_is_access {
                     results.push((
-                        SemanticConcept::PredicateCollection,
+                        SemanticConcept::LogicalSequence,
                         RecognitionExplanation {
-                            concept: SemanticConcept::PredicateCollection,
+                            concept: SemanticConcept::LogicalSequence,
                             triggering_facts: vec![
                                 "Comparison operator forms a dynamic boolean sequence from an array",
                             ],
@@ -49,23 +57,38 @@ pub fn recognize_predicate_collection(
 pub fn recognize_dynamic_boolean_sequence(
     func: &Function,
     _analysis: &FactDatabase,
-) -> Vec<(crate::region::RegionId, crate::structure::StructuralDescription)> {
+) -> Vec<(
+    crate::region::RegionId,
+    crate::structure::StructuralDescription,
+)> {
     let mut results = Vec::new();
 
     for node in func.arena.iter() {
-        if matches!(node.kind, NodeKind::Eq {..} | NodeKind::Ne {..} | NodeKind::Lt {..} | NodeKind::Le {..} | NodeKind::Gt {..} | NodeKind::Ge {..}) {
+        if matches!(
+            node.kind,
+            NodeKind::Eq { .. }
+                | NodeKind::Ne { .. }
+                | NodeKind::Lt { .. }
+                | NodeKind::Le { .. }
+                | NodeKind::Gt { .. }
+                | NodeKind::Ge { .. }
+        ) {
             let inputs = node.kind.input_nodes();
             if inputs.len() == 2 {
                 let lhs = inputs[0];
                 let rhs = inputs[1];
 
-                if let Some(len) = get_array_length(func, lhs).or_else(|| get_array_length(func, rhs)) {
+                if let Some(len) =
+                    get_array_length(func, lhs).or_else(|| get_array_length(func, rhs))
+                {
                     let desc = crate::structure::StructuralDescription::new(
                         crate::region::RegionId::new(0),
-                        sir_transform::structures::SourceStructure::DynamicBooleanSequence { length: len },
+                        sir_transform::structures::SourceStructure::DynamicBooleanSequence {
+                            length: len,
+                        },
                     )
                     .with_constraint(sir_transform::constraints::Constraint::FixedLength(len));
-                    
+
                     results.push((crate::region::RegionId::new(0), desc));
                 }
             }

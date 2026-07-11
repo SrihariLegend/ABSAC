@@ -1,2 +1,2 @@
-pub mod symbolic;
 pub mod exhaustive;
+pub mod symbolic;

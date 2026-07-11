@@ -54,17 +54,13 @@ fn build_board_any() -> sir_nodes::Function {
         .unwrap();
 
     // new_found = found || board[i]  (OR reduction)
-    let new_found = b
-        .bool_or(found_initial, elem, Span::unknown())
-        .unwrap();
+    let new_found = b.bool_or(found_initial, elem, Span::unknown()).unwrap();
 
     // i = i + 1
     let i_next = b.add(i_initial, i_step, Span::unknown()).unwrap();
 
     // i < 64
-    let cond = b
-        .lt(i_initial, limit, Span::unknown())
-        .unwrap();
+    let cond = b.lt(i_initial, limit, Span::unknown()).unwrap();
 
     // ── Loop node ──
     let loop_node = b
@@ -112,7 +108,11 @@ fn bs002_trace_pipeline() {
 
     // Print recognized concepts
     for (rid, region) in semantics.database().regions() {
-        println!("[BS002]   Region {}: concepts = {:?}", rid, region.concepts());
+        println!(
+            "[BS002]   Region {}: concepts = {:?}",
+            rid,
+            region.concepts()
+        );
     }
     for (_rid, desc) in semantics.structural_database().regions() {
         println!(

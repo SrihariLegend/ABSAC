@@ -40,4 +40,13 @@ pub enum RegionRoles {
         /// The node representing the final output result to replace.
         result: NodeId,
     },
+    /// A loop that searches for a specific condition (e.g. FirstTrue).
+    PositionSearch {
+        /// The collection being searched (e.g. `board`). Optional for scalar searches (TZCNT).
+        collection: Option<NodeId>,
+        /// The scalar being searched (e.g. `x` in TZCNT). Optional for array searches.
+        scalar: Option<NodeId>,
+        /// The result node that produces the found index/count.
+        result: NodeId,
+    },
 }

@@ -7,7 +7,7 @@ use sir_transform::representation::Representation;
 
 use crate::obligation::{FiniteDomain, ProofObligation, VariableKind, VariableSpec};
 use crate::registry::TransformationDefinition;
-use crate::semantic::expression::{Predicate, SemanticExpression};
+use crate::semantic::expression::SemanticExpression;
 use crate::semantic::theorem::Theorem;
 
 /// The All transformation: replaces a boolean-array conjunctive loop
@@ -57,20 +57,16 @@ impl TransformationDefinition for AllDefinition {
             .unwrap_or(64); // default for BS001
 
         // Build the theorem: LHS = All(BooleanArray(v))
-        let lhs = SemanticExpression::All(Box::new(
-            SemanticExpression::BooleanArray {
-                variable: board_var,
-            },
-        ));
+        let lhs = SemanticExpression::All(Box::new(SemanticExpression::LogicalSequence {
+            variable: board_var,
+        }));
 
         // RHS = EqualFullMask(Pack(BooleanArray(v)))
-        let rhs = SemanticExpression::EqualFullMask(Box::new(
-            SemanticExpression::Pack(Box::new(
-                SemanticExpression::BooleanArray {
-                    variable: board_var,
-                },
-            )),
-        ));
+        let rhs = SemanticExpression::EqualFullMask(Box::new(SemanticExpression::Pack(Box::new(
+            SemanticExpression::LogicalSequence {
+                variable: board_var,
+            },
+        ))));
 
         let theorem = Theorem::new(lhs, rhs);
 
@@ -78,7 +74,7 @@ impl TransformationDefinition for AllDefinition {
         let domain = FiniteDomain {
             variables: vec![VariableSpec {
                 id: board_var,
-                kind: VariableKind::BooleanArray { length },
+                kind: VariableKind::LogicalSequence { length },
             }],
         };
 
@@ -99,17 +95,18 @@ impl TransformationDefinition for AllDefinition {
             domain: Some(domain),
         }
     }
-
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sir_generation::candidate::{
+        CandidateEffect, CandidateExplanation, CandidateId, ImplementationStrategy,
+    };
     use sir_transform::constraints::Constraint;
+    use sir_transform::context::ContextId;
     use sir_transform::structures::SourceStructure;
     use sir_types::RegionId;
-    use sir_generation::candidate::{CandidateEffect, CandidateExplanation, CandidateId, ImplementationStrategy};
-    use sir_transform::context::ContextId;
     use std::collections::HashSet;
 
     fn make_candidate() -> Candidate {
@@ -139,7 +136,7 @@ mod tests {
                 critical_path_depth: 0,
             },
             representation: Representation::BitSet,
-            source_structure: SourceStructure::BooleanArray { length: 64 },
+            source_structure: SourceStructure::LogicalSequence { length: 64 },
             constraints,
             assumptions,
         }
@@ -161,7 +158,7 @@ mod tests {
         // LHS: All(BooleanArray(v))
         match &obl.theorem.lhs {
             SemanticExpression::All(inner) => match inner.as_ref() {
-                SemanticExpression::BooleanArray { variable } => {
+                SemanticExpression::LogicalSequence { variable } => {
                     assert_eq!(*variable, VariableId::new(0));
                 }
                 _ => panic!("Expected BooleanArray inside All"),
@@ -173,7 +170,7 @@ mod tests {
         match &obl.theorem.rhs {
             SemanticExpression::EqualFullMask(inner) => match inner.as_ref() {
                 SemanticExpression::Pack(inner2) => match inner2.as_ref() {
-                    SemanticExpression::BooleanArray { variable } => {
+                    SemanticExpression::LogicalSequence { variable } => {
                         assert_eq!(*variable, VariableId::new(0));
                     }
                     _ => panic!("Expected BooleanArray inside Pack"),
@@ -191,7 +188,9 @@ mod tests {
         let obl = def.obligation(&cand);
 
         assert!(obl.assumptions.contains(&Assumption::EquivalentCardinality));
-        assert!(obl.assumptions.contains(&Assumption::PreservesIterationOrder));
+        assert!(obl
+            .assumptions
+            .contains(&Assumption::PreservesIterationOrder));
         assert!(obl.assumptions.contains(&Assumption::PreservesLayout));
     }
 
@@ -205,7 +204,7 @@ mod tests {
         let domain = obl.domain.unwrap();
         assert_eq!(domain.variables.len(), 1);
         match &domain.variables[0].kind {
-            VariableKind::BooleanArray { length } => assert_eq!(*length, 64),
+            VariableKind::LogicalSequence { length } => assert_eq!(*length, 64),
         }
     }
 

@@ -62,7 +62,7 @@ fn make_candidate() -> Candidate {
         effects: vec![CandidateEffect::CountingStrategyChange],
         expected_cost: CostProfile::default(),
         representation: sir_transform::representation::Representation::BitSet,
-        source_structure: SourceStructure::BooleanArray { length: 64 },
+        source_structure: SourceStructure::LogicalSequence { length: 64 },
         constraints: std::collections::HashSet::new(),
         assumptions: std::collections::HashSet::new(),
     }
@@ -88,7 +88,7 @@ fn make_structural_db() -> StructuralDatabase {
     let mut db = StructuralDatabase::new();
     let desc = StructuralDescription::new(
         RegionId::new(0),
-        SourceStructure::BooleanArray { length: 64 },
+        SourceStructure::LogicalSequence { length: 64 },
     )
     .with_roles(RegionRoles::BooleanCollectionReduction {
         collection: sir_types::NodeId::new(0), // board parameter

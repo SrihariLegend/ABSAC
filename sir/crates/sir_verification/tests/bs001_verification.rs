@@ -73,9 +73,7 @@ fn build_board_scan() -> Function {
     // NOTE: false_val must be a separate zero constant, NOT count_initial,
     // because count_initial is in carried_inputs and using it would cause
     // each iteration to return the accumulated count instead of 0.
-    let inc = b
-        .select(elem, one_i32, zero_i32, Span::unknown())
-        .unwrap();
+    let inc = b.select(elem, one_i32, zero_i32, Span::unknown()).unwrap();
 
     // count = count + inc — accumulate (sum reduction)
     let new_count = b.add(count_initial, inc, Span::unknown()).unwrap();
@@ -113,8 +111,7 @@ fn build_board_scan() -> Function {
 /// Run the full BS001 pipeline up to building obligations and verifying them.
 /// Returns the verifier, the list of (obligation, result) pairs, and
 /// the inference engine's context database for further inspection.
-fn run_full_pipeline(
-) -> (Verifier, Vec<(ProofObligation, VerificationResult)>) {
+fn run_full_pipeline() -> (Verifier, Vec<(ProofObligation, VerificationResult)>) {
     let func = build_board_scan();
 
     // Analysis
@@ -135,10 +132,8 @@ fn run_full_pipeline(
 
     // Build the Verifier and create obligations
     let verifier = Verifier::new();
-    let obligations_db = verifier.build_obligations(
-        generator.database(),
-        inference.context_database(),
-    );
+    let obligations_db =
+        verifier.build_obligations(generator.database(), inference.context_database());
 
     assert!(
         obligations_db.len() > 0,
@@ -172,8 +167,7 @@ fn bs001_verification_pipeline_proves_popcount_equivalence() {
         matches!(obl.theorem.rhs, SemanticExpression::Popcount(_))
     });
 
-    let (_, result) = popcount_result
-        .expect("Should have a Popcount obligation in the results");
+    let (_, result) = popcount_result.expect("Should have a Popcount obligation in the results");
 
     match result {
         VerificationResult::Proven(proof) => {
@@ -197,8 +191,7 @@ fn bs001_verification_pipeline_proves_popcount_equivalence() {
                 "Normalization should include CountFilterToPopcount rule"
             );
             assert_eq!(
-                proof.normalized_theorem.lhs,
-                proof.normalized_theorem.rhs,
+                proof.normalized_theorem.lhs, proof.normalized_theorem.rhs,
                 "Normalized theorem sides should be structurally equal"
             );
         }
@@ -214,10 +207,7 @@ fn bs001_verification_report_is_generated() {
     let (verifier, results) = run_full_pipeline();
 
     // Collect just the verification results
-    let v_results: Vec<VerificationResult> = results
-        .iter()
-        .map(|(_, r)| r.clone())
-        .collect();
+    let v_results: Vec<VerificationResult> = results.iter().map(|(_, r)| r.clone()).collect();
 
     // Check statistics
     let stats = verifier.statistics(&v_results);
@@ -266,4 +256,3 @@ fn bs001_verification_report_is_generated() {
         );
     }
 }
-

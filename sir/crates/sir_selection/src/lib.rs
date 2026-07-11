@@ -6,7 +6,9 @@ pub mod selector;
 pub use cost_model::{CostModel, DefaultCostModel};
 pub use database::{SelectedCandidateOwned, SelectionDatabase, SelectionResultOwned};
 pub use score::{CostModelReport, ScoreBreakdown, TransformationScore};
-pub use selector::{MultiRegionSelection, SelectedCandidate, SelectionResult, Selector, VerifiedCandidate};
+pub use selector::{
+    MultiRegionSelection, SelectedCandidate, SelectionResult, Selector, VerifiedCandidate,
+};
 
 #[cfg(test)]
 mod tests {
@@ -33,7 +35,9 @@ mod tests {
             effects: vec![CandidateEffect::CountingStrategyChange],
             expected_cost,
             representation: sir_transform::representation::Representation::BitSet,
-            source_structure: sir_transform::structures::SourceStructure::BooleanArray { length: 64 },
+            source_structure: sir_transform::structures::SourceStructure::LogicalSequence {
+                length: 64,
+            },
             constraints: std::collections::HashSet::new(),
             assumptions: std::collections::HashSet::new(),
         }

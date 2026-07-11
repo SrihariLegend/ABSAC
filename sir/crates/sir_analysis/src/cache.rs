@@ -3,9 +3,9 @@
 //! Tracks which analyses have been computed for which functions
 //! using a function fingerprint that includes node content.
 
+use sir_nodes::Function;
 use std::any::TypeId;
 use std::collections::HashMap;
-use sir_nodes::Function;
 
 /// State of a cached analysis result.
 #[derive(Clone, Debug)]
@@ -106,7 +106,10 @@ fn hash_function(func: &Function) -> u64 {
     for (id, node) in func.arena.nodes() {
         mix(&mut h, id.as_u64());
         // NodeKind discriminant — a u32 tag.
-        mix(&mut h, crate::value_numbering::kind_variant_tag(&node.kind) as u64);
+        mix(
+            &mut h,
+            crate::value_numbering::kind_variant_tag(&node.kind) as u64,
+        );
         mix_bytes(&mut h, node.ty.type_name().as_bytes());
         mix(&mut h, node.effects.bits() as u64);
     }

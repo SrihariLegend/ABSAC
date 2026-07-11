@@ -3,9 +3,9 @@
 //! Generates candidate transformation plans from transformation contexts.
 //! Pure — no SIR access, no ranking, no verification.
 
-use sir_types::RegionId;
-use sir_transform::context::TransformationContextDatabase;
 use sir_semantics::semantics::SemanticDatabase;
+use sir_transform::context::TransformationContextDatabase;
+use sir_types::RegionId;
 use sir_types::RegionMap;
 
 use crate::candidate::{Candidate, CandidateId};
@@ -71,7 +71,9 @@ pub struct CandidateGenerator {
 
 impl CandidateGenerator {
     pub fn new() -> Self {
-        Self { db: CandidateDatabase::new() }
+        Self {
+            db: CandidateDatabase::new(),
+        }
     }
 
     pub fn database(&self) -> &CandidateDatabase {
@@ -82,11 +84,16 @@ impl CandidateGenerator {
     ///
     /// Each context is inspected by generator functions that produce
     /// candidates when applicable.
-    pub fn generate(&mut self, context_db: &TransformationContextDatabase, semantic_db: &SemanticDatabase) {
+    pub fn generate(
+        &mut self,
+        context_db: &TransformationContextDatabase,
+        semantic_db: &SemanticDatabase,
+    ) {
         let empty_concepts = std::collections::HashSet::new();
 
         for (region_id, contexts) in context_db.contexts() {
-            let concepts = semantic_db.region(region_id)
+            let concepts = semantic_db
+                .region(region_id)
                 .map(|r| r.concepts())
                 .unwrap_or(&empty_concepts);
 

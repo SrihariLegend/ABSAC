@@ -35,11 +35,7 @@ impl Builder {
     ///
     /// Creates `Parameter` nodes for each param, stores them in the arena,
     /// and returns the builder ready for further construction.
-    pub fn new(
-        name: impl Into<String>,
-        params: &[(&str, Type)],
-        return_ty: Type,
-    ) -> Self {
+    pub fn new(name: impl Into<String>, params: &[(&str, Type)], return_ty: Type) -> Self {
         let mut func = Function::new(name, return_ty);
         let mut next_id = 0u64;
         let mut param_names = Vec::new();
@@ -109,10 +105,7 @@ impl Builder {
     }
 
     fn get_node(&self, id: NodeId) -> Result<&Node, BuildError> {
-        self.func
-            .arena
-            .get(id)
-            .ok_or(BuildError::NodeNotFound(id))
+        self.func.arena.get(id).ok_or(BuildError::NodeNotFound(id))
     }
 
     fn get_type(&self, id: NodeId) -> Result<Type, BuildError> {
@@ -134,13 +127,7 @@ impl Builder {
     }
 
     /// Create a node, insert it into the arena, return its NodeId.
-    fn alloc_node(
-        &mut self,
-        kind: NodeKind,
-        ty: Type,
-        effects: Effects,
-        span: Span,
-    ) -> NodeId {
+    fn alloc_node(&mut self, kind: NodeKind, ty: Type, effects: Effects, span: Span) -> NodeId {
         let id = self.next_node_id();
         let node = Node::new(id, kind, ty, effects, span);
         self.func.arena.insert(node);
@@ -204,7 +191,11 @@ impl Builder {
         } else {
             Err(BuildError::TypeMismatch {
                 node: id,
-                expected: Type::Integer { width: sir_types::IntegerWidth::I32, signed: true, overflow: sir_types::OverflowBehavior::Wrapping }, // placeholder
+                expected: Type::Integer {
+                    width: sir_types::IntegerWidth::I32,
+                    signed: true,
+                    overflow: sir_types::OverflowBehavior::Wrapping,
+                }, // placeholder
                 actual: ty,
             })
         }
@@ -217,7 +208,11 @@ impl Builder {
         } else {
             Err(BuildError::TypeMismatch {
                 node: id,
-                expected: Type::Integer { width: sir_types::IntegerWidth::I32, signed: true, overflow: sir_types::OverflowBehavior::Wrapping }, // placeholder
+                expected: Type::Integer {
+                    width: sir_types::IntegerWidth::I32,
+                    signed: true,
+                    overflow: sir_types::OverflowBehavior::Wrapping,
+                }, // placeholder
                 actual: ty,
             })
         }
@@ -319,48 +314,28 @@ impl Builder {
         self.expect_integer(lhs)?;
         self.expect_integer(rhs)?;
         let ty = self.get_type(lhs)?;
-        Ok(self.alloc_node(
-            NodeKind::Shl { lhs, rhs },
-            ty,
-            Effects::empty(),
-            span,
-        ))
+        Ok(self.alloc_node(NodeKind::Shl { lhs, rhs }, ty, Effects::empty(), span))
     }
 
     pub fn shr(&mut self, lhs: NodeId, rhs: NodeId, span: Span) -> Result<NodeId, BuildError> {
         self.expect_integer(lhs)?;
         self.expect_integer(rhs)?;
         let ty = self.get_type(lhs)?;
-        Ok(self.alloc_node(
-            NodeKind::Shr { lhs, rhs },
-            ty,
-            Effects::empty(),
-            span,
-        ))
+        Ok(self.alloc_node(NodeKind::Shr { lhs, rhs }, ty, Effects::empty(), span))
     }
 
     pub fn rol(&mut self, lhs: NodeId, rhs: NodeId, span: Span) -> Result<NodeId, BuildError> {
         self.expect_integer(lhs)?;
         self.expect_integer(rhs)?;
         let ty = self.get_type(lhs)?;
-        Ok(self.alloc_node(
-            NodeKind::Rol { lhs, rhs },
-            ty,
-            Effects::empty(),
-            span,
-        ))
+        Ok(self.alloc_node(NodeKind::Rol { lhs, rhs }, ty, Effects::empty(), span))
     }
 
     pub fn ror(&mut self, lhs: NodeId, rhs: NodeId, span: Span) -> Result<NodeId, BuildError> {
         self.expect_integer(lhs)?;
         self.expect_integer(rhs)?;
         let ty = self.get_type(lhs)?;
-        Ok(self.alloc_node(
-            NodeKind::Ror { lhs, rhs },
-            ty,
-            Effects::empty(),
-            span,
-        ))
+        Ok(self.alloc_node(NodeKind::Ror { lhs, rhs }, ty, Effects::empty(), span))
     }
 
     // ── Bitwise (unary) ─────────────────────────────────────
@@ -420,15 +395,20 @@ impl Builder {
     ) -> Result<NodeId, BuildError> {
         let ty = self.get_type(array)?;
         let scalar_ty = self.get_type(scalar)?;
-        
+
         let width = match &ty {
             Type::Array { element, length } if **element == scalar_ty => *length,
             Type::Slice { element } if **element == scalar_ty => 0,
-            _ => return Err(BuildError::TypeMismatch {
-                node: array,
-                expected: Type::Array { element: Box::new(scalar_ty), length: 0 },
-                actual: ty,
-            }),
+            _ => {
+                return Err(BuildError::TypeMismatch {
+                    node: array,
+                    expected: Type::Array {
+                        element: Box::new(scalar_ty),
+                        length: 0,
+                    },
+                    actual: ty,
+                })
+            }
         };
 
         Ok(self.alloc_node(
@@ -460,12 +440,7 @@ impl Builder {
             }
         };
         let bv_ty = Type::BitVector { width };
-        Ok(self.alloc_node(
-            NodeKind::Pack { array },
-            bv_ty,
-            Effects::empty(),
-            span,
-        ))
+        Ok(self.alloc_node(NodeKind::Pack { array }, bv_ty, Effects::empty(), span))
     }
 
     // ── Comparisons ─────────────────────────────────────────
@@ -508,12 +483,7 @@ impl Builder {
 
     // ── Boolean ─────────────────────────────────────────────
 
-    pub fn bool_and(
-        &mut self,
-        lhs: NodeId,
-        rhs: NodeId,
-        span: Span,
-    ) -> Result<NodeId, BuildError> {
+    pub fn bool_and(&mut self, lhs: NodeId, rhs: NodeId, span: Span) -> Result<NodeId, BuildError> {
         self.expect_type(lhs, &Type::Bool)?;
         self.expect_type(rhs, &Type::Bool)?;
         Ok(self.alloc_node(
@@ -524,12 +494,7 @@ impl Builder {
         ))
     }
 
-    pub fn bool_or(
-        &mut self,
-        lhs: NodeId,
-        rhs: NodeId,
-        span: Span,
-    ) -> Result<NodeId, BuildError> {
+    pub fn bool_or(&mut self, lhs: NodeId, rhs: NodeId, span: Span) -> Result<NodeId, BuildError> {
         self.expect_type(lhs, &Type::Bool)?;
         self.expect_type(rhs, &Type::Bool)?;
         Ok(self.alloc_node(
@@ -587,20 +552,10 @@ impl Builder {
                 actual: ptr_ty,
             });
         }
-        Ok(self.alloc_node(
-            NodeKind::Load { ptr },
-            ty,
-            Effects::READ_MEMORY,
-            span,
-        ))
+        Ok(self.alloc_node(NodeKind::Load { ptr }, ty, Effects::READ_MEMORY, span))
     }
 
-    pub fn store(
-        &mut self,
-        ptr: NodeId,
-        value: NodeId,
-        span: Span,
-    ) -> Result<NodeId, BuildError> {
+    pub fn store(&mut self, ptr: NodeId, value: NodeId, span: Span) -> Result<NodeId, BuildError> {
         let ptr_ty = self.get_type(ptr)?;
         if !ptr_ty.is_pointer_like() {
             return Err(BuildError::TypeMismatch {
@@ -620,12 +575,7 @@ impl Builder {
         ))
     }
 
-    pub fn allocate(
-        &mut self,
-        ty: Type,
-        count: NodeId,
-        span: Span,
-    ) -> Result<NodeId, BuildError> {
+    pub fn allocate(&mut self, ty: Type, count: NodeId, span: Span) -> Result<NodeId, BuildError> {
         self.expect_integer(count)?;
         Ok(self.alloc_node(
             NodeKind::Allocate {
@@ -773,9 +723,9 @@ impl Builder {
         span: Span,
     ) -> Result<NodeId, BuildError> {
         self.expect_type(termination, &Type::Bool)?;
-        
+
         let mut loop_effects = Effects::empty();
-        
+
         // Verify all body/output/carried nodes exist and accumulate body effects
         for &id in body.iter().chain(outputs).chain(carried_inputs) {
             let node = self.get_node(id)?;
@@ -783,7 +733,7 @@ impl Builder {
                 loop_effects |= node.effects;
             }
         }
-        
+
         Ok(self.alloc_node(
             NodeKind::Loop {
                 body: body.to_vec(),
@@ -814,11 +764,7 @@ impl Builder {
 
     // ── Control flow ────────────────────────────────────────
 
-    pub fn return_value(
-        &mut self,
-        value: NodeId,
-        span: Span,
-    ) -> Result<NodeId, BuildError> {
+    pub fn return_value(&mut self, value: NodeId, span: Span) -> Result<NodeId, BuildError> {
         if self.func.return_node.is_some() {
             return Err(BuildError::DuplicateReturn);
         }
@@ -910,7 +856,11 @@ mod tests {
 
     #[test]
     fn select_condition_must_be_bool() {
-        let mut b = Builder::new("f", &[("cond", i32_type()), ("a", i32_type()), ("b", i32_type())], i32_type());
+        let mut b = Builder::new(
+            "f",
+            &[("cond", i32_type()), ("a", i32_type()), ("b", i32_type())],
+            i32_type(),
+        );
         let cond = b.parameter_index(0).unwrap();
         let a = b.parameter_index(1).unwrap();
         let c_param = b.parameter_index(2).unwrap();
@@ -971,15 +921,16 @@ mod tests {
         let cond = b.lt(start, one, unknown_span()).unwrap();
         let body_add = b.add(start, one, unknown_span()).unwrap();
 
-        let loop_node = b.r#loop(
-            &[body_add],
-            cond,
-            &[body_add],
-            &[start],
-            i32_type(),
-            unknown_span(),
-        )
-        .unwrap();
+        let loop_node = b
+            .r#loop(
+                &[body_add],
+                cond,
+                &[body_add],
+                &[start],
+                i32_type(),
+                unknown_span(),
+            )
+            .unwrap();
         b.return_value(loop_node, unknown_span()).unwrap();
         let func = b.build();
         assert!(func.node_count() > 0);

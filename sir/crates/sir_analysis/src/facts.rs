@@ -4,8 +4,8 @@
 //! the `FactDatabase` — never inside SIR `Node` structs. This keeps the
 //! IR clean and analyses disposable.
 
-use std::collections::{BTreeSet, HashMap};
 use sir_types::{ConstantData, NodeId};
+use std::collections::{BTreeSet, HashMap};
 
 // ── Constant Lattice ───────────────────────────────────────
 

@@ -35,10 +35,11 @@ impl RewriteRecipe for PopcountRecipe {
 
     fn build_patch(
         &self,
+        function: &sir_nodes::Function,
         region: &RewriteRegion,
         mut builder: SubgraphBuilder,
     ) -> Result<ReplacementPatch, RewriteError> {
-        let packed = crate::recipes::helpers::emit_pack(region, &mut builder)?;
+        let packed = crate::recipes::helpers::emit_pack(function, region, &mut builder)?;
         let pop = builder.popcount(packed, Span::unknown());
 
         // 3. Map old result → new popcount
@@ -61,7 +62,7 @@ mod tests {
     fn make_test_region() -> RewriteRegion {
         let structural = StructuralDescription::new(
             RegionId::new(0),
-            SourceStructure::BooleanArray { length: 64 },
+            SourceStructure::LogicalSequence { length: 64 },
         )
         .with_roles(RegionRoles::BooleanCollectionReduction {
             collection: sir_types::NodeId::new(10),
@@ -89,8 +90,9 @@ mod tests {
         let recipe = PopcountRecipe::new(DefinitionId::new(0));
         let region = make_test_region();
         let builder = SubgraphBuilder::new();
+        let func = sir_nodes::Function::new("test", sir_types::Type::Unit);
 
-        let patch = recipe.build_patch(&region, builder).unwrap();
+        let patch = recipe.build_patch(&func, &region, builder).unwrap();
 
         // The patch contains 2 nodes: Pack + Popcount
         assert_eq!(patch.arena.len(), 2);
@@ -106,12 +108,13 @@ mod tests {
         // Create a region without roles
         let structural = StructuralDescription::new(
             RegionId::new(0),
-            SourceStructure::BooleanArray { length: 64 },
+            SourceStructure::LogicalSequence { length: 64 },
         );
         let region = RewriteRegion::new(structural);
         let builder = SubgraphBuilder::new();
+        let func = sir_nodes::Function::new("test", sir_types::Type::Unit);
 
-        let result = recipe.build_patch(&region, builder);
+        let result = recipe.build_patch(&func, &region, builder);
         assert!(result.is_err());
         match result {
             Err(RewriteError::MissingRole { .. }) => {} // expected

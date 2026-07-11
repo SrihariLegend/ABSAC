@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use sir_types::{CostProfile, RegionId};
+use std::collections::HashMap;
 
 /// Database mapping regions to their pre-computed cost profiles.
 ///

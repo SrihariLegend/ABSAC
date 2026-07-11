@@ -5,19 +5,19 @@
 
 use std::collections::HashSet;
 
+use sir_generation::candidate::CandidateId;
 use sir_transform::assumptions::Assumption;
 use sir_transform::constraints::Constraint;
 use sir_transform::context::TransformationContext;
 use sir_transform::ids::{DefinitionId, ObligationId, VariableId};
 use sir_transform::representation::Representation;
 use sir_transform::structures::SourceStructure;
+use sir_types::{ConstantData, RegionId};
 use sir_verification::errors::RejectReason;
 use sir_verification::obligation::{FiniteDomain, ProofObligation, VariableKind, VariableSpec};
 use sir_verification::semantic::expression::{Predicate, SemanticExpression};
 use sir_verification::semantic::theorem::Theorem;
 use sir_verification::{VerificationPolicy, VerificationResult, Verifier};
-use sir_generation::candidate::CandidateId;
-use sir_types::{ConstantData, RegionId};
 
 /// Build a minimal TransformationContext with all required assumptions.
 fn make_context() -> TransformationContext {
@@ -34,7 +34,7 @@ fn make_context() -> TransformationContext {
     TransformationContext::new(
         RegionId::new(0),
         Representation::BitSet,
-        SourceStructure::BooleanArray { length: 64 },
+        SourceStructure::LogicalSequence { length: 64 },
         constraints,
         assumptions,
     )
@@ -45,7 +45,7 @@ fn make_domain_4() -> FiniteDomain {
     FiniteDomain {
         variables: vec![VariableSpec {
             id: VariableId::new(0),
-            kind: VariableKind::BooleanArray { length: 4 },
+            kind: VariableKind::LogicalSequence { length: 4 },
         }],
     }
 }
@@ -80,14 +80,12 @@ fn symbolic_returns_unknown_broken_theorem() {
     //
     // Since the two normalized forms differ, symbolic returns unknown.
     let v = VariableId::new(0);
-    let lhs = SemanticExpression::Count(Box::new(
-        SemanticExpression::BooleanArray { variable: v },
-    ));
-    let rhs = SemanticExpression::Popcount(Box::new(
-        SemanticExpression::Pack(Box::new(
-            SemanticExpression::BooleanArray { variable: v },
-        )),
-    ));
+    let lhs = SemanticExpression::Count(Box::new(SemanticExpression::LogicalSequence {
+        variable: v,
+    }));
+    let rhs = SemanticExpression::Popcount(Box::new(SemanticExpression::Pack(Box::new(
+        SemanticExpression::LogicalSequence { variable: v },
+    ))));
 
     let obligation = make_obligation(lhs, rhs, None);
     let context = make_context();
@@ -95,7 +93,9 @@ fn symbolic_returns_unknown_broken_theorem() {
 
     let result = verifier.verify(&obligation, &context);
     match result {
-        VerificationResult::Unknown(sir_verification::errors::UnknownReason::UnsupportedRule { .. }) => {
+        VerificationResult::Unknown(sir_verification::errors::UnknownReason::UnsupportedRule {
+            ..
+        }) => {
             // Expected — the rule only matches Count(Filter(...))
         }
         other => panic!(
@@ -110,9 +110,9 @@ fn symbolic_returns_unknown_for_count_without_filter() {
     // Explicit test: Count(BooleanArray(v)) on LHS without Filter.
     // The symbolic normalizer has no rule for this case.
     let v = VariableId::new(0);
-    let lhs = SemanticExpression::Count(Box::new(
-        SemanticExpression::BooleanArray { variable: v },
-    ));
+    let lhs = SemanticExpression::Count(Box::new(SemanticExpression::LogicalSequence {
+        variable: v,
+    }));
     let rhs = SemanticExpression::Constant(ConstantData::u64(0));
 
     let obligation = make_obligation(lhs, rhs, None);
@@ -121,7 +121,9 @@ fn symbolic_returns_unknown_for_count_without_filter() {
 
     let result = verifier.verify(&obligation, &context);
     match result {
-        VerificationResult::Unknown(sir_verification::errors::UnknownReason::UnsupportedRule { .. }) => {}
+        VerificationResult::Unknown(sir_verification::errors::UnknownReason::UnsupportedRule {
+            ..
+        }) => {}
         other => panic!(
             "Expected Unknown(UnsupportedRule) for Count without Filter, got {:?}",
             other
@@ -140,12 +142,10 @@ fn exhaustive_rejects_broken_theorem() {
     // For any non-empty input, LHS > 0 while RHS = 0, so
     // exhaustive enumeration finds a counterexample.
     let v = VariableId::new(0);
-    let lhs = SemanticExpression::Count(Box::new(
-        SemanticExpression::Filter {
-            input: Box::new(SemanticExpression::BooleanArray { variable: v }),
-            predicate: Predicate::True,
-        },
-    ));
+    let lhs = SemanticExpression::Count(Box::new(SemanticExpression::Filter {
+        input: Box::new(SemanticExpression::LogicalSequence { variable: v }),
+        predicate: Predicate::True,
+    }));
     let rhs = SemanticExpression::Constant(ConstantData::u64(0));
 
     let obligation = make_obligation(lhs, rhs, Some(make_domain_4()));
@@ -161,7 +161,10 @@ fn exhaustive_rejects_broken_theorem() {
         }) => {
             // The counterexample should have a non-empty environment
             // and differing values
-            assert!(!environment.is_empty(), "CounterExample should have bindings");
+            assert!(
+                !environment.is_empty(),
+                "CounterExample should have bindings"
+            );
             assert_ne!(lhs_val, rhs_val, "CounterExample values must differ");
         }
         other => panic!(
@@ -176,18 +179,16 @@ fn exhaustive_rejects_constant_zero_on_nonempty_input() {
     // Same as above but explicitly verify the first non-zero input
     // triggers the rejection. Use a small domain for speed.
     let v = VariableId::new(0);
-    let lhs = SemanticExpression::Count(Box::new(
-        SemanticExpression::Filter {
-            input: Box::new(SemanticExpression::BooleanArray { variable: v }),
-            predicate: Predicate::True,
-        },
-    ));
+    let lhs = SemanticExpression::Count(Box::new(SemanticExpression::Filter {
+        input: Box::new(SemanticExpression::LogicalSequence { variable: v }),
+        predicate: Predicate::True,
+    }));
     let rhs = SemanticExpression::Constant(ConstantData::u64(0));
 
     let domain = FiniteDomain {
         variables: vec![VariableSpec {
             id: VariableId::new(0),
-            kind: VariableKind::BooleanArray { length: 2 },
+            kind: VariableKind::LogicalSequence { length: 2 },
         }],
     };
 

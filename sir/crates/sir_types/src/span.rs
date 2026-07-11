@@ -103,29 +103,20 @@ mod tests {
 
     #[test]
     fn span_length() {
-        let span = Span::new(
-            Position::new(1, 1, 0),
-            Position::new(1, 5, 4),
-        );
+        let span = Span::new(Position::new(1, 1, 0), Position::new(1, 5, 4));
         assert_eq!(span.len(), 4);
         assert!(!span.is_empty());
     }
 
     #[test]
     fn span_empty() {
-        let span = Span::new(
-            Position::new(1, 1, 5),
-            Position::new(1, 1, 5),
-        );
+        let span = Span::new(Position::new(1, 1, 5), Position::new(1, 1, 5));
         assert!(span.is_empty());
     }
 
     #[test]
     fn span_display() {
-        let span = Span::new(
-            Position::new(1, 1, 0),
-            Position::new(1, 5, 4),
-        );
+        let span = Span::new(Position::new(1, 1, 0), Position::new(1, 5, 4));
         assert_eq!(format!("{span}"), "1:1-1:5");
     }
 
@@ -137,10 +128,7 @@ mod tests {
 
     #[test]
     fn serde_roundtrip() {
-        let span = Span::new(
-            Position::new(2, 3, 10),
-            Position::new(2, 8, 15),
-        );
+        let span = Span::new(Position::new(2, 3, 10), Position::new(2, 8, 15));
         let json = serde_json::to_string(&span).unwrap();
         let parsed: Span = serde_json::from_str(&json).unwrap();
         assert_eq!(span, parsed);

@@ -7,7 +7,7 @@ use sir_transform::representation::Representation;
 
 use crate::obligation::{FiniteDomain, ProofObligation, VariableKind, VariableSpec};
 use crate::registry::TransformationDefinition;
-use crate::semantic::expression::{Predicate, SemanticExpression};
+use crate::semantic::expression::SemanticExpression;
 use crate::semantic::theorem::Theorem;
 
 /// The Parity transformation: replaces a boolean-array exclusive loop
@@ -57,22 +57,17 @@ impl TransformationDefinition for ParityDefinition {
             .unwrap_or(64); // default for BS001
 
         // Build the theorem: LHS = Parity(BooleanArray(v))
-        let lhs = SemanticExpression::Parity(Box::new(
-            SemanticExpression::BooleanArray {
-                variable: board_var,
-            },
-        ));
+        let lhs = SemanticExpression::Parity(Box::new(SemanticExpression::LogicalSequence {
+            variable: board_var,
+        }));
 
         // RHS = BitwiseAndOne(Popcount(Pack(BooleanArray(v))))
-        let rhs = SemanticExpression::BitwiseAndOne(Box::new(
-            SemanticExpression::Popcount(Box::new(
-                SemanticExpression::Pack(Box::new(
-                    SemanticExpression::BooleanArray {
-                        variable: board_var,
-                    },
-                )),
-            )),
-        ));
+        let rhs =
+            SemanticExpression::BitwiseAndOne(Box::new(SemanticExpression::Popcount(Box::new(
+                SemanticExpression::Pack(Box::new(SemanticExpression::LogicalSequence {
+                    variable: board_var,
+                })),
+            ))));
 
         let theorem = Theorem::new(lhs, rhs);
 
@@ -80,7 +75,7 @@ impl TransformationDefinition for ParityDefinition {
         let domain = FiniteDomain {
             variables: vec![VariableSpec {
                 id: board_var,
-                kind: VariableKind::BooleanArray { length },
+                kind: VariableKind::LogicalSequence { length },
             }],
         };
 
@@ -101,17 +96,18 @@ impl TransformationDefinition for ParityDefinition {
             domain: Some(domain),
         }
     }
-
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sir_generation::candidate::{
+        CandidateEffect, CandidateExplanation, CandidateId, ImplementationStrategy,
+    };
     use sir_transform::constraints::Constraint;
+    use sir_transform::context::ContextId;
     use sir_transform::structures::SourceStructure;
     use sir_types::RegionId;
-    use sir_generation::candidate::{CandidateEffect, CandidateExplanation, CandidateId, ImplementationStrategy};
-    use sir_transform::context::ContextId;
     use std::collections::HashSet;
 
     fn make_candidate() -> Candidate {
@@ -141,7 +137,7 @@ mod tests {
                 critical_path_depth: 0,
             },
             representation: Representation::BitSet,
-            source_structure: SourceStructure::BooleanArray { length: 64 },
+            source_structure: SourceStructure::LogicalSequence { length: 64 },
             constraints,
             assumptions,
         }
@@ -163,7 +159,7 @@ mod tests {
         // LHS: Parity(BooleanArray(v))
         match &obl.theorem.lhs {
             SemanticExpression::Parity(inner) => match inner.as_ref() {
-                SemanticExpression::BooleanArray { variable } => {
+                SemanticExpression::LogicalSequence { variable } => {
                     assert_eq!(*variable, VariableId::new(0));
                 }
                 _ => panic!("Expected BooleanArray inside Parity"),
@@ -176,7 +172,7 @@ mod tests {
             SemanticExpression::BitwiseAndOne(inner) => match inner.as_ref() {
                 SemanticExpression::Popcount(inner2) => match inner2.as_ref() {
                     SemanticExpression::Pack(inner3) => match inner3.as_ref() {
-                        SemanticExpression::BooleanArray { variable } => {
+                        SemanticExpression::LogicalSequence { variable } => {
                             assert_eq!(*variable, VariableId::new(0));
                         }
                         _ => panic!("Expected BooleanArray inside Pack"),
@@ -196,7 +192,9 @@ mod tests {
         let obl = def.obligation(&cand);
 
         assert!(obl.assumptions.contains(&Assumption::EquivalentCardinality));
-        assert!(obl.assumptions.contains(&Assumption::PreservesIterationOrder));
+        assert!(obl
+            .assumptions
+            .contains(&Assumption::PreservesIterationOrder));
         assert!(obl.assumptions.contains(&Assumption::PreservesLayout));
     }
 
@@ -210,7 +208,7 @@ mod tests {
         let domain = obl.domain.unwrap();
         assert_eq!(domain.variables.len(), 1);
         match &domain.variables[0].kind {
-            VariableKind::BooleanArray { length } => assert_eq!(*length, 64),
+            VariableKind::LogicalSequence { length } => assert_eq!(*length, 64),
         }
     }
 

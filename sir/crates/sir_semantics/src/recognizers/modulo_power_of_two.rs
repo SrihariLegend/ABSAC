@@ -1,6 +1,6 @@
 use sir_analysis::facts::FactDatabase;
 use sir_nodes::Function;
-use sir_types::{NodeId, ConstantData};
+use sir_types::NodeId;
 
 use crate::concepts::SemanticConcept;
 use crate::region::RecognitionExplanation;
@@ -23,7 +23,7 @@ pub fn recognize_modulo_power_of_two(
                     } else {
                         false
                     };
-                    
+
                     if is_power_of_two {
                         results.push((
                             SemanticConcept::ModuloPowerOfTwo,
@@ -48,7 +48,10 @@ pub fn recognize_modulo_power_of_two(
 pub fn recognize_modulo_operator(
     func: &Function,
     _analysis: &FactDatabase,
-) -> Vec<(crate::region::RegionId, crate::structure::StructuralDescription)> {
+) -> Vec<(
+    crate::region::RegionId,
+    crate::structure::StructuralDescription,
+)> {
     let mut results = Vec::new();
 
     for node in func.arena.iter() {

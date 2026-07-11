@@ -64,7 +64,7 @@ pub struct VariableSpec {
 impl VariableSpec {
     fn state_count(&self) -> Option<u64> {
         match &self.kind {
-            VariableKind::BooleanArray { length } => {
+            VariableKind::LogicalSequence { length } => {
                 if *length >= 64 {
                     None // 2^64 or larger overflows u64
                 } else {
@@ -79,7 +79,7 @@ impl VariableSpec {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VariableKind {
     /// A fixed-size array of booleans. Induces 2^length possible states.
-    BooleanArray { length: usize },
+    LogicalSequence { length: usize },
 }
 
 /// Iterates over all input combinations in a deterministic order.
@@ -126,14 +126,14 @@ impl DomainIterator {
 
         for var in &self.domain.variables {
             match &var.kind {
-                VariableKind::BooleanArray { length } => {
+                VariableKind::LogicalSequence { length } => {
                     let len = *length;
                     let mut bits = Vec::with_capacity(len);
                     for i in 0..len {
                         let bit = (index >> (bit_offset + i as u32)) & 1;
                         bits.push(bit != 0);
                     }
-                    env.bind(var.id, Value::BooleanArray(bits));
+                    env.bind(var.id, Value::LogicalSequence(bits));
                     bit_offset += len as u32;
                 }
             }
@@ -175,8 +175,7 @@ impl ProofObligationDatabase {
             .entry(obligation.region)
             .or_default()
             .push(index);
-        self.by_candidate
-            .insert(obligation.candidate, index);
+        self.by_candidate.insert(obligation.candidate, index);
         self.obligations.push(obligation);
 
         id
@@ -229,7 +228,7 @@ mod tests {
         let domain = FiniteDomain {
             variables: vec![VariableSpec {
                 id: VariableId::new(0),
-                kind: VariableKind::BooleanArray { length: 4 },
+                kind: VariableKind::LogicalSequence { length: 4 },
             }],
         };
         assert_eq!(domain.total_states(), Some(16));
@@ -240,7 +239,7 @@ mod tests {
         let domain = FiniteDomain {
             variables: vec![VariableSpec {
                 id: VariableId::new(0),
-                kind: VariableKind::BooleanArray { length: 64 },
+                kind: VariableKind::LogicalSequence { length: 64 },
             }],
         };
         // 2^64 overflows u64
@@ -249,9 +248,7 @@ mod tests {
 
     #[test]
     fn finite_domain_empty_total_states() {
-        let domain = FiniteDomain {
-            variables: vec![],
-        };
+        let domain = FiniteDomain { variables: vec![] };
         assert_eq!(domain.total_states(), Some(1)); // empty product = 1
     }
 
@@ -260,7 +257,7 @@ mod tests {
         let domain = FiniteDomain {
             variables: vec![VariableSpec {
                 id: VariableId::new(0),
-                kind: VariableKind::BooleanArray { length: 4 },
+                kind: VariableKind::LogicalSequence { length: 4 },
             }],
         };
         let envs: Vec<Environment> = domain.enumerate().collect();
@@ -272,12 +269,15 @@ mod tests {
         let domain = FiniteDomain {
             variables: vec![VariableSpec {
                 id: VariableId::new(0),
-                kind: VariableKind::BooleanArray { length: 4 },
+                kind: VariableKind::LogicalSequence { length: 4 },
             }],
         };
         let first = domain.enumerate().next().unwrap();
         let val = first.lookup(VariableId::new(0)).unwrap();
-        assert_eq!(val, &Value::BooleanArray(vec![false, false, false, false]));
+        assert_eq!(
+            val,
+            &Value::LogicalSequence(vec![false, false, false, false])
+        );
     }
 
     #[test]
@@ -285,12 +285,12 @@ mod tests {
         let domain = FiniteDomain {
             variables: vec![VariableSpec {
                 id: VariableId::new(0),
-                kind: VariableKind::BooleanArray { length: 4 },
+                kind: VariableKind::LogicalSequence { length: 4 },
             }],
         };
         let last = domain.enumerate().last().unwrap();
         let val = last.lookup(VariableId::new(0)).unwrap();
-        assert_eq!(val, &Value::BooleanArray(vec![true, true, true, true]));
+        assert_eq!(val, &Value::LogicalSequence(vec![true, true, true, true]));
     }
 
     #[test]
@@ -298,17 +298,14 @@ mod tests {
         let domain = FiniteDomain {
             variables: vec![VariableSpec {
                 id: VariableId::new(0),
-                kind: VariableKind::BooleanArray { length: 3 },
+                kind: VariableKind::LogicalSequence { length: 3 },
             }],
         };
         let run1: Vec<Environment> = domain.enumerate().collect();
         let run2: Vec<Environment> = domain.enumerate().collect();
         assert_eq!(run1.len(), run2.len());
         for (e1, e2) in run1.iter().zip(run2.iter()) {
-            assert_eq!(
-                e1.lookup(VariableId::new(0)),
-                e2.lookup(VariableId::new(0))
-            );
+            assert_eq!(e1.lookup(VariableId::new(0)), e2.lookup(VariableId::new(0)));
         }
     }
 

@@ -11,17 +11,23 @@ use sir_types::NodeId;
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SourceStructure {
     /// Array of booleans with known length, e.g. bool[64]
-    BooleanArray { length: usize },
+    LogicalSequence { length: usize },
     /// Dynamically generated boolean sequence with known length, e.g. array > scalar
     DynamicBooleanSequence { length: usize },
     /// Single integer used as a bitmask, e.g. u64 storing flags
     BitMask { width: usize },
     /// Multiple boolean values packed into minimal storage
-    PackedBooleanArray { element_count: usize },
+    PackedLogicalSequence { element_count: usize },
     /// 2D arrangement of boolean values
     BooleanMatrix { rows: usize, cols: usize },
     /// Arithmetic modulo operator with a constant power-of-two divisor
     ModuloOperator,
+    /// Arithmetic divide operator with a constant power-of-two divisor
+    DivideOperator,
+    /// Arithmetic multiply operator with a constant power-of-two multiplier
+    MultiplyOperator,
+    /// Shift operators that extract a mask
+    ShiftMaskOperator,
 }
 
 impl SourceStructure {

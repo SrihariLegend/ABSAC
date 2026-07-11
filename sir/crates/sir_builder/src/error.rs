@@ -22,18 +22,13 @@ pub enum BuildError {
     },
 
     /// A parameter with the given name was not found.
-    MissingParameter {
-        name: String,
-    },
+    MissingParameter { name: String },
 
     /// A return node was already set for this function.
     DuplicateReturn,
 
     /// The number of arguments doesn't match the expected count.
-    InvalidArity {
-        expected: usize,
-        actual: usize,
-    },
+    InvalidArity { expected: usize, actual: usize },
 }
 
 impl std::fmt::Display for BuildError {

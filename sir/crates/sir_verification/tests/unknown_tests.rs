@@ -5,19 +5,19 @@
 
 use std::collections::HashSet;
 
+use sir_generation::candidate::CandidateId;
 use sir_transform::assumptions::Assumption;
 use sir_transform::constraints::Constraint;
 use sir_transform::context::TransformationContext;
 use sir_transform::ids::{DefinitionId, ObligationId, VariableId};
 use sir_transform::representation::Representation;
 use sir_transform::structures::SourceStructure;
+use sir_types::RegionId;
 use sir_verification::errors::UnknownReason;
 use sir_verification::obligation::{FiniteDomain, ProofObligation, VariableKind, VariableSpec};
 use sir_verification::semantic::expression::{Predicate, SemanticExpression};
 use sir_verification::semantic::theorem::Theorem;
 use sir_verification::{VerificationPolicy, VerificationResult, Verifier};
-use sir_generation::candidate::CandidateId;
-use sir_types::RegionId;
 
 /// Build a minimal TransformationContext with all required assumptions.
 fn make_context() -> TransformationContext {
@@ -34,7 +34,7 @@ fn make_context() -> TransformationContext {
     TransformationContext::new(
         RegionId::new(0),
         Representation::BitSet,
-        SourceStructure::BooleanArray { length: 64 },
+        SourceStructure::LogicalSequence { length: 64 },
         constraints,
         assumptions,
     )
@@ -59,20 +59,16 @@ fn make_obligation(
 
 /// Build a valid BS001 theorem expression pair.
 fn bs001_lhs(v: VariableId) -> SemanticExpression {
-    SemanticExpression::Count(Box::new(
-        SemanticExpression::Filter {
-            input: Box::new(SemanticExpression::BooleanArray { variable: v }),
-            predicate: Predicate::True,
-        },
-    ))
+    SemanticExpression::Count(Box::new(SemanticExpression::Filter {
+        input: Box::new(SemanticExpression::LogicalSequence { variable: v }),
+        predicate: Predicate::True,
+    }))
 }
 
 fn bs001_rhs(v: VariableId) -> SemanticExpression {
-    SemanticExpression::Popcount(Box::new(
-        SemanticExpression::Pack(Box::new(
-            SemanticExpression::BooleanArray { variable: v },
-        )),
-    ))
+    SemanticExpression::Popcount(Box::new(SemanticExpression::Pack(Box::new(
+        SemanticExpression::LogicalSequence { variable: v },
+    ))))
 }
 
 // ────────────────────────────────────────────────────────────
@@ -87,7 +83,7 @@ fn exhaustive_returns_unknown_for_overflowed_domain() {
     let domain = FiniteDomain {
         variables: vec![VariableSpec {
             id: v,
-            kind: VariableKind::BooleanArray { length: 64 },
+            kind: VariableKind::LogicalSequence { length: 64 },
         }],
     };
 
@@ -115,7 +111,7 @@ fn exhaustive_returns_unknown_for_overflowed_bool65() {
     let domain = FiniteDomain {
         variables: vec![VariableSpec {
             id: v,
-            kind: VariableKind::BooleanArray { length: 65 },
+            kind: VariableKind::LogicalSequence { length: 65 },
         }],
     };
 
@@ -170,7 +166,7 @@ fn exhaustive_returns_unknown_for_too_large_domain() {
     let domain = FiniteDomain {
         variables: vec![VariableSpec {
             id: v,
-            kind: VariableKind::BooleanArray { length: 21 },
+            kind: VariableKind::LogicalSequence { length: 21 },
         }],
     };
 

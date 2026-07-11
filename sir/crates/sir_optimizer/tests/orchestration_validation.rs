@@ -35,69 +35,92 @@ fn build_orchestration_function() -> sir_nodes::Function {
 
     // 1. Count Loop
     let count_initial = b.constant(ConstantData::i32(0), Type::i32(), Span::unknown());
-    let c_elem = b.array_access(board, i_initial, Type::Bool, Span::unknown()).unwrap();
+    let c_elem = b
+        .array_access(board, i_initial, Type::Bool, Span::unknown())
+        .unwrap();
     let c_zero = b.constant(ConstantData::i32(0), Type::i32(), Span::unknown());
     let c_one = b.constant(ConstantData::i32(1), Type::i32(), Span::unknown());
     let c_inc = b.select(c_elem, c_one, c_zero, Span::unknown()).unwrap();
     let c_next = b.add(count_initial, c_inc, Span::unknown()).unwrap();
     let c_next_i = b.add(i_initial, i_step, Span::unknown()).unwrap();
     let c_cond = b.lt(i_initial, limit, Span::unknown()).unwrap();
-    let _count_loop = b.r#loop(
-        &[c_elem, c_zero, c_one, c_inc, c_next, c_next_i, c_cond],
-        c_cond,
-        &[c_next, c_next_i],
-        &[count_initial, i_initial],
-        Type::Tuple { elements: vec![Type::i32(), Type::u64()] },
-        Span::unknown(),
-    ).unwrap();
+    let _count_loop = b
+        .r#loop(
+            &[c_elem, c_zero, c_one, c_inc, c_next, c_next_i, c_cond],
+            c_cond,
+            &[c_next, c_next_i],
+            &[count_initial, i_initial],
+            Type::Tuple {
+                elements: vec![Type::i32(), Type::u64()],
+            },
+            Span::unknown(),
+        )
+        .unwrap();
 
     // 2. Any Loop
     let any_initial = b.constant(ConstantData::Bool(false), Type::Bool, Span::unknown());
-    let a_elem = b.array_access(board, i_initial, Type::Bool, Span::unknown()).unwrap();
+    let a_elem = b
+        .array_access(board, i_initial, Type::Bool, Span::unknown())
+        .unwrap();
     let a_next = b.bool_or(any_initial, a_elem, Span::unknown()).unwrap();
     let a_next_i = b.add(i_initial, i_step, Span::unknown()).unwrap();
     let a_cond = b.lt(i_initial, limit, Span::unknown()).unwrap();
-    let _any_loop = b.r#loop(
-        &[a_elem, a_next, a_next_i, a_cond],
-        a_cond,
-        &[a_next, a_next_i],
-        &[any_initial, i_initial],
-        Type::Tuple { elements: vec![Type::Bool, Type::u64()] },
-        Span::unknown(),
-    ).unwrap();
+    let _any_loop = b
+        .r#loop(
+            &[a_elem, a_next, a_next_i, a_cond],
+            a_cond,
+            &[a_next, a_next_i],
+            &[any_initial, i_initial],
+            Type::Tuple {
+                elements: vec![Type::Bool, Type::u64()],
+            },
+            Span::unknown(),
+        )
+        .unwrap();
 
     // 3. Parity Loop
     let par_initial = b.constant(ConstantData::Bool(false), Type::Bool, Span::unknown());
-    let p_elem = b.array_access(board, i_initial, Type::Bool, Span::unknown()).unwrap();
+    let p_elem = b
+        .array_access(board, i_initial, Type::Bool, Span::unknown())
+        .unwrap();
     let p_next = b.ne(par_initial, p_elem, Span::unknown()).unwrap();
     let p_next_i = b.add(i_initial, i_step, Span::unknown()).unwrap();
     let p_cond = b.lt(i_initial, limit, Span::unknown()).unwrap();
-    let _par_loop = b.r#loop(
-        &[p_elem, p_next, p_next_i, p_cond],
-        p_cond,
-        &[p_next, p_next_i],
-        &[par_initial, i_initial],
-        Type::Tuple { elements: vec![Type::Bool, Type::u64()] },
-        Span::unknown(),
-    ).unwrap();
+    let _par_loop = b
+        .r#loop(
+            &[p_elem, p_next, p_next_i, p_cond],
+            p_cond,
+            &[p_next, p_next_i],
+            &[par_initial, i_initial],
+            Type::Tuple {
+                elements: vec![Type::Bool, Type::u64()],
+            },
+            Span::unknown(),
+        )
+        .unwrap();
 
     // 4. Modulo Power of Two
     let divisor = b.constant(ConstantData::i32(16), Type::i32(), Span::unknown());
     let mod_res = b.rem(x, divisor, Span::unknown()).unwrap();
 
     // Use an external call to keep all independent loops alive (prevents DCE)
-    let keep_alive = b.external_call(
-        "keep_alive",
-        &[_count_loop, _any_loop, _par_loop, mod_res],
-        Type::i32(),
-        sir_types::Effects::IO,
-        Span::unknown(),
-    ).unwrap();
+    let keep_alive = b
+        .external_call(
+            "keep_alive",
+            &[_count_loop, _any_loop, _par_loop, mod_res],
+            Type::i32(),
+            sir_types::Effects::IO,
+            Span::unknown(),
+        )
+        .unwrap();
 
     b.return_value(keep_alive, Span::unknown()).unwrap();
     let built_func = b.build();
-    
-    println!("COUNT LOOP EFFECTS: {:?}", built_func.get_node(_count_loop).unwrap().effects);
+
+    println!(
+        "COUNT LOOP EFFECTS: {:?}",
+        built_func.get_node(_count_loop).unwrap().effects
+    );
 
     built_func
 }
@@ -106,13 +129,14 @@ fn build_orchestration_function() -> sir_nodes::Function {
 fn test_orchestration_multiple_rewrites() {
     let func = build_orchestration_function();
     let optimizer = Optimizer::new(OptimizerConfig::default(), default_registry());
-    
+
     let result = optimizer.optimize(&func);
 
     println!("\n=== Orchestration: Multiple Rewrites ===\n");
     println!("Total Rewrites Applied: {}", result.rewrites_applied);
     for (i, rec) in result.iterations_detail.iter().enumerate() {
-        println!("Iteration {}: Found {} candidate(s), {} proven, selected {}, rewrote {}",
+        println!(
+            "Iteration {}: Found {} candidate(s), {} proven, selected {}, rewrote {}",
             i + 1,
             rec.candidates_generated,
             rec.proofs_succeeded,
@@ -120,7 +144,10 @@ fn test_orchestration_multiple_rewrites() {
             rec.rewrites_applied
         );
         // Print the current arena to see what's happening
-        println!("Arena length after iteration: {}", result.function.arena.len());
+        println!(
+            "Arena length after iteration: {}",
+            result.function.arena.len()
+        );
     }
 
     // We expect exactly 4 rewrites because there are 4 independent non-overlapping optimizable regions.
@@ -129,5 +156,8 @@ fn test_orchestration_multiple_rewrites() {
     // Iteration 3 ...
     // Iteration 4 ...
     // Iteration 5 should find no remaining candidates and converge.
-    assert_eq!(result.rewrites_applied, 4, "Expected exactly 4 rewrites to be applied");
+    assert_eq!(
+        result.rewrites_applied, 4,
+        "Expected exactly 4 rewrites to be applied"
+    );
 }

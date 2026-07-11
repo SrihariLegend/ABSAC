@@ -101,11 +101,7 @@ impl Optimizer {
     /// 5. Verification → build_obligations() + verify()
     /// 6. Selection → select_all()
     /// 7. Rewrite → exactly one per iteration (highest score)
-    fn optimize_iteration(
-        &self,
-        function: &Function,
-        iteration_number: usize,
-    ) -> IterationResult {
+    fn optimize_iteration(&self, function: &Function, iteration_number: usize) -> IterationResult {
         // ── 1. Analysis ───────────────────────────────────────
         let mut analysis = AnalysisManager::new();
         analysis.run_all(function);
@@ -154,9 +150,7 @@ impl Optimizer {
         let mut proven: Vec<VerifiedCandidate> = Vec::new();
 
         for obligation in obligations_db.all() {
-            let contexts = inference
-                .context_database()
-                .for_region(obligation.region);
+            let contexts = inference.context_database().for_region(obligation.region);
             if let Some(context) = contexts.first() {
                 let verification_result = verifier.verify(obligation, context);
                 if let VerificationResult::Proven(proof) = &verification_result {
@@ -171,7 +165,10 @@ impl Optimizer {
                         }
                     }
                 } else {
-                    println!("Failed proof for {:?}: {:?}", obligation.definition, verification_result);
+                    println!(
+                        "Failed proof for {:?}: {:?}",
+                        obligation.definition, verification_result
+                    );
                 }
             }
         }
@@ -228,7 +225,10 @@ impl Optimizer {
         let best = &selection.chosen[0];
 
         // LOGGING HACK
-        println!("Iteration {}: Selected candidate {} with strategy {:?}", iteration_number, best.candidate.id, best.candidate.strategy);
+        println!(
+            "Iteration {}: Selected candidate {} with strategy {:?}",
+            iteration_number, best.candidate.id, best.candidate.strategy
+        );
 
         let (next_function, rewrites_applied) = match self.rewrite_engine.rewrite(
             function,
@@ -237,7 +237,10 @@ impl Optimizer {
             semantics.structural_database(),
         ) {
             Ok(rewrite_result) => (rewrite_result.rewritten, 1usize),
-            Err(_e) => (function.clone(), 0usize),
+            Err(e) => {
+                println!("Rewrite failed: {:?}", e);
+                (function.clone(), 0usize)
+            }
         };
 
         IterationResult {

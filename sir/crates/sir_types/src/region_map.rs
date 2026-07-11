@@ -33,9 +33,7 @@ impl<T> RegionMap<T> {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (RegionId, &[T])> {
-        self.entries
-            .iter()
-            .map(|(&rid, v)| (rid, v.as_slice()))
+        self.entries.iter().map(|(&rid, v)| (rid, v.as_slice()))
     }
 
     pub fn all(&self) -> impl Iterator<Item = &T> {
