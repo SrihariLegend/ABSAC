@@ -38,28 +38,22 @@ impl ExhaustiveVerifier {
         let domain = match &obligation.domain {
             Some(d) => d,
             None => {
-                return VerificationResult::Unknown(
-                    UnknownReason::NoApplicableBackend,
-                );
+                return VerificationResult::Unknown(UnknownReason::NoApplicableBackend);
             }
         };
 
         let total = match domain.total_states() {
             Some(t) => t,
             None => {
-                return VerificationResult::Unknown(
-                    UnknownReason::DomainOverflow,
-                );
+                return VerificationResult::Unknown(UnknownReason::DomainOverflow);
             }
         };
 
         if total > self.limits.max_states {
-            return VerificationResult::Unknown(
-                UnknownReason::DomainTooLarge {
-                    states: Some(total),
-                    max: self.limits.max_states,
-                },
-            );
+            return VerificationResult::Unknown(UnknownReason::DomainTooLarge {
+                states: Some(total),
+                max: self.limits.max_states,
+            });
         }
 
         let interpreter = Interpreter;
@@ -68,30 +62,24 @@ impl ExhaustiveVerifier {
             let lhs_val = match interpreter.evaluate(&obligation.theorem.lhs, &env) {
                 Ok(v) => v,
                 Err(_) => {
-                    return VerificationResult::Unknown(
-                        UnknownReason::NoApplicableBackend,
-                    );
+                    return VerificationResult::Unknown(UnknownReason::NoApplicableBackend);
                 }
             };
 
             let rhs_val = match interpreter.evaluate(&obligation.theorem.rhs, &env) {
                 Ok(v) => v,
                 Err(_) => {
-                    return VerificationResult::Unknown(
-                        UnknownReason::NoApplicableBackend,
-                    );
+                    return VerificationResult::Unknown(UnknownReason::NoApplicableBackend);
                 }
             };
 
             // Short-circuit on first mismatch
             if lhs_val != rhs_val {
-                return VerificationResult::Rejected(
-                    RejectReason::CounterExample {
-                        environment: env,
-                        lhs: lhs_val,
-                        rhs: rhs_val,
-                    },
-                );
+                return VerificationResult::Rejected(RejectReason::CounterExample {
+                    environment: env,
+                    lhs: lhs_val,
+                    rhs: rhs_val,
+                });
             }
         }
 
@@ -124,17 +112,13 @@ mod tests {
 
     fn make_bs001_obligation_with_length(length: usize) -> ProofObligation {
         let v = VariableId::new(0);
-        let lhs = SemanticExpression::Count(Box::new(
-            SemanticExpression::Filter {
-                input: Box::new(SemanticExpression::BooleanArray { variable: v }),
-                predicate: Predicate::True,
-            },
-        ));
-        let rhs = SemanticExpression::Popcount(Box::new(
-            SemanticExpression::Pack(Box::new(
-                SemanticExpression::BooleanArray { variable: v },
-            )),
-        ));
+        let lhs = SemanticExpression::Count(Box::new(SemanticExpression::Filter {
+            input: Box::new(SemanticExpression::BooleanArray { variable: v }),
+            predicate: Predicate::True,
+        }));
+        let rhs = SemanticExpression::Popcount(Box::new(SemanticExpression::Pack(Box::new(
+            SemanticExpression::BooleanArray { variable: v },
+        ))));
 
         ProofObligation {
             id: ObligationId::new(0),

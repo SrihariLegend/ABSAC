@@ -1,8 +1,8 @@
 use sir_semantics::concepts::SemanticConcept;
 use sir_semantics::region::RegionId;
 
-use sir_transform::representation::Representation;
 use crate::hypothesis::EvidenceId;
+use sir_transform::representation::Representation;
 
 /// Whether evidence supports or opposes a representation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,7 +35,9 @@ pub struct EvidenceRegistry {
 
 impl EvidenceRegistry {
     pub fn new() -> Self {
-        Self { entries: Vec::new() }
+        Self {
+            entries: Vec::new(),
+        }
     }
 
     /// Add an evidence entry and return its ID.

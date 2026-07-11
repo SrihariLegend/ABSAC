@@ -22,6 +22,12 @@ pub enum SourceStructure {
     BooleanMatrix { rows: usize, cols: usize },
     /// Arithmetic modulo operator with a constant power-of-two divisor
     ModuloOperator,
+    /// Arithmetic divide operator with a constant power-of-two divisor
+    DivideOperator,
+    /// Arithmetic multiply operator with a constant power-of-two multiplier
+    MultiplyOperator,
+    /// Shift operators that extract a mask
+    ShiftMaskOperator,
 }
 
 impl SourceStructure {

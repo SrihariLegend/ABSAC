@@ -37,9 +37,7 @@ fn build_board_scan() -> sir_nodes::Function {
     let elem = b
         .array_access(board, i_initial, Type::Bool, Span::unknown())
         .unwrap();
-    let inc = b
-        .select(elem, one_i32, zero_i32, Span::unknown())
-        .unwrap();
+    let inc = b.select(elem, one_i32, zero_i32, Span::unknown()).unwrap();
     let new_count = b.add(count_initial, inc, Span::unknown()).unwrap();
     let i_next = b.add(i_initial, i_step, Span::unknown()).unwrap();
     let cond = b.lt(i_initial, limit, Span::unknown()).unwrap();

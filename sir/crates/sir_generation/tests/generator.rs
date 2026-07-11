@@ -1,12 +1,11 @@
 use sir_generation::candidate::{
-    Candidate, CandidateEffect, CandidateExplanation, CandidateId,
-    ImplementationStrategy,
+    Candidate, CandidateEffect, CandidateExplanation, CandidateId, ImplementationStrategy,
 };
 use sir_generation::generator::CandidateDatabase;
 use sir_generation::generator::CandidateGenerator;
-use sir_types::{CostProfile, RegionId};
 use sir_transform::context::ContextId;
 use sir_transform::ids::DefinitionId;
+use sir_types::{CostProfile, RegionId};
 
 #[test]
 fn empty_generator_has_no_candidates() {

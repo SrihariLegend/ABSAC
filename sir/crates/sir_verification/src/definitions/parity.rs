@@ -57,22 +57,17 @@ impl TransformationDefinition for ParityDefinition {
             .unwrap_or(64); // default for BS001
 
         // Build the theorem: LHS = Parity(BooleanArray(v))
-        let lhs = SemanticExpression::Parity(Box::new(
-            SemanticExpression::BooleanArray {
-                variable: board_var,
-            },
-        ));
+        let lhs = SemanticExpression::Parity(Box::new(SemanticExpression::BooleanArray {
+            variable: board_var,
+        }));
 
         // RHS = BitwiseAndOne(Popcount(Pack(BooleanArray(v))))
-        let rhs = SemanticExpression::BitwiseAndOne(Box::new(
-            SemanticExpression::Popcount(Box::new(
-                SemanticExpression::Pack(Box::new(
-                    SemanticExpression::BooleanArray {
-                        variable: board_var,
-                    },
-                )),
-            )),
-        ));
+        let rhs =
+            SemanticExpression::BitwiseAndOne(Box::new(SemanticExpression::Popcount(Box::new(
+                SemanticExpression::Pack(Box::new(SemanticExpression::BooleanArray {
+                    variable: board_var,
+                })),
+            ))));
 
         let theorem = Theorem::new(lhs, rhs);
 
@@ -101,17 +96,18 @@ impl TransformationDefinition for ParityDefinition {
             domain: Some(domain),
         }
     }
-
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sir_generation::candidate::{
+        CandidateEffect, CandidateExplanation, CandidateId, ImplementationStrategy,
+    };
     use sir_transform::constraints::Constraint;
+    use sir_transform::context::ContextId;
     use sir_transform::structures::SourceStructure;
     use sir_types::RegionId;
-    use sir_generation::candidate::{CandidateEffect, CandidateExplanation, CandidateId, ImplementationStrategy};
-    use sir_transform::context::ContextId;
     use std::collections::HashSet;
 
     fn make_candidate() -> Candidate {
@@ -196,7 +192,9 @@ mod tests {
         let obl = def.obligation(&cand);
 
         assert!(obl.assumptions.contains(&Assumption::EquivalentCardinality));
-        assert!(obl.assumptions.contains(&Assumption::PreservesIterationOrder));
+        assert!(obl
+            .assumptions
+            .contains(&Assumption::PreservesIterationOrder));
         assert!(obl.assumptions.contains(&Assumption::PreservesLayout));
     }
 

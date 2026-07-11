@@ -3,8 +3,8 @@
 //! Supports compact and detailed text formats, plus JSON serialization
 //! for roundtrip preservation.
 
-pub mod text;
 pub mod json;
+pub mod text;
 
-pub use text::*;
 pub use json::*;
+pub use text::*;

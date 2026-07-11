@@ -29,17 +29,20 @@ pub fn recognize_boolean_collection(
                     SemanticConcept::BooleanCollection,
                     RecognitionExplanation {
                         concept: SemanticConcept::BooleanCollection,
-                        triggering_facts: vec![
-                            "Array element type is Bool",
-                        ],
+                        triggering_facts: vec!["Array element type is Bool"],
                     },
                     related,
                 ));
             }
         }
-        
+
         // Also recognize dynamically generated boolean collections
-        if let NodeKind::ArrayCmpMask { array, scalar, op: _ } = &node.kind {
+        if let NodeKind::ArrayCmpMask {
+            array,
+            scalar,
+            op: _,
+        } = &node.kind
+        {
             results.push((
                 SemanticConcept::BooleanCollection,
                 RecognitionExplanation {

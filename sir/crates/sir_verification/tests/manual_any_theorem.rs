@@ -11,19 +11,15 @@ use sir_verification::semantic::theorem::Theorem;
 fn manual_test_any_symbolic() {
     let board_var = VariableId::new(0);
 
-    let lhs = SemanticExpression::Exists(Box::new(
+    let lhs = SemanticExpression::Exists(Box::new(SemanticExpression::BooleanArray {
+        variable: board_var,
+    }));
+
+    let rhs = SemanticExpression::NotEqualZero(Box::new(SemanticExpression::Pack(Box::new(
         SemanticExpression::BooleanArray {
             variable: board_var,
         },
-    ));
-
-    let rhs = SemanticExpression::NotEqualZero(Box::new(
-        SemanticExpression::Pack(Box::new(
-            SemanticExpression::BooleanArray {
-                variable: board_var,
-            },
-        )),
-    ));
+    ))));
 
     let theorem = Theorem::new(lhs, rhs);
 
@@ -40,5 +36,9 @@ fn manual_test_any_symbolic() {
     let verifier = SymbolicVerifier::new();
     let result = verifier.verify(&obligation);
 
-    assert!(matches!(result, sir_verification::VerificationResult::Proven(_)), "Expected Proven, got {:#?}", result);
+    assert!(
+        matches!(result, sir_verification::VerificationResult::Proven(_)),
+        "Expected Proven, got {:#?}",
+        result
+    );
 }

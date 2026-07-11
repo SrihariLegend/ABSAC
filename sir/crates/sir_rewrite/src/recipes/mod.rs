@@ -1,6 +1,9 @@
-pub mod popcount;
-pub mod any;
 pub mod all;
-pub mod parity;
-pub mod modulo_and;
+pub mod any;
+pub mod divide_shift;
 pub mod helpers;
+pub mod modulo_and;
+pub mod multiply_shift;
+pub mod parity;
+pub mod popcount;
+pub mod shift_mask;

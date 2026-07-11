@@ -7,12 +7,12 @@
 //! This crate sits at the center of the architecture:
 //!   Understanding → sir_transform ← Action
 
+pub mod assumptions;
+pub mod constraints;
+pub mod context;
 pub mod representation;
 pub mod roles;
 pub mod structures;
-pub mod constraints;
-pub mod assumptions;
-pub mod context;
 pub use context::TransformationContextDatabase;
 
 pub mod ids;

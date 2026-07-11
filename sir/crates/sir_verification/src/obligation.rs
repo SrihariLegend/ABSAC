@@ -175,8 +175,7 @@ impl ProofObligationDatabase {
             .entry(obligation.region)
             .or_default()
             .push(index);
-        self.by_candidate
-            .insert(obligation.candidate, index);
+        self.by_candidate.insert(obligation.candidate, index);
         self.obligations.push(obligation);
 
         id
@@ -249,9 +248,7 @@ mod tests {
 
     #[test]
     fn finite_domain_empty_total_states() {
-        let domain = FiniteDomain {
-            variables: vec![],
-        };
+        let domain = FiniteDomain { variables: vec![] };
         assert_eq!(domain.total_states(), Some(1)); // empty product = 1
     }
 
@@ -305,10 +302,7 @@ mod tests {
         let run2: Vec<Environment> = domain.enumerate().collect();
         assert_eq!(run1.len(), run2.len());
         for (e1, e2) in run1.iter().zip(run2.iter()) {
-            assert_eq!(
-                e1.lookup(VariableId::new(0)),
-                e2.lookup(VariableId::new(0))
-            );
+            assert_eq!(e1.lookup(VariableId::new(0)), e2.lookup(VariableId::new(0)));
         }
     }
 

@@ -9,9 +9,7 @@ pub enum RewriteError {
     },
 
     /// The StructuralDescription doesn't carry the expected role.
-    MissingRole {
-        role: String,
-    },
+    MissingRole { role: String },
 
     /// A node referenced in the patch was not found in the original function.
     NodeNotFound(sir_types::NodeId),
@@ -29,10 +27,7 @@ pub enum RewriteError {
 impl std::fmt::Display for RewriteError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RewriteError::DefinitionMismatch {
-                candidate,
-                recipe,
-            } => {
+            RewriteError::DefinitionMismatch { candidate, recipe } => {
                 write!(
                     f,
                     "definition mismatch: candidate={candidate}, recipe={recipe}"

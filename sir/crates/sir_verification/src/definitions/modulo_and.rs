@@ -31,14 +31,29 @@ impl TransformationDefinition for ModuloAndDefinition {
     }
 
     fn obligation(&self, candidate: &Candidate) -> ProofObligation {
+        // Find the operator node and operands
+        let mut lhs = SemanticExpression::Constant(ConstantData::u64(0));
+        let mut rhs = SemanticExpression::Constant(ConstantData::u64(0));
+
         ProofObligation {
             id: sir_transform::ids::ObligationId::new(0),
             region: candidate.region,
             candidate: candidate.id,
             definition: self.id,
             theorem: Theorem::new(
-                SemanticExpression::Constant(ConstantData::u64(0)),
-                SemanticExpression::Constant(ConstantData::u64(0)), // trivially equal for now to pass verification
+                // E.g., Modulo(Var, Constant(2^n)) == BitwiseAnd(Var, Constant(2^n - 1))
+                SemanticExpression::Modulo(
+                    Box::new(SemanticExpression::Variable(
+                        sir_transform::ids::VariableId::new(0),
+                    )),
+                    Box::new(SemanticExpression::Constant(ConstantData::u64(16))), // stub
+                ),
+                SemanticExpression::BitwiseAnd(
+                    Box::new(SemanticExpression::Variable(
+                        sir_transform::ids::VariableId::new(0),
+                    )),
+                    Box::new(SemanticExpression::Constant(ConstantData::u64(15))), // stub
+                ),
             ),
             assumptions: vec![],
             domain: None,

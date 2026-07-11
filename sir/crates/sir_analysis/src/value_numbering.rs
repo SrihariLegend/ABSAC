@@ -4,9 +4,9 @@
 //! class based on its operation and the value numbers of its inputs.
 //! Nodes in the same class compute the same value.
 
-use std::collections::HashMap;
 use sir_nodes::{Function, NodeKind};
 use sir_types::NodeId;
+use std::collections::HashMap;
 
 use crate::facts::ValueNumberFact;
 use crate::graph;
@@ -58,10 +58,7 @@ pub fn run_value_numbering(func: &Function) -> HashMap<NodeId, ValueNumberFact> 
 /// Uses FNV-1a, which is deterministic across Rust versions and process runs.
 /// Hashes the variant discriminant, value numbers of all dataflow inputs
 /// (in order), and additional immediate data (field names, constant values).
-fn compute_hash(
-    kind: &NodeKind,
-    vn_map: &HashMap<NodeId, u64>,
-) -> u64 {
+fn compute_hash(kind: &NodeKind, vn_map: &HashMap<NodeId, u64>) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;
 
     // Mix a u64 value.
@@ -155,8 +152,12 @@ mod tests {
     use sir_builder::Builder;
     use sir_types::{ConstantData, Span, Type};
 
-    fn i32_type() -> Type { Type::i32() }
-    fn unknown_span() -> Span { Span::unknown() }
+    fn i32_type() -> Type {
+        Type::i32()
+    }
+    fn unknown_span() -> Span {
+        Span::unknown()
+    }
 
     #[test]
     fn identical_add_same_class() {

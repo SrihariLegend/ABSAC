@@ -4,9 +4,9 @@
 //! each pointer may reference, propagating through field access, array
 //! indexing, and conditional select.
 
-use std::collections::{BTreeSet, HashMap};
 use sir_nodes::{Function, NodeKind};
 use sir_types::NodeId;
+use std::collections::{BTreeSet, HashMap};
 
 use crate::facts::{AliasFact, AliasKind};
 use crate::graph;
@@ -34,10 +34,7 @@ pub fn run_alias(func: &Function) -> HashMap<NodeId, AliasFact> {
 }
 
 /// Compute alias fact for a single node.
-fn compute_alias(
-    node: &sir_nodes::Node,
-    facts: &HashMap<NodeId, AliasFact>,
-) -> AliasFact {
+fn compute_alias(node: &sir_nodes::Node, facts: &HashMap<NodeId, AliasFact>) -> AliasFact {
     match &node.kind {
         // Allocate creates a fresh, unique allocation site.
         NodeKind::Allocate { .. } => {
@@ -64,7 +61,9 @@ fn compute_alias(
 
         // Select: union of both branches.
         NodeKind::Select {
-            true_val, false_val, ..
+            true_val,
+            false_val,
+            ..
         } => {
             let t = facts.get(true_val);
             let f = facts.get(false_val);
@@ -134,9 +133,15 @@ mod tests {
     use sir_builder::Builder;
     use sir_types::{ConstantData, Span, Type};
 
-    fn i32_type() -> Type { Type::i32() }
-    fn u64_type() -> Type { Type::u64() }
-    fn unknown_span() -> Span { Span::unknown() }
+    fn i32_type() -> Type {
+        Type::i32()
+    }
+    fn u64_type() -> Type {
+        Type::u64()
+    }
+    fn unknown_span() -> Span {
+        Span::unknown()
+    }
 
     #[test]
     fn allocate_aliases_itself() {
@@ -195,7 +200,9 @@ mod tests {
         let mut b = Builder::new("field", &[], i32_type());
         let count = b.constant(ConstantData::u64(1), u64_type(), unknown_span());
         let ptr = b.allocate(i32_type(), count, unknown_span()).unwrap();
-        let field = b.field_access(ptr, "x", i32_type(), unknown_span()).unwrap();
+        let field = b
+            .field_access(ptr, "x", i32_type(), unknown_span())
+            .unwrap();
         b.return_value(field, unknown_span()).unwrap();
         let func = b.build();
         let facts = run_alias(&func);

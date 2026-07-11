@@ -1,5 +1,5 @@
 use sir_semantics::concepts::SemanticConcept;
-use sir_semantics::region::{Region, RegionId, RecognitionExplanation};
+use sir_semantics::region::{RecognitionExplanation, Region, RegionId};
 use sir_semantics::semantics::SemanticDatabase;
 
 #[test]
@@ -64,11 +64,16 @@ fn database_explain_returns_explanation() {
 
     let explanation = db.explain(rid, SemanticConcept::BooleanCollection);
     assert!(explanation.is_some());
-    assert!(explanation.unwrap().triggering_facts.contains(&"Array element type is Bool"));
+    assert!(explanation
+        .unwrap()
+        .triggering_facts
+        .contains(&"Array element type is Bool"));
 }
 
 #[test]
 fn database_explain_unknown_returns_none() {
     let db = SemanticDatabase::new();
-    assert!(db.explain(RegionId::new(99), SemanticConcept::BooleanCollection).is_none());
+    assert!(db
+        .explain(RegionId::new(99), SemanticConcept::BooleanCollection)
+        .is_none());
 }

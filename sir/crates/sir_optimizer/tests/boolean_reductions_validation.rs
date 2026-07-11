@@ -3,7 +3,12 @@ use sir_optimizer::{Optimizer, OptimizerConfig};
 use sir_rewrite::registry::default_registry;
 use sir_types::{ConstantData, Span, Type};
 
-fn build_benchmark(name: &str, is_count: bool, is_all: bool, is_parity: bool) -> sir_nodes::Function {
+fn build_benchmark(
+    name: &str,
+    is_count: bool,
+    is_all: bool,
+    is_parity: bool,
+) -> sir_nodes::Function {
     let return_type = if is_count { Type::i32() } else { Type::Bool };
     let mut b = Builder::new(
         name,
@@ -21,7 +26,7 @@ fn build_benchmark(name: &str, is_count: bool, is_all: bool, is_parity: bool) ->
     let i_initial = b.constant(ConstantData::u64(0), Type::u64(), Span::unknown());
     let i_step = b.constant(ConstantData::u64(1), Type::u64(), Span::unknown());
     let limit = b.constant(ConstantData::u64(64), Type::u64(), Span::unknown());
-    
+
     let accum_initial = if is_count {
         b.constant(ConstantData::i32(0), Type::i32(), Span::unknown())
     } else {
@@ -29,7 +34,9 @@ fn build_benchmark(name: &str, is_count: bool, is_all: bool, is_parity: bool) ->
         b.constant(ConstantData::Bool(is_all), Type::Bool, Span::unknown())
     };
 
-    let elem = b.array_access(board, i_initial, Type::Bool, Span::unknown()).unwrap();
+    let elem = b
+        .array_access(board, i_initial, Type::Bool, Span::unknown())
+        .unwrap();
 
     let mut body = vec![elem];
     let next_accum = if is_count {
@@ -54,14 +61,18 @@ fn build_benchmark(name: &str, is_count: bool, is_all: bool, is_parity: bool) ->
     let cond = b.lt(i_initial, limit, Span::unknown()).unwrap(); // Wait, should it be next_i or i_initial? In BS001 it was `i_initial` for `cond` because loop terminates when `cond` becomes false. No, it terminates when `cond` evaluates false at start of iteration. If we check `i_initial < 64` then it loops.
     body.push(cond);
 
-    let loop_node = b.r#loop(
-        &body,
-        cond,
-        &[next_accum, next_i],
-        &[accum_initial, i_initial],
-        Type::Tuple { elements: vec![return_type, Type::u64()] },
-        Span::unknown(),
-    ).unwrap();
+    let loop_node = b
+        .r#loop(
+            &body,
+            cond,
+            &[next_accum, next_i],
+            &[accum_initial, i_initial],
+            Type::Tuple {
+                elements: vec![return_type, Type::u64()],
+            },
+            Span::unknown(),
+        )
+        .unwrap();
 
     b.return_value(loop_node, Span::unknown()).unwrap();
     b.build()
@@ -73,7 +84,10 @@ fn validate_boolean_reductions() {
         ("BS001_Count", build_benchmark("count", true, false, false)),
         ("BS002_Any", build_benchmark("any", false, false, false)),
         ("BS003_All", build_benchmark("all", false, true, false)),
-        ("BS004_Parity", build_benchmark("parity", false, false, true)),
+        (
+            "BS004_Parity",
+            build_benchmark("parity", false, false, true),
+        ),
     ];
 
     let mut all_passed = true;
@@ -98,14 +112,19 @@ fn validate_boolean_reductions() {
             println!("Rewriting failed for {}", name);
         }
 
-        let has_loop = result.function.arena.iter().any(|n| matches!(n.kind, sir_nodes::NodeKind::Loop { .. }));
+        let has_loop = result
+            .function
+            .arena
+            .iter()
+            .any(|n| matches!(n.kind, sir_nodes::NodeKind::Loop { .. }));
         let expected_output = rewritten && !has_loop;
 
         if !expected_output {
             all_passed = false;
         }
 
-        println!("| {:<9} | {:<10} | {:<6} | {:<8} | {:<9} | {:<16} |", 
+        println!(
+            "| {:<9} | {:<10} | {:<6} | {:<8} | {:<9} | {:<16} |",
             name.split('_').next().unwrap(),
             if recognized { "✓" } else { "✗" },
             if proven { "✓" } else { "✗" },
@@ -113,7 +132,7 @@ fn validate_boolean_reductions() {
             if rewritten { "✓" } else { "✗" },
             if expected_output { "✓" } else { "✗" }
         );
-        
+
         // Print the rewritten SIR for visual confirmation
         if rewritten {
             println!("\n--- {} Rewritten SIR ---", name);
@@ -124,5 +143,8 @@ fn validate_boolean_reductions() {
         }
     }
 
-    assert!(all_passed, "All benchmarks must complete the pipeline successfully.");
+    assert!(
+        all_passed,
+        "All benchmarks must complete the pipeline successfully."
+    );
 }

@@ -57,22 +57,13 @@ pub enum VerificationError {
     },
 
     /// A Loop's termination condition is not Bool.
-    LoopTerminationNotBool {
-        loop_node: NodeId,
-        actual: Type,
-    },
+    LoopTerminationNotBool { loop_node: NodeId, actual: Type },
 
     /// A Select's condition is not Bool.
-    SelectConditionNotBool {
-        node: NodeId,
-        actual: Type,
-    },
+    SelectConditionNotBool { node: NodeId, actual: Type },
 
     /// A pointer operation received a non-pointer operand.
-    InvalidPointerOperation {
-        node: NodeId,
-        actual: Type,
-    },
+    InvalidPointerOperation { node: NodeId, actual: Type },
 
     /// A Loop's carried_inputs count doesn't match outputs count.
     LoopCarriedMismatch {

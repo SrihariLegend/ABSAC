@@ -57,20 +57,16 @@ impl TransformationDefinition for AnyDefinition {
             .unwrap_or(64); // default for BS001
 
         // Build the theorem: LHS = Exists(BooleanArray(v))
-        let lhs = SemanticExpression::Exists(Box::new(
+        let lhs = SemanticExpression::Exists(Box::new(SemanticExpression::BooleanArray {
+            variable: board_var,
+        }));
+
+        // RHS = NotEqualZero(Pack(BooleanArray(v)))
+        let rhs = SemanticExpression::NotEqualZero(Box::new(SemanticExpression::Pack(Box::new(
             SemanticExpression::BooleanArray {
                 variable: board_var,
             },
-        ));
-
-        // RHS = NotEqualZero(Pack(BooleanArray(v)))
-        let rhs = SemanticExpression::NotEqualZero(Box::new(
-            SemanticExpression::Pack(Box::new(
-                SemanticExpression::BooleanArray {
-                    variable: board_var,
-                },
-            )),
-        ));
+        ))));
 
         let theorem = Theorem::new(lhs, rhs);
 
@@ -99,17 +95,18 @@ impl TransformationDefinition for AnyDefinition {
             domain: Some(domain),
         }
     }
-
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sir_generation::candidate::{
+        CandidateEffect, CandidateExplanation, CandidateId, ImplementationStrategy,
+    };
     use sir_transform::constraints::Constraint;
+    use sir_transform::context::ContextId;
     use sir_transform::structures::SourceStructure;
     use sir_types::RegionId;
-    use sir_generation::candidate::{CandidateEffect, CandidateExplanation, CandidateId, ImplementationStrategy};
-    use sir_transform::context::ContextId;
     use std::collections::HashSet;
 
     fn make_candidate() -> Candidate {
@@ -191,7 +188,9 @@ mod tests {
         let obl = def.obligation(&cand);
 
         assert!(obl.assumptions.contains(&Assumption::EquivalentCardinality));
-        assert!(obl.assumptions.contains(&Assumption::PreservesIterationOrder));
+        assert!(obl
+            .assumptions
+            .contains(&Assumption::PreservesIterationOrder));
         assert!(obl.assumptions.contains(&Assumption::PreservesLayout));
     }
 

@@ -30,6 +30,7 @@ impl RewriteRecipe for BitwiseAndModuloRecipe {
 
     fn build_patch(
         &self,
+        function: &sir_nodes::Function,
         region: &RewriteRegion,
         mut builder: SubgraphBuilder,
     ) -> Result<ReplacementPatch, RewriteError> {
@@ -39,14 +40,28 @@ impl RewriteRecipe for BitwiseAndModuloRecipe {
         let result_id = region.result()?;
 
         use crate::local_id::LocalNodeId;
-        use sir_types::{ConstantData, Type, Span};
+        use sir_types::{ConstantData, Span, Type};
 
         let local_lhs = LocalNodeId::new(lhs_id.as_u64());
         let local_rhs = LocalNodeId::new(rhs_id.as_u64());
 
-        // Create `1`
-        let one = builder.constant(ConstantData::i32(1), Type::i32(), Span::unknown());
-        // Create `rhs - 1`
+        let ty = function
+            .get_node(lhs_id)
+            .map(|n| n.ty.clone())
+            .unwrap_or(sir_types::Type::i32());
+
+        // Determine whether to emit a signed or unsigned `1` constant
+        let is_signed = match &ty {
+            sir_types::Type::Integer { signed, .. } => *signed,
+            _ => true,
+        };
+        let one_data = if is_signed {
+            ConstantData::i32(1)
+        } else {
+            ConstantData::u32(1)
+        };
+
+        let one = builder.constant(one_data, ty.clone(), Span::unknown());
         let mask = builder.sub(local_rhs, one, Span::unknown());
         // Create `lhs & mask`
         let and_op = builder.bitwise_and(local_lhs, mask, Span::unknown());

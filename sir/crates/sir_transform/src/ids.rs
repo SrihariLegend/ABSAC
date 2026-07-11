@@ -3,7 +3,9 @@
 pub struct VariableId(pub u64);
 
 impl VariableId {
-    pub fn new(id: u64) -> Self { Self(id) }
+    pub fn new(id: u64) -> Self {
+        Self(id)
+    }
 }
 
 impl std::fmt::Display for VariableId {
@@ -17,7 +19,9 @@ impl std::fmt::Display for VariableId {
 pub struct DefinitionId(pub u64);
 
 impl DefinitionId {
-    pub const fn new(id: u64) -> Self { Self(id) }
+    pub const fn new(id: u64) -> Self {
+        Self(id)
+    }
 }
 
 impl std::fmt::Display for DefinitionId {
@@ -31,7 +35,9 @@ impl std::fmt::Display for DefinitionId {
 pub struct ObligationId(pub u64);
 
 impl ObligationId {
-    pub fn new(id: u64) -> Self { Self(id) }
+    pub fn new(id: u64) -> Self {
+        Self(id)
+    }
 }
 
 impl std::fmt::Display for ObligationId {

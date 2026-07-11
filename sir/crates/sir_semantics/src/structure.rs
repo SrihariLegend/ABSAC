@@ -17,10 +17,7 @@ pub struct StructuralDescription {
 }
 
 impl StructuralDescription {
-    pub fn new(
-        region: RegionId,
-        source_structure: SourceStructure,
-    ) -> Self {
+    pub fn new(region: RegionId, source_structure: SourceStructure) -> Self {
         Self {
             region,
             source_structure,
@@ -49,7 +46,9 @@ pub struct StructuralDatabase {
 
 impl StructuralDatabase {
     pub fn new() -> Self {
-        Self { descriptions: HashMap::new() }
+        Self {
+            descriptions: HashMap::new(),
+        }
     }
 
     pub fn add_description(&mut self, desc: StructuralDescription) {
@@ -88,6 +87,4 @@ impl StructuralDatabase {
             self.descriptions.insert(to, desc);
         }
     }
-
-
 }

@@ -4,9 +4,9 @@
 //! DOM(n) = {n} ∪ ⋂ DOM(p) for all dataflow predecessors p.
 //! Also computes immediate dominators and dominator tree children.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
 use sir_nodes::Function;
 use sir_types::NodeId;
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::facts::DominanceFact;
 use crate::graph;
@@ -144,10 +144,7 @@ fn compute_idom(
 }
 
 /// Collect all descendants of a node in the dominator tree.
-fn dom_tree_descendants(
-    root: NodeId,
-    children: &HashMap<NodeId, Vec<NodeId>>,
-) -> BTreeSet<NodeId> {
+fn dom_tree_descendants(root: NodeId, children: &HashMap<NodeId, Vec<NodeId>>) -> BTreeSet<NodeId> {
     let mut result = BTreeSet::new();
     let mut stack = vec![root];
     while let Some(current) = stack.pop() {
@@ -167,8 +164,12 @@ mod tests {
     use sir_builder::Builder;
     use sir_types::{Span, Type};
 
-    fn i32_type() -> Type { Type::i32() }
-    fn unknown_span() -> Span { Span::unknown() }
+    fn i32_type() -> Type {
+        Type::i32()
+    }
+    fn unknown_span() -> Span {
+        Span::unknown()
+    }
 
     #[test]
     fn single_node_dominates_itself() {

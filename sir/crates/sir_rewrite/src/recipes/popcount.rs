@@ -35,10 +35,11 @@ impl RewriteRecipe for PopcountRecipe {
 
     fn build_patch(
         &self,
+        function: &sir_nodes::Function,
         region: &RewriteRegion,
         mut builder: SubgraphBuilder,
     ) -> Result<ReplacementPatch, RewriteError> {
-        let packed = crate::recipes::helpers::emit_pack(region, &mut builder)?;
+        let packed = crate::recipes::helpers::emit_pack(function, region, &mut builder)?;
         let pop = builder.popcount(packed, Span::unknown());
 
         // 3. Map old result → new popcount

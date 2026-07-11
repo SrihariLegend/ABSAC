@@ -1,6 +1,6 @@
 use sir_inference::engine::InferenceEngine;
 use sir_semantics::concepts::SemanticConcept;
-use sir_semantics::region::{Region, RegionId, RecognitionExplanation};
+use sir_semantics::region::{RecognitionExplanation, Region, RegionId};
 use sir_semantics::semantics::SemanticDatabase;
 use sir_semantics::structure::StructuralDatabase;
 
@@ -8,10 +8,13 @@ fn run_inference(concepts: &[SemanticConcept]) -> Vec<sir_inference::hypothesis:
     let mut semantic_db = SemanticDatabase::new();
     let mut region = Region::new(RegionId::new(0));
     for &concept in concepts {
-        region.add_concept(concept, RecognitionExplanation {
+        region.add_concept(
             concept,
-            triggering_facts: vec!["test"],
-        });
+            RecognitionExplanation {
+                concept,
+                triggering_facts: vec!["test"],
+            },
+        );
     }
     semantic_db.add_region(region);
 
@@ -44,9 +47,24 @@ fn ambiguous_case_has_low_confidence() {
 fn order_of_concepts_does_not_affect_result() {
     use SemanticConcept::*;
     let concepts_sets = vec![
-        vec![BooleanCollection, FiniteCollection, MembershipTraversal, CardinalityReduction],
-        vec![CardinalityReduction, MembershipTraversal, FiniteCollection, BooleanCollection],
-        vec![MembershipTraversal, BooleanCollection, CardinalityReduction, FiniteCollection],
+        vec![
+            BooleanCollection,
+            FiniteCollection,
+            MembershipTraversal,
+            CardinalityReduction,
+        ],
+        vec![
+            CardinalityReduction,
+            MembershipTraversal,
+            FiniteCollection,
+            BooleanCollection,
+        ],
+        vec![
+            MembershipTraversal,
+            BooleanCollection,
+            CardinalityReduction,
+            FiniteCollection,
+        ],
     ];
 
     let mut scores = Vec::new();
@@ -58,8 +76,10 @@ fn order_of_concepts_does_not_affect_result() {
     // All orderings must produce identical scores
     let first = scores[0];
     for &score in &scores {
-        assert_eq!(score, first,
-            "Evidence aggregation must be order-independent");
+        assert_eq!(
+            score, first,
+            "Evidence aggregation must be order-independent"
+        );
     }
 }
 
@@ -73,7 +93,9 @@ fn support_is_never_negative_for_pure_positive_evidence() {
         SemanticConcept::CardinalityReduction,
     ]);
     let h = hyps.first().unwrap();
-    assert_eq!(h.support.negative, 0,
-        "All-positive evidence should have zero negative support");
+    assert_eq!(
+        h.support.negative, 0,
+        "All-positive evidence should have zero negative support"
+    );
     assert!(h.support.positive > 0);
 }

@@ -13,7 +13,13 @@ use sir_types::{ConstantData, Span, Type};
 fn build_board_all() -> sir_nodes::Function {
     let mut b = Builder::new(
         "board_all",
-        &[("board", Type::Array { element: Box::new(Type::Bool), length: 64 })],
+        &[(
+            "board",
+            Type::Array {
+                element: Box::new(Type::Bool),
+                length: 64,
+            },
+        )],
         Type::Bool,
     );
 
@@ -24,19 +30,29 @@ fn build_board_all() -> sir_nodes::Function {
     let all_initial = b.constant(ConstantData::boolean(true), Type::Bool, Span::unknown());
 
     // Body: all = all && board[i]
-    let elem = b.array_access(board, i_initial, Type::Bool, Span::unknown()).unwrap();
-    let new_all = b.bool_and(all_initial, elem, Span::unknown()).unwrap();   // ← && operator
+    let elem = b
+        .array_access(board, i_initial, Type::Bool, Span::unknown())
+        .unwrap();
+    let new_all = b.bool_and(all_initial, elem, Span::unknown()).unwrap(); // ← && operator
     let i_next = b.add(i_initial, i_step, Span::unknown()).unwrap();
     let cond = b.lt(i_initial, limit, Span::unknown()).unwrap();
 
-    let loop_node = b.r#loop(
-        &[elem, new_all, i_next, cond], cond,
-        &[new_all, i_next], &[all_initial, i_initial],
-        Type::Tuple { elements: vec![Type::Bool, Type::u64()] },
-        Span::unknown(),
-    ).unwrap();
+    let loop_node = b
+        .r#loop(
+            &[elem, new_all, i_next, cond],
+            cond,
+            &[new_all, i_next],
+            &[all_initial, i_initial],
+            Type::Tuple {
+                elements: vec![Type::Bool, Type::u64()],
+            },
+            Span::unknown(),
+        )
+        .unwrap();
 
-    let result = b.field_access(loop_node, "0", Type::Bool, Span::unknown()).unwrap();
+    let result = b
+        .field_access(loop_node, "0", Type::Bool, Span::unknown())
+        .unwrap();
     b.return_value(result, Span::unknown()).unwrap();
     b.build()
 }
@@ -54,7 +70,10 @@ fn bs003_trace_pipeline() {
         println!("  concepts = {:?}", region.concepts());
     }
     for (_rid, desc) in semantics.structural_database().regions() {
-        println!("  structure = {:?}, roles = {:?}", desc.source_structure, desc.roles);
+        println!(
+            "  structure = {:?}, roles = {:?}",
+            desc.source_structure, desc.roles
+        );
     }
 
     let mut inference = InferenceEngine::new();
@@ -67,8 +86,9 @@ fn bs003_trace_pipeline() {
     }
 
     // Diagnostic: check if CardinalityReduction is still firing
-    let has_cardinality = semantics.database().regions()
-        .any(|(_rid, r)| r.contains(sir_semantics::concepts::SemanticConcept::CardinalityReduction));
+    let has_cardinality = semantics.database().regions().any(|(_rid, r)| {
+        r.contains(sir_semantics::concepts::SemanticConcept::CardinalityReduction)
+    });
 
     if has_cardinality {
         println!("\n  *** CardinalityReduction fires for && operator — concept is too coarse ***");

@@ -50,9 +50,13 @@ impl RewriteEngine {
         // 2. Fetch StructuralDescription
         let structural = structural_db
             .region(candidate.region)
-            .ok_or_else(|| RewriteError::RecipeFailed(format!(
-                "no structural description for region {:?}", candidate.region
-            )))?.clone();
+            .ok_or_else(|| {
+                RewriteError::RecipeFailed(format!(
+                    "no structural description for region {:?}",
+                    candidate.region
+                ))
+            })?
+            .clone();
 
         // 3. Assemble RewriteRegion
         let rewrite_region = RewriteRegion::new(structural);
@@ -61,13 +65,16 @@ impl RewriteEngine {
         let recipe = self
             .recipe_registry
             .lookup(candidate.definition_id)
-            .ok_or_else(|| RewriteError::RecipeFailed(format!(
-                "no recipe for definition {}", candidate.definition_id
-            )))?;
+            .ok_or_else(|| {
+                RewriteError::RecipeFailed(format!(
+                    "no recipe for definition {}",
+                    candidate.definition_id
+                ))
+            })?;
 
         // 5. Invoke recipe → ReplacementPatch
-        let builder = crate::subgraph_builder::SubgraphBuilder::new();
-        let patch = recipe.build_patch(&rewrite_region, builder)?;
+        let builder = crate::subgraph_builder::SubgraphBuilder::with_function(function);
+        let patch = recipe.build_patch(function, &rewrite_region, builder)?;
 
         // 6. Assemble RewritePlan
         let plan = RewritePlan {
@@ -100,18 +107,17 @@ impl RewriteEngine {
     }
 
     /// Verify Candidate.definition_id == Recipe.definition()
-    fn verify_ids(
-        &self,
-        candidate: &Candidate,
-        _proof: &Proof,
-    ) -> Result<(), RewriteError> {
+    fn verify_ids(&self, candidate: &Candidate, _proof: &Proof) -> Result<(), RewriteError> {
         let recipe_id = self
             .recipe_registry
             .lookup(candidate.definition_id)
             .map(|r| r.definition())
-            .ok_or_else(|| RewriteError::RecipeFailed(format!(
-                "no recipe for definition {}", candidate.definition_id
-            )))?;
+            .ok_or_else(|| {
+                RewriteError::RecipeFailed(format!(
+                    "no recipe for definition {}",
+                    candidate.definition_id
+                ))
+            })?;
 
         // We verify that the recipe matches the candidate's definition.
         // Proof does not carry DefinitionId in v0.1; add a third field when it does.
@@ -137,29 +143,15 @@ impl RewriteEngine {
     fn compute_diff(original: &Function, rewritten: &Function) -> crate::result::GraphDiff {
         use std::collections::BTreeSet;
 
-        let original_ids: BTreeSet<sir_types::NodeId> = original
-            .arena
-            .nodes()
-            .keys()
-            .copied()
-            .collect();
+        let original_ids: BTreeSet<sir_types::NodeId> =
+            original.arena.nodes().keys().copied().collect();
 
-        let rewritten_ids: BTreeSet<sir_types::NodeId> = rewritten
-            .arena
-            .nodes()
-            .keys()
-            .copied()
-            .collect();
+        let rewritten_ids: BTreeSet<sir_types::NodeId> =
+            rewritten.arena.nodes().keys().copied().collect();
 
-        let removed_nodes: BTreeSet<_> = original_ids
-            .difference(&rewritten_ids)
-            .copied()
-            .collect();
+        let removed_nodes: BTreeSet<_> = original_ids.difference(&rewritten_ids).copied().collect();
 
-        let added_nodes: BTreeSet<_> = rewritten_ids
-            .difference(&original_ids)
-            .copied()
-            .collect();
+        let added_nodes: BTreeSet<_> = rewritten_ids.difference(&original_ids).copied().collect();
 
         crate::result::GraphDiff {
             removed_nodes,

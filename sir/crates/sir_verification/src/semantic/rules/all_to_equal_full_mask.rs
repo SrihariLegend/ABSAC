@@ -17,11 +17,9 @@ impl NormalizationRule for AllToEqualFullMask {
             SemanticExpression::All(inner) => match inner.as_ref() {
                 SemanticExpression::BooleanArray { variable } => {
                     Some(SemanticExpression::EqualFullMask(Box::new(
-                        SemanticExpression::Pack(Box::new(
-                            SemanticExpression::BooleanArray {
-                                variable: *variable,
-                            },
-                        )),
+                        SemanticExpression::Pack(Box::new(SemanticExpression::BooleanArray {
+                            variable: *variable,
+                        })),
                     )))
                 }
                 _ => None,

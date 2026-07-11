@@ -7,7 +7,7 @@ use sir_types::{NodeId, Type};
 use crate::concepts::SemanticConcept;
 use crate::cost::CostDatabase;
 use crate::cost_deriver::CostDeriver;
-use crate::region::{Region, RegionId, RecognitionExplanation};
+use crate::region::{RecognitionExplanation, Region, RegionId};
 use crate::structure::StructuralDatabase;
 
 /// The semantic knowledge database.
@@ -98,7 +98,10 @@ impl SemanticDatabase {
             for &nid in &region.nodes {
                 // Do not merge based on shared Parameters or Constants
                 if let Some(node) = func.get_node(nid) {
-                    if matches!(node.kind, sir_nodes::NodeKind::Parameter { .. } | sir_nodes::NodeKind::Constant(_)) {
+                    if matches!(
+                        node.kind,
+                        sir_nodes::NodeKind::Parameter { .. } | sir_nodes::NodeKind::Constant(_)
+                    ) {
                         continue;
                     }
                 }
@@ -210,9 +213,10 @@ impl SemanticEngine {
     /// `SemanticDatabase`.
     pub fn derive(&mut self, func: &Function, analysis: &FactDatabase) {
         use crate::recognizers::{
-            boolean_collection, cardinality_reduction, finite_collection,
-            membership_traversal, disjunctive_reduction, conjunctive_reduction, exclusive_reduction,
-            modulo_power_of_two, predicate_collection,
+            boolean_collection, cardinality_reduction, conjunctive_reduction,
+            disjunctive_reduction, divide_power_of_two, exclusive_reduction, finite_collection,
+            membership_traversal, modulo_power_of_two, multiply_power_of_two, predicate_collection,
+            shift_mask,
         };
 
         let bc_recs = boolean_collection::recognize_boolean_collection(func, analysis);
@@ -237,8 +241,7 @@ impl SemanticEngine {
             self.db.add_region(region);
         }
 
-        let membership_recs =
-            membership_traversal::recognize_membership_traversal(func, analysis);
+        let membership_recs = membership_traversal::recognize_membership_traversal(func, analysis);
         for (_concept, explanation, node_ids) in membership_recs {
             let rid = self.db.next_region_id();
             let mut region = Region::new(rid);
@@ -285,8 +288,7 @@ impl SemanticEngine {
             self.db.add_region(region);
         }
 
-        let exclusive_recs =
-            exclusive_reduction::recognize_exclusive_reduction(func, analysis);
+        let exclusive_recs = exclusive_reduction::recognize_exclusive_reduction(func, analysis);
         for (_concept, explanation, node_ids) in exclusive_recs {
             let rid = self.db.next_region_id();
             let mut region = Region::new(rid);
@@ -297,9 +299,41 @@ impl SemanticEngine {
             self.db.add_region(region);
         }
 
-        let modulo_recs =
-            modulo_power_of_two::recognize_modulo_power_of_two(func, analysis);
+        let modulo_recs = modulo_power_of_two::recognize_modulo_power_of_two(func, analysis);
         for (_concept, explanation, node_ids) in modulo_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation);
+            self.db.add_region(region);
+        }
+
+        let divide_recs = divide_power_of_two::recognize_divide_power_of_two(func, analysis);
+        for (_concept, explanation, node_ids) in divide_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation);
+            self.db.add_region(region);
+        }
+
+        let multiply_recs = multiply_power_of_two::recognize_multiply_power_of_two(func, analysis);
+        for (_concept, explanation, node_ids) in multiply_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation);
+            self.db.add_region(region);
+        }
+
+        let shift_mask_recs = shift_mask::recognize_shift_mask(func, analysis);
+        for (_concept, explanation, node_ids) in shift_mask_recs {
             let rid = self.db.next_region_id();
             let mut region = Region::new(rid);
             for node_id in &node_ids {
@@ -327,7 +361,11 @@ impl SemanticEngine {
         self.db.merge_overlapping_regions(func);
 
         // Structural recognizers
-        use crate::recognizers::{boolean_array, bitmask, modulo_power_of_two as struct_modulo};
+        use crate::recognizers::{
+            bitmask, boolean_array, divide_power_of_two as struct_divide,
+            modulo_power_of_two as struct_modulo, multiply_power_of_two as struct_multiply,
+            shift_mask as struct_shift_mask,
+        };
 
         let bool_array_recs = boolean_array::recognize_boolean_array(func, analysis);
         for (_region_id, desc) in bool_array_recs {
@@ -342,7 +380,8 @@ impl SemanticEngine {
             }
         }
 
-        let dyn_bool_seq_recs = predicate_collection::recognize_dynamic_boolean_sequence(func, analysis);
+        let dyn_bool_seq_recs =
+            predicate_collection::recognize_dynamic_boolean_sequence(func, analysis);
         for (_region_id, desc) in dyn_bool_seq_recs {
             for (rid, region) in self.db.regions() {
                 if region.contains(SemanticConcept::PredicateCollection) {
@@ -368,6 +407,45 @@ impl SemanticEngine {
             }
         }
 
+        let div_op_recs = struct_divide::recognize_divide_operator(func, analysis);
+        for (_region_id, desc) in div_op_recs {
+            for (rid, region) in self.db.regions() {
+                if region.contains(SemanticConcept::DividePowerOfTwo) {
+                    let mut new_desc = desc.clone();
+                    new_desc.region = rid;
+                    if self.structural_db.region(rid).is_none() {
+                        self.structural_db.add_description(new_desc);
+                    }
+                }
+            }
+        }
+
+        let mul_op_recs = struct_multiply::recognize_multiply_operator(func, analysis);
+        for (_region_id, desc) in mul_op_recs {
+            for (rid, region) in self.db.regions() {
+                if region.contains(SemanticConcept::MultiplyPowerOfTwo) {
+                    let mut new_desc = desc.clone();
+                    new_desc.region = rid;
+                    if self.structural_db.region(rid).is_none() {
+                        self.structural_db.add_description(new_desc);
+                    }
+                }
+            }
+        }
+
+        let shift_mask_op_recs = struct_shift_mask::recognize_shift_mask_operator(func, analysis);
+        for (_region_id, desc) in shift_mask_op_recs {
+            for (rid, region) in self.db.regions() {
+                if region.contains(SemanticConcept::ShiftMask) {
+                    let mut new_desc = desc.clone();
+                    new_desc.region = rid;
+                    if self.structural_db.region(rid).is_none() {
+                        self.structural_db.add_description(new_desc);
+                    }
+                }
+            }
+        }
+
         let bitmask_recs = bitmask::recognize_bitmask(func, analysis);
         for (_region_id, desc) in bitmask_recs {
             for (rid, region) in self.db.regions() {
@@ -380,8 +458,6 @@ impl SemanticEngine {
                 }
             }
         }
-
-
 
         // ── Role derivation ────────────────────────────────────
         // Populate RegionRoles on structural descriptions from
@@ -434,19 +510,32 @@ impl SemanticEngine {
                     }
                     // Comparison nodes inside the region indicating a dynamic predicate
                     if region.nodes.contains(&node.id) {
-                        if matches!(node.kind, NodeKind::Eq {..} | NodeKind::Ne {..} | NodeKind::Lt {..} | NodeKind::Le {..} | NodeKind::Gt {..} | NodeKind::Ge {..}) {
+                        if matches!(
+                            node.kind,
+                            NodeKind::Eq { .. }
+                                | NodeKind::Ne { .. }
+                                | NodeKind::Lt { .. }
+                                | NodeKind::Le { .. }
+                                | NodeKind::Gt { .. }
+                                | NodeKind::Ge { .. }
+                        ) {
                             let inputs = node.kind.input_nodes();
                             if inputs.len() == 2 {
                                 // Assume input 0 is array access, input 1 is scalar
                                 if let Some(lhs) = func.get_node(inputs[0]) {
-                                    if matches!(lhs.kind, NodeKind::ArrayAccess { .. } | NodeKind::Load { .. }) {
+                                    if matches!(
+                                        lhs.kind,
+                                        NodeKind::ArrayAccess { .. } | NodeKind::Load { .. }
+                                    ) {
                                         // Retrieve the base array from the access
                                         let mut base_array = None;
                                         if let NodeKind::ArrayAccess { base, .. } = lhs.kind {
                                             base_array = Some(base);
                                         } else if let NodeKind::Load { ptr } = lhs.kind {
                                             if let Some(ptr_node) = func.get_node(ptr) {
-                                                if let NodeKind::ArrayAccess { base, .. } = ptr_node.kind {
+                                                if let NodeKind::ArrayAccess { base, .. } =
+                                                    ptr_node.kind
+                                                {
                                                     base_array = Some(base);
                                                 }
                                             }
@@ -468,7 +557,10 @@ impl SemanticEngine {
                             result_node = Some(node.id);
                             if let Some(loop_fact) = analysis.loops.get(&node.id) {
                                 for reduction in &loop_fact.reductions {
-                                    if matches!(reduction.reduction_kind.as_str(), "sum" | "bitwise_or" | "bitwise_and" | "bitwise_xor") {
+                                    if matches!(
+                                        reduction.reduction_kind.as_str(),
+                                        "sum" | "bitwise_or" | "bitwise_and" | "bitwise_xor"
+                                    ) {
                                         accumulator = Some(reduction.variable);
                                     }
                                 }
@@ -479,7 +571,9 @@ impl SemanticEngine {
 
                 if let (Some(collection), Some(result)) = (collection, result_node) {
                     if let Some(desc) = self.structural_db.region_mut(region_id) {
-                        if let (Some(scalar), Some(operator)) = (predicate_scalar, predicate_op_node) {
+                        if let (Some(scalar), Some(operator)) =
+                            (predicate_scalar, predicate_op_node)
+                        {
                             desc.roles = Some(RegionRoles::PredicateCollectionReduction {
                                 collection,
                                 scalar,
@@ -511,6 +605,61 @@ impl SemanticEngine {
                             lhs,
                             rhs,
                             result: rem,
+                        });
+                    }
+                }
+            } else if region.contains(SemanticConcept::DividePowerOfTwo) {
+                let mut op_info = None;
+                for node in func.arena.iter() {
+                    if let NodeKind::Div { lhs, rhs } = &node.kind {
+                        op_info = Some((node.id, *lhs, *rhs));
+                    }
+                }
+                if let Some((div, lhs, rhs)) = op_info {
+                    if let Some(desc) = self.structural_db.region_mut(region_id) {
+                        desc.roles = Some(RegionRoles::ArithmeticOperation {
+                            operator_node: div,
+                            lhs,
+                            rhs,
+                            result: div,
+                        });
+                    }
+                }
+            } else if region.contains(SemanticConcept::MultiplyPowerOfTwo) {
+                let mut op_info = None;
+                for node in func.arena.iter() {
+                    if let NodeKind::Mul { lhs, rhs } = &node.kind {
+                        op_info = Some((node.id, *lhs, *rhs));
+                    }
+                }
+                if let Some((mul, lhs, rhs)) = op_info {
+                    if let Some(desc) = self.structural_db.region_mut(region_id) {
+                        desc.roles = Some(RegionRoles::ArithmeticOperation {
+                            operator_node: mul,
+                            lhs,
+                            rhs,
+                            result: mul,
+                        });
+                    }
+                }
+            } else if region.contains(SemanticConcept::ShiftMask) {
+                let mut op_info = None;
+                for node in func.arena.iter() {
+                    if let NodeKind::Shr { lhs, rhs } = &node.kind {
+                        if let Some(lhs_node) = func.get_node(*lhs) {
+                            if let NodeKind::Shl { .. } = &lhs_node.kind {
+                                op_info = Some((node.id, *lhs, *rhs));
+                            }
+                        }
+                    }
+                }
+                if let Some((shr, lhs, rhs)) = op_info {
+                    if let Some(desc) = self.structural_db.region_mut(region_id) {
+                        desc.roles = Some(RegionRoles::ArithmeticOperation {
+                            operator_node: shr,
+                            lhs,
+                            rhs,
+                            result: shr,
                         });
                     }
                 }

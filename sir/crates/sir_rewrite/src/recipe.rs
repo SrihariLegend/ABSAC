@@ -28,8 +28,9 @@ pub trait RewriteRecipe {
     /// compute diffs, or validate IR.
     fn build_patch(
         &self,
+        function: &sir_nodes::Function,
         region: &RewriteRegion,
-        builder: SubgraphBuilder,
+        builder: SubgraphBuilder<'_>,
     ) -> Result<ReplacementPatch, RewriteError>;
 }
 
@@ -40,7 +41,9 @@ pub struct RecipeRegistry {
 
 impl RecipeRegistry {
     pub fn new() -> Self {
-        Self { recipes: Vec::new() }
+        Self {
+            recipes: Vec::new(),
+        }
     }
 
     /// Register a rewrite recipe.
@@ -50,7 +53,10 @@ impl RecipeRegistry {
 
     /// Look up a recipe by definition ID.
     pub fn lookup(&self, id: DefinitionId) -> Option<&dyn RewriteRecipe> {
-        self.recipes.iter().find(|r| r.definition() == id).map(|r| r.as_ref())
+        self.recipes
+            .iter()
+            .find(|r| r.definition() == id)
+            .map(|r| r.as_ref())
     }
 
     /// Number of registered recipes.

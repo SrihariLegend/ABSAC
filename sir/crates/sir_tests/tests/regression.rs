@@ -2,8 +2,8 @@
 
 use sir_builder::Builder;
 use sir_printer::JsonPrinter;
-use sir_verify::Verifier;
 use sir_types::{ConstantData, Effects, Span, Type};
+use sir_verify::Verifier;
 
 fn i32_type() -> Type {
     Type::i32()
@@ -76,7 +76,11 @@ fn nested_selects() {
 
 #[test]
 fn all_comparison_operators() {
-    let mut b = Builder::new("cmp_all", &[("a", i32_type()), ("b", i32_type())], Type::Bool);
+    let mut b = Builder::new(
+        "cmp_all",
+        &[("a", i32_type()), ("b", i32_type())],
+        Type::Bool,
+    );
     let a = b.parameter_index(0).unwrap();
     let b_param = b.parameter_index(1).unwrap();
 
@@ -159,12 +163,8 @@ fn constants_of_all_widths() {
         let func = {
             let mut b = Builder::new("const_func", &[], ty.clone());
             let c = match ty {
-                t if t.is_integer() => {
-                    b.constant(ConstantData::i32(0), t.clone(), unknown_span())
-                }
-                t if t.is_float() => {
-                    b.constant(ConstantData::f64(0.0), t.clone(), unknown_span())
-                }
+                t if t.is_integer() => b.constant(ConstantData::i32(0), t.clone(), unknown_span()),
+                t if t.is_float() => b.constant(ConstantData::f64(0.0), t.clone(), unknown_span()),
                 t if t.is_bool() => {
                     b.constant(ConstantData::boolean(false), t.clone(), unknown_span())
                 }

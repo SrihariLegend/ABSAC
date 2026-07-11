@@ -64,12 +64,7 @@ impl Function {
     /// This creates both a `Param` entry in `self.params` and a `Parameter` node
     /// in the arena. Returns the `NodeId` of the parameter node for use in
     /// subsequent graph construction.
-    pub fn add_param(
-        &mut self,
-        name: impl Into<String>,
-        ty: Type,
-        span: Span,
-    ) -> NodeId {
+    pub fn add_param(&mut self, name: impl Into<String>, ty: Type, span: Span) -> NodeId {
         let index = self.params.len();
         let name = name.into();
         self.params.push(Param::new(name.clone(), ty.clone()));
