@@ -1,6 +1,6 @@
 use sir_analysis::facts::FactDatabase;
 use sir_nodes::Function;
-use sir_types::{ConstantData, NodeId};
+use sir_types::NodeId;
 
 use crate::concepts::SemanticConcept;
 use crate::region::RecognitionExplanation;

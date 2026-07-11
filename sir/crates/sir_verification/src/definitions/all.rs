@@ -7,7 +7,7 @@ use sir_transform::representation::Representation;
 
 use crate::obligation::{FiniteDomain, ProofObligation, VariableKind, VariableSpec};
 use crate::registry::TransformationDefinition;
-use crate::semantic::expression::{Predicate, SemanticExpression};
+use crate::semantic::expression::SemanticExpression;
 use crate::semantic::theorem::Theorem;
 
 /// The All transformation: replaces a boolean-array conjunctive loop

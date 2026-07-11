@@ -1,6 +1,4 @@
 use sir_transform::ids::DefinitionId;
-use sir_transform::roles::RegionRoles;
-use sir_types::Span;
 
 use crate::error::RewriteError;
 use crate::patch::{ReplacementPatch, ReplacementValue};
@@ -34,13 +32,13 @@ impl RewriteRecipe for BitwiseAndModuloRecipe {
         region: &RewriteRegion,
         mut builder: SubgraphBuilder,
     ) -> Result<ReplacementPatch, RewriteError> {
-        let op = region.operator_node()?;
+        let _op = region.operator_node()?;
         let lhs_id = region.lhs()?;
         let rhs_id = region.rhs()?;
         let result_id = region.result()?;
 
         use crate::local_id::LocalNodeId;
-        use sir_types::{ConstantData, Span, Type};
+        use sir_types::{ConstantData, Span};
 
         let local_lhs = LocalNodeId::new(lhs_id.as_u64());
         let local_rhs = LocalNodeId::new(rhs_id.as_u64());

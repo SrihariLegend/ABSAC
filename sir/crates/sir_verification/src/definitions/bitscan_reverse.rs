@@ -1,7 +1,6 @@
 use sir_generation::candidate::Candidate;
 use sir_transform::ids::DefinitionId;
 use sir_transform::ids::VariableId;
-use sir_types::ConstantData;
 
 use crate::obligation::ProofObligation;
 use crate::registry::TransformationDefinition;

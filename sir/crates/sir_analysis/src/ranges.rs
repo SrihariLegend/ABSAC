@@ -65,6 +65,7 @@ fn range_of_constant(data: &ConstantData) -> RangeFact {
 }
 
 /// Return the bit width of an integer type, or 64 as default.
+#[allow(dead_code)]
 fn type_bit_width(ty: &sir_types::Type) -> usize {
     if let sir_types::Type::Integer { width, .. } = ty {
         width.bits()
@@ -76,7 +77,7 @@ fn type_bit_width(ty: &sir_types::Type) -> usize {
 /// Compute range for a node based on its operation, type, and input ranges.
 fn compute_range(
     kind: &NodeKind,
-    ty: &sir_types::Type,
+    _ty: &sir_types::Type,
     facts: &HashMap<NodeId, RangeFact>,
 ) -> RangeFact {
     let inputs = graph::dataflow_inputs(kind);

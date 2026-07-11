@@ -32,8 +32,8 @@ impl TransformationDefinition for ModuloAndDefinition {
 
     fn obligation(&self, candidate: &Candidate) -> ProofObligation {
         // Find the operator node and operands
-        let mut lhs = SemanticExpression::Constant(ConstantData::u64(0));
-        let mut rhs = SemanticExpression::Constant(ConstantData::u64(0));
+        let _lhs = SemanticExpression::Constant(ConstantData::u64(0));
+        let _rhs = SemanticExpression::Constant(ConstantData::u64(0));
 
         ProofObligation {
             id: sir_transform::ids::ObligationId::new(0),
