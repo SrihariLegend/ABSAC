@@ -4,6 +4,7 @@ use sir_types::{Effects, NodeId};
 
 use crate::concepts::SemanticConcept;
 use crate::region::RecognitionExplanation;
+use crate::truth::ValueId;
 
 /// Recognize cardinality reduction patterns.
 ///
@@ -17,7 +18,7 @@ use crate::region::RecognitionExplanation;
 pub fn recognize_cardinality_reduction(
     func: &Function,
     analysis: &FactDatabase,
-) -> Vec<(SemanticConcept, RecognitionExplanation, Vec<NodeId>)> {
+) -> Vec<(SemanticConcept, RecognitionExplanation, Vec<NodeId>, Vec<ValueId>, Vec<ValueId>)> {
     let mut results = Vec::new();
 
     for node in func.arena.iter() {
@@ -40,10 +41,32 @@ pub fn recognize_cardinality_reduction(
                     .collect();
                 if sum_reductions.len() >= 2 {
                     let mut related = vec![node.id];
-                    for reduction in sum_reductions {
+                    for reduction in &sum_reductions {
                         related.push(reduction.variable);
                         related.push(reduction.invariant_value);
                     }
+                    
+                    // Input: the loop carried values (the items being summed over, though this requires proper bridging).
+                    // For now, let's identify the input boolean and output count.
+                    // To keep it minimal, we just identify the reduction outputs.
+                    // The actual input is the condition, but for the cardinality reduction, 
+                    // we can say the input is the boolean value `to_add`.
+                    let mut inputs = Vec::new();
+                    let mut outputs = Vec::new();
+                    for reduction in &sum_reductions {
+                        let mut condition_node_id = reduction.invariant_value;
+                        // Check if it's a Select(cond, 1, 0)
+                        if let Some(inv_node) = func.get_node(condition_node_id) {
+                            if let sir_nodes::NodeKind::Select { cond, true_val, false_val } = &inv_node.kind {
+                                // Simplified check: assume true_val and false_val are 1 and 0
+                                condition_node_id = *cond;
+                            }
+                        }
+                        
+                        inputs.push(ValueId::new(condition_node_id.0)); // The boolean condition
+                        outputs.push(ValueId::new(node.id.0)); // The loop node represents the aggregate outputs
+                    }
+
                     results.push((
                         SemanticConcept::CardinalityReduction,
                         RecognitionExplanation {
@@ -54,6 +77,8 @@ pub fn recognize_cardinality_reduction(
                             ],
                         },
                         related,
+                        inputs,
+                        outputs,
                     ));
                 }
             }

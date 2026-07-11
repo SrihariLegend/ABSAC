@@ -4,6 +4,7 @@ use sir_types::{NodeId, ConstantData};
 
 use crate::concepts::SemanticConcept;
 use crate::region::RecognitionExplanation;
+use crate::truth::ValueId;
 
 /// Recognize mask algebra patterns, such as clearing the lowest set bit.
 ///
@@ -12,7 +13,7 @@ use crate::region::RecognitionExplanation;
 pub fn recognize_mask_algebra(
     func: &Function,
     _analysis: &FactDatabase,
-) -> Vec<(SemanticConcept, RecognitionExplanation, Vec<NodeId>)> {
+) -> Vec<(SemanticConcept, RecognitionExplanation, Vec<NodeId>, Vec<ValueId>, Vec<ValueId>)> {
     let mut results = Vec::new();
 
     for node in func.arena.iter() {
@@ -52,6 +53,8 @@ pub fn recognize_mask_algebra(
                         triggering_facts: vec!["Detected mask algebra pattern: x & (x - 1)"],
                     },
                     vec![node.id, x],
+                    vec![ValueId::new(x.0)],       // Input: x
+                    vec![ValueId::new(node.id.0)], // Output: x & (x - 1)
                 ));
             }
         }

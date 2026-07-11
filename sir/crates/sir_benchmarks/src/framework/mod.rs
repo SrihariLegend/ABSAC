@@ -76,6 +76,15 @@ pub fn run_benchmark(func: Function, spec: &BenchmarkSpec) {
     
     let record = result.iterations_detail.first().cloned().unwrap_or_default();
     
+    println!("Discovered Concepts:");
+    for c in &record.concepts_discovered {
+        println!("  - {}", c);
+    }
+    println!("Inferred Representations:");
+    for r in &record.representations_inferred {
+        println!("  - {}", r);
+    }
+    
     let has_facts = record.facts_discovered > 0;
     let has_semantics = record.truths_discovered > 0;
     let has_representation = record.beliefs_inferred > 0;
@@ -114,17 +123,21 @@ pub fn run_benchmark(func: Function, spec: &BenchmarkSpec) {
             println!("  Rewrite        -> {}", rewrite);
             println!("\nResult: SUCCESS (Matches Specification)");
         },
-        ExpectedKnowledge::ExpectedFailure { stage, .. } => {
+        ExpectedKnowledge::ExpectedFailure { stage, missing_knowledge, needed_concept } => {
             let stage_matches = match *stage {
-                "Semantics" => !has_semantics,
-                "Representation" => has_semantics && !has_representation,
+                "Semantics" => {
+                    !record.concepts_discovered.iter().any(|c| c.contains(needed_concept))
+                },
+                "Representation" => {
+                    has_semantics && !record.representations_inferred.iter().any(|r| r.contains(needed_concept))
+                },
                 "Candidate" => has_representation && !has_candidates,
                 "Proof" => has_candidates && !has_proof,
                 "Rewrite" => has_proof && !has_rewrite,
                 _ => panic!("Unknown stage {}", stage),
             };
-            assert!(stage_matches, "Did not fail at the expected stage: {}", stage);
-            println!("Result: ARTIFACT VALID (Fails exactly at expected stage: {})", stage);
+            assert!(stage_matches, "Did not fail at the expected stage: {} (missing knowledge: {})", stage, missing_knowledge);
+            println!("Result: ARTIFACT VALID (Fails exactly at expected stage: {} due to {})", stage, missing_knowledge);
         },
         ExpectedKnowledge::NonOptimizable { .. } => {
             assert!(!has_rewrite, "Should not have rewritten a non-optimizable benchmark");

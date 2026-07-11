@@ -9,6 +9,7 @@ use crate::cost::CostDatabase;
 use crate::cost_deriver::CostDeriver;
 use crate::region::{RecognitionExplanation, Region, RegionId};
 use crate::structure::StructuralDatabase;
+use crate::truth::SemanticTruth;
 
 /// The semantic knowledge database.
 ///
@@ -17,6 +18,7 @@ use crate::structure::StructuralDatabase;
 #[derive(Clone, Debug, Default)]
 pub struct SemanticDatabase {
     regions: HashMap<RegionId, Region>,
+    truths: Vec<SemanticTruth>,
     next_region_id: u64,
 }
 
@@ -25,6 +27,7 @@ impl SemanticDatabase {
     pub fn new() -> Self {
         Self {
             regions: HashMap::new(),
+            truths: Vec::new(),
             next_region_id: 0,
         }
     }
@@ -32,6 +35,16 @@ impl SemanticDatabase {
     /// Add a region to the database.
     pub fn add_region(&mut self, region: Region) {
         self.regions.insert(region.id, region);
+    }
+
+    /// Add a derived truth to the database.
+    pub fn add_truth(&mut self, truth: SemanticTruth) {
+        self.truths.push(truth);
+    }
+
+    /// Returns an iterator over all semantic truths.
+    pub fn truths(&self) -> impl Iterator<Item = &SemanticTruth> {
+        self.truths.iter()
     }
 
     /// Iterate over all regions.
@@ -168,6 +181,8 @@ impl SemanticDatabase {
     }
 }
 
+use crate::closure::{ClosureEngine, rules::ClearLowestIsZeroToAtMostOneBit, predicate_map_to_seq::PredicateMapToLogicalSequence};
+
 /// The semantic derivation engine.
 ///
 /// Transforms compiler facts into semantic truths by running
@@ -176,15 +191,21 @@ pub struct SemanticEngine {
     db: SemanticDatabase,
     structural_db: StructuralDatabase,
     cost_db: CostDatabase,
+    closure_engine: ClosureEngine,
 }
 
 impl SemanticEngine {
     /// Create a new semantic engine with an empty database.
     pub fn new() -> Self {
+        let mut closure_engine = ClosureEngine::new();
+        closure_engine.add_rule(Box::new(ClearLowestIsZeroToAtMostOneBit));
+        closure_engine.add_rule(Box::new(PredicateMapToLogicalSequence));
+        
         Self {
             db: SemanticDatabase::new(),
             structural_db: StructuralDatabase::new(),
             cost_db: CostDatabase::new(),
+            closure_engine,
         }
     }
 
@@ -215,19 +236,46 @@ impl SemanticEngine {
         use crate::recognizers::{
             boolean_collection, cardinality_reduction, conjunctive_reduction,
             disjunctive_reduction, divide_power_of_two, exclusive_reduction, finite_collection,
-            membership_traversal, modulo_power_of_two, multiply_power_of_two, predicate_collection,
+            is_zero, membership_traversal, modulo_power_of_two, multiply_power_of_two, predicate_collection,
             shift_mask, set_algebra, mask_algebra,
         };
 
-        let mask_recs = mask_algebra::recognize_mask_algebra(func, analysis);
-        for (_concept, explanation, node_ids) in mask_recs {
+        let is_zero_recs = is_zero::recognize_is_zero(func, analysis);
+        for (_concept, explanation, node_ids, inputs, outputs) in is_zero_recs {
             let rid = self.db.next_region_id();
             let mut region = Region::new(rid);
             for node_id in &node_ids {
                 region.nodes.insert(*node_id);
             }
-            region.add_concept(explanation.concept, explanation);
+            region.add_concept(explanation.concept, explanation.clone());
             self.db.add_region(region);
+            
+            let truth = SemanticTruth {
+                concept: explanation.concept,
+                inputs,
+                outputs,
+                origin: rid,
+            };
+            self.db.add_truth(truth);
+        }
+
+        let mask_recs = mask_algebra::recognize_mask_algebra(func, analysis);
+        for (_concept, explanation, node_ids, inputs, outputs) in mask_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation.clone());
+            self.db.add_region(region);
+            
+            let truth = SemanticTruth {
+                concept: explanation.concept,
+                inputs,
+                outputs,
+                origin: rid,
+            };
+            self.db.add_truth(truth);
         }
 
         let sa_recs = set_algebra::recognize_set_algebra(func, analysis);
@@ -276,14 +324,62 @@ impl SemanticEngine {
 
         let cardinality_recs =
             cardinality_reduction::recognize_cardinality_reduction(func, analysis);
-        for (_concept, explanation, node_ids) in cardinality_recs {
+        for (_concept, explanation, node_ids, inputs, outputs) in cardinality_recs {
             let rid = self.db.next_region_id();
             let mut region = Region::new(rid);
             for node_id in &node_ids {
                 region.nodes.insert(*node_id);
             }
-            region.add_concept(explanation.concept, explanation);
+            region.add_concept(explanation.concept, explanation.clone());
             self.db.add_region(region);
+            
+            let truth = SemanticTruth {
+                concept: explanation.concept,
+                inputs,
+                outputs,
+                origin: rid,
+            };
+            self.db.add_truth(truth);
+        }
+
+        let pred_map_recs =
+            crate::recognizers::predicate_map::recognize_predicate_map(func, analysis);
+        for (_concept, explanation, node_ids, inputs, outputs) in pred_map_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation.clone());
+            self.db.add_region(region);
+
+            let truth = SemanticTruth {
+                concept: explanation.concept,
+                inputs,
+                outputs,
+                origin: rid,
+            };
+            self.db.add_truth(truth);
+        }
+
+        let element_seq_recs =
+            crate::recognizers::element_sequence::recognize_element_sequence(func, analysis);
+        for (_concept, explanation, node_ids, inputs, outputs) in element_seq_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation.clone());
+            self.db.add_region(region);
+
+            let truth = SemanticTruth {
+                concept: explanation.concept,
+                inputs,
+                outputs,
+                origin: rid,
+            };
+            self.db.add_truth(truth);
         }
 
         let disjunctive_recs =
@@ -388,10 +484,42 @@ impl SemanticEngine {
             self.db.add_region(region);
         }
 
+        // Apply Semantic Closure (Truths → Derived Truths)
+        self.closure_engine.compute_closure(&mut self.db);
+
         // Merge overlapping regions so that related concepts
         // (e.g., all concepts for the same loop/array computation)
         // end up in a single region. This enables combined evidence
         // accumulation in the inference engine.
+        self.db.merge_overlapping_regions(func);
+
+        let mut has_logical_sequence = false;
+        let mut has_dynamic_boolean_sequence = false;
+        for truth in self.db.truths() {
+            if truth.concept == SemanticConcept::LogicalSequence {
+                has_logical_sequence = true;
+            }
+        }
+        
+        if has_logical_sequence {
+            let mut region_id = RegionId::new(0);
+            for truth in self.db.truths() {
+                if truth.concept == SemanticConcept::LogicalSequence {
+                    region_id = truth.origin;
+                    break;
+                }
+            }
+            if self.structural_db.region(region_id).is_none() {
+                let desc = crate::structure::StructuralDescription::new(
+                    region_id,
+                    sir_transform::structures::SourceStructure::DynamicBooleanSequence {
+                        length: 64, // v0.1 hardcoded assumption for now
+                    },
+                )
+                .with_constraint(sir_transform::constraints::Constraint::FixedLength(64));
+                self.structural_db.add_description(desc);
+            }
+        }
         self.db.merge_overlapping_regions(func);
 
         // Structural recognizers
@@ -711,6 +839,35 @@ impl SemanticEngine {
                             lhs,
                             rhs,
                             result: mul,
+                        });
+                    }
+                }
+                // In v0.1 we also handle AtMostOneBitSet mapped to MaskAlgebraExpression, but we already added MaskAlgebraExpression for ClearLowestSetBit.
+                // We just need to make sure the role extraction works.
+                let mut op_info = None;
+                for node in func.arena.iter() {
+                    if let NodeKind::And { .. } = &node.kind {
+                        if region.nodes.contains(&node.id) {
+                            op_info = Some(node.id);
+                            break;
+                        }
+                    }
+                }
+                if let Some(and_node) = op_info {
+                    if let Some(desc) = self.structural_db.region_mut(region_id) {
+                        let mut operand = and_node; 
+                        if let NodeKind::And { lhs, rhs } = func.get_node(and_node).unwrap().kind {
+                            if let Some(lhs_node) = func.get_node(lhs) {
+                                if matches!(lhs_node.kind, NodeKind::Sub { .. }) {
+                                    operand = rhs;
+                                } else {
+                                    operand = lhs;
+                                }
+                            }
+                        }
+                        desc.roles = Some(RegionRoles::MaskOperation {
+                            operand,
+                            result: and_node,
                         });
                     }
                 }

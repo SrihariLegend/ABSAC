@@ -110,7 +110,16 @@ impl Optimizer {
         // ── 2. Semantics (recognizers + structure + cost) ──────
         let mut semantics = SemanticEngine::new();
         semantics.derive(function, analysis.database());
-        let truths_discovered = semantics.database().region_count();
+        let mut concepts_discovered = Vec::new();
+        for (_, region) in semantics.database().regions() {
+            for concept in region.concepts() {
+                concepts_discovered.push(format!("{:?}", concept));
+            }
+        }
+        for truth in semantics.database().truths() {
+            concepts_discovered.push(format!("{:?}", truth.concept));
+        }
+        let truths_discovered = semantics.database().region_count() + semantics.database().truths().count();
 
         // ── 3. Inference ──────────────────────────────────────
         let mut inference = InferenceEngine::new();
@@ -120,6 +129,13 @@ impl Optimizer {
             .contexts()
             .map(|(_, ctxs)| ctxs.len())
             .sum();
+
+        let mut representations_inferred = Vec::new();
+        for (_, ctxs) in inference.context_database().contexts() {
+            for ctx in ctxs {
+                representations_inferred.push(format!("{:?}", ctx.representation));
+            }
+        }
 
         // ── 4. Generation ─────────────────────────────────────
         let mut generator = CandidateGenerator::new();
@@ -135,6 +151,8 @@ impl Optimizer {
                     truths_discovered,
                     beliefs_inferred,
                     candidates_generated: 0,
+                    concepts_discovered: concepts_discovered.clone(),
+                    representations_inferred: representations_inferred.clone(),
                     outcome: IterationOutcome::NoCandidate,
                     ..Default::default()
                 },
@@ -185,6 +203,8 @@ impl Optimizer {
                     candidates_generated: candidate_count,
                     proofs_attempted,
                     proofs_succeeded: 0,
+                    concepts_discovered: concepts_discovered.clone(),
+                    representations_inferred: representations_inferred.clone(),
                     outcome: IterationOutcome::NoProof,
                     ..Default::default()
                 },
@@ -209,6 +229,8 @@ impl Optimizer {
                     proofs_attempted,
                     proofs_succeeded,
                     candidates_selected: 0,
+                    concepts_discovered: concepts_discovered.clone(),
+                    representations_inferred: representations_inferred.clone(),
                     outcome: IterationOutcome::NoSelection,
                     ..Default::default()
                 },
@@ -255,6 +277,8 @@ impl Optimizer {
                 proofs_succeeded,
                 candidates_selected,
                 rewrites_applied,
+                concepts_discovered,
+                representations_inferred,
                 outcome: if rewrites_applied > 0 {
                     IterationOutcome::RewriteApplied
                 } else {

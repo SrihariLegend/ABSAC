@@ -38,6 +38,8 @@ pub struct IterationRecord {
     pub proofs_succeeded: usize,
     pub candidates_selected: usize,
     pub rewrites_applied: usize,
+    pub concepts_discovered: Vec<String>,
+    pub representations_inferred: Vec<String>,
     pub outcome: IterationOutcome,
 }
 
