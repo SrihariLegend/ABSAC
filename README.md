@@ -52,14 +52,29 @@ cargo run -p sir_benchmarks --bin report
 ### Current Semantic Coverage (Corpus v1.0)
 
 ```text
-ABSAC Semantic Coverage Report
-================================
+Ontology Coverage (Architectural Metrics)
+=========================================
+Concepts implemented:     12
+Concepts exercised:       8
+Closure rules:            4
+Average reasoning depth:  3.2
+Maximum reasoning depth:  5
 
-Benchmarks:             11
+ABSAC Benchmark Status
+======================
 
-Optimized:              8
-Expected failures:       2
+Benchmarks:             23
+
+Optimized:              11
+Expected failures:       5
 Correctly declined:      1
+
+Semantic Compression
+
+  Total Initial IR nodes:   101
+  Total Semantic truths:    31
+  Total Final IR nodes:     93
+  Compression ratio:        1.09x
 
 Semantic domains
 
@@ -67,7 +82,7 @@ Semantic domains
   Arithmetic identities     ✓
   Positional search         ✓
   Set algebra               Partial
-  Mask algebra              Missing
+  Mask algebra              ✓
   Bit permutations          Missing
 
 Representations
@@ -75,6 +90,7 @@ Representations
   BitSet                    ✓
   BitwiseArithmetic         ✓
   BitScan                   ✓
+  MaskAlgebra               ✓
 ```
 
 As the compiler acquires new mathematical concepts, benchmarks graduate from "Expected Failure" to "Optimized."
@@ -90,7 +106,7 @@ The compiler framework is implemented purely in Rust (`sir/` workspace). It is a
 - **`sir_generation`**: Combinatorial implementation strategies.
 - **`sir_verification`**: Exhaustive and symbolic equivalence provers.
 - **`sir_rewrite`**: Deterministic, verified subgraph replacement.
-- **`sir_optimizer`**: The fixed-point orchestrator executing the full pipeline.
+- **`sir_optimizer`**: Global fixed-point orchestrator executing beam search over valid rewrite paths to maximize Semantic Compression.
 
 ## Building and Testing
 
