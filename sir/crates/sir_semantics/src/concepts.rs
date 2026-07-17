@@ -71,8 +71,53 @@ pub enum SemanticConcept {
     LowestSetBit,
     /// Operation: clearing the lowest set bit
     ClearLowestSetBit,
+    /// Operation: testing if a value is zero
+    IsZero,
+
+    // ── Added for Loop Iteration (Phase II.1) ───────────
+    /// Property: a loop that terminates when a variable reaches zero
+    LoopUntilZero,
+    /// Operation: repeatedly applying an operation that monotonically removes one set bit
+    BitsetIteration,
+
+    // ── Added for Semantic Closure (Phase II.1) ───────────
+    /// Operation: property of having at most one bit set (or being zero)
+    AtMostOneBitSet,
+    /// Operation: a boolean predicate evaluated over a collection
+    PredicateMap,
+    /// Structure: a sequence of elements originating from a collection
+    ElementSequence,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ConceptKind {
+    Structure,
+    Operation,
+    Property,
+}
+
+impl SemanticConcept {
+    pub fn kind(&self) -> ConceptKind {
+        match self {
+            // Structures
+            SemanticConcept::LogicalSequence |
+            SemanticConcept::FiniteCollection |
+            SemanticConcept::FiniteSet |
+            SemanticConcept::ElementSequence => ConceptKind::Structure,
+            
+            // Properties
+            SemanticConcept::IsZero |
+            SemanticConcept::AtMostOneBitSet |
+            SemanticConcept::SetEmpty |
+            SemanticConcept::SetEquality |
+            SemanticConcept::SetSubset |
+            SemanticConcept::LoopUntilZero => ConceptKind::Property,
+
+            // Operations
+            _ => ConceptKind::Operation,
+        }
+    }
+}
 impl fmt::Display for SemanticConcept {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -105,6 +150,12 @@ impl fmt::Display for SemanticConcept {
             SemanticConcept::SetCardinality => write!(f, "SetCardinality"),
             SemanticConcept::LowestSetBit => write!(f, "LowestSetBit"),
             SemanticConcept::ClearLowestSetBit => write!(f, "ClearLowestSetBit"),
+            SemanticConcept::IsZero => write!(f, "IsZero"),
+            SemanticConcept::LoopUntilZero => write!(f, "LoopUntilZero"),
+            SemanticConcept::BitsetIteration => write!(f, "BitsetIteration"),
+            SemanticConcept::AtMostOneBitSet => write!(f, "AtMostOneBitSet"),
+            SemanticConcept::PredicateMap => write!(f, "PredicateMap"),
+            SemanticConcept::ElementSequence => write!(f, "ElementSequence"),
         }
     }
 }

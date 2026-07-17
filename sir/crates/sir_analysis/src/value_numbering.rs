@@ -135,6 +135,7 @@ pub(crate) fn kind_variant_tag(kind: &NodeKind) -> u32 {
         NodeKind::Deallocate { .. } => 33,
         NodeKind::FieldAccess { .. } => 34,
         NodeKind::ArrayAccess { .. } => 35,
+        NodeKind::TupleExtract { .. } => 42,
         NodeKind::Call { .. } => 36,
         NodeKind::Intrinsic { .. } => 37,
         NodeKind::ExternalCall { .. } => 38,

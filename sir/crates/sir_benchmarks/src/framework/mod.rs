@@ -13,13 +13,18 @@ pub enum ExpectedKnowledge {
         proof: &'static str,
         rewrite: &'static str,
     },
-    ExpectedFailure {
-        stage: &'static str,
-        missing_knowledge: &'static str,
-        needed_concept: &'static str,
+    MissingKnowledge {
+        concepts: Vec<&'static str>,
+        closure: Vec<&'static str>,
+        representations: Vec<&'static str>,
+        rewrites: Vec<&'static str>,
     },
     NonOptimizable {
         reason: &'static str,
+    },
+    ProvenanceGraph {
+        expected_truths: Vec<&'static str>,
+        validation: fn(&[sir_semantics::truth::SemanticTruth], &[sir_generation::candidate::Candidate]),
     },
 }
 
@@ -54,17 +59,23 @@ pub fn run_benchmark(func: Function, spec: &BenchmarkSpec) {
             println!("  Proof: {}", proof);
             println!("  Rewrite: {}\n", rewrite);
         },
-        ExpectedKnowledge::ExpectedFailure { stage, missing_knowledge, needed_concept } => {
+        ExpectedKnowledge::MissingKnowledge { concepts, closure, representations, rewrites } => {
             println!("Specification:");
-            println!("  Expected: ExpectedFailure");
-            println!("  Stage: {}", stage);
-            println!("  MissingKnowledge: {}", missing_knowledge);
-            println!("  NeededConcept: {}\n", needed_concept);
+            println!("  Expected: MissingKnowledge");
+            println!("  Missing Concepts:       {:?}", concepts);
+            println!("  Missing Closure Rules:  {:?}", closure);
+            println!("  Missing Reps:           {:?}", representations);
+            println!("  Missing Rewrites:       {:?}\n", rewrites);
         },
         ExpectedKnowledge::NonOptimizable { reason } => {
             println!("Specification:");
             println!("  Expected: NonOptimizable");
             println!("  Reason: {}\n", reason);
+        },
+        ExpectedKnowledge::ProvenanceGraph { expected_truths, .. } => {
+            println!("Specification:");
+            println!("  Expected: ProvenanceGraph test");
+            println!("  Expected Truths: {:?}\n", expected_truths);
         }
     }
 
@@ -76,6 +87,15 @@ pub fn run_benchmark(func: Function, spec: &BenchmarkSpec) {
     
     let record = result.iterations_detail.first().cloned().unwrap_or_default();
     
+    println!("Discovered Concepts:");
+    for c in &record.concepts_discovered {
+        println!("  - {}", c);
+    }
+    println!("Inferred Representations:");
+    for r in &record.representations_inferred {
+        println!("  - {}", r);
+    }
+    
     let has_facts = record.facts_discovered > 0;
     let has_semantics = record.truths_discovered > 0;
     let has_representation = record.beliefs_inferred > 0;
@@ -83,6 +103,16 @@ pub fn run_benchmark(func: Function, spec: &BenchmarkSpec) {
     let has_proof = record.proofs_succeeded > 0;
     let has_rewrite = result.rewrites_applied > 0;
     let is_fixed_point = result.termination == TerminationReason::FixedPoint;
+
+    println!("Semantic Compression:");
+    println!("  Initial IR nodes: {}", result.initial_nodes);
+    println!("  Semantic truths:  {}", result.max_truths);
+    println!("  Final IR nodes:   {}", result.final_nodes);
+    if result.initial_nodes > 0 {
+        let ratio = result.final_nodes as f64 / result.initial_nodes as f64;
+        println!("  Compression:      {:.2}x", 1.0 / ratio);
+    }
+    println!();
 
     println!("Execution:");
     fn check(label: &str, actual: bool) {
@@ -114,21 +144,30 @@ pub fn run_benchmark(func: Function, spec: &BenchmarkSpec) {
             println!("  Rewrite        -> {}", rewrite);
             println!("\nResult: SUCCESS (Matches Specification)");
         },
-        ExpectedKnowledge::ExpectedFailure { stage, .. } => {
-            let stage_matches = match *stage {
-                "Semantics" => !has_semantics,
-                "Representation" => has_semantics && !has_representation,
-                "Candidate" => has_representation && !has_candidates,
-                "Proof" => has_candidates && !has_proof,
-                "Rewrite" => has_proof && !has_rewrite,
-                _ => panic!("Unknown stage {}", stage),
-            };
-            assert!(stage_matches, "Did not fail at the expected stage: {}", stage);
-            println!("Result: ARTIFACT VALID (Fails exactly at expected stage: {})", stage);
+        ExpectedKnowledge::MissingKnowledge { concepts, closure, representations, rewrites } => {
+            let found_concepts = concepts.iter().any(|&c| record.concepts_discovered.iter().any(|rc| rc.contains(c)));
+            let found_reps = representations.iter().any(|&r| record.representations_inferred.iter().any(|rr| rr.contains(r)));
+            
+            if !concepts.is_empty() {
+                assert!(!found_concepts, "Found concepts that were supposed to be missing!");
+            }
+            if !representations.is_empty() {
+                assert!(!found_reps, "Found representations that were supposed to be missing!");
+            }
+            if !rewrites.is_empty() {
+                assert!(!has_rewrite, "Rewrote the graph but we expected it to fail due to missing rewrites: {:?}", rewrites);
+            }
+            
+            println!("Result: KNOWLEDGE GAP IDENTIFIED (Fails gracefully due to missing knowledge)");
         },
         ExpectedKnowledge::NonOptimizable { .. } => {
             assert!(!has_rewrite, "Should not have rewritten a non-optimizable benchmark");
             println!("Result: DECLINED OPTIMIZATION (Matches Specification)");
+        },
+        ExpectedKnowledge::ProvenanceGraph { validation, .. } => {
+            println!("Result: VALIDATING PROVENANCE GRAPH...");
+            validation(&record.truths, &record.candidates);
+            println!("Result: PROVENANCE GRAPH VALID (Matches Specification)");
         }
     }
 }

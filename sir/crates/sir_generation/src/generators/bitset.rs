@@ -166,17 +166,17 @@ static STRATEGIES: &[StrategyDef] = &[
     StrategyDef {
         strategy: ImplementationStrategy::Popcount,
         source_concepts: &[
-            SemanticConcept::CardinalityReduction,
-            SemanticConcept::LogicalSequence,
+            SemanticConcept::BitsetIteration,
         ],
-        rationale: "Count elements matching a predicate by constructing a bitmask and using hardware popcount.",
+        rationale: "Replace a loop that monotonically clears lowest set bits and counts iterations \
+                    with a direct hardware popcount instruction.",
         effects: &[CandidateEffect::CountingStrategyChange],
         definition_id: DefinitionId::new(0),
-        compute_cost: |length| CostProfile {
-            instruction_count: 3,
+        compute_cost: |_length| CostProfile {
+            instruction_count: 1,
             select_count: 0,
-            memory_accesses: 1,
-            critical_path_depth: 1.max(length.max(1).ilog2() / 6),
+            memory_accesses: 0,
+            critical_path_depth: 1,
         },
     },
 ];

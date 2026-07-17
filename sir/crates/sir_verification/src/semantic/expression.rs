@@ -90,6 +90,10 @@ pub enum SemanticExpression {
 
     /// Count of leading zeros in a bitvector (equal to BitScanReverse).
     LeadingZeros(Box<SemanticExpression>),
+
+    // ── Added for Mask Algebra (Phase 0020) ────────────
+    /// Clears the lowest set bit of a bitvector.
+    ClearLowestSetBit(Box<SemanticExpression>),
 }
 
 /// A predicate for filtering collections.

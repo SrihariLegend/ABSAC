@@ -336,6 +336,22 @@ impl Interpreter {
                     }),
                 }
             }
+
+            SemanticExpression::ClearLowestSetBit(inner) => {
+                let val = self.evaluate(inner, env)?;
+                match val {
+                    Value::Integer(i) => Ok(Value::Integer(i & (i.wrapping_sub(1)))),
+                    Value::BitVector(bv) => {
+                        let i = bv.bits;
+                        let new_bits = i & (i.wrapping_sub(1));
+                        Ok(Value::BitVector(crate::semantic::value::BitVectorValue { bits: new_bits, width: bv.width }))
+                    }
+                    other => Err(InterpreterError::TypeMismatch {
+                        expected: "Integer or BitVector",
+                        found: other,
+                    }),
+                }
+            }
         }
     }
 

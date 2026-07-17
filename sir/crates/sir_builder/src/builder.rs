@@ -649,6 +649,22 @@ impl Builder {
         ))
     }
 
+    pub fn tuple_extract(
+        &mut self,
+        tuple: NodeId,
+        index: usize,
+        element_ty: Type,
+        span: Span,
+    ) -> Result<NodeId, BuildError> {
+        let _ = self.get_node(tuple)?;
+        Ok(self.alloc_node(
+            NodeKind::TupleExtract { tuple, index },
+            element_ty,
+            Effects::empty(),
+            span,
+        ))
+    }
+
     // ── Calls ───────────────────────────────────────────────
 
     pub fn call(

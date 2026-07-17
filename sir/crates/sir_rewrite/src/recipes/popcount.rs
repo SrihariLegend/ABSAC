@@ -39,13 +39,38 @@ impl RewriteRecipe for PopcountRecipe {
         region: &RewriteRegion,
         mut builder: SubgraphBuilder,
     ) -> Result<ReplacementPatch, RewriteError> {
-        let packed = crate::recipes::helpers::emit_pack(function, region, &mut builder)?;
-        let pop = builder.popcount(packed, Span::unknown());
+        let mut old_result = region.result()?;
+        
+        if region.structural.roles.iter().any(|r| matches!(r, sir_transform::roles::RegionRoles::SetIteration { .. })) {
+            // Find the TupleExtract that uses the loop node
+            for node in function.arena.iter() {
+                if let sir_nodes::NodeKind::TupleExtract { tuple, .. } = &node.kind {
+                    if *tuple == old_result {
+                        old_result = node.id;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        let original_ty = function.get_node(old_result).unwrap().ty.clone();
 
-        // 3. Map old result → new popcount
-        let result = region.result()?;
+        let packed = if let Some(set_val) = region.structural.roles.iter().find_map(|r| {
+            if let sir_transform::roles::RegionRoles::SetIteration { set_value, .. } = r {
+                Some(*set_value)
+            } else {
+                None
+            }
+        }) {
+            use crate::local_id::LocalNodeId;
+            LocalNodeId::new(set_val.as_u64())
+        } else {
+            crate::recipes::helpers::emit_pack(function, region, &mut builder)?
+        };
+        let pop = builder.popcount(packed, original_ty, Span::unknown());
+
         Ok(builder.finish(vec![ReplacementValue {
-            old: result,
+            old: old_result,
             new: pop,
         }]))
     }
