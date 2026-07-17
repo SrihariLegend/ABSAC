@@ -28,6 +28,39 @@ Specification:
   Rewrite: Rem -> And
 ```
 
+## Knowledge Gap Declarations
+
+When a benchmark is not yet supported, it is declared not by what code is missing, but by what **knowledge** is missing.
+
+```yaml
+Benchmark:
+  brian_kernighan_popcount
+Specification:
+  Expected: MissingKnowledge
+  Missing Concepts:       ["BitsetIteration"]
+  Missing Closure Rules:  ["ClearLowestSetBit -> BitsetIteration"]
+  Missing Reps:           ["BitSet"]
+  Missing Rewrites:       ["Popcount"]
+```
+
+This ensures the roadmap focuses on **the ontology**, not the implementation, unlocking maximum knowledge reuse per concept added (e.g. `CircularPermutation` enables both `rol` and `ror`).
+
+See `hackers_delight/ROADMAP.md` for a complete knowledge dependency map of remaining targets.
+
+## Architectural Metrics
+
+This opens up a new class of metrics. Instead of measuring "benchmarks passed" (which tests implementation breadth), we measure **ontology coverage** (which tests architectural depth).
+
+```text
+Ontology coverage (Example)
+
+Concepts implemented:     92
+Concepts exercised:       74
+Closure rules:            31
+Average reasoning depth:  4.2
+Maximum reasoning depth:  7
+```
+
 ## Immutable Research Artifacts
 
 As part of **Corpus v1.0**, these benchmarks are frozen. 

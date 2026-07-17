@@ -12,7 +12,7 @@ use crate::region::RegionId;
 pub struct StructuralDescription {
     pub region: RegionId,
     pub source_structure: SourceStructure,
-    pub roles: Option<RegionRoles>,
+    pub roles: Vec<RegionRoles>,
     pub constraints: std::collections::HashSet<Constraint>,
 }
 
@@ -21,14 +21,18 @@ impl StructuralDescription {
         Self {
             region,
             source_structure,
-            roles: None,
+            roles: Vec::new(),
             constraints: std::collections::HashSet::new(),
         }
     }
 
     pub fn with_roles(mut self, roles: RegionRoles) -> Self {
-        self.roles = Some(roles);
+        self.roles.push(roles);
         self
+    }
+    
+    pub fn add_role(&mut self, role: RegionRoles) {
+        self.roles.push(role);
     }
 
     pub fn with_constraint(mut self, constraint: Constraint) -> Self {

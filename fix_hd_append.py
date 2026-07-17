@@ -1,86 +1,6 @@
-use sir_builder::Builder;
-use sir_types::{ConstantData, Type, Span};
-use crate::framework::{BenchmarkDef, BenchmarkSpec, ExpectedKnowledge};
+import re
 
-fn unknown_span() -> Span {
-    Span::unknown()
-}
-
-pub fn benchmarks() -> Vec<BenchmarkDef> {
-    vec![
-        BenchmarkDef {
-            spec: BenchmarkSpec {
-                id: "AR001",
-                name: "modulo_power_of_two",
-                category: "Arithmetic identities",
-                input_desc: "x % 8",
-                expected: ExpectedKnowledge::Optimizes {
-                    semantic_domain: "Arithmetic",
-                    concepts: vec!["ModuloPowerOfTwo"],
-                    representation: "BitwiseArithmetic",
-                    candidate: "BitwiseAnd",
-                    proof: "Modulo(x, 2^k) == And(x, 2^k - 1)",
-                    rewrite: "Rem -> And",
-                },
-            },
-            func: || {
-                let mut b = Builder::new("modulo_naive", &[("x", Type::u32())], Type::u32());
-                let x = b.parameter_index(0).unwrap();
-                let eight = b.constant(ConstantData::u32(8), Type::u32(), unknown_span());
-                let rem = b.rem(x, eight, unknown_span()).unwrap();
-                b.return_value(rem, unknown_span()).unwrap();
-                b.build()
-            },
-        },
-        BenchmarkDef {
-            spec: BenchmarkSpec {
-                id: "AR002",
-                name: "divide_power_of_two",
-                category: "Arithmetic identities",
-                input_desc: "x / 16",
-                expected: ExpectedKnowledge::Optimizes {
-                    semantic_domain: "Arithmetic",
-                    concepts: vec!["DividePowerOfTwo"],
-                    representation: "BitwiseArithmetic",
-                    candidate: "ShiftRight",
-                    proof: "Div(x, 2^k) == Shr(x, k)",
-                    rewrite: "Div -> Shr",
-                },
-            },
-            func: || {
-                let mut b = Builder::new("divide_naive", &[("x", Type::u32())], Type::u32());
-                let x = b.parameter_index(0).unwrap();
-                let sixteen = b.constant(ConstantData::u32(16), Type::u32(), unknown_span());
-                let div = b.div(x, sixteen, unknown_span()).unwrap();
-                b.return_value(div, unknown_span()).unwrap();
-                b.build()
-            },
-        },
-        BenchmarkDef {
-            spec: BenchmarkSpec {
-                id: "AR003",
-                name: "multiply_power_of_two",
-                category: "Arithmetic identities",
-                input_desc: "x * 32",
-                expected: ExpectedKnowledge::Optimizes {
-                    semantic_domain: "Arithmetic",
-                    concepts: vec!["MultiplyPowerOfTwo"],
-                    representation: "BitwiseArithmetic",
-                    candidate: "ShiftLeft",
-                    proof: "Mul(x, 2^k) == Shl(x, k)",
-                    rewrite: "Mul -> Shl",
-                },
-            },
-            func: || {
-                let mut b = Builder::new("multiply_naive", &[("x", Type::u32())], Type::u32());
-                let x = b.parameter_index(0).unwrap();
-                let thirty_two = b.constant(ConstantData::u32(32), Type::u32(), unknown_span());
-                let mul = b.mul(x, thirty_two, unknown_span()).unwrap();
-                b.return_value(mul, unknown_span()).unwrap();
-                b.build()
-            },
-        },
-
+hd_benchmarks = """
         // ── Hacker's Delight Roadmap (Failures mapping missing knowledge) ──
 
         BenchmarkDef {
@@ -89,11 +9,10 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "isolate_lowest_set_bit",
                 category: "Hacker's Delight",
                 input_desc: "x & -x",
-                expected: ExpectedKnowledge::MissingKnowledge {
-                    concepts: vec!["LowestSetBitMask"],
-                    closure: vec![],
-                    representations: vec!["MaskAlgebra"],
-                    rewrites: vec!["blsi"],
+                expected: ExpectedKnowledge::ExpectedFailure {
+                    stage: "Semantics",
+                    missing_knowledge: "Missing recognizer for isolating lowest bit",
+                    needed_concept: "IsolateLowestSetBit",
                 },
             },
             func: || {
@@ -112,13 +31,10 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "brian_kernighan_popcount",
                 category: "Hacker's Delight",
                 input_desc: "while x != 0 { count++; x &= x - 1; }",
-                expected: ExpectedKnowledge::Optimizes {
-                    semantic_domain: "Collection",
-                    concepts: vec!["BitsetIteration", "LoopUntilZero"],
-                    representation: "BitSet",
-                    candidate: "Popcount",
-                    proof: "Valid rewrite",
-                    rewrite: "Loop -> Popcount",
+                expected: ExpectedKnowledge::ExpectedFailure {
+                    stage: "Semantics",
+                    missing_knowledge: "Needs to recognize integer mutation via ClearLowestSetBit as set iteration",
+                    needed_concept: "BitsetIteration",
                 },
             },
             func: || {
@@ -147,8 +63,7 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                     unknown_span()
                 ).unwrap();
                 
-                let extracted_count = b.tuple_extract(loop_node, 1, Type::u64(), unknown_span()).unwrap();
-                b.return_value(extracted_count, unknown_span()).unwrap();
+                b.return_value(loop_node, unknown_span()).unwrap();
                 b.build()
             },
         },
@@ -159,11 +74,10 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "rotate_left",
                 category: "Hacker's Delight",
                 input_desc: "(x << k) | (x >> (64 - k))",
-                expected: ExpectedKnowledge::MissingKnowledge {
-                    concepts: vec!["CircularPermutation"],
-                    closure: vec!["Shift pair -> CircularPermutation"],
-                    representations: vec!["BitPermutation"],
-                    rewrites: vec!["rol", "ror"],
+                expected: ExpectedKnowledge::ExpectedFailure {
+                    stage: "Semantics",
+                    missing_knowledge: "Missing concept and recognizer for circular shifts",
+                    needed_concept: "CircularShift",
                 },
             },
             func: || {
@@ -188,11 +102,10 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "byte_swap",
                 category: "Hacker's Delight",
                 input_desc: "((x & 0xFF) << 8) | ((x >> 8) & 0xFF)",
-                expected: ExpectedKnowledge::MissingKnowledge {
-                    concepts: vec!["BytePermutation"],
-                    closure: vec!["CombinePermutations"],
-                    representations: vec!["BitPermutation"],
-                    rewrites: vec!["bswap"],
+                expected: ExpectedKnowledge::ExpectedFailure {
+                    stage: "Semantics",
+                    missing_knowledge: "Missing concept and recognizer for byte level permutations",
+                    needed_concept: "ByteSwap",
                 },
             },
             func: || {
@@ -220,11 +133,10 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "reverse_bits",
                 category: "Hacker's Delight",
                 input_desc: "swap adjacent bits, then pairs, then nibbles...",
-                expected: ExpectedKnowledge::MissingKnowledge {
-                    concepts: vec!["BitPermutation"],
-                    closure: vec!["CombinePermutations"],
-                    representations: vec!["BitPermutation"],
-                    rewrites: vec!["rbit"],
+                expected: ExpectedKnowledge::ExpectedFailure {
+                    stage: "Semantics",
+                    missing_knowledge: "Missing structural recognizer for bit reversal pattern",
+                    needed_concept: "BitReversal",
                 },
             },
             func: || {
@@ -265,18 +177,11 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 b.build()
             },
         },
-    ]
-}
+"""
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::framework::run_benchmark;
-    
-    #[test]
-    fn test_arithmetic() {
-        for def in benchmarks() {
-            run_benchmark((def.func)(), &def.spec);
-        }
-    }
-}
+content = open("sir/crates/sir_benchmarks/src/hackers_delight/mod.rs").read()
+# Insert before the last `]` in the `vec![` block.
+parts = content.rsplit("    ]\n}", 1)
+new_content = parts[0] + hd_benchmarks + "    ]\n}" + parts[1]
+
+open("sir/crates/sir_benchmarks/src/hackers_delight/mod.rs", "w").write(new_content)

@@ -550,6 +550,21 @@ impl<'a> Verifier<'a> {
                     }
                     let _ = base;
                 }
+                
+                NodeKind::TupleExtract { tuple, index } => {
+                    if let Some(ty) = self.node_type(*tuple) {
+                        if !matches!(ty, Type::Tuple { .. }) {
+                            self.errors.push(VerificationError::TypeMismatch {
+                                node: node.id,
+                                kind: node.kind.clone(),
+                                input_index: 0,
+                                expected: Type::Tuple { elements: vec![] },
+                                actual: ty,
+                            });
+                        }
+                    }
+                    let _ = index;
+                }
 
                 // Calls: args existence checked by reference check.
                 NodeKind::Call { .. }

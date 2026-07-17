@@ -92,5 +92,16 @@ pub fn contribute(region: &Region, truths: &[sir_semantics::truth::SemanticTruth
         });
     }
 
+    if region.contains(SemanticConcept::BitsetIteration) || truths.iter().any(|t| t.concept == SemanticConcept::BitsetIteration && t.origin == region.id) {
+        evidence.push(Evidence {
+            region: region.id,
+            representation: Representation::BitSet,
+            polarity: Polarity::Supports,
+            weight: weights::STRONG,
+            source: SemanticConcept::BitsetIteration,
+            explanation: "Looping over set bits is definitive evidence for BitSet",
+        });
+    }
+
     evidence
 }

@@ -56,4 +56,11 @@ pub enum RegionRoles {
         /// The node representing the final output result to replace.
         result: NodeId,
     },
+    /// A loop that iteratively clears bits to count or traverse them.
+    SetIteration {
+        /// The integer value being iterated over.
+        set_value: NodeId,
+        /// The loop node itself.
+        result: NodeId,
+    },
 }

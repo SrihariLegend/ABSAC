@@ -1,5 +1,6 @@
 pub mod rules;
 pub mod predicate_map_to_seq;
+pub mod bitset_iteration;
 
 use crate::semantics::SemanticDatabase;
 use crate::truth::SemanticTruth;

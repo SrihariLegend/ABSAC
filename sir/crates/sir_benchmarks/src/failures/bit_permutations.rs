@@ -14,10 +14,11 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "rotate_left",
                 category: "Bit permutations",
                 input_desc: "(x << n) | (x >> (64 - n))",
-                expected: ExpectedKnowledge::ExpectedFailure {
-                    stage: "Semantics",
-                    missing_knowledge: "BitPermutations",
-                    needed_concept: "Rotate",
+                expected: ExpectedKnowledge::MissingKnowledge {
+                    concepts: vec!["Rotate"],
+                    closure: vec![],
+                    representations: vec!["BitPermutations"],
+                    rewrites: vec!["rol/ror"],
                 },
             },
             func: || {

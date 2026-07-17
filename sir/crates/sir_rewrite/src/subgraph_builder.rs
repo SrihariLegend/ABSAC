@@ -211,12 +211,12 @@ impl<'a> SubgraphBuilder<'a> {
         )
     }
 
-    pub fn popcount(&mut self, operand: LocalNodeId, span: Span) -> LocalNodeId {
+    pub fn popcount(&mut self, operand: LocalNodeId, ty: Type, span: Span) -> LocalNodeId {
         self.alloc_node(
             NodeKind::Popcount {
                 operand: NodeId::new(operand.as_u64()),
             },
-            Type::i32(),
+            ty,
             span,
         )
     }

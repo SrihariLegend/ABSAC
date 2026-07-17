@@ -37,11 +37,25 @@ impl RewriteRecipe for ParityRecipe {
         region: &RewriteRegion,
         mut builder: SubgraphBuilder,
     ) -> Result<ReplacementPatch, RewriteError> {
+        let mut result = region.result()?;
+        for node in function.arena.iter() {
+            if let sir_nodes::NodeKind::TupleExtract { tuple, .. } = &node.kind {
+                if *tuple == result {
+                    result = node.id;
+                    break;
+                }
+            }
+        }
+        
         let packed = emit_pack(function, region, &mut builder)?;
-        let pop = builder.popcount(packed, Span::unknown());
+        let original_ty = function.get_node(result).unwrap().ty.clone();
+        // Since parity results in a bool, the popcount type should probably be i32 to do bitwise ops, 
+        // but we'll use u64 if needed. i32 is safe for popcount.
+        let pop_ty = sir_types::Type::i32();
+        let pop = builder.popcount(packed, pop_ty.clone(), Span::unknown());
 
         // Ensure type of popcount result (i32 is default in popcount builder, but let's use what it gives)
-        let ty = builder.get_type(pop).unwrap_or(Type::i32());
+        let ty = builder.get_type(pop).unwrap_or(pop_ty);
 
         let one = builder.constant(ConstantData::i32(1), ty.clone(), Span::unknown());
         let and_one = builder.bitwise_and(pop, one, Span::unknown());
@@ -50,7 +64,6 @@ impl RewriteRecipe for ParityRecipe {
         let zero = builder.constant(ConstantData::i32(0), ty, Span::unknown());
         let ne_zero = builder.ne(and_one, zero, Span::unknown());
 
-        let result = region.result()?;
         Ok(builder.finish(vec![ReplacementValue {
             old: result,
             new: ne_zero,
