@@ -74,6 +74,12 @@ pub enum SemanticConcept {
     /// Operation: testing if a value is zero
     IsZero,
 
+    // ── Added for Loop Iteration (Phase II.1) ───────────
+    /// Property: a loop that terminates when a variable reaches zero
+    LoopUntilZero,
+    /// Operation: repeatedly applying an operation that monotonically removes one set bit
+    BitsetIteration,
+
     // ── Added for Semantic Closure (Phase II.1) ───────────
     /// Operation: property of having at most one bit set (or being zero)
     AtMostOneBitSet,
@@ -104,7 +110,8 @@ impl SemanticConcept {
             SemanticConcept::AtMostOneBitSet |
             SemanticConcept::SetEmpty |
             SemanticConcept::SetEquality |
-            SemanticConcept::SetSubset => ConceptKind::Property,
+            SemanticConcept::SetSubset |
+            SemanticConcept::LoopUntilZero => ConceptKind::Property,
 
             // Operations
             _ => ConceptKind::Operation,
@@ -144,6 +151,8 @@ impl fmt::Display for SemanticConcept {
             SemanticConcept::LowestSetBit => write!(f, "LowestSetBit"),
             SemanticConcept::ClearLowestSetBit => write!(f, "ClearLowestSetBit"),
             SemanticConcept::IsZero => write!(f, "IsZero"),
+            SemanticConcept::LoopUntilZero => write!(f, "LoopUntilZero"),
+            SemanticConcept::BitsetIteration => write!(f, "BitsetIteration"),
             SemanticConcept::AtMostOneBitSet => write!(f, "AtMostOneBitSet"),
             SemanticConcept::PredicateMap => write!(f, "PredicateMap"),
             SemanticConcept::ElementSequence => write!(f, "ElementSequence"),

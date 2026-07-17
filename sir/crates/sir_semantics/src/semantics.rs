@@ -38,8 +38,11 @@ impl SemanticDatabase {
     }
 
     /// Add a derived truth to the database.
-    pub fn add_truth(&mut self, truth: SemanticTruth) {
+    pub fn add_truth(&mut self, mut truth: SemanticTruth) -> crate::truth::TruthId {
+        let id = crate::truth::TruthId::new(self.truths.len());
+        truth.id = id;
         self.truths.push(truth);
+        id
     }
 
     /// Returns an iterator over all semantic truths.
@@ -181,7 +184,7 @@ impl SemanticDatabase {
     }
 }
 
-use crate::closure::{ClosureEngine, rules::ClearLowestIsZeroToAtMostOneBit, predicate_map_to_seq::PredicateMapToLogicalSequence};
+use crate::closure::{ClosureEngine, rules::ClearLowestIsZeroToAtMostOneBit, predicate_map_to_seq::PredicateMapToLogicalSequence, bitset_iteration::ClearLowestToBitsetIteration};
 
 /// The semantic derivation engine.
 ///
@@ -200,6 +203,7 @@ impl SemanticEngine {
         let mut closure_engine = ClosureEngine::new();
         closure_engine.add_rule(Box::new(ClearLowestIsZeroToAtMostOneBit));
         closure_engine.add_rule(Box::new(PredicateMapToLogicalSequence));
+        closure_engine.add_rule(Box::new(ClearLowestToBitsetIteration));
         
         Self {
             db: SemanticDatabase::new(),
@@ -254,7 +258,26 @@ impl SemanticEngine {
                 concept: explanation.concept,
                 inputs,
                 outputs,
-                origin: rid,
+                origin: rid, id: crate::truth::TruthId::new(0), provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+            };
+            self.db.add_truth(truth);
+        }
+
+        let loop_until_zero_recs = crate::recognizers::loop_until_zero::recognize_loop_until_zero(func, analysis);
+        for (_concept, explanation, node_ids, inputs, outputs) in loop_until_zero_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation.clone());
+            self.db.add_region(region);
+            
+            let truth = SemanticTruth {
+                concept: explanation.concept,
+                inputs,
+                outputs,
+                origin: rid, id: crate::truth::TruthId::new(0), provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
             };
             self.db.add_truth(truth);
         }
@@ -273,7 +296,7 @@ impl SemanticEngine {
                 concept: explanation.concept,
                 inputs,
                 outputs,
-                origin: rid,
+                origin: rid, id: crate::truth::TruthId::new(0), provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
             };
             self.db.add_truth(truth);
         }
@@ -285,8 +308,18 @@ impl SemanticEngine {
             for node_id in &node_ids {
                 region.nodes.insert(*node_id);
             }
-            region.add_concept(explanation.concept, explanation);
+            region.add_concept(explanation.concept, explanation.clone());
             self.db.add_region(region);
+            
+            let truth = SemanticTruth {
+                id: crate::truth::TruthId::new(0),
+                concept: explanation.concept,
+                inputs: vec![],
+                outputs: vec![],
+                origin: rid,
+                provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+            };
+            self.db.add_truth(truth);
         }
 
         let bc_recs = boolean_collection::recognize_boolean_collection(func, analysis);
@@ -337,7 +370,7 @@ impl SemanticEngine {
                 concept: explanation.concept,
                 inputs,
                 outputs,
-                origin: rid,
+                origin: rid, id: crate::truth::TruthId::new(0), provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
             };
             self.db.add_truth(truth);
         }
@@ -357,7 +390,7 @@ impl SemanticEngine {
                 concept: explanation.concept,
                 inputs,
                 outputs,
-                origin: rid,
+                origin: rid, id: crate::truth::TruthId::new(0), provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
             };
             self.db.add_truth(truth);
         }
@@ -377,7 +410,7 @@ impl SemanticEngine {
                 concept: explanation.concept,
                 inputs,
                 outputs,
-                origin: rid,
+                origin: rid, id: crate::truth::TruthId::new(0), provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
             };
             self.db.add_truth(truth);
         }
@@ -424,8 +457,18 @@ impl SemanticEngine {
             for node_id in &node_ids {
                 region.nodes.insert(*node_id);
             }
-            region.add_concept(explanation.concept, explanation);
+            region.add_concept(explanation.concept, explanation.clone());
             self.db.add_region(region);
+            
+            let truth = SemanticTruth {
+                id: crate::truth::TruthId::new(0),
+                concept: explanation.concept,
+                inputs: vec![],
+                outputs: vec![],
+                origin: rid,
+                provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+            };
+            self.db.add_truth(truth);
         }
 
         let divide_recs = divide_power_of_two::recognize_divide_power_of_two(func, analysis);
@@ -774,7 +817,7 @@ impl SemanticEngine {
                         if let (Some(scalar), Some(operator)) =
                             (predicate_scalar, predicate_op_node)
                         {
-                            desc.roles = Some(RegionRoles::PredicateCollectionReduction {
+                            desc.roles.push(RegionRoles::PredicateCollectionReduction {
                                 collection,
                                 scalar,
                                 operator,
@@ -782,7 +825,7 @@ impl SemanticEngine {
                                 result,
                             });
                         } else {
-                            desc.roles = Some(RegionRoles::BooleanCollectionReduction {
+                            desc.roles.push(RegionRoles::BooleanCollectionReduction {
                                 collection,
                                 accumulator,
                                 result,
@@ -790,7 +833,8 @@ impl SemanticEngine {
                         }
                     }
                 }
-            } else if region.contains(SemanticConcept::ModuloPowerOfTwo) {
+            }
+            if region.contains(SemanticConcept::ModuloPowerOfTwo) {
                 // Find Rem node
                 let mut op_info = None;
                 for node in func.arena.iter() {
@@ -800,7 +844,7 @@ impl SemanticEngine {
                 }
                 if let Some((rem, lhs, rhs)) = op_info {
                     if let Some(desc) = self.structural_db.region_mut(region_id) {
-                        desc.roles = Some(RegionRoles::ArithmeticOperation {
+                        desc.roles.push(RegionRoles::ArithmeticOperation {
                             operator_node: rem,
                             lhs,
                             rhs,
@@ -808,7 +852,8 @@ impl SemanticEngine {
                         });
                     }
                 }
-            } else if region.contains(SemanticConcept::DividePowerOfTwo) {
+            }
+            if region.contains(SemanticConcept::DividePowerOfTwo) {
                 let mut op_info = None;
                 for node in func.arena.iter() {
                     if let NodeKind::Div { lhs, rhs } = &node.kind {
@@ -817,7 +862,7 @@ impl SemanticEngine {
                 }
                 if let Some((div, lhs, rhs)) = op_info {
                     if let Some(desc) = self.structural_db.region_mut(region_id) {
-                        desc.roles = Some(RegionRoles::ArithmeticOperation {
+                        desc.roles.push(RegionRoles::ArithmeticOperation {
                             operator_node: div,
                             lhs,
                             rhs,
@@ -825,7 +870,8 @@ impl SemanticEngine {
                         });
                     }
                 }
-            } else if region.contains(SemanticConcept::MultiplyPowerOfTwo) {
+            }
+            if region.contains(SemanticConcept::MultiplyPowerOfTwo) {
                 let mut op_info = None;
                 for node in func.arena.iter() {
                     if let NodeKind::Mul { lhs, rhs } = &node.kind {
@@ -834,7 +880,7 @@ impl SemanticEngine {
                 }
                 if let Some((mul, lhs, rhs)) = op_info {
                     if let Some(desc) = self.structural_db.region_mut(region_id) {
-                        desc.roles = Some(RegionRoles::ArithmeticOperation {
+                        desc.roles.push(RegionRoles::ArithmeticOperation {
                             operator_node: mul,
                             lhs,
                             rhs,
@@ -865,13 +911,14 @@ impl SemanticEngine {
                                 }
                             }
                         }
-                        desc.roles = Some(RegionRoles::MaskOperation {
+                        desc.roles.push(RegionRoles::MaskOperation {
                             operand,
                             result: and_node,
                         });
                     }
                 }
-            } else if region.contains(SemanticConcept::ClearLowestSetBit) {
+            }
+            if region.contains(SemanticConcept::ClearLowestSetBit) {
                 let mut op_info = None;
                 for node in func.arena.iter() {
                     if let NodeKind::And { .. } = &node.kind {
@@ -893,13 +940,37 @@ impl SemanticEngine {
                                 }
                             }
                         }
-                        desc.roles = Some(RegionRoles::MaskOperation {
+                        desc.roles.push(RegionRoles::MaskOperation {
                             operand,
                             result: and_node,
                         });
                     }
                 }
-            } else if region.contains(SemanticConcept::ShiftMask) {
+            }
+            if region.contains(SemanticConcept::BitsetIteration) {
+                let mut loop_node = None;
+                let mut set_value = None;
+                for node in func.arena.iter() {
+                    if let NodeKind::Loop { carried_inputs, .. } = &node.kind {
+                        if region.nodes.contains(&node.id) {
+                            loop_node = Some(node.id);
+                            if let Some(&first_carry) = carried_inputs.first() {
+                                set_value = Some(first_carry);
+                            }
+                            break;
+                        }
+                    }
+                }
+                if let (Some(l), Some(s)) = (loop_node, set_value) {
+                    if let Some(desc) = self.structural_db.region_mut(region_id) {
+                        desc.roles.push(RegionRoles::SetIteration {
+                            set_value: s,
+                            result: l,
+                        });
+                    }
+                }
+            }
+            if region.contains(SemanticConcept::ShiftMask) {
                 let mut op_info = None;
                 for node in func.arena.iter() {
                     if let NodeKind::Shr { lhs, rhs } = &node.kind {
@@ -912,7 +983,7 @@ impl SemanticEngine {
                 }
                 if let Some((shr, lhs, rhs)) = op_info {
                     if let Some(desc) = self.structural_db.region_mut(region_id) {
-                        desc.roles = Some(RegionRoles::ArithmeticOperation {
+                        desc.roles.push(RegionRoles::ArithmeticOperation {
                             operator_node: shr,
                             lhs,
                             rhs,
@@ -954,7 +1025,7 @@ impl SemanticEngine {
 
                 if let Some(result) = result_node {
                     if let Some(desc) = self.structural_db.region_mut(region_id) {
-                        desc.roles = Some(RegionRoles::PositionSearch {
+                        desc.roles.push(RegionRoles::PositionSearch {
                             collection,
                             scalar,
                             result,

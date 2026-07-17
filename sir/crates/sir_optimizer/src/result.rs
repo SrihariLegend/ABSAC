@@ -1,6 +1,7 @@
 // sir/crates/sir_optimizer/src/result.rs
 
 use sir_nodes::Function;
+use sir_semantics::truth::SemanticTruth;
 
 /// The result of a complete optimization run.
 #[derive(Clone, Debug)]
@@ -15,6 +16,11 @@ pub struct OptimizationResult {
     pub iterations_detail: Vec<IterationRecord>,
     /// Why optimization stopped.
     pub termination: TerminationReason,
+    
+    // Semantic Compression metrics
+    pub initial_nodes: usize,
+    pub max_truths: usize,
+    pub final_nodes: usize,
 }
 
 /// Why the optimization loop terminated.
@@ -40,6 +46,8 @@ pub struct IterationRecord {
     pub rewrites_applied: usize,
     pub concepts_discovered: Vec<String>,
     pub representations_inferred: Vec<String>,
+    pub truths: Vec<SemanticTruth>,
+    pub candidates: Vec<sir_generation::candidate::Candidate>,
     pub outcome: IterationOutcome,
 }
 

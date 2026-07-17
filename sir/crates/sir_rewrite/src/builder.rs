@@ -298,6 +298,10 @@ impl RewriteBuilder {
                 base: resolve(base)?,
                 index: resolve(index)?,
             },
+            NodeKind::TupleExtract { tuple, index } => NodeKind::TupleExtract {
+                tuple: resolve(tuple)?,
+                index: *index,
+            },
             NodeKind::FieldAccess { base, field } => NodeKind::FieldAccess {
                 base: resolve(base)?,
                 field: field.clone(),
@@ -503,6 +507,10 @@ impl RewriteBuilder {
                 base: r(base),
                 index: r(index),
             },
+            NodeKind::TupleExtract { tuple, index } => NodeKind::TupleExtract {
+                tuple: r(tuple),
+                index: *index,
+            },
             NodeKind::FieldAccess { base, field } => NodeKind::FieldAccess {
                 base: r(base),
                 field: field.clone(),
@@ -546,7 +554,7 @@ impl RewriteBuilder {
     #[allow(dead_code)]
     fn collect_role_nodes(region: &RewriteRegion) -> BTreeSet<NodeId> {
         let mut nodes = BTreeSet::new();
-        if let Some(roles) = &region.structural.roles {
+        for roles in &region.structural.roles {
             match roles {
                 sir_transform::roles::RegionRoles::BooleanCollectionReduction {
                     collection,
@@ -603,6 +611,13 @@ impl RewriteBuilder {
                     result,
                 } => {
                     nodes.insert(*operand);
+                    nodes.insert(*result);
+                }
+                sir_transform::roles::RegionRoles::SetIteration {
+                    set_value,
+                    result,
+                } => {
+                    nodes.insert(*set_value);
                     nodes.insert(*result);
                 }
             }

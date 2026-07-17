@@ -167,8 +167,10 @@ impl TextPrinter {
             NodeKind::Load { ptr } => write!(w, " {ptr}"),
             NodeKind::Store { ptr, value } => write!(w, " {ptr}, {value}"),
             NodeKind::Allocate { ty, count } => write!(w, " {ty}, {count}"),
+            NodeKind::Deallocate { ptr } => write!(w, " {ptr}"),
             NodeKind::FieldAccess { base, field } => write!(w, " {base}.{field}"),
             NodeKind::ArrayAccess { base, index } => write!(w, " {base}[{index}]"),
+            NodeKind::TupleExtract { tuple, index } => write!(w, " {tuple}.{index}"),
             NodeKind::Call { callee, args } => {
                 write!(w, " {callee}(")?;
                 for (i, arg) in args.iter().enumerate() {

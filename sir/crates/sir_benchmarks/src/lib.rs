@@ -4,6 +4,8 @@ pub mod boolean_reductions;
 pub mod positional_search;
 pub mod failures;
 pub mod non_optimizable;
+pub mod composition;
+pub mod graph;
 
 use framework::BenchmarkDef;
 
@@ -14,5 +16,7 @@ pub fn all_benchmarks() -> Vec<BenchmarkDef> {
     all.extend(positional_search::benchmarks());
     all.extend(failures::benchmarks());
     all.extend(non_optimizable::benchmarks());
+    all.extend(composition::benchmarks());
+    all.extend(graph::benchmarks());
     all
 }

@@ -2,6 +2,7 @@ pub mod bitmask;
 pub mod boolean_array;
 pub mod boolean_collection;
 pub mod is_zero;
+pub mod loop_until_zero;
 pub mod cardinality_reduction;
 pub mod conjunctive_reduction;
 pub mod disjunctive_reduction;

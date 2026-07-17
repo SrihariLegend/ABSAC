@@ -25,10 +25,14 @@ impl ImplicationRule for ClearLowestIsZeroToAtMostOneBit {
                         // that has at most one bit set.
                         if let Some(original_value) = clear_truth.inputs.first() {
                             new_truths.push(SemanticTruth {
+                                id: crate::truth::TruthId::new(0),
                                 concept: SemanticConcept::AtMostOneBitSet,
                                 inputs: vec![*original_value],
                                 outputs: is_zero_truth.outputs.clone(), // The boolean result
                                 origin: is_zero_truth.origin, // Bind it to the same semantic origin region as the `== 0` check
+                                provenance: crate::truth::Provenance::Derived {
+                                    from_truths: vec![is_zero_truth.id, clear_truth.id],
+                                },
                             });
                         }
                     }

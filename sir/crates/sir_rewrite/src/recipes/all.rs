@@ -37,6 +37,16 @@ impl RewriteRecipe for AllRecipe {
         region: &RewriteRegion,
         mut builder: SubgraphBuilder,
     ) -> Result<ReplacementPatch, RewriteError> {
+        let mut result = region.result()?;
+        for node in function.arena.iter() {
+            if let sir_nodes::NodeKind::TupleExtract { tuple, .. } = &node.kind {
+                if *tuple == result {
+                    result = node.id;
+                    break;
+                }
+            }
+        }
+        
         let packed = emit_pack(function, region, &mut builder)?;
 
         let width = match builder.get_type(packed) {
@@ -56,7 +66,6 @@ impl RewriteRecipe for AllRecipe {
         );
         let eq_mask = builder.eq(packed, full_mask, Span::unknown());
 
-        let result = region.result()?;
         Ok(builder.finish(vec![ReplacementValue {
             old: result,
             new: eq_mask,
