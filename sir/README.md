@@ -45,7 +45,7 @@ cargo test <test_name>   # Run a single test by name
 | **Representation** | `sir_types`, `sir_nodes` | How is the program encoded? |
 | **Knowledge** | `sir_analysis`, `sir_semantics`, `sir_inference` | What is the program? |
 | **Planning** | `sir_transform`, `sir_generation` | What should we do about it? |
-| **Execution** | `sir_verification`, `sir_rewrite`, `sir_optimizer` | Is it correct and worthwhile? |
+| **Execution** | `sir_verification`, `sir_rewrite`, `sir_optimizer` | Is it correct and what is the optimal path? |
 
 ### Knowledge Pipeline
 
@@ -61,6 +61,12 @@ SIR
  │                    → Contexts     "What would have to be true to transform it?"
  │
  ▼  sir_generation    → Plans        "What implementations are possible?"
+ │
+ ▼  sir_verification  → Proofs       "Is the rewrite mathematically exact?"
+ │
+ ▼  sir_rewrite       → Branches     "Generate mutated graph states."
+ │
+ ▼  sir_optimizer     → Search       "Find the globally optimal terminal graph."
 ```
 
 Data flow is strictly one-way, read-only. No layer reads upward or across. No layer below `sir_semantics` inspects SIR directly.
@@ -163,7 +169,7 @@ Transforms representation beliefs into concrete candidate plans via 4 strategies
 - Verification obligation registry and equivalence verification
 - Cost model (microarchitectural performance prediction)
 - Rewrite engine (subgraph patching, region rewriting, popcount recipe)
-- End-to-end pipeline (analysis → rewrite → verify → select) via `sir_optimizer`
+- End-to-end pipeline (analysis → rewrite → verify → select) via `sir_optimizer` beam search global rewrite planner
 - 380+ tests, passing
 
 ### Not Yet Started
