@@ -36,6 +36,7 @@ fn optimize_iteration_limit_is_respected() {
         OptimizerConfig {
             max_iterations: 3,
             max_total_rewrites: None,
+            beam_width: None,
         },
         make_empty_registry(),
     );
@@ -52,6 +53,7 @@ fn optimize_max_total_rewrites_is_respected() {
         OptimizerConfig {
             max_iterations: 10,
             max_total_rewrites: Some(0),
+            beam_width: None,
         },
         make_empty_registry(),
     );

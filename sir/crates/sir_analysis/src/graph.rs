@@ -69,6 +69,7 @@ pub fn dataflow_inputs(kind: &NodeKind) -> Vec<NodeId> {
         NodeKind::FieldAccess { base, .. } => vec![*base],
         NodeKind::ArrayAccess { base, index } => vec![*base, *index],
         NodeKind::TupleExtract { tuple, .. } => vec![*tuple],
+        NodeKind::Tuple { elements } => elements.clone(),
 
         // Calls.
         NodeKind::Call { callee, args } => {

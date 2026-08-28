@@ -4,7 +4,7 @@ use sir_types::{ConstantData, Span, Type};
 use crate::error::RewriteError;
 use crate::patch::{ReplacementPatch, ReplacementValue};
 use crate::recipe::RewriteRecipe;
-use crate::recipes::helpers::emit_pack;
+use crate::recipes::helpers::{collection_length, emit_pack, find_tuple_extract, wrap_direct_tuple_return};
 use crate::region::RewriteRegion;
 use crate::subgraph_builder::SubgraphBuilder;
 
@@ -37,16 +37,14 @@ impl RewriteRecipe for AnyRecipe {
         region: &RewriteRegion,
         mut builder: SubgraphBuilder,
     ) -> Result<ReplacementPatch, RewriteError> {
-        let mut result = region.result()?;
-        for node in function.arena.iter() {
-            if let sir_nodes::NodeKind::TupleExtract { tuple, .. } = &node.kind {
-                if *tuple == result {
-                    result = node.id;
-                    break;
-                }
-            }
-        }
-        
+        let result = region.result()?;
+        let accumulator = region.accumulator().ok().flatten();
+
+        // Prefer replacing the TupleExtract consumer when one exists; when the tuple
+        // is returned wholesale the loop's tuple result is rebuilt below.
+        let extract = find_tuple_extract(function, result);
+        let target = extract.unwrap_or(result);
+
         let packed = emit_pack(function, region, &mut builder)?;
 
         let width = match builder.get_type(packed) {
@@ -62,9 +60,22 @@ impl RewriteRecipe for AnyRecipe {
         );
         let ne_zero = builder.ne(packed, zero, Span::unknown());
 
+        let new_value = if extract.is_none() {
+            wrap_direct_tuple_return(
+                function,
+                result,
+                accumulator,
+                collection_length(region),
+                ne_zero,
+                &mut builder,
+            )?
+        } else {
+            ne_zero
+        };
+
         Ok(builder.finish(vec![ReplacementValue {
-            old: result,
-            new: ne_zero,
+            old: target,
+            new: new_value,
         }]))
     }
 }

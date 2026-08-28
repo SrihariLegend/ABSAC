@@ -171,6 +171,16 @@ impl TextPrinter {
             NodeKind::FieldAccess { base, field } => write!(w, " {base}.{field}"),
             NodeKind::ArrayAccess { base, index } => write!(w, " {base}[{index}]"),
             NodeKind::TupleExtract { tuple, index } => write!(w, " {tuple}.{index}"),
+            NodeKind::Tuple { elements } => {
+                write!(w, " (")?;
+                for (i, elem) in elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(w, ", ")?;
+                    }
+                    write!(w, "{elem}")?;
+                }
+                write!(w, ")")
+            }
             NodeKind::Call { callee, args } => {
                 write!(w, " {callee}(")?;
                 for (i, arg) in args.iter().enumerate() {

@@ -302,6 +302,12 @@ impl RewriteBuilder {
                 tuple: resolve(tuple)?,
                 index: *index,
             },
+            NodeKind::Tuple { elements } => NodeKind::Tuple {
+                elements: elements
+                    .iter()
+                    .map(|e| resolve(e))
+                    .collect::<Result<Vec<_>, _>>()?,
+            },
             NodeKind::FieldAccess { base, field } => NodeKind::FieldAccess {
                 base: resolve(base)?,
                 field: field.clone(),
@@ -511,6 +517,7 @@ impl RewriteBuilder {
                 tuple: r(tuple),
                 index: *index,
             },
+            NodeKind::Tuple { elements } => NodeKind::Tuple { elements: rv(elements) },
             NodeKind::FieldAccess { base, field } => NodeKind::FieldAccess {
                 base: r(base),
                 field: field.clone(),

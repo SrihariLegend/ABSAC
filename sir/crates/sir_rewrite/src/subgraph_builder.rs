@@ -301,6 +301,22 @@ impl<'a> SubgraphBuilder<'a> {
         )
     }
 
+    // ── Tuple ───────────────────────────────────────────────────
+
+    /// Construct a tuple value from its elements.
+    pub fn tuple(&mut self, elements: Vec<LocalNodeId>, ty: Type, span: Span) -> LocalNodeId {
+        self.alloc_node(
+            NodeKind::Tuple {
+                elements: elements
+                    .into_iter()
+                    .map(|id| NodeId::new(id.as_u64()))
+                    .collect(),
+            },
+            ty,
+            span,
+        )
+    }
+
     // ── Select ──────────────────────────────────────────────────
 
     pub fn select(
@@ -356,7 +372,7 @@ mod tests {
             Type::BitVector { width: 64 },
             Span::unknown(),
         );
-        let pop = b.popcount(c, Span::unknown());
+        let pop = b.popcount(c, Type::i32(), Span::unknown());
 
         // Verify the arena has nodes
         let arena = &b.finish(vec![]).arena;
@@ -374,7 +390,7 @@ mod tests {
             Type::BitVector { width: 64 },
             Span::unknown(),
         );
-        let pop = b.popcount(bv, Span::unknown());
+        let pop = b.popcount(bv, Type::i32(), Span::unknown());
         // Verify we got a node
         let arena = &b.finish(vec![]).arena;
         assert!(arena.contains(pop));

@@ -4,8 +4,10 @@ use sir_types::Span;
 use crate::error::RewriteError;
 use crate::patch::{ReplacementPatch, ReplacementValue};
 use crate::recipe::RewriteRecipe;
+use crate::recipes::helpers::{collection_length, find_tuple_extract, loop_reduction_position, wrap_direct_tuple_return};
 use crate::region::RewriteRegion;
 use crate::subgraph_builder::SubgraphBuilder;
+use sir_types::Type;
 
 /// Recipe for the Popcount transformation.
 ///
@@ -40,20 +42,23 @@ impl RewriteRecipe for PopcountRecipe {
         mut builder: SubgraphBuilder,
     ) -> Result<ReplacementPatch, RewriteError> {
         let mut old_result = region.result()?;
-        
-        if region.structural.roles.iter().any(|r| matches!(r, sir_transform::roles::RegionRoles::SetIteration { .. })) {
-            // Find the TupleExtract that uses the loop node
-            for node in function.arena.iter() {
-                if let sir_nodes::NodeKind::TupleExtract { tuple, .. } = &node.kind {
-                    if *tuple == old_result {
-                        old_result = node.id;
-                        break;
-                    }
-                }
+        let accumulator = region.accumulator().ok().flatten();
+
+        // Prefer replacing the TupleExtract consumer when one exists; when the tuple
+        // is returned wholesale the loop's tuple result is rebuilt below.
+        if let Some(extract) = find_tuple_extract(function, old_result) {
+            old_result = extract;
+        }
+
+        // Type the popcount from the replaced node — except when the replaced node
+        // is the tuple-typed loop itself: the count's type is then the tuple element
+        // at the reduction position (typing it as the tuple would corrupt the IR).
+        let mut pop_ty = function.get_node(old_result).unwrap().ty.clone();
+        if let Type::Tuple { elements } = &pop_ty {
+            if let Some(pos) = loop_reduction_position(function, old_result, accumulator) {
+                pop_ty = elements[pos].clone();
             }
         }
-        
-        let original_ty = function.get_node(old_result).unwrap().ty.clone();
 
         let packed = if let Some(set_val) = region.structural.roles.iter().find_map(|r| {
             if let sir_transform::roles::RegionRoles::SetIteration { set_value, .. } = r {
@@ -67,11 +72,20 @@ impl RewriteRecipe for PopcountRecipe {
         } else {
             crate::recipes::helpers::emit_pack(function, region, &mut builder)?
         };
-        let pop = builder.popcount(packed, original_ty, Span::unknown());
+        let pop = builder.popcount(packed, pop_ty, Span::unknown());
+
+        let new_value = wrap_direct_tuple_return(
+            function,
+            old_result,
+            accumulator,
+            collection_length(region),
+            pop,
+            &mut builder,
+        )?;
 
         Ok(builder.finish(vec![ReplacementValue {
             old: old_result,
-            new: pop,
+            new: new_value,
         }]))
     }
 }
@@ -115,7 +129,17 @@ mod tests {
         let recipe = PopcountRecipe::new(DefinitionId::new(0));
         let region = make_test_region();
         let builder = SubgraphBuilder::new();
-        let func = sir_nodes::Function::new("test", sir_types::Type::Unit);
+        // The region result (node 20) must exist in the function with a scalar
+        // type: the recipe reads its type to type the popcount, and the tuple
+        // rebuild passes a non-tuple result through unchanged.
+        let mut func = sir_nodes::Function::new("test", sir_types::Type::Unit);
+        func.arena.insert(sir_nodes::Node::new(
+            sir_types::NodeId::new(20),
+            sir_nodes::NodeKind::Constant(sir_types::ConstantData::i32(0)),
+            sir_types::Type::i32(),
+            sir_types::Effects::empty(),
+            sir_types::Span::unknown(),
+        ));
 
         let patch = recipe.build_patch(&func, &region, builder).unwrap();
 

@@ -143,6 +143,7 @@ pub(crate) fn kind_variant_tag(kind: &NodeKind) -> u32 {
         NodeKind::Iterator { .. } => 40,
         NodeKind::Pack { .. } => 42,
         NodeKind::ArrayCmpMask { .. } => 43,
+        NodeKind::Tuple { .. } => 44,
         NodeKind::Return { .. } => 41,
     }
 }
