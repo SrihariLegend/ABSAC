@@ -68,6 +68,15 @@ impl RewriteRegion {
 
     /// The final count/result produced by the region.
     pub fn result(&self) -> Result<NodeId, RewriteError> {
+        // Whole-loop patterns win over sub-expression results: for a
+        // BitsetIteration loop, the region's result is the loop itself, not
+        // the mask operation inside its body (which may appear earlier in the
+        // roles vector).
+        for role in &self.structural.roles {
+            if let RegionRoles::SetIteration { result, .. } = role {
+                return Ok(*result);
+            }
+        }
         for role in &self.structural.roles {
             match role {
                 RegionRoles::BooleanCollectionReduction { result, .. } => return Ok(*result),
@@ -75,7 +84,7 @@ impl RewriteRegion {
                 RegionRoles::ArithmeticOperation { result, .. } => return Ok(*result),
                 RegionRoles::PositionSearch { result, .. } => return Ok(*result),
                 RegionRoles::MaskOperation { result, .. } => return Ok(*result),
-                RegionRoles::SetIteration { result, .. } => return Ok(*result),
+                _ => {} // SetIteration handled above; other roles carry no result.
             }
         }
         Err(RewriteError::MissingRole {

@@ -15,6 +15,7 @@ impl NormalizationRule for ParityToBitwiseAndOne {
     fn apply(&self, expr: &SemanticExpression) -> Option<SemanticExpression> {
         match expr {
             SemanticExpression::Parity(inner) => match inner.as_ref() {
+                // Boolean-array parity: pack, then popcount & 1.
                 SemanticExpression::LogicalSequence { variable } => {
                     Some(SemanticExpression::BitwiseAndOne(Box::new(
                         SemanticExpression::Popcount(Box::new(SemanticExpression::Pack(Box::new(
@@ -24,7 +25,10 @@ impl NormalizationRule for ParityToBitwiseAndOne {
                         )))),
                     )))
                 }
-                _ => None,
+                // Scalar parity (Kernighan parity loop): popcount & 1 directly.
+                other => Some(SemanticExpression::BitwiseAndOne(Box::new(
+                    SemanticExpression::Popcount(Box::new(other.clone())),
+                ))),
             },
             _ => None,
         }

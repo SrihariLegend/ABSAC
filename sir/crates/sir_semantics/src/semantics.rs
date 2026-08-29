@@ -200,7 +200,7 @@ impl SemanticDatabase {
     }
 }
 
-use crate::closure::{ClosureEngine, rules::ClearLowestIsZeroToAtMostOneBit, predicate_map_to_seq::PredicateMapToLogicalSequence, bitset_iteration::ClearLowestToBitsetIteration};
+use crate::closure::{bitset_iteration::ClearLowestToBitsetIteration, bitset_iteration_parity::BitsetIterationParity, rules::ClearLowestIsZeroToAtMostOneBit, predicate_map_to_seq::PredicateMapToLogicalSequence, ClosureEngine};
 
 /// The semantic derivation engine.
 ///
@@ -220,6 +220,7 @@ impl SemanticEngine {
         closure_engine.add_rule(Box::new(ClearLowestIsZeroToAtMostOneBit));
         closure_engine.add_rule(Box::new(PredicateMapToLogicalSequence));
         closure_engine.add_rule(Box::new(ClearLowestToBitsetIteration));
+        closure_engine.add_rule(Box::new(BitsetIterationParity));
         
         Self {
             db: SemanticDatabase::new(),
@@ -467,8 +468,23 @@ impl SemanticEngine {
             for node_id in &node_ids {
                 region.nodes.insert(*node_id);
             }
-            region.add_concept(explanation.concept, explanation);
+            region.add_concept(explanation.concept, explanation.clone());
             self.db.add_region(region);
+
+            // The XOR toggle is the "modulo 2" evidence for parity: expose it
+            // as a truth so the BitsetIteration + XOR -> Parity closure rule
+            // can derive the Parity concept for Kernighan-style parity loops.
+            let truth = SemanticTruth {
+                id: crate::truth::TruthId::new(0),
+                concept: explanation.concept,
+                inputs: vec![],
+                outputs: node_ids.first().map(|n| crate::truth::ValueId::new(n.0)).into_iter().collect(),
+                origin: rid,
+                provenance: crate::truth::Provenance::Physical {
+                    nodes: node_ids.clone(),
+                },
+            };
+            self.db.add_truth(truth);
         }
 
         let modulo_recs = modulo_power_of_two::recognize_modulo_power_of_two(func, analysis);

@@ -21,7 +21,14 @@ pub fn generate(context: &TransformationContext, concepts: &HashSet<SemanticConc
         return candidates;
     }
 
-    if concepts.contains(&SemanticConcept::ClearLowestSetBit) {
+    // The ClearLowestSetBit inside a BitsetIteration loop is loop structure
+    // (the iteration primitive), not a standalone idiom: a sub-expression
+    // rewrite would fragment the loop before the wholesale loop-eliminating
+    // strategies (Popcount/Parity) can run, and the cost model cannot compare
+    // the two fairly. Only offer blsr for standalone `x & (x - 1)` regions.
+    if concepts.contains(&SemanticConcept::ClearLowestSetBit)
+        && !concepts.contains(&SemanticConcept::BitsetIteration)
+    {
         let def_id = DefinitionId::new(300);
 
         let strategy = ImplementationStrategy::ClearLowestBit;

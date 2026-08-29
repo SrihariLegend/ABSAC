@@ -164,6 +164,22 @@ static STRATEGIES: &[StrategyDef] = &[
         },
     },
     StrategyDef {
+        strategy: ImplementationStrategy::Parity,
+        source_concepts: &[
+            SemanticConcept::Parity,
+        ],
+        rationale: "A BitsetIteration loop with an XOR toggle computes the parity of the \
+                    original value: popcount(x) & 1.",
+        effects: &[CandidateEffect::ReductionStrategyChange],
+        definition_id: DefinitionId::new(6),
+        compute_cost: |length| CostProfile {
+            instruction_count: 2,
+            select_count: 0,
+            memory_accesses: 0,
+            critical_path_depth: 2,
+        },
+    },
+    StrategyDef {
         strategy: ImplementationStrategy::Popcount,
         source_concepts: &[
             SemanticConcept::BitsetIteration,
@@ -208,6 +224,14 @@ pub fn all_bitset_plans(
     STRATEGIES
         .iter()
         .filter(|s| s.source_concepts.iter().all(|c| concepts.contains(c)))
+        .filter(|s| {
+            // The BitsetIteration Popcount applies only to pure counting loops.
+            // A parity loop (BitsetIteration + Parity) is handled wholesale by
+            // the Parity strategy; applying popcount there would change the
+            // meaning (parity ≠ count).
+            !(*s.source_concepts == [SemanticConcept::BitsetIteration]
+                && concepts.contains(&SemanticConcept::Parity))
+        })
         .map(|s| s.build(context, length))
         .collect()
 }

@@ -161,6 +161,51 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
         },
         BenchmarkDef {
             spec: BenchmarkSpec {
+                id: "HD012",
+                name: "brian_kernighan_parity",
+                category: "Hacker's Delight",
+                input_desc: "while x != 0 { parity ^= 1; x &= x - 1; } return parity != 0",
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "Collection",
+                    concepts: vec!["BitsetIteration", "Parity"],
+                    representation: "BitSet",
+                    candidate: "Parity",
+                    proof: "Parity(x) == BitwiseAndOne(Popcount(x))",
+                    rewrite: "Loop -> Popcount & 1",
+                },
+            },
+            func: || {
+                let mut b = Builder::new("bk_parity", &[("x", Type::u64())], Type::Bool);
+                let x_init = b.parameter_index(0).unwrap();
+                let zero = b.constant(ConstantData::u64(0), Type::u64(), unknown_span());
+                let one = b.constant(ConstantData::u64(1), Type::u64(), unknown_span());
+                let parity_init = b.constant(ConstantData::u64(0), Type::u64(), unknown_span());
+
+                // x &= x - 1
+                let x_minus_1 = b.sub(x_init, one, unknown_span()).unwrap();
+                let next_x = b.bit_and(x_init, x_minus_1, unknown_span()).unwrap();
+                // parity ^= 1
+                let next_parity = b.bit_xor(parity_init, one, unknown_span()).unwrap();
+                // cond: next_x != 0
+                let cond = b.ne(next_x, zero, unknown_span()).unwrap();
+
+                let loop_node = b.r#loop(
+                    &[next_x, next_parity, cond],
+                    cond,
+                    &[next_x, next_parity],
+                    &[x_init, parity_init],
+                    Type::Tuple { elements: vec![Type::u64(), Type::u64()] },
+                    unknown_span(),
+                ).unwrap();
+
+                let extracted = b.tuple_extract(loop_node, 1, Type::u64(), unknown_span()).unwrap();
+                let parity_bool = b.ne(extracted, zero, unknown_span()).unwrap();
+                b.return_value(parity_bool, unknown_span()).unwrap();
+                b.build()
+            },
+        },
+        BenchmarkDef {
+            spec: BenchmarkSpec {
                 id: "HD002",
                 name: "brian_kernighan_popcount",
                 category: "Hacker's Delight",

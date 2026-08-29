@@ -21,6 +21,8 @@ pub enum SemanticConcept {
     ConjunctiveReduction,
     /// Operation: checking if an odd number of elements satisfy a condition (parity/xor)
     ExclusiveReduction,
+    /// Operation: parity of the set bits of a scalar (odd number of set bits)
+    Parity,
     /// Operation: finding the first element that satisfies a condition
     FindFirst,
     /// Operation: checking if elements are present in two collections simultaneously
@@ -112,6 +114,7 @@ impl SemanticConcept {
         Self::DisjunctiveReduction,
         Self::ConjunctiveReduction,
         Self::ExclusiveReduction,
+        Self::Parity,
         Self::FindFirst,
         Self::SetIntersection,
         Self::ModuloPowerOfTwo,
@@ -175,6 +178,7 @@ impl fmt::Display for SemanticConcept {
             SemanticConcept::DisjunctiveReduction => write!(f, "DisjunctiveReduction"),
             SemanticConcept::ConjunctiveReduction => write!(f, "ConjunctiveReduction"),
             SemanticConcept::ExclusiveReduction => write!(f, "ExclusiveReduction"),
+            SemanticConcept::Parity => write!(f, "Parity"),
             SemanticConcept::FindFirst => write!(f, "FindFirst"),
             SemanticConcept::SetIntersection => write!(f, "SetIntersection"),
             SemanticConcept::ModuloPowerOfTwo => write!(f, "ModuloPowerOfTwo"),
