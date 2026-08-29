@@ -414,4 +414,89 @@ mod tests {
             run_benchmark((def.func)(), &def.spec);
         }
     }
+    /// Final-gate IR inspection: every permutation benchmark must end with
+    /// the expected instruction-selection path (Rol / bswap+shr /
+    /// rbit+shr) in the optimized IR, and must have actually rewritten
+    /// rather than merely been classified.
+    #[test]
+    fn permutation_benchmarks_emit_expected_instructions() {
+        use sir_nodes::NodeKind;
+        use sir_optimizer::{Optimizer, OptimizerConfig};
+        use sir_rewrite::registry::default_registry;
+
+        let optimizer = Optimizer::new(OptimizerConfig::default(), default_registry());
+        let defs = benchmarks();
+
+        fn node_kinds(func: &sir_nodes::Function) -> Vec<String> {
+            func.arena
+                .iter()
+                .map(|n| match &n.kind {
+                    NodeKind::Rol { .. } => "Rol".to_string(),
+                    NodeKind::Ror { .. } => "Ror".to_string(),
+                    NodeKind::Intrinsic { name, .. } => format!("Intrinsic({})", name),
+                    NodeKind::Shr { .. } => "Shr".to_string(),
+                    NodeKind::Shl { .. } => "Shl".to_string(),
+                    NodeKind::Or { .. } => "Or".to_string(),
+                    NodeKind::And { .. } => "And".to_string(),
+                    NodeKind::Sub { .. } => "Sub".to_string(),
+                    NodeKind::Constant(_) => "Const".to_string(),
+                    NodeKind::Parameter { .. } => "Param".to_string(),
+                    NodeKind::Return { .. } => "Return".to_string(),
+                    other => format!("{:?}", other).split(' ').next().unwrap().to_string(),
+                })
+                .collect()
+        }
+
+        // HD003 (rotate left): a single Rol.
+        let hd003 = defs
+            .iter()
+            .find(|d| d.spec.id == "HD003")
+            .expect("HD003 present");
+        let res = optimizer.optimize(&(hd003.func)());
+        assert!(res.rewrites_applied > 0, "HD003 must rewrite");
+        let kinds = node_kinds(&res.function);
+        assert!(kinds.iter().any(|k| k == "Rol"), "HD003 IR lacks Rol: {:?}", kinds);
+        assert!(!kinds.iter().any(|k| k == "Or"), "HD003 IR kept the shift pair: {:?}", kinds);
+
+        // BP001 (rotate left, parameter named n): also a single Rol.
+        let bp001 = defs
+            .iter()
+            .find(|d| d.spec.id == "BP001")
+            .expect("BP001 present");
+        let res = optimizer.optimize(&(bp001.func)());
+        assert!(res.rewrites_applied > 0, "BP001 must rewrite");
+        let kinds = node_kinds(&res.function);
+        assert!(kinds.iter().any(|k| k == "Rol"), "BP001 IR lacks Rol: {:?}", kinds);
+
+        // HD004 (byte swap): bswap intrinsic + Shr for width alignment.
+        let hd004 = defs
+            .iter()
+            .find(|d| d.spec.id == "HD004")
+            .expect("HD004 present");
+        let res = optimizer.optimize(&(hd004.func)());
+        assert!(res.rewrites_applied > 0, "HD004 must rewrite");
+        let kinds = node_kinds(&res.function);
+        assert!(
+            kinds.iter().any(|k| k == "Intrinsic(bswap)"),
+            "HD004 IR lacks bswap: {:?}",
+            kinds
+        );
+        assert!(kinds.iter().any(|k| k == "Shr"), "HD004 IR lacks Shr: {:?}", kinds);
+
+        // HD005 (reverse bits): rbit intrinsic + Shr for width alignment.
+        let hd005 = defs
+            .iter()
+            .find(|d| d.spec.id == "HD005")
+            .expect("HD005 present");
+        let res = optimizer.optimize(&(hd005.func)());
+        assert!(res.rewrites_applied > 0, "HD005 must rewrite");
+        let kinds = node_kinds(&res.function);
+        assert!(
+            kinds.iter().any(|k| k == "Intrinsic(rbit)"),
+            "HD005 IR lacks rbit: {:?}",
+            kinds
+        );
+        assert!(kinds.iter().any(|k| k == "Shr"), "HD005 IR lacks Shr: {:?}", kinds);
+    }
+
 }
