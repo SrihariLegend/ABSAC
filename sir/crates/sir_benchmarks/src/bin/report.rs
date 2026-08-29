@@ -77,7 +77,11 @@ const DOMAINS: &[Domain] = &[
     },
     Domain {
         name: "Bit permutations",
-        concepts: &[],
+        concepts: &[
+            SemanticConcept::CircularPermutation,
+            SemanticConcept::BytePermutation,
+            SemanticConcept::BitPermutation,
+        ],
     },
 ];
 
@@ -233,6 +237,7 @@ fn main() {
         Representation::BitwiseArithmetic,
         Representation::BitScan,
         Representation::MaskAlgebra,
+        Representation::BitPermutation,
     ] {
         let present = exercised_representations.contains(&format!("{:?}", rep));
         println!("  {:<24} {}", format!("{:?}", rep), if present { "✓" } else { "Missing" });

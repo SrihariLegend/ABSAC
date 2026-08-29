@@ -50,6 +50,7 @@ impl ImplicationRule for BitsetIterationParity {
             };
 
             new_truths.push(SemanticTruth {
+                parameters: vec![],
                 id: TruthId::new(0),
                 concept: SemanticConcept::Parity,
                 inputs: vec![original_value],
@@ -79,6 +80,8 @@ mod tests {
         id: usize,
     ) -> SemanticTruth {
         SemanticTruth {
+            parameters: vec![],
+
             id: TruthId::new(id),
             concept,
             inputs: inputs.into_iter().map(ValueId::new).collect(),

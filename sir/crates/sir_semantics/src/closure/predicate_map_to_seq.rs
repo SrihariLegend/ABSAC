@@ -21,6 +21,7 @@ impl ImplicationRule for PredicateMapToLogicalSequence {
                     if es_truth.outputs.contains(element_id) {
                         if let Some(collection_id) = es_truth.inputs.first() {
                             new_truths.push(SemanticTruth {
+                                parameters: vec![],
                                 id: crate::truth::TruthId::new(0),
                                 concept: SemanticConcept::LogicalSequence,
                                 inputs: vec![*collection_id],      // The underlying collection

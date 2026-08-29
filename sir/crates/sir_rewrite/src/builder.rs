@@ -627,6 +627,14 @@ impl RewriteBuilder {
                     nodes.insert(*set_value);
                     nodes.insert(*result);
                 }
+                sir_transform::roles::RegionRoles::BitPermutation {
+                    operand,
+                    result,
+                    ..
+                } => {
+                    nodes.insert(*operand);
+                    nodes.insert(*result);
+                }
             }
         }
         nodes

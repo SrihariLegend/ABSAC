@@ -16,6 +16,11 @@ pub enum Representation {
     BitScan,
     /// Algebra over bit masks (e.g. clearing lowest set bit).
     MaskAlgebra,
+    /// Permutations of bit positions within a machine word (e.g. rotates, byte
+    /// swaps, bit reversals). Describes the semantic transformation — the
+    /// specific instruction (rol/ror/bswap/rbit) is chosen by recipes after
+    /// recognition and proof.
+    BitPermutation,
 }
 
 impl fmt::Display for Representation {
@@ -25,6 +30,7 @@ impl fmt::Display for Representation {
             Representation::BitwiseArithmetic => write!(f, "BitwiseArithmetic"),
             Representation::BitScan => write!(f, "BitScan"),
             Representation::MaskAlgebra => write!(f, "MaskAlgebra"),
+            Representation::BitPermutation => write!(f, "BitPermutation"),
         }
     }
 }

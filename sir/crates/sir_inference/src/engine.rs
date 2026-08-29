@@ -172,6 +172,10 @@ impl InferenceEngine {
             for e in mask_evidence {
                 self.evidence_registry.add(e);
             }
+            let permutation_evidence = crate::sources::permutation_evidence::contribute(region);
+            for e in permutation_evidence {
+                self.evidence_registry.add(e);
+            }
         }
 
         // 2. Aggregate evidence per (region, representation)

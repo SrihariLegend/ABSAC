@@ -200,7 +200,7 @@ impl SemanticDatabase {
     }
 }
 
-use crate::closure::{bitset_iteration::ClearLowestToBitsetIteration, bitset_iteration_parity::BitsetIterationParity, rules::ClearLowestIsZeroToAtMostOneBit, predicate_map_to_seq::PredicateMapToLogicalSequence, ClosureEngine};
+use crate::closure::{bitset_iteration::ClearLowestToBitsetIteration, bitset_iteration_parity::BitsetIterationParity, combine_permutations::CombinePermutations, rules::ClearLowestIsZeroToAtMostOneBit, predicate_map_to_seq::PredicateMapToLogicalSequence, ClosureEngine};
 
 /// The semantic derivation engine.
 ///
@@ -221,6 +221,7 @@ impl SemanticEngine {
         closure_engine.add_rule(Box::new(PredicateMapToLogicalSequence));
         closure_engine.add_rule(Box::new(ClearLowestToBitsetIteration));
         closure_engine.add_rule(Box::new(BitsetIterationParity));
+        closure_engine.add_rule(Box::new(CombinePermutations));
         
         Self {
             db: SemanticDatabase::new(),
@@ -277,6 +278,7 @@ impl SemanticEngine {
             self.db.add_region(region);
             
             let truth = SemanticTruth {
+                parameters: vec![],
                 concept: explanation.concept,
                 inputs,
                 outputs,
@@ -296,6 +298,7 @@ impl SemanticEngine {
             self.db.add_region(region);
             
             let truth = SemanticTruth {
+                parameters: vec![],
                 concept: explanation.concept,
                 inputs,
                 outputs,
@@ -315,6 +318,7 @@ impl SemanticEngine {
             self.db.add_region(region);
             
             let truth = SemanticTruth {
+                parameters: vec![],
                 concept: explanation.concept,
                 inputs,
                 outputs,
@@ -334,6 +338,7 @@ impl SemanticEngine {
             self.db.add_region(region);
             
             let truth = SemanticTruth {
+                parameters: vec![],
                 id: crate::truth::TruthId::new(0),
                 concept: explanation.concept,
                 inputs: vec![],
@@ -389,6 +394,7 @@ impl SemanticEngine {
             self.db.add_region(region);
             
             let truth = SemanticTruth {
+                parameters: vec![],
                 concept: explanation.concept,
                 inputs,
                 outputs,
@@ -409,6 +415,7 @@ impl SemanticEngine {
             self.db.add_region(region);
 
             let truth = SemanticTruth {
+                parameters: vec![],
                 concept: explanation.concept,
                 inputs,
                 outputs,
@@ -429,6 +436,7 @@ impl SemanticEngine {
             self.db.add_region(region);
 
             let truth = SemanticTruth {
+                parameters: vec![],
                 concept: explanation.concept,
                 inputs,
                 outputs,
@@ -475,6 +483,7 @@ impl SemanticEngine {
             // as a truth so the BitsetIteration + XOR -> Parity closure rule
             // can derive the Parity concept for Kernighan-style parity loops.
             let truth = SemanticTruth {
+                parameters: vec![],
                 id: crate::truth::TruthId::new(0),
                 concept: explanation.concept,
                 inputs: vec![],
@@ -498,6 +507,7 @@ impl SemanticEngine {
             self.db.add_region(region);
             
             let truth = SemanticTruth {
+                parameters: vec![],
                 id: crate::truth::TruthId::new(0),
                 concept: explanation.concept,
                 inputs: vec![],

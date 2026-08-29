@@ -63,4 +63,55 @@ pub enum RegionRoles {
         /// The loop node itself.
         result: NodeId,
     },
+    /// A permutation of bit positions inside a machine word (rotate, byte
+    /// swap, bit reversal). Recognized as a whole expression — the recipe
+    /// replaces the entire permutation result, never a constituent shift or
+    /// mask subexpression.
+    BitPermutation {
+        /// The value being permuted.
+        operand: NodeId,
+        /// The node producing the final permuted result (the top Or).
+        result: NodeId,
+        /// Which permutation family and its parameters (width, direction,
+        /// shift amount node for rotates).
+        kind: PermutationKind,
+    },
+}
+
+
+/// Direction of a circular (rotate) permutation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShiftDirection {
+    /// `(x << k) | (x >> (w - k))` — rotate left.
+    Left,
+    /// `(x >> k) | (x << (w - k))` — rotate right.
+    Right,
+}
+
+/// The family of a recognized bit-position permutation, with the parameters
+/// the recipe needs to select the instruction.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PermutationKind {
+    /// A circular rotation by a runtime amount.
+    Circular {
+        /// Rotation direction.
+        direction: ShiftDirection,
+        /// The SIR node supplying the rotation amount `k`.
+        amount: NodeId,
+    },
+    /// A byte-order reversal covering `perm_width` of the operand's
+    /// `type_width` bits.
+    ByteSwap {
+        /// Bits the permutation covers (e.g. 16 for a two-byte swap).
+        perm_width: u32,
+        /// Width of the operand type in the IR (e.g. 32).
+        type_width: u32,
+    },
+    /// A full bit reversal covering `perm_width` of `type_width` bits.
+    BitReverse {
+        /// Bits the permutation covers (e.g. 8 for an 8-bit reversal).
+        perm_width: u32,
+        /// Width of the operand type in the IR (e.g. 32).
+        type_width: u32,
+    },
 }

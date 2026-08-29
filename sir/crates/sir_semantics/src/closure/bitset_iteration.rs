@@ -24,6 +24,7 @@ impl ImplicationRule for ClearLowestToBitsetIteration {
                         // The loop is a BitsetIteration over the original value.
                         if let Some(original_value) = clear_truth.inputs.first() {
                             new_truths.push(SemanticTruth {
+                                parameters: vec![],
                                 id: TruthId::new(0),
                                 concept: SemanticConcept::BitsetIteration,
                                 inputs: vec![*original_value],

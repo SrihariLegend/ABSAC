@@ -25,6 +25,7 @@ impl ImplicationRule for ClearLowestIsZeroToAtMostOneBit {
                         // that has at most one bit set.
                         if let Some(original_value) = clear_truth.inputs.first() {
                             new_truths.push(SemanticTruth {
+                                parameters: vec![],
                                 id: crate::truth::TruthId::new(0),
                                 concept: SemanticConcept::AtMostOneBitSet,
                                 inputs: vec![*original_value],
