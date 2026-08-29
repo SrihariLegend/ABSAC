@@ -60,6 +60,11 @@ impl SemanticDatabase {
         self.regions.get(&id)
     }
 
+    /// Get a specific region by ID, mutably.
+    pub fn region_mut(&mut self, id: RegionId) -> Option<&mut Region> {
+        self.regions.get_mut(&id)
+    }
+
     /// Get the explanation for why a concept was recognized in a region.
     pub fn explain(
         &self,

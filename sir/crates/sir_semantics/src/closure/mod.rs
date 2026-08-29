@@ -68,7 +68,21 @@ impl ClosureEngine {
                 for truth in new_truths {
                     // Since it's a new truth, we could optionally generate a new RegionId
                     // or just attach it to an existing one. For now, the rule specifies `origin`.
-                    db.add_truth(truth);
+                    db.add_truth(truth.clone());
+
+                    // Propagate the derived concept onto its region so that
+                    // downstream consumers keyed on region concepts (inference
+                    // evidence, candidate generation) see it. The region merge
+                    // later folds these into the surviving merged region.
+                    if let Some(region) = db.region_mut(truth.origin) {
+                        let explanation = crate::region::RecognitionExplanation {
+                            concept: truth.concept,
+                            triggering_facts: vec![
+                                "Derived by semantic closure rule",
+                            ],
+                        };
+                        region.add_concept(truth.concept, explanation);
+                    }
                 }
             }
         }
