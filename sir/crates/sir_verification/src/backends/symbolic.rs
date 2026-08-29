@@ -8,14 +8,22 @@ use crate::errors::UnknownReason;
 use crate::obligation::ProofObligation;
 use crate::semantic::normalizer::Normalizer;
 use crate::semantic::rules::all_to_equal_full_mask::AllToEqualFullMask;
+use crate::semantic::rules::bit_reverse_to_stages::BitReverseToStages;
+use crate::semantic::rules::byte_swap_to_masked_shift_pair::ByteSwapToMaskedShiftPair;
+use crate::semantic::rules::clear_lowest_set_bit_to_bitwise_and::ClearLowestSetBitToBitwiseAnd;
 use crate::semantic::rules::count_filter_to_popcount::CountFilterToPopcount;
 use crate::semantic::rules::divide_to_shift::DivideToShift;
 use crate::semantic::rules::exists_to_not_equal_zero::ExistsToNotEqualZero;
 use crate::semantic::rules::first_true_to_trailing_zeros::FirstTrueToTrailingZeros;
 use crate::semantic::rules::last_true_to_leading_zeros::LastTrueToLeadingZeros;
+use crate::semantic::rules::lowest_clear_bit_mask_to_bitwise_and::LowestClearBitMaskToBitwiseAnd;
+use crate::semantic::rules::lowest_set_bit_to_bitwise_and::LowestSetBitToBitwiseAnd;
 use crate::semantic::rules::modulo_to_and::ModuloToAnd;
 use crate::semantic::rules::multiply_to_shift::MultiplyToShift;
 use crate::semantic::rules::parity_to_bitwise_and_one::ParityToBitwiseAndOne;
+use crate::semantic::rules::rotate_left_to_shift_pair::RotateLeftToShiftPair;
+use crate::semantic::rules::rotate_right_to_shift_pair::RotateRightToShiftPair;
+use crate::semantic::rules::set_lowest_clear_bit_to_bitwise_or::SetLowestClearBitToBitwiseOr;
 use crate::{Proof, ProofStep, VerificationBackend, VerificationResult};
 
 /// Symbolic verification via normalization.
@@ -40,6 +48,14 @@ impl SymbolicVerifier {
         normalizer.add_rule(Box::new(MultiplyToShift));
         normalizer.add_rule(Box::new(FirstTrueToTrailingZeros));
         normalizer.add_rule(Box::new(LastTrueToLeadingZeros));
+        normalizer.add_rule(Box::new(ClearLowestSetBitToBitwiseAnd));
+        normalizer.add_rule(Box::new(LowestSetBitToBitwiseAnd));
+        normalizer.add_rule(Box::new(LowestClearBitMaskToBitwiseAnd));
+        normalizer.add_rule(Box::new(SetLowestClearBitToBitwiseOr));
+        normalizer.add_rule(Box::new(RotateLeftToShiftPair));
+        normalizer.add_rule(Box::new(RotateRightToShiftPair));
+        normalizer.add_rule(Box::new(ByteSwapToMaskedShiftPair));
+        normalizer.add_rule(Box::new(BitReverseToStages));
         Self { normalizer }
     }
 

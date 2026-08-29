@@ -162,19 +162,35 @@ fn definition_mismatch_rejected() {
 
 #[test]
 fn rewritten_function_passes_sir_verify() {
-    // Build a minimal function where the rewrite should produce valid SIR
-    let mut func = sir_nodes::Function::new("test", sir_types::Type::BitVector { width: 64 });
-    let _p = func.add_param(
-        "board",
-        Type::Array {
-            element: Box::new(Type::Bool),
-            length: 64,
-        },
+    // Build a minimal function where the rewrite should produce valid SIR.
+    // Node ids: 0 = board parameter, 1 = dead constant, 2 = returned value,
+    // 3 = Return. The region (make_structural_db) references nodes 0 and 2.
+    let mut b = Builder::new(
+        "test",
+        &[(
+            "board",
+            Type::Array {
+                element: Box::new(Type::Bool),
+                length: 64,
+            },
+        )],
+        Type::i32(),
+    );
+    let _board = b.parameter_index(0).unwrap();
+    let _dead = b.constant(
+        sir_types::ConstantData::i32(0),
+        Type::i32(),
         Span::unknown(),
     );
+    let val = b.constant(
+        sir_types::ConstantData::i32(1),
+        Type::i32(),
+        Span::unknown(),
+    );
+    b.return_value(val, Span::unknown()).unwrap();
+    let func = b.build();
 
     // The test verifies that if a rewrite succeeds, the output passes sir_verify.
-    // With the current stub function, this is a structural test of the pipeline.
     let candidate = make_candidate();
     let proof = make_proof();
     let structural_db = make_structural_db();

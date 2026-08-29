@@ -10,6 +10,11 @@ fn build_benchmark(
     is_parity: bool,
 ) -> sir_nodes::Function {
     let return_type = if is_count { Type::i32() } else { Type::Bool };
+    // The loop carries (reduction, index) and is returned wholesale, so the
+    // function signature must match the loop's tuple type.
+    let tuple_type = Type::Tuple {
+        elements: vec![return_type.clone(), Type::u64()],
+    };
     let mut b = Builder::new(
         name,
         &[(
@@ -19,7 +24,7 @@ fn build_benchmark(
                 length: 64,
             },
         )],
-        return_type.clone(),
+        tuple_type.clone(),
     );
 
     let board = b.parameter_index(0).unwrap();

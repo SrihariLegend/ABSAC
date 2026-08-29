@@ -30,6 +30,9 @@ pub enum SourceStructure {
     ShiftMaskOperator,
     /// Expression performing mask algebra
     MaskAlgebraExpression,
+    /// A permutation of bit positions inside a machine word.
+    /// The width is the number of bits the permutation covers.
+    BitPermutation { width: usize },
 }
 
 impl SourceStructure {

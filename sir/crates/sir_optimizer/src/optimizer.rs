@@ -24,10 +24,12 @@ pub struct Optimizer {
 }
 
 /// Internal result from a single iteration.
-struct IterationResult {
+/// Global search state for the optimizer.
+#[derive(Clone)]
+struct SearchState {
     function: Function,
-    record: IterationRecord,
-    converged: bool,
+    total_rewrites: usize,
+    iterations_detail: Vec<IterationRecord>,
 }
 
 impl Optimizer {
@@ -49,59 +51,100 @@ impl Optimizer {
     /// Accepts `&Function` — the optimizer does not consume its input.
     /// Every iteration constructs fresh pipeline stages from scratch.
     pub fn optimize(&self, function: &Function) -> OptimizationResult {
-        let mut current = function.clone();
-        let mut total_rewrites: usize = 0;
-        let mut iterations_detail: Vec<IterationRecord> = Vec::new();
+        let initial_state = SearchState {
+            function: function.clone(),
+            total_rewrites: 0,
+            iterations_detail: Vec::new(),
+        };
+
+        let mut current_beam = vec![initial_state];
+        let mut fixed_points = Vec::new();
+        let beam_width = self.config.beam_width.unwrap_or(3); // Add beam_width to config or hardcode to 3
 
         for iteration in 1..=self.config.max_iterations {
-            let result = self.optimize_iteration(&current, iteration);
-            total_rewrites += result.record.rewrites_applied;
-            iterations_detail.push(result.record);
+            let mut next_beam = Vec::new();
+            let mut any_advanced = false;
 
-            if result.converged {
-                return OptimizationResult {
-                    function: result.function,
-                    iterations: iteration,
-                    rewrites_applied: total_rewrites,
-                    iterations_detail,
-                    termination: TerminationReason::FixedPoint,
-                };
-            }
+            for state in std::mem::take(&mut current_beam) {
+                let (branches, pass_record) = self.expand_state(&state.function, iteration);
 
-            if let Some(max_rewrites) = self.config.max_total_rewrites {
-                if total_rewrites >= max_rewrites {
-                    return OptimizationResult {
-                        function: result.function,
-                        iterations: iteration,
-                        rewrites_applied: total_rewrites,
-                        iterations_detail,
-                        termination: TerminationReason::IterationLimitReached,
-                    };
+                if branches.is_empty() {
+                    // This state has reached a fixed point; record the final
+                    // pipeline pass (even when it did not rewrite) so every
+                    // optimization run yields at least one iteration record.
+                    let mut terminal = state;
+                    if let Some(record) = pass_record {
+                        terminal.iterations_detail.push(record);
+                    }
+                    fixed_points.push(terminal);
+                } else {
+                    any_advanced = true;
+                    for (next_function, record) in branches {
+                        let mut next_state = state.clone();
+                        next_state.function = next_function;
+                        next_state.total_rewrites += record.rewrites_applied;
+                        next_state.iterations_detail.push(record);
+                        next_beam.push(next_state);
+                    }
                 }
             }
 
-            current = result.function;
+            if !any_advanced {
+                break; // All paths reached fixed points
+            }
+
+            // Prune beam: pick the top N based on the number of reachable nodes from the return node
+            next_beam.sort_by_key(|s| {
+                let ret_node = s.function.return_node.unwrap();
+                sir_analysis::graph::transitive_inputs(ret_node, &s.function.arena).len()
+            });
+            if next_beam.len() > beam_width {
+                next_beam.truncate(beam_width);
+            }
+            current_beam = next_beam;
         }
 
+        // Add any states that hit the iteration limit to fixed_points for final evaluation
+        fixed_points.extend(current_beam);
+
+        // Pick the best terminal state based on reachable nodes
+        fixed_points.sort_by_key(|s| {
+            let ret_node = s.function.return_node.unwrap();
+            sir_analysis::graph::transitive_inputs(ret_node, &s.function.arena).len()
+        });
+        let best_state = fixed_points.into_iter().next().unwrap();
+
+        let termination = if best_state.iterations_detail.len() < self.config.max_iterations {
+            TerminationReason::FixedPoint
+        } else {
+            TerminationReason::IterationLimitReached
+        };
+
+        let initial_nodes = function.arena.len();
+        let max_truths = best_state.iterations_detail.iter().map(|r| r.truths_discovered).max().unwrap_or(0);
+        let final_nodes = best_state.function.arena.len();
+
         OptimizationResult {
-            function: current,
-            iterations: self.config.max_iterations,
-            rewrites_applied: total_rewrites,
-            iterations_detail,
-            termination: TerminationReason::IterationLimitReached,
+            function: best_state.function,
+            iterations: best_state.iterations_detail.len(),
+            rewrites_applied: best_state.total_rewrites,
+            iterations_detail: best_state.iterations_detail,
+            termination,
+            initial_nodes,
+            max_truths,
+            final_nodes,
         }
     }
 
-    /// Execute one full pipeline pass.
-    ///
-    /// 1. Analysis  → run_all()
-    /// 2. Semantics → derive() (includes cost derivation)
-    /// 3. Inference → infer()
-    /// 4. Generation → generate()
-    /// 5. Verification → build_obligations() + verify()
-    /// 6. Selection → select_all()
-    /// 7. Rewrite → exactly one per iteration (highest score)
-    fn optimize_iteration(&self, function: &Function, iteration_number: usize) -> IterationResult {
+    /// Execute one full pipeline pass and return all valid next states (branches)
+    /// plus the pass's knowledge record. The record is returned even when no
+    /// rewrite applies (outcome NoCandidate/NoProof/NoSelection/RewriteFailed),
+    /// so every optimization run yields at least one iteration record.
+    fn expand_state(
+        &self,
+        function: &Function,
+        iteration_number: usize,
+    ) -> (Vec<(Function, IterationRecord)>, Option<IterationRecord>) {
         // ── 1. Analysis ───────────────────────────────────────
         let mut analysis = AnalysisManager::new();
         analysis.run_all(function);
@@ -110,7 +153,16 @@ impl Optimizer {
         // ── 2. Semantics (recognizers + structure + cost) ──────
         let mut semantics = SemanticEngine::new();
         semantics.derive(function, analysis.database());
-        let truths_discovered = semantics.database().region_count();
+        let mut concepts_discovered = Vec::new();
+        for (_, region) in semantics.database().regions() {
+            for concept in region.concepts() {
+                concepts_discovered.push(format!("{:?}", concept));
+            }
+        }
+        for truth in semantics.database().truths() {
+            concepts_discovered.push(format!("{:?}", truth.concept));
+        }
+        let truths_discovered = semantics.database().region_count() + semantics.database().truths().count();
 
         // ── 3. Inference ──────────────────────────────────────
         let mut inference = InferenceEngine::new();
@@ -121,25 +173,41 @@ impl Optimizer {
             .map(|(_, ctxs)| ctxs.len())
             .sum();
 
+        let mut representations_inferred = Vec::new();
+        for (_, ctxs) in inference.context_database().contexts() {
+            for ctx in ctxs {
+                representations_inferred.push(format!("{:?}", ctx.representation));
+            }
+        }
+
         // ── 4. Generation ─────────────────────────────────────
         let mut generator = CandidateGenerator::new();
         generator.generate(inference.context_database(), semantics.database());
 
         let candidate_count = generator.database().all_candidates().count();
+
+        // The pass record captures everything this pipeline pass discovered. It
+        // is updated as the pass progresses and returned (alone) when the pass
+        // ends without a rewrite.
+        let mut pass_record = IterationRecord {
+            iteration: iteration_number,
+            facts_discovered,
+            truths_discovered,
+            beliefs_inferred,
+            candidates_generated: candidate_count,
+            proofs_attempted: 0,
+            proofs_succeeded: 0,
+            candidates_selected: 0,
+            rewrites_applied: 0,
+            concepts_discovered: concepts_discovered.clone(),
+            representations_inferred: representations_inferred.clone(),
+            truths: semantics.database().truths().cloned().collect(),
+            candidates: generator.database().all_candidates().cloned().collect(),
+            outcome: IterationOutcome::NoCandidate,
+        };
+
         if candidate_count == 0 {
-            return IterationResult {
-                function: function.clone(),
-                record: IterationRecord {
-                    iteration: iteration_number,
-                    facts_discovered,
-                    truths_discovered,
-                    beliefs_inferred,
-                    candidates_generated: 0,
-                    outcome: IterationOutcome::NoCandidate,
-                    ..Default::default()
-                },
-                converged: true,
-            };
+            return (vec![], Some(pass_record));
         }
 
         // ── 5. Verification ───────────────────────────────────
@@ -147,6 +215,7 @@ impl Optimizer {
         let obligations_db =
             verifier.build_obligations(generator.database(), inference.context_database());
         let proofs_attempted = obligations_db.len();
+        pass_record.proofs_attempted = proofs_attempted;
         let mut proven: Vec<VerifiedCandidate> = Vec::new();
 
         for obligation in obligations_db.all() {
@@ -174,22 +243,10 @@ impl Optimizer {
         }
 
         let proofs_succeeded = proven.len();
+        pass_record.proofs_succeeded = proofs_succeeded;
         if proven.is_empty() {
-            return IterationResult {
-                function: function.clone(),
-                record: IterationRecord {
-                    iteration: iteration_number,
-                    facts_discovered,
-                    truths_discovered,
-                    beliefs_inferred,
-                    candidates_generated: candidate_count,
-                    proofs_attempted,
-                    proofs_succeeded: 0,
-                    outcome: IterationOutcome::NoProof,
-                    ..Default::default()
-                },
-                converged: true,
-            };
+            pass_record.outcome = IterationOutcome::NoProof;
+            return (vec![], Some(pass_record));
         }
 
         // ── 6. Selection ──────────────────────────────────────
@@ -198,54 +255,35 @@ impl Optimizer {
         let selection = selector.select_all(&proven, cost_db);
 
         if selection.chosen.is_empty() {
-            return IterationResult {
-                function: function.clone(),
-                record: IterationRecord {
-                    iteration: iteration_number,
-                    facts_discovered,
-                    truths_discovered,
-                    beliefs_inferred,
-                    candidates_generated: candidate_count,
-                    proofs_attempted,
-                    proofs_succeeded,
-                    candidates_selected: 0,
-                    outcome: IterationOutcome::NoSelection,
-                    ..Default::default()
-                },
-                converged: true,
-            };
+            pass_record.outcome = IterationOutcome::NoSelection;
+            return (vec![], Some(pass_record));
         }
 
         let candidates_selected = selection.chosen.len();
+        pass_record.candidates_selected = candidates_selected;
+        let mut branches = Vec::new();
+        let beam_width = self.config.beam_width.unwrap_or(3);
 
-        // ── 7. Rewrite (exactly one per iteration) ────────────
-        // Apply only the highest-scoring candidate. Multiple rewrites
-        // are sequenced across fixed-point iterations — this eliminates
-        // overlapping-rewrite concerns entirely.
-        let best = &selection.chosen[0];
+        for best in selection.chosen.iter().take(beam_width) {
+            println!(
+                "Iteration {}: Branching on candidate {} with strategy {:?}",
+                iteration_number, best.candidate.id, best.candidate.strategy
+            );
 
-        // LOGGING HACK
-        println!(
-            "Iteration {}: Selected candidate {} with strategy {:?}",
-            iteration_number, best.candidate.id, best.candidate.strategy
-        );
+            let (next_function, rewrites_applied) = match self.rewrite_engine.rewrite(
+                function,
+                best.candidate,
+                best.proof,
+                semantics.structural_database(),
+            ) {
+                Ok(rewrite_result) => (rewrite_result.rewritten, 1usize),
+                Err(e) => {
+                    println!("Rewrite failed: {:?}", e);
+                    continue;
+                }
+            };
 
-        let (next_function, rewrites_applied) = match self.rewrite_engine.rewrite(
-            function,
-            best.candidate,
-            best.proof,
-            semantics.structural_database(),
-        ) {
-            Ok(rewrite_result) => (rewrite_result.rewritten, 1usize),
-            Err(e) => {
-                println!("Rewrite failed: {:?}", e);
-                (function.clone(), 0usize)
-            }
-        };
-
-        IterationResult {
-            function: next_function,
-            record: IterationRecord {
+            let record = IterationRecord {
                 iteration: iteration_number,
                 facts_discovered,
                 truths_discovered,
@@ -255,13 +293,20 @@ impl Optimizer {
                 proofs_succeeded,
                 candidates_selected,
                 rewrites_applied,
-                outcome: if rewrites_applied > 0 {
-                    IterationOutcome::RewriteApplied
-                } else {
-                    IterationOutcome::NoSelection
-                },
-            },
-            converged: rewrites_applied == 0,
+                concepts_discovered: concepts_discovered.clone(),
+                representations_inferred: representations_inferred.clone(),
+                truths: semantics.database().truths().cloned().collect(),
+                candidates: generator.database().all_candidates().cloned().collect(),
+                outcome: IterationOutcome::RewriteApplied,
+            };
+
+            branches.push((next_function, record));
         }
+
+        if branches.is_empty() {
+            pass_record.outcome = IterationOutcome::RewriteFailed;
+            return (vec![], Some(pass_record));
+        }
+        (branches, None)
     }
 }

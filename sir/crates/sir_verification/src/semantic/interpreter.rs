@@ -203,6 +203,18 @@ impl Interpreter {
                 }
             }
 
+            SemanticExpression::BitwiseOr(lhs, rhs) => {
+                let l = self.evaluate(lhs, env)?;
+                let r = self.evaluate(rhs, env)?;
+                match (l, r) {
+                    (Value::Integer(lv), Value::Integer(rv)) => Ok(Value::Integer(lv | rv)),
+                    _ => Err(InterpreterError::TypeMismatch {
+                        expected: "Integer",
+                        found: Value::Integer(0),
+                    }),
+                }
+            }
+
             SemanticExpression::Divide(lhs, rhs) => {
                 let l = self.evaluate(lhs, env)?;
                 let r = self.evaluate(rhs, env)?;
@@ -335,6 +347,190 @@ impl Interpreter {
                         found: Value::Integer(0),
                     }),
                 }
+            }
+            SemanticExpression::Add(lhs, rhs) => {
+                let l = self.evaluate(lhs, env)?;
+                let r = self.evaluate(rhs, env)?;
+                match (l, r) {
+                    (Value::Integer(lv), Value::Integer(rv)) => Ok(Value::Integer(lv + rv)),
+                    (Value::BitVector(lv), Value::BitVector(rv)) => Ok(Value::BitVector(
+                        crate::semantic::value::BitVectorValue {
+                            bits: lv.bits.wrapping_add(rv.bits),
+                            width: lv.width,
+                        },
+                    )),
+                    _ => Err(InterpreterError::TypeMismatch {
+                        expected: "Integer or BitVector",
+                        found: Value::Integer(0),
+                    }),
+                }
+            }
+            SemanticExpression::BitwiseNot(inner) => {
+                let val = self.evaluate(inner, env)?;
+                match val {
+                    Value::Integer(i) => Ok(Value::Integer(!i)),
+                    Value::BitVector(bv) => Ok(Value::BitVector(
+                        crate::semantic::value::BitVectorValue {
+                            bits: !bv.bits,
+                            width: bv.width,
+                        },
+                    )),
+                    other => Err(InterpreterError::TypeMismatch {
+                        expected: "Integer or BitVector",
+                        found: other,
+                    }),
+                }
+            }
+
+            SemanticExpression::ClearLowestSetBit(inner) => {
+                let val = self.evaluate(inner, env)?;
+                match val {
+                    Value::Integer(i) => Ok(Value::Integer(i & (i.wrapping_sub(1)))),
+                    Value::BitVector(bv) => {
+                        let i = bv.bits;
+                        let new_bits = i & (i.wrapping_sub(1));
+                        Ok(Value::BitVector(crate::semantic::value::BitVectorValue { bits: new_bits, width: bv.width }))
+                    }
+                    other => Err(InterpreterError::TypeMismatch {
+                        expected: "Integer or BitVector",
+                        found: other,
+                    }),
+                }
+            }
+            SemanticExpression::LowestSetBit(inner) => {
+                let val = self.evaluate(inner, env)?;
+                match val {
+                    Value::Integer(i) => Ok(Value::Integer(i & i.wrapping_neg())),
+                    Value::BitVector(bv) => {
+                        let i = bv.bits;
+                        let new_bits = i & i.wrapping_neg();
+                        Ok(Value::BitVector(crate::semantic::value::BitVectorValue { bits: new_bits, width: bv.width }))
+                    }
+                    other => Err(InterpreterError::TypeMismatch {
+                        expected: "Integer or BitVector",
+                        found: other,
+                    }),
+                }
+            }
+            SemanticExpression::LowestClearBitMask(inner) => {
+                let val = self.evaluate(inner, env)?;
+                match val {
+                    Value::Integer(i) => Ok(Value::Integer(!i & (i.wrapping_add(1)))),
+                    Value::BitVector(bv) => {
+                        let i = bv.bits;
+                        let new_bits = !i & (i.wrapping_add(1));
+                        Ok(Value::BitVector(crate::semantic::value::BitVectorValue { bits: new_bits, width: bv.width }))
+                    }
+                    other => Err(InterpreterError::TypeMismatch {
+                        expected: "Integer or BitVector",
+                        found: other,
+                    }),
+                }
+            }
+            SemanticExpression::SetLowestClearBit(inner) => {
+                let val = self.evaluate(inner, env)?;
+                match val {
+                    Value::Integer(i) => Ok(Value::Integer(i | (i.wrapping_add(1)))),
+                    Value::BitVector(bv) => {
+                        let i = bv.bits;
+                        let new_bits = i | (i.wrapping_add(1));
+                        Ok(Value::BitVector(crate::semantic::value::BitVectorValue { bits: new_bits, width: bv.width }))
+                    }
+                    other => Err(InterpreterError::TypeMismatch {
+                        expected: "Integer or BitVector",
+                        found: other,
+                    }),
+                }
+            }
+            SemanticExpression::RotateLeft(x, k) => {
+                let xv = self.evaluate(x, env)?;
+                let kv = self.evaluate(k, env)?;
+                let xv = match xv {
+                    Value::Integer(i) => i,
+                    Value::BitVector(bv) => bv.bits as u64,
+                    other => {
+                        return Err(InterpreterError::TypeMismatch {
+                            expected: "Integer or BitVector",
+                            found: other,
+                        })
+                    }
+                };
+                let kv = match kv {
+                    Value::Integer(i) => i,
+                    Value::BitVector(bv) => bv.bits as u64,
+                    other => {
+                        return Err(InterpreterError::TypeMismatch {
+                            expected: "Integer or BitVector",
+                            found: other,
+                        })
+                    }
+                };
+                let width = 64u64;
+                let kk = kv % width;
+                Ok(Value::Integer(((xv << kk) | (xv >> (width - kk))) & (u64::MAX >> (64 - width))))
+            }
+            SemanticExpression::RotateRight(x, k) => {
+                let xv = self.evaluate(x, env)?;
+                let kv = self.evaluate(k, env)?;
+                let xv = match xv {
+                    Value::Integer(i) => i,
+                    Value::BitVector(bv) => bv.bits as u64,
+                    other => {
+                        return Err(InterpreterError::TypeMismatch {
+                            expected: "Integer or BitVector",
+                            found: other,
+                        })
+                    }
+                };
+                let kv = match kv {
+                    Value::Integer(i) => i,
+                    Value::BitVector(bv) => bv.bits as u64,
+                    other => {
+                        return Err(InterpreterError::TypeMismatch {
+                            expected: "Integer or BitVector",
+                            found: other,
+                        })
+                    }
+                };
+                let width = 64u64;
+                let kk = kv % width;
+                Ok(Value::Integer(((xv >> kk) | (xv << (width - kk))) & (u64::MAX >> (64 - width))))
+            }
+            SemanticExpression::ByteSwap(x) => {
+                let xv = self.evaluate(x, env)?;
+                let xv = match xv {
+                    Value::Integer(i) => i,
+                    Value::BitVector(bv) => bv.bits as u64,
+                    other => {
+                        return Err(InterpreterError::TypeMismatch {
+                            expected: "Integer or BitVector",
+                            found: other,
+                        })
+                    }
+                };
+                // 16-bit byte swap: ((x & 0xFF) << 8) | ((x >> 8) & 0xFF)
+                Ok(Value::Integer(((xv & 0xFF) << 8) | ((xv >> 8) & 0xFF)))
+            }
+            SemanticExpression::BitReverse(x) => {
+                let xv = self.evaluate(x, env)?;
+                let xv = match xv {
+                    Value::Integer(i) => i,
+                    Value::BitVector(bv) => bv.bits as u64,
+                    other => {
+                        return Err(InterpreterError::TypeMismatch {
+                            expected: "Integer or BitVector",
+                            found: other,
+                        })
+                    }
+                };
+                // 8-bit reversal of the low byte.
+                let mut r = 0u64;
+                for i in 0..8 {
+                    if xv & (1 << i) != 0 {
+                        r |= 1 << (7 - i);
+                    }
+                }
+                Ok(Value::Integer(r))
             }
         }
     }

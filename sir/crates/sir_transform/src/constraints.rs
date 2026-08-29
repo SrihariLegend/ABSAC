@@ -17,4 +17,7 @@ pub enum Constraint {
     NoAlias,
     /// The computation iterates a finite, known number of times.
     FiniteIteration,
+    /// The bit permutation rotates in a known direction (used to select the
+    /// rotate-left vs rotate-right instruction recipe).
+    RotationDirection(crate::roles::ShiftDirection),
 }

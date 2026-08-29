@@ -12,10 +12,10 @@ use sir_transform::representation::Representation;
 ///
 /// This is a pure function: it reads the region, returns evidence.
 /// The caller owns the registry and handles aggregation.
-pub fn contribute(region: &Region) -> Vec<Evidence> {
+pub fn contribute(region: &Region, truths: &[sir_semantics::truth::SemanticTruth]) -> Vec<Evidence> {
     let mut evidence = Vec::new();
 
-    if region.contains(SemanticConcept::LogicalSequence) {
+    if region.contains(SemanticConcept::LogicalSequence) || truths.iter().any(|t| t.concept == SemanticConcept::LogicalSequence && t.origin == region.id) {
         evidence.push(Evidence {
             region: region.id,
             representation: Representation::BitSet,
@@ -26,18 +26,7 @@ pub fn contribute(region: &Region) -> Vec<Evidence> {
         });
     }
 
-    if region.contains(SemanticConcept::LogicalSequence) {
-        evidence.push(Evidence {
-            region: region.id,
-            representation: Representation::BitSet,
-            polarity: Polarity::Supports,
-            weight: weights::STRONG,
-            source: SemanticConcept::LogicalSequence,
-            explanation: "Dynamic predicates evaluated over arrays can form bitsets",
-        });
-    }
-
-    if region.contains(SemanticConcept::FiniteCollection) {
+    if region.contains(SemanticConcept::FiniteCollection) || truths.iter().any(|t| t.concept == SemanticConcept::FiniteCollection && t.origin == region.id) {
         evidence.push(Evidence {
             region: region.id,
             representation: Representation::BitSet,
@@ -48,7 +37,7 @@ pub fn contribute(region: &Region) -> Vec<Evidence> {
         });
     }
 
-    if region.contains(SemanticConcept::MembershipTraversal) {
+    if region.contains(SemanticConcept::MembershipTraversal) || truths.iter().any(|t| t.concept == SemanticConcept::MembershipTraversal && t.origin == region.id) {
         evidence.push(Evidence {
             region: region.id,
             representation: Representation::BitSet,
@@ -59,7 +48,7 @@ pub fn contribute(region: &Region) -> Vec<Evidence> {
         });
     }
 
-    if region.contains(SemanticConcept::CardinalityReduction) {
+    if region.contains(SemanticConcept::CardinalityReduction) || truths.iter().any(|t| t.concept == SemanticConcept::CardinalityReduction && t.origin == region.id) {
         evidence.push(Evidence {
             region: region.id,
             representation: Representation::BitSet,
@@ -70,7 +59,7 @@ pub fn contribute(region: &Region) -> Vec<Evidence> {
         });
     }
 
-    if region.contains(SemanticConcept::DisjunctiveReduction) {
+    if region.contains(SemanticConcept::DisjunctiveReduction) || truths.iter().any(|t| t.concept == SemanticConcept::DisjunctiveReduction && t.origin == region.id) {
         evidence.push(Evidence {
             region: region.id,
             representation: Representation::BitSet,
@@ -81,7 +70,7 @@ pub fn contribute(region: &Region) -> Vec<Evidence> {
         });
     }
 
-    if region.contains(SemanticConcept::ConjunctiveReduction) {
+    if region.contains(SemanticConcept::ConjunctiveReduction) || truths.iter().any(|t| t.concept == SemanticConcept::ConjunctiveReduction && t.origin == region.id) {
         evidence.push(Evidence {
             region: region.id,
             representation: Representation::BitSet,
@@ -92,7 +81,7 @@ pub fn contribute(region: &Region) -> Vec<Evidence> {
         });
     }
 
-    if region.contains(SemanticConcept::ExclusiveReduction) {
+    if region.contains(SemanticConcept::ExclusiveReduction) || truths.iter().any(|t| t.concept == SemanticConcept::ExclusiveReduction && t.origin == region.id) {
         evidence.push(Evidence {
             region: region.id,
             representation: Representation::BitSet,
@@ -100,6 +89,17 @@ pub fn contribute(region: &Region) -> Vec<Evidence> {
             weight: weights::MODERATE,
             source: SemanticConcept::ExclusiveReduction,
             explanation: "Checking parity matches bitwise XOR pattern",
+        });
+    }
+
+    if region.contains(SemanticConcept::BitsetIteration) || truths.iter().any(|t| t.concept == SemanticConcept::BitsetIteration && t.origin == region.id) {
+        evidence.push(Evidence {
+            region: region.id,
+            representation: Representation::BitSet,
+            polarity: Polarity::Supports,
+            weight: weights::STRONG,
+            source: SemanticConcept::BitsetIteration,
+            explanation: "Looping over set bits is definitive evidence for BitSet",
         });
     }
 

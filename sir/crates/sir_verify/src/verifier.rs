@@ -550,6 +550,66 @@ impl<'a> Verifier<'a> {
                     }
                     let _ = base;
                 }
+                
+                NodeKind::TupleExtract { tuple, index } => {
+                    if let Some(ty) = self.node_type(*tuple) {
+                        if !matches!(ty, Type::Tuple { .. }) {
+                            self.errors.push(VerificationError::TypeMismatch {
+                                node: node.id,
+                                kind: node.kind.clone(),
+                                input_index: 0,
+                                expected: Type::Tuple { elements: vec![] },
+                                actual: ty,
+                            });
+                        }
+                    }
+                    let _ = index;
+                }
+
+                // Tuple: node type must be Tuple with one element type per element.
+                NodeKind::Tuple { elements } => {
+                    match &node.ty {
+                        Type::Tuple { elements: expected } => {
+                            if expected.len() != elements.len() {
+                                self.errors.push(VerificationError::TypeMismatch {
+                                    node: node.id,
+                                    kind: node.kind.clone(),
+                                    input_index: 0,
+                                    expected: node.ty.clone(),
+                                    actual: Type::Tuple {
+                                        elements: elements
+                                            .iter()
+                                            .map(|e| self.node_type(*e).unwrap_or(Type::i32()))
+                                            .collect(),
+                                    },
+                                });
+                            } else {
+                                for (i, elem) in elements.iter().enumerate() {
+                                    if let Some(actual) = self.node_type(*elem) {
+                                        if actual != expected[i] {
+                                            self.errors.push(VerificationError::TypeMismatch {
+                                                node: node.id,
+                                                kind: node.kind.clone(),
+                                                input_index: i,
+                                                expected: expected[i].clone(),
+                                                actual,
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        other => {
+                            self.errors.push(VerificationError::TypeMismatch {
+                                node: node.id,
+                                kind: node.kind.clone(),
+                                input_index: 0,
+                                expected: node.ty.clone(),
+                                actual: other.clone(),
+                            });
+                        }
+                    }
+                }
 
                 // Calls: args existence checked by reference check.
                 NodeKind::Call { .. }

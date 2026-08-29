@@ -9,6 +9,7 @@ use crate::cost::CostDatabase;
 use crate::cost_deriver::CostDeriver;
 use crate::region::{RecognitionExplanation, Region, RegionId};
 use crate::structure::StructuralDatabase;
+use crate::truth::SemanticTruth;
 
 /// The semantic knowledge database.
 ///
@@ -17,6 +18,7 @@ use crate::structure::StructuralDatabase;
 #[derive(Clone, Debug, Default)]
 pub struct SemanticDatabase {
     regions: HashMap<RegionId, Region>,
+    truths: Vec<SemanticTruth>,
     next_region_id: u64,
 }
 
@@ -25,6 +27,7 @@ impl SemanticDatabase {
     pub fn new() -> Self {
         Self {
             regions: HashMap::new(),
+            truths: Vec::new(),
             next_region_id: 0,
         }
     }
@@ -32,6 +35,19 @@ impl SemanticDatabase {
     /// Add a region to the database.
     pub fn add_region(&mut self, region: Region) {
         self.regions.insert(region.id, region);
+    }
+
+    /// Add a derived truth to the database.
+    pub fn add_truth(&mut self, mut truth: SemanticTruth) -> crate::truth::TruthId {
+        let id = crate::truth::TruthId::new(self.truths.len());
+        truth.id = id;
+        self.truths.push(truth);
+        id
+    }
+
+    /// Returns an iterator over all semantic truths.
+    pub fn truths(&self) -> impl Iterator<Item = &SemanticTruth> {
+        self.truths.iter()
     }
 
     /// Iterate over all regions.
@@ -42,6 +58,11 @@ impl SemanticDatabase {
     /// Get a specific region by ID.
     pub fn region(&self, id: RegionId) -> Option<&Region> {
         self.regions.get(&id)
+    }
+
+    /// Get a specific region by ID, mutably.
+    pub fn region_mut(&mut self, id: RegionId) -> Option<&mut Region> {
+        self.regions.get_mut(&id)
     }
 
     /// Get the explanation for why a concept was recognized in a region.
@@ -157,6 +178,17 @@ impl SemanticDatabase {
             }
         }
 
+        // Remap truth origins: truths produced for regions that were merged
+        // away must point at the surviving (target) region. Otherwise
+        // downstream consumers — closure-rule origin propagation, inference
+        // evidence, and structural-description attachment — see stale region
+        // ids for regions that no longer exist.
+        for truth in &mut self.truths {
+            if let Some(&target) = resolved_map.get(&truth.origin) {
+                truth.origin = target;
+            }
+        }
+
         // Update next_region_id to avoid reusing IDs
         let max_id = self
             .regions
@@ -168,6 +200,8 @@ impl SemanticDatabase {
     }
 }
 
+use crate::closure::{bitset_iteration::ClearLowestToBitsetIteration, bitset_iteration_parity::BitsetIterationParity, combine_permutations::CombinePermutations, rules::ClearLowestIsZeroToAtMostOneBit, predicate_map_to_seq::PredicateMapToLogicalSequence, shift_pair_to_circular::ShiftPairToCircularPermutation, ClosureEngine};
+
 /// The semantic derivation engine.
 ///
 /// Transforms compiler facts into semantic truths by running
@@ -176,15 +210,25 @@ pub struct SemanticEngine {
     db: SemanticDatabase,
     structural_db: StructuralDatabase,
     cost_db: CostDatabase,
+    closure_engine: ClosureEngine,
 }
 
 impl SemanticEngine {
     /// Create a new semantic engine with an empty database.
     pub fn new() -> Self {
+        let mut closure_engine = ClosureEngine::new();
+        closure_engine.add_rule(Box::new(ClearLowestIsZeroToAtMostOneBit));
+        closure_engine.add_rule(Box::new(PredicateMapToLogicalSequence));
+        closure_engine.add_rule(Box::new(ClearLowestToBitsetIteration));
+        closure_engine.add_rule(Box::new(BitsetIterationParity));
+        closure_engine.add_rule(Box::new(CombinePermutations));
+        closure_engine.add_rule(Box::new(ShiftPairToCircularPermutation));
+        
         Self {
             db: SemanticDatabase::new(),
             structural_db: StructuralDatabase::new(),
             cost_db: CostDatabase::new(),
+            closure_engine,
         }
     }
 
@@ -203,6 +247,11 @@ impl SemanticEngine {
         &self.cost_db
     }
 
+    /// Number of semantic closure rules registered in the engine.
+    pub fn closure_rule_count(&self) -> usize {
+        self.closure_engine.rule_count()
+    }
+
     /// Derive semantic truths from the function graph and compiler facts.
     ///
     /// This calls each recognizer, which inspects the function's graph
@@ -215,19 +264,68 @@ impl SemanticEngine {
         use crate::recognizers::{
             boolean_collection, cardinality_reduction, conjunctive_reduction,
             disjunctive_reduction, divide_power_of_two, exclusive_reduction, finite_collection,
-            membership_traversal, modulo_power_of_two, multiply_power_of_two, predicate_collection,
+            is_zero, membership_traversal, modulo_power_of_two, multiply_power_of_two, predicate_collection,
             shift_mask, set_algebra, mask_algebra,
         };
 
-        let mask_recs = mask_algebra::recognize_mask_algebra(func, analysis);
-        for (_concept, explanation, node_ids) in mask_recs {
+        let is_zero_recs = is_zero::recognize_is_zero(func, analysis);
+        for (_concept, explanation, node_ids, inputs, outputs) in is_zero_recs {
             let rid = self.db.next_region_id();
             let mut region = Region::new(rid);
             for node_id in &node_ids {
                 region.nodes.insert(*node_id);
             }
-            region.add_concept(explanation.concept, explanation);
+            region.add_concept(explanation.concept, explanation.clone());
             self.db.add_region(region);
+            
+            let truth = SemanticTruth {
+                parameters: vec![],
+                concept: explanation.concept,
+                inputs,
+                outputs,
+                origin: rid, id: crate::truth::TruthId::new(0), provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+            };
+            self.db.add_truth(truth);
+        }
+
+        let loop_until_zero_recs = crate::recognizers::loop_until_zero::recognize_loop_until_zero(func, analysis);
+        for (_concept, explanation, node_ids, inputs, outputs) in loop_until_zero_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation.clone());
+            self.db.add_region(region);
+            
+            let truth = SemanticTruth {
+                parameters: vec![],
+                concept: explanation.concept,
+                inputs,
+                outputs,
+                origin: rid, id: crate::truth::TruthId::new(0), provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+            };
+            self.db.add_truth(truth);
+        }
+
+        let mask_recs = mask_algebra::recognize_mask_algebra(func, analysis);
+        for (_concept, explanation, node_ids, inputs, outputs) in mask_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation.clone());
+            self.db.add_region(region);
+            
+            let truth = SemanticTruth {
+                parameters: vec![],
+                concept: explanation.concept,
+                inputs,
+                outputs,
+                origin: rid, id: crate::truth::TruthId::new(0), provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+            };
+            self.db.add_truth(truth);
         }
 
         let sa_recs = set_algebra::recognize_set_algebra(func, analysis);
@@ -237,8 +335,19 @@ impl SemanticEngine {
             for node_id in &node_ids {
                 region.nodes.insert(*node_id);
             }
-            region.add_concept(explanation.concept, explanation);
+            region.add_concept(explanation.concept, explanation.clone());
             self.db.add_region(region);
+            
+            let truth = SemanticTruth {
+                parameters: vec![],
+                id: crate::truth::TruthId::new(0),
+                concept: explanation.concept,
+                inputs: vec![],
+                outputs: vec![],
+                origin: rid,
+                provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+            };
+            self.db.add_truth(truth);
         }
 
         let bc_recs = boolean_collection::recognize_boolean_collection(func, analysis);
@@ -276,14 +385,65 @@ impl SemanticEngine {
 
         let cardinality_recs =
             cardinality_reduction::recognize_cardinality_reduction(func, analysis);
-        for (_concept, explanation, node_ids) in cardinality_recs {
+        for (_concept, explanation, node_ids, inputs, outputs) in cardinality_recs {
             let rid = self.db.next_region_id();
             let mut region = Region::new(rid);
             for node_id in &node_ids {
                 region.nodes.insert(*node_id);
             }
-            region.add_concept(explanation.concept, explanation);
+            region.add_concept(explanation.concept, explanation.clone());
             self.db.add_region(region);
+            
+            let truth = SemanticTruth {
+                parameters: vec![],
+                concept: explanation.concept,
+                inputs,
+                outputs,
+                origin: rid, id: crate::truth::TruthId::new(0), provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+            };
+            self.db.add_truth(truth);
+        }
+
+        let pred_map_recs =
+            crate::recognizers::predicate_map::recognize_predicate_map(func, analysis);
+        for (_concept, explanation, node_ids, inputs, outputs) in pred_map_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation.clone());
+            self.db.add_region(region);
+
+            let truth = SemanticTruth {
+                parameters: vec![],
+                concept: explanation.concept,
+                inputs,
+                outputs,
+                origin: rid, id: crate::truth::TruthId::new(0), provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+            };
+            self.db.add_truth(truth);
+        }
+
+        let element_seq_recs =
+            crate::recognizers::element_sequence::recognize_element_sequence(func, analysis);
+        for (_concept, explanation, node_ids, inputs, outputs) in element_seq_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation.clone());
+            self.db.add_region(region);
+
+            let truth = SemanticTruth {
+                parameters: vec![],
+                concept: explanation.concept,
+                inputs,
+                outputs,
+                origin: rid, id: crate::truth::TruthId::new(0), provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+            };
+            self.db.add_truth(truth);
         }
 
         let disjunctive_recs =
@@ -317,8 +477,24 @@ impl SemanticEngine {
             for node_id in &node_ids {
                 region.nodes.insert(*node_id);
             }
-            region.add_concept(explanation.concept, explanation);
+            region.add_concept(explanation.concept, explanation.clone());
             self.db.add_region(region);
+
+            // The XOR toggle is the "modulo 2" evidence for parity: expose it
+            // as a truth so the BitsetIteration + XOR -> Parity closure rule
+            // can derive the Parity concept for Kernighan-style parity loops.
+            let truth = SemanticTruth {
+                parameters: vec![],
+                id: crate::truth::TruthId::new(0),
+                concept: explanation.concept,
+                inputs: vec![],
+                outputs: node_ids.first().map(|n| crate::truth::ValueId::new(n.0)).into_iter().collect(),
+                origin: rid,
+                provenance: crate::truth::Provenance::Physical {
+                    nodes: node_ids.clone(),
+                },
+            };
+            self.db.add_truth(truth);
         }
 
         let modulo_recs = modulo_power_of_two::recognize_modulo_power_of_two(func, analysis);
@@ -328,8 +504,19 @@ impl SemanticEngine {
             for node_id in &node_ids {
                 region.nodes.insert(*node_id);
             }
-            region.add_concept(explanation.concept, explanation);
+            region.add_concept(explanation.concept, explanation.clone());
             self.db.add_region(region);
+            
+            let truth = SemanticTruth {
+                parameters: vec![],
+                id: crate::truth::TruthId::new(0),
+                concept: explanation.concept,
+                inputs: vec![],
+                outputs: vec![],
+                origin: rid,
+                provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+            };
+            self.db.add_truth(truth);
         }
 
         let divide_recs = divide_power_of_two::recognize_divide_power_of_two(func, analysis);
@@ -365,6 +552,56 @@ impl SemanticEngine {
             self.db.add_region(region);
         }
 
+        // Bit permutations: recognize the rotate idioms `(x << k) | (x >> (w - k))`
+        // and the mirror image. The recognizer carries the ShiftPair parameter
+        // (width + direction) so closure and role derivation never re-discover it.
+        let perm_recs = crate::recognizers::permutation::recognize_shift_pairs(func, analysis);
+        for (_concept, explanation, node_ids, inputs, outputs, parameter) in perm_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation.clone());
+            self.db.add_region(region);
+
+            let truth = SemanticTruth {
+                parameters: vec![parameter],
+                id: crate::truth::TruthId::new(0),
+                concept: explanation.concept,
+                inputs,
+                outputs,
+                origin: rid,
+                provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+            };
+            self.db.add_truth(truth);
+        }
+
+        // Masked swap stages: `(x & m) << s | (x >> s) & m`. Chains of these
+        // stages are composed into BytePermutation/BitPermutation by the
+        // CombinePermutations closure rule.
+        let swap_recs = crate::recognizers::permutation::recognize_masked_shift_swaps(func, analysis);
+        for (_concept, explanation, node_ids, inputs, outputs, parameter) in swap_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation.clone());
+            self.db.add_region(region);
+
+            let truth = SemanticTruth {
+                parameters: vec![parameter],
+                id: crate::truth::TruthId::new(0),
+                concept: explanation.concept,
+                inputs,
+                outputs,
+                origin: rid,
+                provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+            };
+            self.db.add_truth(truth);
+        }
+
         let pred_recs = predicate_collection::recognize_predicate_collection(func, analysis);
         for (_concept, explanation, node_ids) in pred_recs {
             let rid = self.db.next_region_id();
@@ -388,10 +625,21 @@ impl SemanticEngine {
             self.db.add_region(region);
         }
 
+        // Apply Semantic Closure (Truths → Derived Truths)
+        self.closure_engine.compute_closure(&mut self.db);
+
         // Merge overlapping regions so that related concepts
         // (e.g., all concepts for the same loop/array computation)
         // end up in a single region. This enables combined evidence
         // accumulation in the inference engine.
+        self.db.merge_overlapping_regions(func);
+
+        let mut has_logical_sequence = false;
+        for truth in self.db.truths() {
+            if truth.concept == SemanticConcept::LogicalSequence {
+                has_logical_sequence = true;
+            }
+        }
         self.db.merge_overlapping_regions(func);
 
         // Structural recognizers
@@ -403,14 +651,60 @@ impl SemanticEngine {
 
         // For mask algebra, we just set the structural description to MaskAlgebraExpression
         for (rid, region) in self.db.regions() {
-            if region.contains(SemanticConcept::ClearLowestSetBit) || region.contains(SemanticConcept::LowestSetBit) {
+            if region.contains(SemanticConcept::ClearLowestSetBit) || region.contains(SemanticConcept::LowestSetBit) || region.contains(SemanticConcept::LowestClearBitMask) || region.contains(SemanticConcept::SetLowestClearBit) {
                 use sir_transform::structures::SourceStructure;
-                let desc = crate::structure::StructuralDescription::new(
-                    rid,
-                    SourceStructure::MaskAlgebraExpression,
-                );
-                self.structural_db.add_description(desc);
+                // First description wins: a region overlapping another domain
+                // (e.g. a count loop over a logical sequence) may already have
+                // been described by an earlier block.
+                if self.structural_db.region(rid).is_none() {
+                    let desc = crate::structure::StructuralDescription::new(
+                        rid,
+                        SourceStructure::MaskAlgebraExpression,
+                    );
+                    self.structural_db.add_description(desc);
+                }
             }
+
+        // Bit permutations: give every rotate/swap/reversal region the
+        // BitPermutation structure. The rotation direction rides along as a
+        // constraint so the generator can select the correct recipe without
+        // consulting the physical graph.
+        for (rid, region) in self.db.regions() {
+            if region.contains(SemanticConcept::ShiftPairLeft)
+                || region.contains(SemanticConcept::ShiftPairRight)
+                || region.contains(SemanticConcept::CircularPermutation)
+                || region.contains(SemanticConcept::BytePermutation)
+                || region.contains(SemanticConcept::BitPermutation)
+            {
+                use sir_transform::structures::SourceStructure;
+                if self.structural_db.region(rid).is_none() {
+                    let mut desc = crate::structure::StructuralDescription::new(
+                        rid,
+                        SourceStructure::BitPermutation { width: 64 },
+                    );
+                    if let Some(dir) = self.db.truths().find_map(|t| {
+                        if (t.concept == SemanticConcept::ShiftPairLeft
+                            || t.concept == SemanticConcept::ShiftPairRight)
+                            && t.origin == rid
+                        {
+                            t.parameters.iter().find_map(|p| match p {
+                                crate::truth::TruthParameter::ShiftPair { direction, .. } => {
+                                    Some(*direction)
+                                }
+                                _ => None,
+                            })
+                        } else {
+                            None
+                        }
+                    }) {
+                        desc = desc.with_constraint(
+                            sir_transform::constraints::Constraint::RotationDirection(dir),
+                        );
+                    }
+                    self.structural_db.add_description(desc);
+                }
+            }
+        }
         }
 
         let bool_array_recs = boolean_array::recognize_boolean_array(func, analysis);
@@ -531,6 +825,30 @@ impl SemanticEngine {
             }
         }
 
+        // Fallback: a LogicalSequence that no structural recognizer described
+        // (e.g. a predicate sequence over a non-boolean array) still gets a
+        // dynamic-boolean-sequence structure. Runs after the recognizers so
+        // accurate descriptions (with the true length) take precedence.
+        if has_logical_sequence {
+            let mut region_id = RegionId::new(0);
+            for truth in self.db.truths() {
+                if truth.concept == SemanticConcept::LogicalSequence {
+                    region_id = truth.origin;
+                    break;
+                }
+            }
+            if self.structural_db.region(region_id).is_none() {
+                let desc = crate::structure::StructuralDescription::new(
+                    region_id,
+                    sir_transform::structures::SourceStructure::DynamicBooleanSequence {
+                        length: 64, // v0.1 hardcoded assumption for now
+                    },
+                )
+                .with_constraint(sir_transform::constraints::Constraint::FixedLength(64));
+                self.structural_db.add_description(desc);
+            }
+        }
+
         // ── Role derivation ────────────────────────────────────
         // Populate RegionRoles on structural descriptions from
         // recognized semantic concepts. For v0.1, this handles
@@ -646,7 +964,7 @@ impl SemanticEngine {
                         if let (Some(scalar), Some(operator)) =
                             (predicate_scalar, predicate_op_node)
                         {
-                            desc.roles = Some(RegionRoles::PredicateCollectionReduction {
+                            desc.roles.push(RegionRoles::PredicateCollectionReduction {
                                 collection,
                                 scalar,
                                 operator,
@@ -654,7 +972,7 @@ impl SemanticEngine {
                                 result,
                             });
                         } else {
-                            desc.roles = Some(RegionRoles::BooleanCollectionReduction {
+                            desc.roles.push(RegionRoles::BooleanCollectionReduction {
                                 collection,
                                 accumulator,
                                 result,
@@ -662,7 +980,8 @@ impl SemanticEngine {
                         }
                     }
                 }
-            } else if region.contains(SemanticConcept::ModuloPowerOfTwo) {
+            }
+            if region.contains(SemanticConcept::ModuloPowerOfTwo) {
                 // Find Rem node
                 let mut op_info = None;
                 for node in func.arena.iter() {
@@ -672,7 +991,7 @@ impl SemanticEngine {
                 }
                 if let Some((rem, lhs, rhs)) = op_info {
                     if let Some(desc) = self.structural_db.region_mut(region_id) {
-                        desc.roles = Some(RegionRoles::ArithmeticOperation {
+                        desc.roles.push(RegionRoles::ArithmeticOperation {
                             operator_node: rem,
                             lhs,
                             rhs,
@@ -680,7 +999,8 @@ impl SemanticEngine {
                         });
                     }
                 }
-            } else if region.contains(SemanticConcept::DividePowerOfTwo) {
+            }
+            if region.contains(SemanticConcept::DividePowerOfTwo) {
                 let mut op_info = None;
                 for node in func.arena.iter() {
                     if let NodeKind::Div { lhs, rhs } = &node.kind {
@@ -689,7 +1009,7 @@ impl SemanticEngine {
                 }
                 if let Some((div, lhs, rhs)) = op_info {
                     if let Some(desc) = self.structural_db.region_mut(region_id) {
-                        desc.roles = Some(RegionRoles::ArithmeticOperation {
+                        desc.roles.push(RegionRoles::ArithmeticOperation {
                             operator_node: div,
                             lhs,
                             rhs,
@@ -697,7 +1017,8 @@ impl SemanticEngine {
                         });
                     }
                 }
-            } else if region.contains(SemanticConcept::MultiplyPowerOfTwo) {
+            }
+            if region.contains(SemanticConcept::MultiplyPowerOfTwo) {
                 let mut op_info = None;
                 for node in func.arena.iter() {
                     if let NodeKind::Mul { lhs, rhs } = &node.kind {
@@ -706,7 +1027,7 @@ impl SemanticEngine {
                 }
                 if let Some((mul, lhs, rhs)) = op_info {
                     if let Some(desc) = self.structural_db.region_mut(region_id) {
-                        desc.roles = Some(RegionRoles::ArithmeticOperation {
+                        desc.roles.push(RegionRoles::ArithmeticOperation {
                             operator_node: mul,
                             lhs,
                             rhs,
@@ -714,7 +1035,8 @@ impl SemanticEngine {
                         });
                     }
                 }
-            } else if region.contains(SemanticConcept::ClearLowestSetBit) {
+                // In v0.1 we also handle AtMostOneBitSet mapped to MaskAlgebraExpression, but we already added MaskAlgebraExpression for ClearLowestSetBit.
+                // We just need to make sure the role extraction works.
                 let mut op_info = None;
                 for node in func.arena.iter() {
                     if let NodeKind::And { .. } = &node.kind {
@@ -736,13 +1058,169 @@ impl SemanticEngine {
                                 }
                             }
                         }
-                        desc.roles = Some(RegionRoles::MaskOperation {
+                        desc.roles.push(RegionRoles::MaskOperation {
                             operand,
                             result: and_node,
                         });
                     }
                 }
-            } else if region.contains(SemanticConcept::ShiftMask) {
+            }
+            if region.contains(SemanticConcept::ClearLowestSetBit) {
+                let mut op_info = None;
+                for node in func.arena.iter() {
+                    if let NodeKind::And { .. } = &node.kind {
+                        if region.nodes.contains(&node.id) {
+                            op_info = Some(node.id);
+                            break;
+                        }
+                    }
+                }
+                if let Some(and_node) = op_info {
+                    if let Some(desc) = self.structural_db.region_mut(region_id) {
+                        let mut operand = and_node; 
+                        if let NodeKind::And { lhs, rhs } = func.get_node(and_node).unwrap().kind {
+                            if let Some(lhs_node) = func.get_node(lhs) {
+                                if matches!(lhs_node.kind, NodeKind::Sub { .. }) {
+                                    operand = rhs;
+                                } else {
+                                    operand = lhs;
+                                }
+                            }
+                        }
+                        desc.roles.push(RegionRoles::MaskOperation {
+                            operand,
+                            result: and_node,
+                        });
+                    }
+                }
+            }
+            if region.contains(SemanticConcept::LowestSetBit) {
+                let mut op_info = None;
+                for node in func.arena.iter() {
+                    if let NodeKind::And { .. } = &node.kind {
+                        if region.nodes.contains(&node.id) {
+                            op_info = Some(node.id);
+                            break;
+                        }
+                    }
+                }
+                if let Some(and_node) = op_info {
+                    if let Some(desc) = self.structural_db.region_mut(region_id) {
+                        let mut operand = and_node;
+                        if let NodeKind::And { lhs, rhs } = func.get_node(and_node).unwrap().kind {
+                            // The operand is the side that is not the negation
+                            // (`x & -x` or `-x & x` both isolate x's lowest bit).
+                            let lhs_is_neg = matches!(
+                                func.get_node(lhs).map(|n| &n.kind),
+                                Some(NodeKind::Neg { .. })
+                            );
+                            operand = if lhs_is_neg { rhs } else { lhs };
+                        }
+                        desc.roles.push(RegionRoles::MaskOperation {
+                            operand,
+                            result: and_node,
+                        });
+                    }
+                }
+            }
+            if region.contains(SemanticConcept::LowestClearBitMask) {
+                let mut op_info = None;
+                for node in func.arena.iter() {
+                    if let NodeKind::And { .. } = &node.kind {
+                        if region.nodes.contains(&node.id) {
+                            op_info = Some(node.id);
+                            break;
+                        }
+                    }
+                }
+                if let Some(and_node) = op_info {
+                    if let Some(desc) = self.structural_db.region_mut(region_id) {
+                        // The operand is the base value inside the `~x` operand:
+                        // `~x & (x + 1)` isolates the lowest clear bit of `x`.
+                        let mut operand = and_node;
+                        if let NodeKind::And { lhs, rhs } = func.get_node(and_node).unwrap().kind {
+                            if let Some(n) = func.get_node(lhs) {
+                                if let NodeKind::Not { operand: not_operand } = &n.kind {
+                                    operand = *not_operand;
+                                }
+                            }
+                            if let Some(n) = func.get_node(rhs) {
+                                if let NodeKind::Not { operand: not_operand } = &n.kind {
+                                    operand = *not_operand;
+                                }
+                            }
+                        }
+                        desc.roles.push(RegionRoles::MaskOperation {
+                            operand,
+                            result: and_node,
+                        });
+                    }
+                }
+            }
+            if region.contains(SemanticConcept::SetLowestClearBit) {
+                let mut op_info = None;
+                for node in func.arena.iter() {
+                    if let NodeKind::Or { .. } = &node.kind {
+                        if region.nodes.contains(&node.id) {
+                            op_info = Some(node.id);
+                            break;
+                        }
+                    }
+                }
+                if let Some(or_node) = op_info {
+                    if let Some(desc) = self.structural_db.region_mut(region_id) {
+                        // The operand is the base value `x`: `x | (x + 1)` sets
+                        // the lowest clear bit of `x`. The operand is the side
+                        // that is NOT the `x + 1` addition.
+                        let mut operand = or_node;
+                        if let NodeKind::Or { lhs, rhs } = func.get_node(or_node).unwrap().kind {
+                            let lhs_is_add = matches!(
+                                func.get_node(lhs).map(|n| &n.kind),
+                                Some(NodeKind::Add { .. })
+                            );
+                            let rhs_is_add = matches!(
+                                func.get_node(rhs).map(|n| &n.kind),
+                                Some(NodeKind::Add { .. })
+                            );
+                            operand = if lhs_is_add && !rhs_is_add {
+                                rhs
+                            } else if rhs_is_add && !lhs_is_add {
+                                lhs
+                            } else {
+                                or_node
+                            };
+                        }
+                        desc.roles.push(RegionRoles::MaskOperation {
+                            operand,
+                            result: or_node,
+                        });
+                    }
+                }
+            }
+            if region.contains(SemanticConcept::BitsetIteration) {
+                let mut loop_node = None;
+                let mut set_value = None;
+                for node in func.arena.iter() {
+                    if let NodeKind::Loop { carried_inputs, .. } = &node.kind {
+                        if region.nodes.contains(&node.id) {
+                            loop_node = Some(node.id);
+                            if let Some(&first_carry) = carried_inputs.first() {
+                                set_value = Some(first_carry);
+                            }
+                            break;
+                        }
+                    }
+                }
+                if let (Some(l), Some(s)) = (loop_node, set_value) {
+                    if let Some(desc) = self.structural_db.region_mut(region_id) {
+                        desc.roles.push(RegionRoles::SetIteration {
+                            set_value: s,
+                            result: l,
+                        });
+                    }
+                }
+            }
+            if region.contains(SemanticConcept::ShiftMask) {
                 let mut op_info = None;
                 for node in func.arena.iter() {
                     if let NodeKind::Shr { lhs, rhs } = &node.kind {
@@ -755,7 +1233,7 @@ impl SemanticEngine {
                 }
                 if let Some((shr, lhs, rhs)) = op_info {
                     if let Some(desc) = self.structural_db.region_mut(region_id) {
-                        desc.roles = Some(RegionRoles::ArithmeticOperation {
+                        desc.roles.push(RegionRoles::ArithmeticOperation {
                             operator_node: shr,
                             lhs,
                             rhs,
@@ -797,10 +1275,95 @@ impl SemanticEngine {
 
                 if let Some(result) = result_node {
                     if let Some(desc) = self.structural_db.region_mut(region_id) {
-                        desc.roles = Some(RegionRoles::PositionSearch {
+                        desc.roles.push(RegionRoles::PositionSearch {
                             collection,
                             scalar,
                             result,
+                        });
+                    }
+                }
+            }
+            if region.contains(SemanticConcept::CircularPermutation)
+                || region.contains(SemanticConcept::BytePermutation)
+                || region.contains(SemanticConcept::BitPermutation)
+            {
+                // The wholesale permutation: the operand is the value being
+                // permuted and the result is the top Or node. The derived
+                // truth (from closure) pins both — never one of the
+                // constituent shift/mask subexpressions.
+                let mut operand = None;
+                let mut result = None;
+                let mut direction = None;
+                let mut perm_width = None;
+                for t in self.db.truths() {
+                    if (t.concept == SemanticConcept::CircularPermutation
+                        || t.concept == SemanticConcept::BytePermutation
+                        || t.concept == SemanticConcept::BitPermutation)
+                        && t.origin == region_id
+                    {
+                        operand = t.inputs.first().map(|v| NodeId::new(v.0));
+                        result = t.outputs.first().map(|v| NodeId::new(v.0));
+                        for p in &t.parameters {
+                            match p {
+                                crate::truth::TruthParameter::ShiftPair { direction: d, .. } => {
+                                    direction = Some(*d);
+                                }
+                                crate::truth::TruthParameter::BitPermutation { width, .. } => {
+                                    perm_width = Some(*width);
+                                }
+                                _ => {}
+                            }
+                        }
+                        break;
+                    }
+                }
+                if let (Some(operand), Some(result)) = (operand, result) {
+                    if let Some(desc) = self.structural_db.region_mut(region_id) {
+                        let kind = if let Some(direction) = direction {
+                            // Circular rotation: the amount is the shift node
+                            // whose rhs is NOT the width subtraction.
+                            let mut amount = result;
+                            for node in func.arena.iter() {
+                                if !region.nodes.contains(&node.id) {
+                                    continue;
+                                }
+                                match &node.kind {
+                                    NodeKind::Shl { rhs, .. } | NodeKind::Shr { rhs, .. } => {
+                                        if let Some(rhs_node) = func.get_node(*rhs) {
+                                            if !matches!(rhs_node.kind, NodeKind::Sub { .. }) {
+                                                amount = *rhs;
+                                            }
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            sir_transform::roles::PermutationKind::Circular { direction, amount }
+                        } else if region.contains(SemanticConcept::BytePermutation) {
+                            let type_width = func
+                                .get_node(operand)
+                                .map(|n| type_bits(&n.ty))
+                                .flatten()
+                                .unwrap_or(32) as u32;
+                            sir_transform::roles::PermutationKind::ByteSwap {
+                                perm_width: perm_width.unwrap_or(16),
+                                type_width,
+                            }
+                        } else {
+                            let type_width = func
+                                .get_node(operand)
+                                .map(|n| type_bits(&n.ty))
+                                .flatten()
+                                .unwrap_or(32) as u32;
+                            sir_transform::roles::PermutationKind::BitReverse {
+                                perm_width: perm_width.unwrap_or(8),
+                                type_width,
+                            }
+                        };
+                        desc.roles.push(RegionRoles::BitPermutation {
+                            operand,
+                            result,
+                            kind,
                         });
                     }
                 }
@@ -812,5 +1375,15 @@ impl SemanticEngine {
 impl Default for SemanticEngine {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+
+/// Bit width of an integer or bitvector type.
+fn type_bits(ty: &sir_types::Type) -> Option<usize> {
+    match ty {
+        sir_types::Type::Integer { width, .. } => Some(width.bits()),
+        sir_types::Type::BitVector { width } => Some(*width),
+        _ => None,
     }
 }

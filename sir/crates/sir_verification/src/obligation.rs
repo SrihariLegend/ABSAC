@@ -71,6 +71,13 @@ impl VariableSpec {
                     Some(1u64 << *length)
                 }
             }
+            VariableKind::BitVector { width } => {
+                if *width >= 64 {
+                    None
+                } else {
+                    Some(1u64 << *width)
+                }
+            }
         }
     }
 }
@@ -80,6 +87,8 @@ impl VariableSpec {
 pub enum VariableKind {
     /// A fixed-size array of booleans. Induces 2^length possible states.
     LogicalSequence { length: usize },
+    /// A bitvector of fixed width. Induces 2^width possible states.
+    BitVector { width: usize },
 }
 
 /// Iterates over all input combinations in a deterministic order.
@@ -135,6 +144,13 @@ impl DomainIterator {
                     }
                     env.bind(var.id, Value::LogicalSequence(bits));
                     bit_offset += len as u32;
+                }
+                VariableKind::BitVector { width } => {
+                    let w = *width;
+                    let mask = if w >= 64 { u64::MAX } else { (1 << w) - 1 };
+                    let bits = ((index >> bit_offset) & mask) as u128;
+                    env.bind(var.id, Value::BitVector(crate::semantic::value::BitVectorValue { bits, width: w }));
+                    bit_offset += w as u32;
                 }
             }
         }

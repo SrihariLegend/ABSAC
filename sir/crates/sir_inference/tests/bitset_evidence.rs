@@ -21,14 +21,14 @@ fn make_region(with_concepts: &[SemanticConcept]) -> Region {
 #[test]
 fn empty_region_produces_no_evidence() {
     let region = Region::new(RegionId::new(0));
-    let evidence = bitset_evidence::contribute(&region);
+    let evidence = bitset_evidence::contribute(&region, &[]);
     assert!(evidence.is_empty());
 }
 
 #[test]
 fn boolean_collection_supports_bitset() {
     let region = make_region(&[SemanticConcept::LogicalSequence]);
-    let evidence = bitset_evidence::contribute(&region);
+    let evidence = bitset_evidence::contribute(&region, &[]);
 
     assert!(!evidence.is_empty());
     let bool_ev = evidence
@@ -42,7 +42,7 @@ fn boolean_collection_supports_bitset() {
 #[test]
 fn finite_collection_supports_bitset() {
     let region = make_region(&[SemanticConcept::FiniteCollection]);
-    let evidence = bitset_evidence::contribute(&region);
+    let evidence = bitset_evidence::contribute(&region, &[]);
 
     let finite_ev = evidence
         .iter()
@@ -54,7 +54,7 @@ fn finite_collection_supports_bitset() {
 #[test]
 fn membership_traversal_supports_bitset() {
     let region = make_region(&[SemanticConcept::MembershipTraversal]);
-    let evidence = bitset_evidence::contribute(&region);
+    let evidence = bitset_evidence::contribute(&region, &[]);
 
     assert!(!evidence.is_empty());
     let ev = evidence.first().unwrap();
@@ -64,7 +64,7 @@ fn membership_traversal_supports_bitset() {
 #[test]
 fn cardinality_reduction_supports_bitset() {
     let region = make_region(&[SemanticConcept::CardinalityReduction]);
-    let evidence = bitset_evidence::contribute(&region);
+    let evidence = bitset_evidence::contribute(&region, &[]);
 
     assert!(!evidence.is_empty());
     let ev = evidence.first().unwrap();
@@ -79,19 +79,19 @@ fn all_four_concepts_together_produce_four_evidence_entries() {
         SemanticConcept::MembershipTraversal,
         SemanticConcept::CardinalityReduction,
     ]);
-    let evidence = bitset_evidence::contribute(&region);
+    let evidence = bitset_evidence::contribute(&region, &[]);
     // Each concept contributes one evidence entry, all Supports
     let supporting: Vec<_> = evidence
         .iter()
         .filter(|e| matches!(e.polarity, Polarity::Supports))
         .collect();
-    assert_eq!(supporting.len(), 5);
+    assert_eq!(supporting.len(), 4);
 }
 
 #[test]
 fn evidence_contains_explanatory_text() {
     let region = make_region(&[SemanticConcept::LogicalSequence]);
-    let evidence = bitset_evidence::contribute(&region);
+    let evidence = bitset_evidence::contribute(&region, &[]);
     let ev = evidence.first().unwrap();
     assert!(!ev.explanation.is_empty());
 }
@@ -104,7 +104,7 @@ fn evidence_is_all_supports_for_positive_concepts() {
         SemanticConcept::MembershipTraversal,
         SemanticConcept::CardinalityReduction,
     ]);
-    let evidence = bitset_evidence::contribute(&region);
+    let evidence = bitset_evidence::contribute(&region, &[]);
     for ev in &evidence {
         assert!(
             matches!(ev.polarity, Polarity::Supports),

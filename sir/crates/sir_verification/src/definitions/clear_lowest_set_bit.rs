@@ -33,11 +33,9 @@ impl TransformationDefinition for ClearLowestSetBitDefinition {
         let x = SemanticExpression::Variable(VariableId::new(0));
         let one = SemanticExpression::Constant(sir_types::ConstantData::u64(1));
 
-        let naive = SemanticExpression::BitwiseAnd(
-            Box::new(x.clone()),
-            Box::new(SemanticExpression::Subtract(Box::new(x.clone()), Box::new(one.clone()))),
-        );
+        let lhs = SemanticExpression::ClearLowestSetBit(Box::new(x.clone()));
 
+        // The candidate expression from Generation strategy
         let candidate_expr = SemanticExpression::BitwiseAnd(
             Box::new(x.clone()),
             Box::new(SemanticExpression::Subtract(Box::new(x), Box::new(one))),
@@ -48,9 +46,14 @@ impl TransformationDefinition for ClearLowestSetBitDefinition {
             region: candidate.region,
             definition: self.id,
             candidate: candidate.id,
-            theorem: Theorem::new(naive, candidate_expr),
+            theorem: Theorem::new(lhs, candidate_expr),
             assumptions: vec![],
-            domain: None,
+            domain: Some(crate::obligation::FiniteDomain {
+                variables: vec![crate::obligation::VariableSpec {
+                    id: VariableId::new(0),
+                    kind: crate::obligation::VariableKind::BitVector { width: 64 },
+                }],
+            }),
         }
     }
 }

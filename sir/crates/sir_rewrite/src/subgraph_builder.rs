@@ -211,12 +211,36 @@ impl<'a> SubgraphBuilder<'a> {
         )
     }
 
-    pub fn popcount(&mut self, operand: LocalNodeId, span: Span) -> LocalNodeId {
+    pub fn rol(&mut self, lhs: LocalNodeId, rhs: LocalNodeId, span: Span) -> LocalNodeId {
+        let ty = self.get_type(lhs).unwrap_or(Type::i32());
+        self.alloc_node(
+            NodeKind::Rol {
+                lhs: NodeId::new(lhs.as_u64()),
+                rhs: NodeId::new(rhs.as_u64()),
+            },
+            ty,
+            span,
+        )
+    }
+
+    pub fn ror(&mut self, lhs: LocalNodeId, rhs: LocalNodeId, span: Span) -> LocalNodeId {
+        let ty = self.get_type(lhs).unwrap_or(Type::i32());
+        self.alloc_node(
+            NodeKind::Ror {
+                lhs: NodeId::new(lhs.as_u64()),
+                rhs: NodeId::new(rhs.as_u64()),
+            },
+            ty,
+            span,
+        )
+    }
+
+    pub fn popcount(&mut self, operand: LocalNodeId, ty: Type, span: Span) -> LocalNodeId {
         self.alloc_node(
             NodeKind::Popcount {
                 operand: NodeId::new(operand.as_u64()),
             },
-            Type::i32(),
+            ty,
             span,
         )
     }
@@ -225,6 +249,18 @@ impl<'a> SubgraphBuilder<'a> {
         let ty = self.get_type(lhs).unwrap_or(Type::i32());
         self.alloc_node(
             NodeKind::And {
+                lhs: NodeId::new(lhs.as_u64()),
+                rhs: NodeId::new(rhs.as_u64()),
+            },
+            ty,
+            span,
+        )
+    }
+
+    pub fn bitwise_or(&mut self, lhs: LocalNodeId, rhs: LocalNodeId, span: Span) -> LocalNodeId {
+        let ty = self.get_type(lhs).unwrap_or(Type::i32());
+        self.alloc_node(
+            NodeKind::Or {
                 lhs: NodeId::new(lhs.as_u64()),
                 rhs: NodeId::new(rhs.as_u64()),
             },
@@ -301,6 +337,22 @@ impl<'a> SubgraphBuilder<'a> {
         )
     }
 
+    // ── Tuple ───────────────────────────────────────────────────
+
+    /// Construct a tuple value from its elements.
+    pub fn tuple(&mut self, elements: Vec<LocalNodeId>, ty: Type, span: Span) -> LocalNodeId {
+        self.alloc_node(
+            NodeKind::Tuple {
+                elements: elements
+                    .into_iter()
+                    .map(|id| NodeId::new(id.as_u64()))
+                    .collect(),
+            },
+            ty,
+            span,
+        )
+    }
+
     // ── Select ──────────────────────────────────────────────────
 
     pub fn select(
@@ -356,7 +408,7 @@ mod tests {
             Type::BitVector { width: 64 },
             Span::unknown(),
         );
-        let pop = b.popcount(c, Span::unknown());
+        let pop = b.popcount(c, Type::i32(), Span::unknown());
 
         // Verify the arena has nodes
         let arena = &b.finish(vec![]).arena;
@@ -374,7 +426,7 @@ mod tests {
             Type::BitVector { width: 64 },
             Span::unknown(),
         );
-        let pop = b.popcount(bv, Span::unknown());
+        let pop = b.popcount(bv, Type::i32(), Span::unknown());
         // Verify we got a node
         let arena = &b.finish(vec![]).arena;
         assert!(arena.contains(pop));

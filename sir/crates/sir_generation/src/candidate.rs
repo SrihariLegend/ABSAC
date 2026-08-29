@@ -62,6 +62,20 @@ pub enum ImplementationStrategy {
     LeadingZeroCount,
     /// Clear the lowest set bit.
     ClearLowestBit,
+    /// Isolate the lowest set bit: `x & -x`.
+    IsolateLowestBit,
+    /// Isolate the lowest clear bit: `~x & (x + 1)`.
+    IsolateLowestClearBit,
+    /// Set the lowest clear bit: `x | (x + 1)`.
+    SetLowestClearBit,
+    /// Hardware rotate left: `rol(x, k)`.
+    RotateLeft,
+    /// Hardware rotate right: `ror(x, k)`.
+    RotateRight,
+    /// Byte-order reversal via a byte-swap instruction.
+    ByteSwap,
+    /// Full bit reversal via a reverse-bits instruction.
+    ReverseBits,
 }
 
 impl fmt::Display for ImplementationStrategy {
@@ -83,6 +97,13 @@ impl fmt::Display for ImplementationStrategy {
             ImplementationStrategy::TrailingZeroCount => write!(f, "TrailingZeroCount"),
             ImplementationStrategy::LeadingZeroCount => write!(f, "LeadingZeroCount"),
             ImplementationStrategy::ClearLowestBit => write!(f, "ClearLowestBit"),
+            ImplementationStrategy::IsolateLowestBit => write!(f, "IsolateLowestBit"),
+            ImplementationStrategy::IsolateLowestClearBit => write!(f, "IsolateLowestClearBit"),
+            ImplementationStrategy::SetLowestClearBit => write!(f, "SetLowestClearBit"),
+            ImplementationStrategy::RotateLeft => write!(f, "RotateLeft"),
+            ImplementationStrategy::RotateRight => write!(f, "RotateRight"),
+            ImplementationStrategy::ByteSwap => write!(f, "ByteSwap"),
+            ImplementationStrategy::ReverseBits => write!(f, "ReverseBits"),
         }
     }
 }

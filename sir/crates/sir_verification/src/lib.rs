@@ -27,12 +27,16 @@ use crate::backends::symbolic::SymbolicVerifier;
 use crate::definitions::all::AllDefinition;
 use crate::definitions::any::AnyDefinition;
 use crate::definitions::bitscan_forward::BitScanForwardDefinition;
+use crate::definitions::byte_swap::ByteSwapDefinition;
+use crate::definitions::bit_reverse::BitReverseDefinition;
 use crate::definitions::bitscan_reverse::BitScanReverseDefinition;
 use crate::definitions::divide_shift::DivideShiftDefinition;
 use crate::definitions::leading_zero_count::LeadingZeroCountDefinition;
 use crate::definitions::multiply_shift::MultiplyShiftDefinition;
 use crate::definitions::parity::ParityDefinition;
 use crate::definitions::popcount::PopcountDefinition;
+use crate::definitions::rotate_left::RotateLeftDefinition;
+use crate::definitions::rotate_right::RotateRightDefinition;
 use crate::definitions::shift_mask::ShiftMaskDefinition;
 use crate::definitions::trailing_zero_count::TrailingZeroCountDefinition;
 use crate::obligation::{ProofObligation, ProofObligationDatabase};
@@ -172,6 +176,27 @@ impl Verifier {
         )));
         registry.register(Box::new(definitions::clear_lowest_set_bit::ClearLowestSetBitDefinition::new(
             sir_transform::ids::DefinitionId::new(300),
+        )));
+        registry.register(Box::new(definitions::isolate_lowest_set_bit::IsolateLowestSetBitDefinition::new(
+            sir_transform::ids::DefinitionId::new(301),
+        )));
+        registry.register(Box::new(definitions::isolate_lowest_clear_bit::IsolateLowestClearBitDefinition::new(
+            sir_transform::ids::DefinitionId::new(302),
+        )));
+        registry.register(Box::new(definitions::set_lowest_clear_bit::SetLowestClearBitDefinition::new(
+            sir_transform::ids::DefinitionId::new(303),
+        )));
+        registry.register(Box::new(RotateLeftDefinition::new(
+            sir_transform::ids::DefinitionId::new(310),
+        )));
+        registry.register(Box::new(RotateRightDefinition::new(
+            sir_transform::ids::DefinitionId::new(311),
+        )));
+        registry.register(Box::new(ByteSwapDefinition::new(
+            sir_transform::ids::DefinitionId::new(312),
+        )));
+        registry.register(Box::new(BitReverseDefinition::new(
+            sir_transform::ids::DefinitionId::new(313),
         )));
 
         Self {

@@ -43,10 +43,13 @@ fn all_four_generators_produce_candidates() {
     let ctx = make_context();
     let concepts = make_all_concepts();
     let candidates: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
+    // Four strategies apply to the count-over-sequence concepts: Popcount,
+    // BitIteration, PackedBitfield, MaskConstruction. The BitsetIteration
+    // Popcount is scoped to Kernighan-style loops and does not apply.
     assert_eq!(
         candidates.len(),
-        5,
-        "Expected 5 candidates for BitSet context"
+        4,
+        "Expected 4 candidates for BitSet context"
     );
 }
 
@@ -107,7 +110,7 @@ fn bitmask_context_produces_four_candidates() {
     let candidates: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
     // All 4 generators check for BitSet representation, which matches.
     // BitMask as source structure is still valid.
-    assert_eq!(candidates.len(), 5);
+    assert_eq!(candidates.len(), 4);
 }
 
 #[test]

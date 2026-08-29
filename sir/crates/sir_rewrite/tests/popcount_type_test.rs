@@ -6,7 +6,7 @@ use sir_types::{Span, Type};
 fn test_popcount_type() {
     let mut builder = SubgraphBuilder::new();
     let packed = builder.pack(LocalNodeId::new(0), 8, Span::unknown());
-    let pop = builder.popcount(packed, Span::unknown());
+    let pop = builder.popcount(packed, Type::i32(), Span::unknown());
     let ty = builder.get_type(pop).unwrap();
     assert_eq!(ty, Type::i32());
 }

@@ -23,7 +23,9 @@ fn build_board_scan() -> sir_nodes::Function {
                 length: 64,
             },
         )],
-        Type::i32(),
+        Type::Tuple {
+            elements: vec![Type::i32(), Type::u64()],
+        },
     );
 
     let board = b.parameter_index(0).unwrap();
@@ -78,6 +80,8 @@ fn bs001_pipeline_runs_all_stages() {
         "Should have at least one iteration record"
     );
 
+    // The loop is returned wholesale, so the signature matches the loop's
+    // (count, index) tuple type.
     let rec = &result.iterations_detail[0];
 
     // The pipeline should have recognized the region, produced candidates,
@@ -97,17 +101,10 @@ fn bs001_pipeline_runs_all_stages() {
         "Should select at least one candidate (got {})",
         rec.candidates_selected
     );
-
-    // v0.1 note: The rewrite step may fail due to pre-existing recipe
-    // limitations (PopcountRecipe doesn't handle Array<Bool> → u64
-    // representation changes in v0.1). The optimizer correctly handles
-    // this by returning the original function unchanged. This is a
-    // recipe-level gap, not an optimizer issue.
-    //
-    // When the recipe is fixed, this test should be updated to verify:
-    // - iterations == 2 (1 rewrite + 1 confirmation)
-    // - rewrites_applied == 1
-    // - termination == FixedPoint
+    assert!(
+        result.rewrites_applied > 0,
+        "Should apply the popcount rewrite"
+    );
 }
 
 #[test]

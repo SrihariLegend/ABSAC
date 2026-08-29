@@ -80,6 +80,326 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 b.build()
             },
         },
+
+        // ── Hacker's Delight Roadmap (Failures mapping missing knowledge) ──
+
+        BenchmarkDef {
+            spec: BenchmarkSpec {
+                id: "HD001",
+                name: "isolate_lowest_set_bit",
+                category: "Hacker's Delight",
+                input_desc: "x & -x",
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "MaskAlgebra",
+                    concepts: vec!["LowestSetBit"],
+                    representation: "MaskAlgebra",
+                    candidate: "IsolateLowestBit",
+                    proof: "LowestSetBit(x) == And(x, Neg(x))",
+                    rewrite: "And -> Intrinsic(blsi)",
+                },
+            },
+            func: || {
+                let mut b = Builder::new("isolate_lowest_bit", &[("x", Type::u64())], Type::u64());
+                let x = b.parameter_index(0).unwrap();
+                let neg_x = b.neg(x, unknown_span()).unwrap();
+                let res = b.bit_and(x, neg_x, unknown_span()).unwrap();
+                b.return_value(res, unknown_span()).unwrap();
+                b.build()
+            },
+        },
+
+        BenchmarkDef {
+            spec: BenchmarkSpec {
+                id: "HD007",
+                name: "isolate_lowest_clear_bit",
+                category: "Hacker's Delight",
+                input_desc: "~x & (x + 1)",
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "MaskAlgebra",
+                    concepts: vec!["LowestClearBitMask"],
+                    representation: "MaskAlgebra",
+                    candidate: "IsolateLowestClearBit",
+                    proof: "LowestClearBitMask(x) == And(Not(x), Add(x, 1))",
+                    rewrite: "And -> Intrinsic(blsi(Not(x)))",
+                },
+            },
+            func: || {
+                let mut b = Builder::new("isolate_lowest_clear_bit", &[("x", Type::u64())], Type::u64());
+                let x = b.parameter_index(0).unwrap();
+                let one = b.constant(ConstantData::u64(1), Type::u64(), unknown_span());
+                let not_x = b.bit_not(x, unknown_span()).unwrap();
+                let x_plus_one = b.add(x, one, unknown_span()).unwrap();
+                let res = b.bit_and(not_x, x_plus_one, unknown_span()).unwrap();
+                b.return_value(res, unknown_span()).unwrap();
+                b.build()
+            },
+        },
+        BenchmarkDef {
+            spec: BenchmarkSpec {
+                id: "HD008",
+                name: "set_lowest_clear_bit",
+                category: "Hacker's Delight",
+                input_desc: "x | (x + 1)",
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "MaskAlgebra",
+                    concepts: vec!["SetLowestClearBit"],
+                    representation: "MaskAlgebra",
+                    candidate: "SetLowestClearBit",
+                    proof: "SetLowestClearBit(x) == Or(x, Add(x, 1))",
+                    rewrite: "Or -> Or(x, Intrinsic(blsmsk(Not(x))))",
+                },
+            },
+            func: || {
+                let mut b = Builder::new("set_lowest_clear_bit", &[("x", Type::u64())], Type::u64());
+                let x = b.parameter_index(0).unwrap();
+                let one = b.constant(ConstantData::u64(1), Type::u64(), unknown_span());
+                let x_plus_one = b.add(x, one, unknown_span()).unwrap();
+                let res = b.bit_or(x, x_plus_one, unknown_span()).unwrap();
+                b.return_value(res, unknown_span()).unwrap();
+                b.build()
+            },
+        },
+        BenchmarkDef {
+            spec: BenchmarkSpec {
+                id: "HD012",
+                name: "brian_kernighan_parity",
+                category: "Hacker's Delight",
+                input_desc: "while x != 0 { parity ^= 1; x &= x - 1; } return parity != 0",
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "Collection",
+                    concepts: vec!["BitsetIteration", "Parity"],
+                    representation: "BitSet",
+                    candidate: "Parity",
+                    proof: "Parity(x) == BitwiseAndOne(Popcount(x))",
+                    rewrite: "Loop -> Popcount & 1",
+                },
+            },
+            func: || {
+                let mut b = Builder::new("bk_parity", &[("x", Type::u64())], Type::Bool);
+                let x_init = b.parameter_index(0).unwrap();
+                let zero = b.constant(ConstantData::u64(0), Type::u64(), unknown_span());
+                let one = b.constant(ConstantData::u64(1), Type::u64(), unknown_span());
+                let parity_init = b.constant(ConstantData::u64(0), Type::u64(), unknown_span());
+
+                // x &= x - 1
+                let x_minus_1 = b.sub(x_init, one, unknown_span()).unwrap();
+                let next_x = b.bit_and(x_init, x_minus_1, unknown_span()).unwrap();
+                // parity ^= 1
+                let next_parity = b.bit_xor(parity_init, one, unknown_span()).unwrap();
+                // cond: next_x != 0
+                let cond = b.ne(next_x, zero, unknown_span()).unwrap();
+
+                let loop_node = b.r#loop(
+                    &[next_x, next_parity, cond],
+                    cond,
+                    &[next_x, next_parity],
+                    &[x_init, parity_init],
+                    Type::Tuple { elements: vec![Type::u64(), Type::u64()] },
+                    unknown_span(),
+                ).unwrap();
+
+                let extracted = b.tuple_extract(loop_node, 1, Type::u64(), unknown_span()).unwrap();
+                let parity_bool = b.ne(extracted, zero, unknown_span()).unwrap();
+                b.return_value(parity_bool, unknown_span()).unwrap();
+                b.build()
+            },
+        },
+        BenchmarkDef {
+            spec: BenchmarkSpec {
+                id: "HD002",
+                name: "brian_kernighan_popcount",
+                category: "Hacker's Delight",
+                input_desc: "while x != 0 { count++; x &= x - 1; }",
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "Collection",
+                    concepts: vec!["BitsetIteration", "LoopUntilZero"],
+                    representation: "BitSet",
+                    candidate: "Popcount",
+                    proof: "Valid rewrite",
+                    rewrite: "Loop -> Popcount",
+                },
+            },
+            func: || {
+                let mut b = Builder::new("bk_popcount", &[("x", Type::u64())], Type::u64());
+                let x_init = b.parameter_index(0).unwrap();
+                let zero = b.constant(ConstantData::u64(0), Type::u64(), unknown_span());
+                let one = b.constant(ConstantData::u64(1), Type::u64(), unknown_span());
+                let count_init = b.constant(ConstantData::u64(0), Type::u64(), unknown_span());
+                
+                // x &= x - 1
+                let x_minus_1 = b.sub(x_init, one, unknown_span()).unwrap();
+                let next_x = b.bit_and(x_init, x_minus_1, unknown_span()).unwrap();
+                
+                // count++
+                let next_count = b.add(count_init, one, unknown_span()).unwrap();
+                
+                // cond: next_x != 0
+                let cond = b.ne(next_x, zero, unknown_span()).unwrap();
+                
+                let loop_node = b.r#loop(
+                    &[next_x, next_count, cond],
+                    cond,
+                    &[next_x, next_count],
+                    &[x_init, count_init],
+                    Type::Tuple { elements: vec![Type::u64(), Type::u64()] },
+                    unknown_span()
+                ).unwrap();
+                
+                let extracted_count = b.tuple_extract(loop_node, 1, Type::u64(), unknown_span()).unwrap();
+                b.return_value(extracted_count, unknown_span()).unwrap();
+                b.build()
+            },
+        },
+
+        BenchmarkDef {
+            spec: BenchmarkSpec {
+                id: "HD003",
+                name: "rotate_left",
+                category: "Hacker's Delight",
+                input_desc: "(x << k) | (x >> (64 - k))",
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "BitPermutation",
+                    concepts: vec!["CircularPermutation"],
+                    representation: "BitPermutation",
+                    candidate: "RotateLeft",
+                    proof: "RotateLeft(x, k) == Or(Shl(x, k), Shr(x, Sub(64, k)))",
+                    rewrite: "Or -> Rol",
+                },
+            },
+            func: || {
+                let mut b = Builder::new("rotate_left", &[("x", Type::u64()), ("k", Type::u64())], Type::u64());
+                let x = b.parameter_index(0).unwrap();
+                let k = b.parameter_index(1).unwrap();
+                let sixty_four = b.constant(ConstantData::u64(64), Type::u64(), unknown_span());
+                
+                let shl = b.shl(x, k, unknown_span()).unwrap();
+                let diff = b.sub(sixty_four, k, unknown_span()).unwrap();
+                let shr = b.shr(x, diff, unknown_span()).unwrap();
+                let res = b.bit_or(shl, shr, unknown_span()).unwrap();
+                
+                b.return_value(res, unknown_span()).unwrap();
+                b.build()
+            },
+        },
+        
+        BenchmarkDef {
+            spec: BenchmarkSpec {
+                id: "HD004",
+                name: "byte_swap",
+                category: "Hacker's Delight",
+                input_desc: "((x & 0xFF) << 8) | ((x >> 8) & 0xFF)",
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "BitPermutation",
+                    concepts: vec!["BytePermutation"],
+                    representation: "BitPermutation",
+                    candidate: "ByteSwap",
+                    proof: "ByteSwap(x) == Or(Shl(And(x, 0xFF), 8), And(Shr(x, 8), 0xFF))",
+                    rewrite: "Or -> Intrinsic(bswap) >> 16",
+                },
+            },
+            func: || {
+                let mut b = Builder::new("byte_swap_16", &[("x", Type::u32())], Type::u32());
+                let x = b.parameter_index(0).unwrap();
+                let mask = b.constant(ConstantData::u32(0xFF), Type::u32(), unknown_span());
+                let eight = b.constant(ConstantData::u32(8), Type::u32(), unknown_span());
+                
+                let low = b.bit_and(x, mask, unknown_span()).unwrap();
+                let low_shifted = b.shl(low, eight, unknown_span()).unwrap();
+                
+                let high = b.shr(x, eight, unknown_span()).unwrap();
+                let high_masked = b.bit_and(high, mask, unknown_span()).unwrap();
+                
+                let res = b.bit_or(low_shifted, high_masked, unknown_span()).unwrap();
+                
+                b.return_value(res, unknown_span()).unwrap();
+                b.build()
+            },
+        },
+        
+        BenchmarkDef {
+            spec: BenchmarkSpec {
+                id: "HD005",
+                name: "reverse_bits",
+                category: "Hacker's Delight",
+                input_desc: "swap adjacent bits, then pairs, then nibbles...",
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "BitPermutation",
+                    concepts: vec!["BitPermutation"],
+                    representation: "BitPermutation",
+                    candidate: "ReverseBits",
+                    proof: "BitReverse(x) == S3(S2(S1(x)))",
+                    rewrite: "Or -> Intrinsic(rbit) >> 24",
+                },
+            },
+            func: || {
+                let mut b = Builder::new("reverse_bits_8", &[("x", Type::u32())], Type::u32());
+                let x = b.parameter_index(0).unwrap();
+                
+                // This is a simplified 8-bit version
+                let m1 = b.constant(ConstantData::u32(0x55), Type::u32(), unknown_span());
+                let m2 = b.constant(ConstantData::u32(0x33), Type::u32(), unknown_span());
+                let m3 = b.constant(ConstantData::u32(0x0F), Type::u32(), unknown_span());
+                
+                let one = b.constant(ConstantData::u32(1), Type::u32(), unknown_span());
+                let two = b.constant(ConstantData::u32(2), Type::u32(), unknown_span());
+                let four = b.constant(ConstantData::u32(4), Type::u32(), unknown_span());
+                
+                // Swap adjacent bits
+                let shr1 = b.shr(x, one, unknown_span()).unwrap();
+                let and1_1 = b.bit_and(shr1, m1, unknown_span()).unwrap();
+                let and1_2 = b.bit_and(x, m1, unknown_span()).unwrap();
+                let shl1 = b.shl(and1_2, one, unknown_span()).unwrap();
+                let x1 = b.bit_or(and1_1, shl1, unknown_span()).unwrap();
+                
+                // Swap pairs
+                let shr2 = b.shr(x1, two, unknown_span()).unwrap();
+                let and2_1 = b.bit_and(shr2, m2, unknown_span()).unwrap();
+                let and2_2 = b.bit_and(x1, m2, unknown_span()).unwrap();
+                let shl2 = b.shl(and2_2, two, unknown_span()).unwrap();
+                let x2 = b.bit_or(and2_1, shl2, unknown_span()).unwrap();
+                
+                // Swap nibbles
+                let shr3 = b.shr(x2, four, unknown_span()).unwrap();
+                let and3_1 = b.bit_and(shr3, m3, unknown_span()).unwrap();
+                let and3_2 = b.bit_and(x2, m3, unknown_span()).unwrap();
+                let shl3 = b.shl(and3_2, four, unknown_span()).unwrap();
+                let res = b.bit_or(and3_1, shl3, unknown_span()).unwrap();
+                
+                b.return_value(res, unknown_span()).unwrap();
+                b.build()
+            },
+        },
+        BenchmarkDef {
+            spec: BenchmarkSpec {
+                id: "BP001",
+                name: "rotate_left_naive",
+                category: "Hacker's Delight",
+                input_desc: "(x << n) | (x >> (64 - n))",
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "BitPermutation",
+                    concepts: vec!["CircularPermutation"],
+                    representation: "BitPermutation",
+                    candidate: "RotateLeft",
+                    proof: "RotateLeft(x, n) == Or(Shl(x, n), Shr(x, Sub(64, n)))",
+                    rewrite: "Or -> Rol",
+                },
+            },
+            func: || {
+                let mut b = Builder::new("rotate_naive", &[("x", Type::u64()), ("n", Type::u64())], Type::u64());
+                let x = b.parameter_index(0).unwrap();
+                let n = b.parameter_index(1).unwrap();
+                
+                let sixty_four = b.constant(ConstantData::u64(64), Type::u64(), unknown_span());
+                
+                let left_shift = b.shl(x, n, unknown_span()).unwrap();
+                let diff = b.sub(sixty_four, n, unknown_span()).unwrap();
+                let right_shift = b.shr(x, diff, unknown_span()).unwrap();
+                let or = b.bit_or(left_shift, right_shift, unknown_span()).unwrap();
+                
+                b.return_value(or, unknown_span()).unwrap();
+                b.build()
+            },
+        },
     ]
 }
 
@@ -94,4 +414,89 @@ mod tests {
             run_benchmark((def.func)(), &def.spec);
         }
     }
+    /// Final-gate IR inspection: every permutation benchmark must end with
+    /// the expected instruction-selection path (Rol / bswap+shr /
+    /// rbit+shr) in the optimized IR, and must have actually rewritten
+    /// rather than merely been classified.
+    #[test]
+    fn permutation_benchmarks_emit_expected_instructions() {
+        use sir_nodes::NodeKind;
+        use sir_optimizer::{Optimizer, OptimizerConfig};
+        use sir_rewrite::registry::default_registry;
+
+        let optimizer = Optimizer::new(OptimizerConfig::default(), default_registry());
+        let defs = benchmarks();
+
+        fn node_kinds(func: &sir_nodes::Function) -> Vec<String> {
+            func.arena
+                .iter()
+                .map(|n| match &n.kind {
+                    NodeKind::Rol { .. } => "Rol".to_string(),
+                    NodeKind::Ror { .. } => "Ror".to_string(),
+                    NodeKind::Intrinsic { name, .. } => format!("Intrinsic({})", name),
+                    NodeKind::Shr { .. } => "Shr".to_string(),
+                    NodeKind::Shl { .. } => "Shl".to_string(),
+                    NodeKind::Or { .. } => "Or".to_string(),
+                    NodeKind::And { .. } => "And".to_string(),
+                    NodeKind::Sub { .. } => "Sub".to_string(),
+                    NodeKind::Constant(_) => "Const".to_string(),
+                    NodeKind::Parameter { .. } => "Param".to_string(),
+                    NodeKind::Return { .. } => "Return".to_string(),
+                    other => format!("{:?}", other).split(' ').next().unwrap().to_string(),
+                })
+                .collect()
+        }
+
+        // HD003 (rotate left): a single Rol.
+        let hd003 = defs
+            .iter()
+            .find(|d| d.spec.id == "HD003")
+            .expect("HD003 present");
+        let res = optimizer.optimize(&(hd003.func)());
+        assert!(res.rewrites_applied > 0, "HD003 must rewrite");
+        let kinds = node_kinds(&res.function);
+        assert!(kinds.iter().any(|k| k == "Rol"), "HD003 IR lacks Rol: {:?}", kinds);
+        assert!(!kinds.iter().any(|k| k == "Or"), "HD003 IR kept the shift pair: {:?}", kinds);
+
+        // BP001 (rotate left, parameter named n): also a single Rol.
+        let bp001 = defs
+            .iter()
+            .find(|d| d.spec.id == "BP001")
+            .expect("BP001 present");
+        let res = optimizer.optimize(&(bp001.func)());
+        assert!(res.rewrites_applied > 0, "BP001 must rewrite");
+        let kinds = node_kinds(&res.function);
+        assert!(kinds.iter().any(|k| k == "Rol"), "BP001 IR lacks Rol: {:?}", kinds);
+
+        // HD004 (byte swap): bswap intrinsic + Shr for width alignment.
+        let hd004 = defs
+            .iter()
+            .find(|d| d.spec.id == "HD004")
+            .expect("HD004 present");
+        let res = optimizer.optimize(&(hd004.func)());
+        assert!(res.rewrites_applied > 0, "HD004 must rewrite");
+        let kinds = node_kinds(&res.function);
+        assert!(
+            kinds.iter().any(|k| k == "Intrinsic(bswap)"),
+            "HD004 IR lacks bswap: {:?}",
+            kinds
+        );
+        assert!(kinds.iter().any(|k| k == "Shr"), "HD004 IR lacks Shr: {:?}", kinds);
+
+        // HD005 (reverse bits): rbit intrinsic + Shr for width alignment.
+        let hd005 = defs
+            .iter()
+            .find(|d| d.spec.id == "HD005")
+            .expect("HD005 present");
+        let res = optimizer.optimize(&(hd005.func)());
+        assert!(res.rewrites_applied > 0, "HD005 must rewrite");
+        let kinds = node_kinds(&res.function);
+        assert!(
+            kinds.iter().any(|k| k == "Intrinsic(rbit)"),
+            "HD005 IR lacks rbit: {:?}",
+            kinds
+        );
+        assert!(kinds.iter().any(|k| k == "Shr"), "HD005 IR lacks Shr: {:?}", kinds);
+    }
+
 }

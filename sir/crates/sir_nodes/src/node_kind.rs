@@ -129,6 +129,10 @@ pub enum NodeKind {
     FieldAccess { base: NodeId, field: String },
     /// Access an element of an array or slice by index.
     ArrayAccess { base: NodeId, index: NodeId },
+    /// Extract an element from a tuple by index.
+    TupleExtract { tuple: NodeId, index: usize },
+    /// Construct a tuple value from its elements (tuple-typed result rebuilds).
+    Tuple { elements: Vec<NodeId> },
 
     // ── Calls ───────────────────────────────────────────────
     /// Call a function (local or known).
@@ -202,6 +206,8 @@ impl NodeKind {
             NodeKind::Deallocate { .. } => "Deallocate",
             NodeKind::FieldAccess { .. } => "FieldAccess",
             NodeKind::ArrayAccess { .. } => "ArrayAccess",
+            NodeKind::TupleExtract { .. } => "TupleExtract",
+            NodeKind::Tuple { .. } => "Tuple",
             NodeKind::Call { .. } => "Call",
             NodeKind::Intrinsic { .. } => "Intrinsic",
             NodeKind::ExternalCall { .. } => "ExternalCall",
@@ -256,6 +262,8 @@ impl NodeKind {
             NodeKind::Allocate { count, .. } => vec![*count],
             NodeKind::FieldAccess { base, .. } => vec![*base],
             NodeKind::ArrayAccess { base, index } => vec![*base, *index],
+            NodeKind::TupleExtract { tuple, .. } => vec![*tuple],
+            NodeKind::Tuple { elements } => elements.clone(),
             NodeKind::Call { callee, args } => {
                 let mut v = vec![*callee];
                 v.extend(args);

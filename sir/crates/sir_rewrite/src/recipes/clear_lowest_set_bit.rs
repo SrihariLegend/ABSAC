@@ -30,15 +30,17 @@ impl RewriteRecipe for ClearLowestSetBitRecipe {
 
     fn build_patch(
         &self,
-        _function: &sir_nodes::Function,
+        function: &sir_nodes::Function,
         region: &RewriteRegion,
         mut builder: SubgraphBuilder,
     ) -> Result<ReplacementPatch, RewriteError> {
         let (operand, result_node) = region.mask_operation()?;
         
+        let original_ty = function.get_node(result_node).unwrap().ty.clone();
+        
         use crate::local_id::LocalNodeId;
         let local_operand = LocalNodeId::new(operand.as_u64());
-        let blsr = builder.intrinsic("blsr".to_string(), vec![local_operand], sir_types::Type::u64(), Span::unknown());
+        let blsr = builder.intrinsic("blsr".to_string(), vec![local_operand], original_ty, Span::unknown());
 
         Ok(builder.finish(vec![ReplacementValue {
             old: result_node,

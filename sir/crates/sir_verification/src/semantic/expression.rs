@@ -63,6 +63,9 @@ pub enum SemanticExpression {
     /// Bitwise AND `(x & y)`.
     BitwiseAnd(Box<SemanticExpression>, Box<SemanticExpression>),
 
+    /// Bitwise OR `(x | y)`.
+    BitwiseOr(Box<SemanticExpression>, Box<SemanticExpression>),
+
     /// Integer division `(x / y)`.
     Divide(Box<SemanticExpression>, Box<SemanticExpression>),
 
@@ -78,6 +81,12 @@ pub enum SemanticExpression {
     /// Integer subtraction `(x - y)`.
     Subtract(Box<SemanticExpression>, Box<SemanticExpression>),
 
+    /// Integer addition `(x + y)`.
+    Add(Box<SemanticExpression>, Box<SemanticExpression>),
+
+    /// Bitwise NOT `~x`.
+    BitwiseNot(Box<SemanticExpression>),
+
     // ── Added for Positional Search (Phase 0018) ────────────
     /// Index of the first true element in a boolean array. Returns the length if none found.
     FirstTrue(Box<SemanticExpression>),
@@ -90,6 +99,32 @@ pub enum SemanticExpression {
 
     /// Count of leading zeros in a bitvector (equal to BitScanReverse).
     LeadingZeros(Box<SemanticExpression>),
+
+    // ── Added for Mask Algebra (Phase 0020) ────────────
+    /// Clears the lowest set bit of a bitvector.
+    ClearLowestSetBit(Box<SemanticExpression>),
+
+    /// Isolates the lowest set bit of a bitvector: `x & -x`.
+    LowestSetBit(Box<SemanticExpression>),
+
+    /// Isolates the lowest clear bit of a bitvector: `~x & (x + 1)`.
+    LowestClearBitMask(Box<SemanticExpression>),
+
+    /// Sets the lowest clear bit of a bitvector: `x | (x + 1)`.
+    SetLowestClearBit(Box<SemanticExpression>),
+
+    // ── Added for Bit Permutations (Phase 0021) ────────────
+    /// Left rotation: `(x << k) | (x >> (w - k))`.
+    RotateLeft(Box<SemanticExpression>, Box<SemanticExpression>),
+
+    /// Right rotation: `(x >> k) | (x << (w - k))`.
+    RotateRight(Box<SemanticExpression>, Box<SemanticExpression>),
+
+    /// Byte-order reversal: swapping adjacent 8-bit groups.
+    ByteSwap(Box<SemanticExpression>),
+
+    /// Full bit reversal (reversing individual bit positions).
+    BitReverse(Box<SemanticExpression>),
 }
 
 /// A predicate for filtering collections.
