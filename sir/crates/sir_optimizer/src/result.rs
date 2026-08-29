@@ -62,6 +62,8 @@ pub enum IterationOutcome {
     NoProof,
     /// Candidates were proven but none were selected (all had score <= 0).
     NoSelection,
+    /// Candidates were selected but the rewrite engine rejected every one.
+    RewriteFailed,
     /// No iteration has run yet.
     #[default]
     NotStarted,

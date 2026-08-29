@@ -66,11 +66,17 @@ impl Optimizer {
             let mut any_advanced = false;
 
             for state in std::mem::take(&mut current_beam) {
-                let branches = self.expand_state(&state.function, iteration);
-                
+                let (branches, pass_record) = self.expand_state(&state.function, iteration);
+
                 if branches.is_empty() {
-                    // This state has reached a fixed point
-                    fixed_points.push(state);
+                    // This state has reached a fixed point; record the final
+                    // pipeline pass (even when it did not rewrite) so every
+                    // optimization run yields at least one iteration record.
+                    let mut terminal = state;
+                    if let Some(record) = pass_record {
+                        terminal.iterations_detail.push(record);
+                    }
+                    fixed_points.push(terminal);
                 } else {
                     any_advanced = true;
                     for (next_function, record) in branches {
@@ -130,8 +136,15 @@ impl Optimizer {
         }
     }
 
-    /// Execute one full pipeline pass and return all valid next states (branches).
-    fn expand_state(&self, function: &Function, iteration_number: usize) -> Vec<(Function, IterationRecord)> {
+    /// Execute one full pipeline pass and return all valid next states (branches)
+    /// plus the pass's knowledge record. The record is returned even when no
+    /// rewrite applies (outcome NoCandidate/NoProof/NoSelection/RewriteFailed),
+    /// so every optimization run yields at least one iteration record.
+    fn expand_state(
+        &self,
+        function: &Function,
+        iteration_number: usize,
+    ) -> (Vec<(Function, IterationRecord)>, Option<IterationRecord>) {
         // ── 1. Analysis ───────────────────────────────────────
         let mut analysis = AnalysisManager::new();
         analysis.run_all(function);
@@ -172,8 +185,29 @@ impl Optimizer {
         generator.generate(inference.context_database(), semantics.database());
 
         let candidate_count = generator.database().all_candidates().count();
+
+        // The pass record captures everything this pipeline pass discovered. It
+        // is updated as the pass progresses and returned (alone) when the pass
+        // ends without a rewrite.
+        let mut pass_record = IterationRecord {
+            iteration: iteration_number,
+            facts_discovered,
+            truths_discovered,
+            beliefs_inferred,
+            candidates_generated: candidate_count,
+            proofs_attempted: 0,
+            proofs_succeeded: 0,
+            candidates_selected: 0,
+            rewrites_applied: 0,
+            concepts_discovered: concepts_discovered.clone(),
+            representations_inferred: representations_inferred.clone(),
+            truths: semantics.database().truths().cloned().collect(),
+            candidates: generator.database().all_candidates().cloned().collect(),
+            outcome: IterationOutcome::NoCandidate,
+        };
+
         if candidate_count == 0 {
-            return vec![];
+            return (vec![], Some(pass_record));
         }
 
         // ── 5. Verification ───────────────────────────────────
@@ -181,6 +215,7 @@ impl Optimizer {
         let obligations_db =
             verifier.build_obligations(generator.database(), inference.context_database());
         let proofs_attempted = obligations_db.len();
+        pass_record.proofs_attempted = proofs_attempted;
         let mut proven: Vec<VerifiedCandidate> = Vec::new();
 
         for obligation in obligations_db.all() {
@@ -208,8 +243,10 @@ impl Optimizer {
         }
 
         let proofs_succeeded = proven.len();
+        pass_record.proofs_succeeded = proofs_succeeded;
         if proven.is_empty() {
-            return vec![];
+            pass_record.outcome = IterationOutcome::NoProof;
+            return (vec![], Some(pass_record));
         }
 
         // ── 6. Selection ──────────────────────────────────────
@@ -218,10 +255,12 @@ impl Optimizer {
         let selection = selector.select_all(&proven, cost_db);
 
         if selection.chosen.is_empty() {
-            return vec![];
+            pass_record.outcome = IterationOutcome::NoSelection;
+            return (vec![], Some(pass_record));
         }
 
         let candidates_selected = selection.chosen.len();
+        pass_record.candidates_selected = candidates_selected;
         let mut branches = Vec::new();
         let beam_width = self.config.beam_width.unwrap_or(3);
 
@@ -264,6 +303,10 @@ impl Optimizer {
             branches.push((next_function, record));
         }
 
-        branches
+        if branches.is_empty() {
+            pass_record.outcome = IterationOutcome::RewriteFailed;
+            return (vec![], Some(pass_record));
+        }
+        (branches, None)
     }
 }
