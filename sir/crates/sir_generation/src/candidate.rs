@@ -62,6 +62,8 @@ pub enum ImplementationStrategy {
     LeadingZeroCount,
     /// Clear the lowest set bit.
     ClearLowestBit,
+    /// Isolate the lowest set bit: `x & -x`.
+    IsolateLowestBit,
 }
 
 impl fmt::Display for ImplementationStrategy {
@@ -83,6 +85,7 @@ impl fmt::Display for ImplementationStrategy {
             ImplementationStrategy::TrailingZeroCount => write!(f, "TrailingZeroCount"),
             ImplementationStrategy::LeadingZeroCount => write!(f, "LeadingZeroCount"),
             ImplementationStrategy::ClearLowestBit => write!(f, "ClearLowestBit"),
+            ImplementationStrategy::IsolateLowestBit => write!(f, "IsolateLowestBit"),
         }
     }
 }

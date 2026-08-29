@@ -976,6 +976,35 @@ impl SemanticEngine {
                     }
                 }
             }
+            if region.contains(SemanticConcept::LowestSetBit) {
+                let mut op_info = None;
+                for node in func.arena.iter() {
+                    if let NodeKind::And { .. } = &node.kind {
+                        if region.nodes.contains(&node.id) {
+                            op_info = Some(node.id);
+                            break;
+                        }
+                    }
+                }
+                if let Some(and_node) = op_info {
+                    if let Some(desc) = self.structural_db.region_mut(region_id) {
+                        let mut operand = and_node;
+                        if let NodeKind::And { lhs, rhs } = func.get_node(and_node).unwrap().kind {
+                            // The operand is the side that is not the negation
+                            // (`x & -x` or `-x & x` both isolate x's lowest bit).
+                            let lhs_is_neg = matches!(
+                                func.get_node(lhs).map(|n| &n.kind),
+                                Some(NodeKind::Neg { .. })
+                            );
+                            operand = if lhs_is_neg { rhs } else { lhs };
+                        }
+                        desc.roles.push(RegionRoles::MaskOperation {
+                            operand,
+                            result: and_node,
+                        });
+                    }
+                }
+            }
             if region.contains(SemanticConcept::BitsetIteration) {
                 let mut loop_node = None;
                 let mut set_value = None;

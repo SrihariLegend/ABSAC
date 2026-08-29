@@ -12,3 +12,4 @@ pub mod popcount;
 pub mod shift_mask;
 pub mod trailing_zero_count;
 pub mod clear_lowest_set_bit;
+pub mod isolate_lowest_set_bit;

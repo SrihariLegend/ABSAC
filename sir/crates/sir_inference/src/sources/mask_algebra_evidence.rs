@@ -22,5 +22,16 @@ pub fn contribute(region: &Region) -> Vec<Evidence> {
         });
     }
 
+    if region.contains(SemanticConcept::LowestSetBit) {
+        evidence.push(Evidence {
+            region: region.id,
+            representation: Representation::MaskAlgebra,
+            polarity: Polarity::Supports,
+            weight: weights::ABSOLUTE,
+            source: SemanticConcept::LowestSetBit,
+            explanation: "Isolating the lowest set bit is an operation in mask algebra",
+        });
+    }
+
     evidence
 }

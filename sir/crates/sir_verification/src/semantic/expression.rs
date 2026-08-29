@@ -94,6 +94,9 @@ pub enum SemanticExpression {
     // ── Added for Mask Algebra (Phase 0020) ────────────
     /// Clears the lowest set bit of a bitvector.
     ClearLowestSetBit(Box<SemanticExpression>),
+
+    /// Isolates the lowest set bit of a bitvector: `x & -x`.
+    LowestSetBit(Box<SemanticExpression>),
 }
 
 /// A predicate for filtering collections.

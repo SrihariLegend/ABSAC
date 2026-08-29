@@ -89,11 +89,13 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "isolate_lowest_set_bit",
                 category: "Hacker's Delight",
                 input_desc: "x & -x",
-                expected: ExpectedKnowledge::MissingKnowledge {
-                    concepts: vec!["LowestSetBitMask"],
-                    closure: vec![],
-                    representations: vec!["MaskAlgebra"],
-                    rewrites: vec!["blsi"],
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "MaskAlgebra",
+                    concepts: vec!["LowestSetBit"],
+                    representation: "MaskAlgebra",
+                    candidate: "IsolateLowestBit",
+                    proof: "LowestSetBit(x) == And(x, Neg(x))",
+                    rewrite: "And -> Intrinsic(blsi)",
                 },
             },
             func: || {

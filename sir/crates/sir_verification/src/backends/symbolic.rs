@@ -14,6 +14,7 @@ use crate::semantic::rules::divide_to_shift::DivideToShift;
 use crate::semantic::rules::exists_to_not_equal_zero::ExistsToNotEqualZero;
 use crate::semantic::rules::first_true_to_trailing_zeros::FirstTrueToTrailingZeros;
 use crate::semantic::rules::last_true_to_leading_zeros::LastTrueToLeadingZeros;
+use crate::semantic::rules::lowest_set_bit_to_bitwise_and::LowestSetBitToBitwiseAnd;
 use crate::semantic::rules::modulo_to_and::ModuloToAnd;
 use crate::semantic::rules::multiply_to_shift::MultiplyToShift;
 use crate::semantic::rules::parity_to_bitwise_and_one::ParityToBitwiseAndOne;
@@ -42,6 +43,7 @@ impl SymbolicVerifier {
         normalizer.add_rule(Box::new(FirstTrueToTrailingZeros));
         normalizer.add_rule(Box::new(LastTrueToLeadingZeros));
         normalizer.add_rule(Box::new(ClearLowestSetBitToBitwiseAnd));
+        normalizer.add_rule(Box::new(LowestSetBitToBitwiseAnd));
         Self { normalizer }
     }
 

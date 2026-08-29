@@ -37,5 +37,21 @@ pub fn generate(context: &TransformationContext, concepts: &HashSet<SemanticConc
         candidates.push((strategy, explanation, effects, expected_cost, def_id));
     }
 
+    if concepts.contains(&SemanticConcept::LowestSetBit) {
+        let def_id = DefinitionId::new(301);
+
+        let strategy = ImplementationStrategy::IsolateLowestBit;
+        let explanation = CandidateExplanation {
+            source_concepts: vec![SemanticConcept::LowestSetBit],
+            rationale: "x & -x matches isolate lowest set bit idiom",
+        };
+        let effects = vec![CandidateEffect::InstructionSubstitution];
+
+        let mut expected_cost = CostProfile::default();
+        expected_cost.instruction_count = 1;
+
+        candidates.push((strategy, explanation, effects, expected_cost, def_id));
+    }
+
     candidates
 }

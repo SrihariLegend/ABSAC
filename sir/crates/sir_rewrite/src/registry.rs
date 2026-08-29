@@ -64,5 +64,10 @@ pub fn default_registry() -> RecipeRegistry {
         300,
     ))));
 
+    // ID 301: IsolateLowestSetBit
+    registry.register(Box::new(crate::recipes::isolate_lowest_set_bit::IsolateLowestSetBitRecipe::new(DefinitionId::new(
+        301,
+    ))));
+
     registry
 }
