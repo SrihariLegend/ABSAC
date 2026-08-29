@@ -2,6 +2,12 @@ use sir_nodes::Function;
 use sir_optimizer::{Optimizer, OptimizerConfig};
 use sir_rewrite::registry::default_registry;
 use sir_optimizer::result::TerminationReason;
+use sir_analysis::manager::AnalysisManager;
+use sir_semantics::semantics::SemanticEngine;
+use sir_inference::engine::InferenceEngine;
+use sir_generation::generator::CandidateGenerator;
+use sir_generation::candidate::Candidate;
+use sir_semantics::truth::SemanticTruth;
 
 #[derive(Clone)]
 pub enum ExpectedKnowledge {
@@ -43,6 +49,78 @@ pub struct BenchmarkDef {
     pub func: fn() -> Function,
 }
 
+/// Knowledge gathered from one pipeline pass (analysis → semantics →
+/// inference → generation), independent of whether a rewrite applied.
+struct KnowledgePass {
+    truths: Vec<SemanticTruth>,
+    candidates: Vec<Candidate>,
+    concepts_discovered: Vec<String>,
+    representations_inferred: Vec<String>,
+    facts_discovered: usize,
+    truths_discovered: usize,
+    beliefs_inferred: usize,
+    candidates_generated: usize,
+}
+
+/// Run the knowledge pipeline directly, without requiring a rewrite.
+///
+/// Provenance-graph benchmarks validate the knowledge model (truths and
+/// candidates) rather than rewrite execution, so they consume this pass
+/// instead of the optimizer's (rewrite-only) iteration records.
+fn knowledge_pass(func: &Function) -> KnowledgePass {
+    let mut analysis = AnalysisManager::new();
+    analysis.run_all(func);
+    let facts_discovered = analysis.database().total_facts();
+
+    let mut semantics = SemanticEngine::new();
+    semantics.derive(func, analysis.database());
+
+    let mut concepts_discovered = Vec::new();
+    for (_, region) in semantics.database().regions() {
+        for concept in region.concepts() {
+            concepts_discovered.push(format!("{:?}", concept));
+        }
+    }
+    for truth in semantics.database().truths() {
+        concepts_discovered.push(format!("{:?}", truth.concept));
+    }
+    let truths_discovered = semantics.database().region_count() + semantics.database().truths().count();
+    let truths: Vec<SemanticTruth> = semantics.database().truths().cloned().collect();
+
+    let mut inference = InferenceEngine::new();
+    inference.infer(semantics.database(), semantics.structural_database());
+
+    let mut representations_inferred = Vec::new();
+    let mut beliefs_inferred = 0;
+    for (_, ctxs) in inference.context_database().contexts() {
+        beliefs_inferred += ctxs.len();
+        for ctx in ctxs {
+            representations_inferred.push(format!("{:?}", ctx.representation));
+        }
+    }
+
+    let mut generator = CandidateGenerator::new();
+    generator.generate(inference.context_database(), semantics.database());
+    let candidates: Vec<Candidate> = generator.database().all_candidates().cloned().collect();
+    let candidates_generated = candidates.len();
+
+    KnowledgePass {
+        truths,
+        candidates,
+        concepts_discovered,
+        representations_inferred,
+        facts_discovered,
+        truths_discovered,
+        beliefs_inferred,
+        candidates_generated,
+    }
+}
+
+fn check(label: &str, actual: bool) {
+    let symbol = if actual { "✓" } else { "✗" };
+    println!("  {} {}", symbol, label);
+}
+
 pub fn run_benchmark(func: Function, spec: &BenchmarkSpec) {
     println!("\nBenchmark {} - {}", spec.id, spec.name);
     println!("Category:\n  {}", spec.category);
@@ -77,6 +155,35 @@ pub fn run_benchmark(func: Function, spec: &BenchmarkSpec) {
             println!("  Expected: ProvenanceGraph test");
             println!("  Expected Truths: {:?}\n", expected_truths);
         }
+    }
+
+    // Provenance-graph benchmarks validate the knowledge model — the truths
+    // and candidates produced by the pipeline — not rewrite execution. The
+    // optimizer only records iterations when a rewrite applies, so run the
+    // knowledge pipeline directly for this benchmark kind.
+    if let ExpectedKnowledge::ProvenanceGraph { validation, .. } = &spec.expected {
+        let knowledge = knowledge_pass(&func);
+
+        println!("Discovered Concepts:");
+        for c in &knowledge.concepts_discovered {
+            println!("  - {}", c);
+        }
+        println!("Inferred Representations:");
+        for r in &knowledge.representations_inferred {
+            println!("  - {}", r);
+        }
+        println!();
+        println!("Execution:");
+        check("Facts", knowledge.facts_discovered > 0);
+        check("Semantic concepts", knowledge.truths_discovered > 0);
+        check("Representation", knowledge.beliefs_inferred > 0);
+        check("Candidate generation", knowledge.candidates_generated > 0);
+        println!();
+
+        println!("Result: VALIDATING PROVENANCE GRAPH...");
+        validation(&knowledge.truths, &knowledge.candidates);
+        println!("Result: PROVENANCE GRAPH VALID (Matches Specification)");
+        return;
     }
 
     let config = OptimizerConfig::default();
@@ -115,10 +222,6 @@ pub fn run_benchmark(func: Function, spec: &BenchmarkSpec) {
     println!();
 
     println!("Execution:");
-    fn check(label: &str, actual: bool) {
-        let symbol = if actual { "✓" } else { "✗" };
-        println!("  {} {}", symbol, label);
-    }
 
     check("Facts", has_facts);
     check("Semantic concepts", has_semantics);
@@ -164,10 +267,9 @@ pub fn run_benchmark(func: Function, spec: &BenchmarkSpec) {
             assert!(!has_rewrite, "Should not have rewritten a non-optimizable benchmark");
             println!("Result: DECLINED OPTIMIZATION (Matches Specification)");
         },
-        ExpectedKnowledge::ProvenanceGraph { validation, .. } => {
-            println!("Result: VALIDATING PROVENANCE GRAPH...");
-            validation(&record.truths, &record.candidates);
-            println!("Result: PROVENANCE GRAPH VALID (Matches Specification)");
+        ExpectedKnowledge::ProvenanceGraph { .. } => {
+            // Handled above via the direct knowledge pass.
+            unreachable!("ProvenanceGraph handled before the optimizer path");
         }
     }
 }
