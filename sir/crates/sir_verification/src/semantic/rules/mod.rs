@@ -11,3 +11,5 @@ pub mod last_true_to_leading_zeros;
 pub mod modulo_to_and;
 pub mod multiply_to_shift;
 pub mod parity_to_bitwise_and_one;
+pub mod rotate_left_to_shift_pair;
+pub mod rotate_right_to_shift_pair;

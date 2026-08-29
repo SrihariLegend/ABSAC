@@ -8,6 +8,7 @@ use crate::recipes::leading_zero_count::LeadingZeroCountRecipe;
 use crate::recipes::modulo_and::BitwiseAndModuloRecipe;
 use crate::recipes::multiply_shift::MultiplyShiftRecipe;
 use crate::recipes::parity::ParityRecipe;
+use crate::recipes::rotate::RotateRecipe;
 use crate::recipes::popcount::PopcountRecipe;
 use crate::recipes::shift_mask::ShiftMaskRecipe;
 use crate::recipes::trailing_zero_count::TrailingZeroCountRecipe;
@@ -77,6 +78,16 @@ pub fn default_registry() -> RecipeRegistry {
     // ID 303: SetLowestClearBit
     registry.register(Box::new(crate::recipes::set_lowest_clear_bit::SetLowestClearBitRecipe::new(DefinitionId::new(
         303,
+    ))));
+
+    // ID 310: RotateLeft
+    registry.register(Box::new(RotateRecipe::new_left(DefinitionId::new(
+        310,
+    ))));
+
+    // ID 311: RotateRight
+    registry.register(Box::new(RotateRecipe::new_right(DefinitionId::new(
+        311,
     ))));
 
     registry

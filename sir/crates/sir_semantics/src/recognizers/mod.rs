@@ -19,3 +19,4 @@ pub mod predicate_collection;
 pub mod predicate_map;
 pub mod set_algebra;
 pub mod shift_mask;
+pub mod permutation;

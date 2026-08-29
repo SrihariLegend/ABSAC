@@ -112,6 +112,13 @@ pub enum SemanticExpression {
 
     /// Sets the lowest clear bit of a bitvector: `x | (x + 1)`.
     SetLowestClearBit(Box<SemanticExpression>),
+
+    // ── Added for Bit Permutations (Phase 0021) ────────────
+    /// Left rotation: `(x << k) | (x >> (w - k))`.
+    RotateLeft(Box<SemanticExpression>, Box<SemanticExpression>),
+
+    /// Right rotation: `(x >> k) | (x << (w - k))`.
+    RotateRight(Box<SemanticExpression>, Box<SemanticExpression>),
 }
 
 /// A predicate for filtering collections.

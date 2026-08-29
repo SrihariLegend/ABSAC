@@ -80,7 +80,7 @@ pub enum RegionRoles {
 
 
 /// Direction of a circular (rotate) permutation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ShiftDirection {
     /// `(x << k) | (x >> (w - k))` — rotate left.
     Left,

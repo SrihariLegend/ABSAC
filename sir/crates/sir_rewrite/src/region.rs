@@ -77,6 +77,14 @@ impl RewriteRegion {
                 return Ok(*result);
             }
         }
+        // Wholesale permutations win over constituent shift/mask roles: the
+        // recipe replaces the entire permutation result, never one of its
+        // subexpressions (HD012 lesson).
+        for role in &self.structural.roles {
+            if let RegionRoles::BitPermutation { result, .. } = role {
+                return Ok(*result);
+            }
+        }
         for role in &self.structural.roles {
             match role {
                 RegionRoles::BooleanCollectionReduction { result, .. } => return Ok(*result),
@@ -84,7 +92,7 @@ impl RewriteRegion {
                 RegionRoles::ArithmeticOperation { result, .. } => return Ok(*result),
                 RegionRoles::PositionSearch { result, .. } => return Ok(*result),
                 RegionRoles::MaskOperation { result, .. } => return Ok(*result),
-                _ => {} // SetIteration handled above; other roles carry no result.
+                _ => {} // SetIteration/BitPermutation handled above; other roles carry no result.
             }
         }
         Err(RewriteError::MissingRole {
@@ -154,6 +162,21 @@ impl RewriteRegion {
         }
         Err(RewriteError::MissingRole {
             role: "accumulator".to_string(),
+        })
+    }
+
+    /// The permutation's operand (the value being permuted) and its kind.
+    pub fn permutation(&self) -> Result<(NodeId, sir_transform::roles::PermutationKind), RewriteError> {
+        for role in &self.structural.roles {
+            match role {
+                RegionRoles::BitPermutation { operand, kind, .. } => {
+                    return Ok((*operand, kind.clone()))
+                }
+                _ => {}
+            }
+        }
+        Err(RewriteError::MissingRole {
+            role: "BitPermutation".to_string(),
         })
     }
 }

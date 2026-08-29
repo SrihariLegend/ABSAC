@@ -2,6 +2,7 @@ pub mod arithmetic;
 pub mod bitscan;
 mod bitset;
 pub mod mask_algebra;
+pub mod permutation;
 
 use crate::candidate::Candidate;
 use sir_semantics::concepts::SemanticConcept;
@@ -22,6 +23,24 @@ pub fn all_plans<'a>(
     candidates.extend(bitscan::all_bitscan_plans(context, concepts));
 
     for (strategy, explanation, effects, expected_cost, definition_id) in mask_algebra::generate(context, concepts) {
+        let cand = Candidate {
+            id: crate::candidate::CandidateId(0), // Will be assigned by CandidateDatabase
+            region: context.region,
+            context_id: context.context_id,
+            definition_id,
+            strategy,
+            explanation,
+            effects,
+            expected_cost,
+            representation: context.representation,
+            source_structure: context.source_structure.clone(),
+            constraints: context.constraints.clone(),
+            assumptions: context.assumptions.clone(),
+        };
+        candidates.push(cand);
+    }
+
+    for (strategy, explanation, effects, expected_cost, definition_id) in permutation::generate(context, concepts) {
         let cand = Candidate {
             id: crate::candidate::CandidateId(0), // Will be assigned by CandidateDatabase
             region: context.region,

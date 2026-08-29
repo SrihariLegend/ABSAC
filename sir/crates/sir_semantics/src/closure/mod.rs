@@ -3,6 +3,7 @@ pub mod predicate_map_to_seq;
 pub mod bitset_iteration;
 pub mod bitset_iteration_parity;
 pub mod combine_permutations;
+pub mod shift_pair_to_circular;
 
 use crate::semantics::SemanticDatabase;
 use crate::truth::SemanticTruth;

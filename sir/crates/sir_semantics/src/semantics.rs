@@ -200,7 +200,7 @@ impl SemanticDatabase {
     }
 }
 
-use crate::closure::{bitset_iteration::ClearLowestToBitsetIteration, bitset_iteration_parity::BitsetIterationParity, combine_permutations::CombinePermutations, rules::ClearLowestIsZeroToAtMostOneBit, predicate_map_to_seq::PredicateMapToLogicalSequence, ClosureEngine};
+use crate::closure::{bitset_iteration::ClearLowestToBitsetIteration, bitset_iteration_parity::BitsetIterationParity, combine_permutations::CombinePermutations, rules::ClearLowestIsZeroToAtMostOneBit, predicate_map_to_seq::PredicateMapToLogicalSequence, shift_pair_to_circular::ShiftPairToCircularPermutation, ClosureEngine};
 
 /// The semantic derivation engine.
 ///
@@ -222,6 +222,7 @@ impl SemanticEngine {
         closure_engine.add_rule(Box::new(ClearLowestToBitsetIteration));
         closure_engine.add_rule(Box::new(BitsetIterationParity));
         closure_engine.add_rule(Box::new(CombinePermutations));
+        closure_engine.add_rule(Box::new(ShiftPairToCircularPermutation));
         
         Self {
             db: SemanticDatabase::new(),
@@ -551,6 +552,31 @@ impl SemanticEngine {
             self.db.add_region(region);
         }
 
+        // Bit permutations: recognize the rotate idioms `(x << k) | (x >> (w - k))`
+        // and the mirror image. The recognizer carries the ShiftPair parameter
+        // (width + direction) so closure and role derivation never re-discover it.
+        let perm_recs = crate::recognizers::permutation::recognize_shift_pairs(func, analysis);
+        for (_concept, explanation, node_ids, inputs, outputs, parameter) in perm_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation.clone());
+            self.db.add_region(region);
+
+            let truth = SemanticTruth {
+                parameters: vec![parameter],
+                id: crate::truth::TruthId::new(0),
+                concept: explanation.concept,
+                inputs,
+                outputs,
+                origin: rid,
+                provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+            };
+            self.db.add_truth(truth);
+        }
+
         let pred_recs = predicate_collection::recognize_predicate_collection(func, analysis);
         for (_concept, explanation, node_ids) in pred_recs {
             let rid = self.db.next_region_id();
@@ -613,6 +639,47 @@ impl SemanticEngine {
                     self.structural_db.add_description(desc);
                 }
             }
+
+        // Bit permutations: give every rotate/swap/reversal region the
+        // BitPermutation structure. The rotation direction rides along as a
+        // constraint so the generator can select the correct recipe without
+        // consulting the physical graph.
+        for (rid, region) in self.db.regions() {
+            if region.contains(SemanticConcept::ShiftPairLeft)
+                || region.contains(SemanticConcept::ShiftPairRight)
+                || region.contains(SemanticConcept::CircularPermutation)
+                || region.contains(SemanticConcept::BytePermutation)
+                || region.contains(SemanticConcept::BitPermutation)
+            {
+                use sir_transform::structures::SourceStructure;
+                if self.structural_db.region(rid).is_none() {
+                    let mut desc = crate::structure::StructuralDescription::new(
+                        rid,
+                        SourceStructure::BitPermutation { width: 64 },
+                    );
+                    if let Some(dir) = self.db.truths().find_map(|t| {
+                        if (t.concept == SemanticConcept::ShiftPairLeft
+                            || t.concept == SemanticConcept::ShiftPairRight)
+                            && t.origin == rid
+                        {
+                            t.parameters.iter().find_map(|p| match p {
+                                crate::truth::TruthParameter::ShiftPair { direction, .. } => {
+                                    Some(*direction)
+                                }
+                                _ => None,
+                            })
+                        } else {
+                            None
+                        }
+                    }) {
+                        desc = desc.with_constraint(
+                            sir_transform::constraints::Constraint::RotationDirection(dir),
+                        );
+                    }
+                    self.structural_db.add_description(desc);
+                }
+            }
+        }
         }
 
         let bool_array_recs = boolean_array::recognize_boolean_array(func, analysis);
@@ -1191,6 +1258,91 @@ impl SemanticEngine {
                     }
                 }
             }
+            if region.contains(SemanticConcept::CircularPermutation)
+                || region.contains(SemanticConcept::BytePermutation)
+                || region.contains(SemanticConcept::BitPermutation)
+            {
+                // The wholesale permutation: the operand is the value being
+                // permuted and the result is the top Or node. The derived
+                // truth (from closure) pins both — never one of the
+                // constituent shift/mask subexpressions.
+                let mut operand = None;
+                let mut result = None;
+                let mut direction = None;
+                let mut perm_width = None;
+                for t in self.db.truths() {
+                    if (t.concept == SemanticConcept::CircularPermutation
+                        || t.concept == SemanticConcept::BytePermutation
+                        || t.concept == SemanticConcept::BitPermutation)
+                        && t.origin == region_id
+                    {
+                        operand = t.inputs.first().map(|v| NodeId::new(v.0));
+                        result = t.outputs.first().map(|v| NodeId::new(v.0));
+                        for p in &t.parameters {
+                            match p {
+                                crate::truth::TruthParameter::ShiftPair { direction: d, .. } => {
+                                    direction = Some(*d);
+                                }
+                                crate::truth::TruthParameter::BitPermutation { width, .. } => {
+                                    perm_width = Some(*width);
+                                }
+                                _ => {}
+                            }
+                        }
+                        break;
+                    }
+                }
+                if let (Some(operand), Some(result)) = (operand, result) {
+                    if let Some(desc) = self.structural_db.region_mut(region_id) {
+                        let kind = if let Some(direction) = direction {
+                            // Circular rotation: the amount is the shift node
+                            // whose rhs is NOT the width subtraction.
+                            let mut amount = result;
+                            for node in func.arena.iter() {
+                                if !region.nodes.contains(&node.id) {
+                                    continue;
+                                }
+                                match &node.kind {
+                                    NodeKind::Shl { rhs, .. } | NodeKind::Shr { rhs, .. } => {
+                                        if let Some(rhs_node) = func.get_node(*rhs) {
+                                            if !matches!(rhs_node.kind, NodeKind::Sub { .. }) {
+                                                amount = *rhs;
+                                            }
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            sir_transform::roles::PermutationKind::Circular { direction, amount }
+                        } else if region.contains(SemanticConcept::BytePermutation) {
+                            let type_width = func
+                                .get_node(operand)
+                                .map(|n| type_bits(&n.ty))
+                                .flatten()
+                                .unwrap_or(32) as u32;
+                            sir_transform::roles::PermutationKind::ByteSwap {
+                                perm_width: perm_width.unwrap_or(16),
+                                type_width,
+                            }
+                        } else {
+                            let type_width = func
+                                .get_node(operand)
+                                .map(|n| type_bits(&n.ty))
+                                .flatten()
+                                .unwrap_or(32) as u32;
+                            sir_transform::roles::PermutationKind::BitReverse {
+                                perm_width: perm_width.unwrap_or(8),
+                                type_width,
+                            }
+                        };
+                        desc.roles.push(RegionRoles::BitPermutation {
+                            operand,
+                            result,
+                            kind,
+                        });
+                    }
+                }
+            }
         }
     }
 }
@@ -1198,5 +1350,15 @@ impl SemanticEngine {
 impl Default for SemanticEngine {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+
+/// Bit width of an integer or bitvector type.
+fn type_bits(ty: &sir_types::Type) -> Option<usize> {
+    match ty {
+        sir_types::Type::Integer { width, .. } => Some(width.bits()),
+        sir_types::Type::BitVector { width } => Some(*width),
+        _ => None,
     }
 }

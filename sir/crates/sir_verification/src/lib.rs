@@ -33,6 +33,8 @@ use crate::definitions::leading_zero_count::LeadingZeroCountDefinition;
 use crate::definitions::multiply_shift::MultiplyShiftDefinition;
 use crate::definitions::parity::ParityDefinition;
 use crate::definitions::popcount::PopcountDefinition;
+use crate::definitions::rotate_left::RotateLeftDefinition;
+use crate::definitions::rotate_right::RotateRightDefinition;
 use crate::definitions::shift_mask::ShiftMaskDefinition;
 use crate::definitions::trailing_zero_count::TrailingZeroCountDefinition;
 use crate::obligation::{ProofObligation, ProofObligationDatabase};
@@ -181,6 +183,12 @@ impl Verifier {
         )));
         registry.register(Box::new(definitions::set_lowest_clear_bit::SetLowestClearBitDefinition::new(
             sir_transform::ids::DefinitionId::new(303),
+        )));
+        registry.register(Box::new(RotateLeftDefinition::new(
+            sir_transform::ids::DefinitionId::new(310),
+        )));
+        registry.register(Box::new(RotateRightDefinition::new(
+            sir_transform::ids::DefinitionId::new(311),
         )));
 
         Self {

@@ -68,6 +68,10 @@ pub enum ImplementationStrategy {
     IsolateLowestClearBit,
     /// Set the lowest clear bit: `x | (x + 1)`.
     SetLowestClearBit,
+    /// Hardware rotate left: `rol(x, k)`.
+    RotateLeft,
+    /// Hardware rotate right: `ror(x, k)`.
+    RotateRight,
 }
 
 impl fmt::Display for ImplementationStrategy {
@@ -92,6 +96,8 @@ impl fmt::Display for ImplementationStrategy {
             ImplementationStrategy::IsolateLowestBit => write!(f, "IsolateLowestBit"),
             ImplementationStrategy::IsolateLowestClearBit => write!(f, "IsolateLowestClearBit"),
             ImplementationStrategy::SetLowestClearBit => write!(f, "SetLowestClearBit"),
+            ImplementationStrategy::RotateLeft => write!(f, "RotateLeft"),
+            ImplementationStrategy::RotateRight => write!(f, "RotateRight"),
         }
     }
 }

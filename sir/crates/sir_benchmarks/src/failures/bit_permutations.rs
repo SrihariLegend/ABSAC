@@ -14,11 +14,13 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "rotate_left",
                 category: "Bit permutations",
                 input_desc: "(x << n) | (x >> (64 - n))",
-                expected: ExpectedKnowledge::MissingKnowledge {
-                    concepts: vec!["Rotate"],
-                    closure: vec![],
-                    representations: vec!["BitPermutations"],
-                    rewrites: vec!["rol/ror"],
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "BitPermutation",
+                    concepts: vec!["CircularPermutation"],
+                    representation: "BitPermutation",
+                    candidate: "RotateLeft",
+                    proof: "RotateLeft(x, n) == Or(Shl(x, n), Shr(x, Sub(64, n)))",
+                    rewrite: "Or -> Rol",
                 },
             },
             func: || {
@@ -47,7 +49,7 @@ mod tests {
     #[test]
     fn test_bp001() {
         for def in benchmarks() {
-            ((def.func)(), &def.spec);
+            crate::framework::run_benchmark((def.func)(), &def.spec);
         }
     }
 }

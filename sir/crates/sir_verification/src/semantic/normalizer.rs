@@ -239,6 +239,14 @@ impl Normalizer {
                 let normalized = self.normalize_recursive(inner, steps, depth + 1);
                 SemanticExpression::LowestSetBit(Box::new(normalized))
             }
+            SemanticExpression::RotateLeft(lhs, rhs) => SemanticExpression::RotateLeft(
+                Box::new(self.normalize_recursive(lhs, steps, depth + 1)),
+                Box::new(self.normalize_recursive(rhs, steps, depth + 1)),
+            ),
+            SemanticExpression::RotateRight(lhs, rhs) => SemanticExpression::RotateRight(
+                Box::new(self.normalize_recursive(lhs, steps, depth + 1)),
+                Box::new(self.normalize_recursive(rhs, steps, depth + 1)),
+            ),
         }
     }
 }

@@ -257,11 +257,13 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "rotate_left",
                 category: "Hacker's Delight",
                 input_desc: "(x << k) | (x >> (64 - k))",
-                expected: ExpectedKnowledge::MissingKnowledge {
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "BitPermutation",
                     concepts: vec!["CircularPermutation"],
-                    closure: vec!["Shift pair -> CircularPermutation"],
-                    representations: vec!["BitPermutation"],
-                    rewrites: vec!["rol", "ror"],
+                    representation: "BitPermutation",
+                    candidate: "RotateLeft",
+                    proof: "RotateLeft(x, k) == Or(Shl(x, k), Shr(x, Sub(64, k)))",
+                    rewrite: "Or -> Rol",
                 },
             },
             func: || {

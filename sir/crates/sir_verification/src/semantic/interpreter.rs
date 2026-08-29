@@ -442,6 +442,60 @@ impl Interpreter {
                     }),
                 }
             }
+            SemanticExpression::RotateLeft(x, k) => {
+                let xv = self.evaluate(x, env)?;
+                let kv = self.evaluate(k, env)?;
+                let xv = match xv {
+                    Value::Integer(i) => i,
+                    Value::BitVector(bv) => bv.bits as u64,
+                    other => {
+                        return Err(InterpreterError::TypeMismatch {
+                            expected: "Integer or BitVector",
+                            found: other,
+                        })
+                    }
+                };
+                let kv = match kv {
+                    Value::Integer(i) => i,
+                    Value::BitVector(bv) => bv.bits as u64,
+                    other => {
+                        return Err(InterpreterError::TypeMismatch {
+                            expected: "Integer or BitVector",
+                            found: other,
+                        })
+                    }
+                };
+                let width = 64u64;
+                let kk = kv % width;
+                Ok(Value::Integer(((xv << kk) | (xv >> (width - kk))) & (u64::MAX >> (64 - width))))
+            }
+            SemanticExpression::RotateRight(x, k) => {
+                let xv = self.evaluate(x, env)?;
+                let kv = self.evaluate(k, env)?;
+                let xv = match xv {
+                    Value::Integer(i) => i,
+                    Value::BitVector(bv) => bv.bits as u64,
+                    other => {
+                        return Err(InterpreterError::TypeMismatch {
+                            expected: "Integer or BitVector",
+                            found: other,
+                        })
+                    }
+                };
+                let kv = match kv {
+                    Value::Integer(i) => i,
+                    Value::BitVector(bv) => bv.bits as u64,
+                    other => {
+                        return Err(InterpreterError::TypeMismatch {
+                            expected: "Integer or BitVector",
+                            found: other,
+                        })
+                    }
+                };
+                let width = 64u64;
+                let kk = kv % width;
+                Ok(Value::Integer(((xv >> kk) | (xv << (width - kk))) & (u64::MAX >> (64 - width))))
+            }
         }
     }
 
