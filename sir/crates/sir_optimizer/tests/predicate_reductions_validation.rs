@@ -13,7 +13,9 @@ fn build_predicate_reduction() -> sir_nodes::Function {
                 length: 64,
             },
         )],
-        Type::i32(),
+        Type::Tuple {
+            elements: vec![Type::i32(), Type::u64()],
+        },
     );
 
     let array = b.parameter_index(0).unwrap();
