@@ -16,8 +16,10 @@ fn main() {
     let total = benchmarks.len();
     
     let mut optimized = 0;
+    let mut optimize_failed = 0;
     let mut expected_failures = 0;
     let mut correctly_declined = 0;
+    let mut failed_names: Vec<&str> = Vec::new();
     
     let mut total_initial_nodes = 0;
     let mut total_final_nodes = 0;
@@ -37,10 +39,17 @@ fn main() {
 
         match def.spec.expected {
             ExpectedKnowledge::Optimizes { .. } => {
-                optimized += 1;
-                total_initial_nodes += result.initial_nodes;
-                total_final_nodes += result.final_nodes;
-                total_truths += result.max_truths;
+                if result.rewrites_applied > 0 {
+                    optimized += 1;
+                    total_initial_nodes += result.initial_nodes;
+                    total_final_nodes += result.final_nodes;
+                    total_truths += result.max_truths;
+                } else {
+                    // Expected to optimize but the pipeline did not rewrite:
+                    // count it as a failure rather than a success.
+                    optimize_failed += 1;
+                    failed_names.push(def.spec.name);
+                }
             },
             ExpectedKnowledge::MissingKnowledge { .. } => expected_failures += 1,
             ExpectedKnowledge::NonOptimizable { .. } => correctly_declined += 1,
@@ -51,8 +60,15 @@ fn main() {
     println!("\nBenchmarks:             {}", total);
     println!();
     println!("Optimized:              {}", optimized);
+    println!("Optimize failures:       {}", optimize_failed);
     println!("Expected failures:       {}", expected_failures);
     println!("Correctly declined:      {}", correctly_declined);
+    if !failed_names.is_empty() {
+        println!("\nExpected to optimize but failed:");
+        for name in &failed_names {
+            println!("  - {}", name);
+        }
+    }
     
     println!("\nSemantic Compression\n");
     println!("  Total Initial IR nodes:   {}", total_initial_nodes);
