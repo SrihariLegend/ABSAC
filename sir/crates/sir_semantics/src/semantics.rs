@@ -173,6 +173,17 @@ impl SemanticDatabase {
             }
         }
 
+        // Remap truth origins: truths produced for regions that were merged
+        // away must point at the surviving (target) region. Otherwise
+        // downstream consumers — closure-rule origin propagation, inference
+        // evidence, and structural-description attachment — see stale region
+        // ids for regions that no longer exist.
+        for truth in &mut self.truths {
+            if let Some(&target) = resolved_map.get(&truth.origin) {
+                truth.origin = target;
+            }
+        }
+
         // Update next_region_id to avoid reusing IDs
         let max_id = self
             .regions
