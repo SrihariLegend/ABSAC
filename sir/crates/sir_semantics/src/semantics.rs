@@ -558,30 +558,9 @@ impl SemanticEngine {
         self.db.merge_overlapping_regions(func);
 
         let mut has_logical_sequence = false;
-        let mut has_dynamic_boolean_sequence = false;
         for truth in self.db.truths() {
             if truth.concept == SemanticConcept::LogicalSequence {
                 has_logical_sequence = true;
-            }
-        }
-        
-        if has_logical_sequence {
-            let mut region_id = RegionId::new(0);
-            for truth in self.db.truths() {
-                if truth.concept == SemanticConcept::LogicalSequence {
-                    region_id = truth.origin;
-                    break;
-                }
-            }
-            if self.structural_db.region(region_id).is_none() {
-                let desc = crate::structure::StructuralDescription::new(
-                    region_id,
-                    sir_transform::structures::SourceStructure::DynamicBooleanSequence {
-                        length: 64, // v0.1 hardcoded assumption for now
-                    },
-                )
-                .with_constraint(sir_transform::constraints::Constraint::FixedLength(64));
-                self.structural_db.add_description(desc);
             }
         }
         self.db.merge_overlapping_regions(func);
@@ -597,11 +576,16 @@ impl SemanticEngine {
         for (rid, region) in self.db.regions() {
             if region.contains(SemanticConcept::ClearLowestSetBit) || region.contains(SemanticConcept::LowestSetBit) {
                 use sir_transform::structures::SourceStructure;
-                let desc = crate::structure::StructuralDescription::new(
-                    rid,
-                    SourceStructure::MaskAlgebraExpression,
-                );
-                self.structural_db.add_description(desc);
+                // First description wins: a region overlapping another domain
+                // (e.g. a count loop over a logical sequence) may already have
+                // been described by an earlier block.
+                if self.structural_db.region(rid).is_none() {
+                    let desc = crate::structure::StructuralDescription::new(
+                        rid,
+                        SourceStructure::MaskAlgebraExpression,
+                    );
+                    self.structural_db.add_description(desc);
+                }
             }
         }
 
@@ -720,6 +704,30 @@ impl SemanticEngine {
                         self.structural_db.add_description(new_desc);
                     }
                 }
+            }
+        }
+
+        // Fallback: a LogicalSequence that no structural recognizer described
+        // (e.g. a predicate sequence over a non-boolean array) still gets a
+        // dynamic-boolean-sequence structure. Runs after the recognizers so
+        // accurate descriptions (with the true length) take precedence.
+        if has_logical_sequence {
+            let mut region_id = RegionId::new(0);
+            for truth in self.db.truths() {
+                if truth.concept == SemanticConcept::LogicalSequence {
+                    region_id = truth.origin;
+                    break;
+                }
+            }
+            if self.structural_db.region(region_id).is_none() {
+                let desc = crate::structure::StructuralDescription::new(
+                    region_id,
+                    sir_transform::structures::SourceStructure::DynamicBooleanSequence {
+                        length: 64, // v0.1 hardcoded assumption for now
+                    },
+                )
+                .with_constraint(sir_transform::constraints::Constraint::FixedLength(64));
+                self.structural_db.add_description(desc);
             }
         }
 
