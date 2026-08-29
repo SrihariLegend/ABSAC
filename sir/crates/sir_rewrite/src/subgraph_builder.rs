@@ -187,6 +187,23 @@ impl<'a> SubgraphBuilder<'a> {
         )
     }
 
+    /// TrailingZeros with an explicit result type (e.g. the loop index type
+    /// when the bitscan result replaces a tuple element).
+    pub fn trailing_zeros_typed(
+        &mut self,
+        operand: LocalNodeId,
+        ty: Type,
+        span: Span,
+    ) -> LocalNodeId {
+        self.alloc_node(
+            NodeKind::TrailingZeros {
+                operand: NodeId::new(operand.as_u64()),
+            },
+            ty,
+            span,
+        )
+    }
+
     pub fn shr(&mut self, lhs: LocalNodeId, rhs: LocalNodeId, span: Span) -> LocalNodeId {
         let ty = self.get_type(lhs).unwrap_or(Type::i32());
         self.alloc_node(

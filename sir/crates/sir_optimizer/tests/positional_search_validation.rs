@@ -250,3 +250,72 @@ fn ps004_leading_zero_count_optimizer() {
     let result = optimizer.optimize(&func);
     assert_eq!(result.rewrites_applied, 1);
 }
+
+/// The PS001 `first_set_bit` termination-condition form (as built by the
+/// `sir_benchmarks` PS001 spec):
+///
+/// ```text
+/// is_true = arr[i]
+/// not_found = !is_true
+/// next_i = i + 1
+/// cond = !is_true && (next_i < 64)
+/// loop output = next_i
+/// ```
+pub fn build_ps001_termination_form() -> sir_nodes::Function {
+    let mut b = Builder::new(
+        "first_set_bit",
+        &[("board", bool_array(64))],
+        Type::Tuple {
+            elements: vec![u64_type()],
+        },
+    );
+    let board = b.parameter_index(0).unwrap();
+    let one = b.constant(ConstantData::u64(1), u64_type(), unknown());
+    let sixty_four = b.constant(ConstantData::u64(64), u64_type(), unknown());
+    let i_init = b.constant(ConstantData::u64(0), u64_type(), unknown());
+
+    let is_true = b.array_access(board, i_init, bool_type(), unknown()).unwrap();
+    let not_found = b.bool_not(is_true, unknown()).unwrap();
+    let next_i = b.add(i_init, one, unknown()).unwrap();
+    let bounds_check = b.lt(next_i, sixty_four, unknown()).unwrap();
+    let cond = b.bool_and(not_found, bounds_check, unknown()).unwrap();
+
+    let loop_node = b
+        .r#loop(
+            &[is_true, not_found, next_i, bounds_check, cond],
+            cond,
+            &[next_i],
+            &[i_init],
+            Type::Tuple {
+                elements: vec![u64_type()],
+            },
+            unknown(),
+        )
+        .unwrap();
+
+    b.return_value(loop_node, unknown()).unwrap();
+    b.build()
+}
+
+#[test]
+fn ps001_termination_form_optimizer() {
+    // The PS001 termination-condition form must be recognized as
+    // FirstOccurrence and rewritten to TrailingZeros, eliminating the loop.
+    let func = build_ps001_termination_form();
+    let optimizer = Optimizer::new(OptimizerConfig::default(), default_registry());
+    let result = optimizer.optimize(&func);
+    assert_eq!(result.rewrites_applied, 1);
+
+    let has_tz = result
+        .function
+        .arena
+        .iter()
+        .any(|n| matches!(n.kind, sir_nodes::NodeKind::TrailingZeros { .. }));
+    let has_loop = result
+        .function
+        .arena
+        .iter()
+        .any(|n| matches!(n.kind, sir_nodes::NodeKind::Loop { .. }));
+    assert!(has_tz, "expected TrailingZeros in the rewritten IR");
+    assert!(!has_loop, "expected the search loop to be eliminated");
+}

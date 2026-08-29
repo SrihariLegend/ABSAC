@@ -40,13 +40,15 @@ const DOMAINS: &[Domain] = &[
     },
     Domain {
         name: "Positional search",
+        // Only concepts the pipeline can actually produce are listed:
+        // `PositionSearch` and `FindFirst` are family/aspirational concepts
+        // that no recognizer emits, so they could never be exercised and would
+        // keep this domain permanently Partial.
         concepts: &[
-            SemanticConcept::PositionSearch,
             SemanticConcept::FirstOccurrence,
             SemanticConcept::LastOccurrence,
             SemanticConcept::TrailingZeroSearch,
             SemanticConcept::LeadingZeroSearch,
-            SemanticConcept::FindFirst,
             SemanticConcept::LoopUntilZero,
         ],
     },

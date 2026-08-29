@@ -14,3 +14,7 @@ repomix-output.xml
 # OS
 .DS_Store
 Thumbs.db
+
+# Dirac
+.dirac-cache/
+

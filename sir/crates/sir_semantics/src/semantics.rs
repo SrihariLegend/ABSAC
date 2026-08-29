@@ -1253,6 +1253,11 @@ impl SemanticEngine {
                 for node in func.arena.iter() {
                     if region.nodes.contains(&node.id) {
                         if let NodeKind::Loop { .. } = &node.kind {
+                            // The search result is the loop's exported index value.
+                            // Recipes replace the loop node (never an internal
+                            // predicate, increment, or condition node) with the
+                            // bitscan operation, so the result role must be the
+                            // loop itself.
                             result_node = Some(node.id);
                         }
                     }
