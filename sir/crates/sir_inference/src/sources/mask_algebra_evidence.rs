@@ -33,5 +33,16 @@ pub fn contribute(region: &Region) -> Vec<Evidence> {
         });
     }
 
+    if region.contains(SemanticConcept::LowestClearBitMask) {
+        evidence.push(Evidence {
+            region: region.id,
+            representation: Representation::MaskAlgebra,
+            polarity: Polarity::Supports,
+            weight: weights::ABSOLUTE,
+            source: SemanticConcept::LowestClearBitMask,
+            explanation: "Isolating the lowest clear bit is an operation in mask algebra",
+        });
+    }
+
     evidence
 }

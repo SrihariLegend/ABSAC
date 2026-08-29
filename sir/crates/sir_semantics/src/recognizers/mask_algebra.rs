@@ -90,6 +90,61 @@ pub fn recognize_mask_algebra(
                     vec![ValueId::new(node.id.0)], // Output: x & -x
                 ));
             }
+
+            // Check if one operand is `~x` and the other is `x + 1`
+            // (isolates the lowest clear bit of x: `~x & (x + 1)`).
+            let check_add_one = |x: NodeId, add_node: NodeId| -> bool {
+                if let Some(add) = func.get_node(add_node) {
+                    if let NodeKind::Add { lhs: add_lhs, rhs: add_rhs } = &add.kind {
+                        if *add_lhs == x {
+                            if let Some(one) = func.get_node(*add_rhs) {
+                                if let NodeKind::Constant(c) = &one.kind {
+                                    if let ConstantData::Integer { value, .. } = c {
+                                        if value == "1" {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                false
+            };
+
+            // Find the `~x` operand; its value `x` must also be the base of the
+            // `x + 1` operand: `~x & (x + 1)` or `(x + 1) & ~x`.
+            let mut lowest_clear: Option<(NodeId, NodeId, NodeId)> = None; // (x, not_node, add_node)
+            if let Some(not) = func.get_node(*lhs) {
+                if let NodeKind::Not { operand } = &not.kind {
+                    if check_add_one(*operand, *rhs) {
+                        lowest_clear = Some((*operand, *lhs, *rhs));
+                    }
+                }
+            }
+            if lowest_clear.is_none() {
+                if let Some(not) = func.get_node(*rhs) {
+                    if let NodeKind::Not { operand } = &not.kind {
+                        if check_add_one(*operand, *lhs) {
+                            lowest_clear = Some((*operand, *rhs, *lhs));
+                        }
+                    }
+                }
+            }
+            if let Some((x, _, _)) = lowest_clear {
+                results.push((
+                    SemanticConcept::LowestClearBitMask,
+                    RecognitionExplanation {
+                        concept: SemanticConcept::LowestClearBitMask,
+                        triggering_facts: vec![
+                            "Detected mask algebra pattern: ~x & (x + 1)",
+                        ],
+                    },
+                    vec![node.id, x],
+                    vec![ValueId::new(x.0)], // Input: x
+                    vec![ValueId::new(node.id.0)], // Output: ~x & (x + 1)
+                ));
+            }
         }
     }
 
@@ -169,6 +224,79 @@ mod tests {
         assert!(
             !recs.iter().any(|r| r.0 == SemanticConcept::LowestSetBit),
             "plain AND must not be recognized as LowestSetBit"
+        );
+        assert!(
+            !recs.iter().any(|r| r.0 == SemanticConcept::LowestClearBitMask),
+            "plain AND must not be recognized as LowestClearBitMask"
+        );
+    }
+
+    #[test]
+    fn recognizes_isolate_lowest_clear_bit_pattern() {
+        // fn f(x: u64) -> u64 { (~x) & (x + 1) }
+        let mut b = Builder::new("isolate_clear", &[("x", Type::u64())], Type::u64());
+        let x = b.parameter_index(0).unwrap();
+        let one = b.constant(ConstantData::u64(1), Type::u64(), unknown_span());
+        let not_x = b.bit_not(x, unknown_span()).unwrap();
+        let x_plus_one = b.add(x, one, unknown_span()).unwrap();
+        let res = b.bit_and(not_x, x_plus_one, unknown_span()).unwrap();
+        b.return_value(res, unknown_span()).unwrap();
+        let func = b.build();
+
+        let mut analysis = AnalysisManager::new();
+        analysis.run_all(&func);
+        let recs = recognize_mask_algebra(&func, analysis.database());
+        let lowest_clear = recs.iter().find(|r| r.0 == SemanticConcept::LowestClearBitMask);
+        assert!(
+            lowest_clear.is_some(),
+            "expected a LowestClearBitMask recognition, got {:?}",
+            recs.iter().map(|r| r.0).collect::<Vec<_>>()
+        );
+        let (_, _, node_ids, inputs, outputs) = lowest_clear.unwrap();
+        assert_eq!(inputs, &vec![ValueId::new(x.0)]);
+        assert_eq!(outputs, &vec![ValueId::new(res.0)]);
+        assert_eq!(node_ids, &vec![res, x]);
+    }
+
+    #[test]
+    fn recognizes_isolate_lowest_clear_bit_reversed_operands() {
+        // fn f(x: u64) -> u64 { (x + 1) & ~x } — operand order must not matter.
+        let mut b = Builder::new("isolate_clear2", &[("x", Type::u64())], Type::u64());
+        let x = b.parameter_index(0).unwrap();
+        let one = b.constant(ConstantData::u64(1), Type::u64(), unknown_span());
+        let not_x = b.bit_not(x, unknown_span()).unwrap();
+        let x_plus_one = b.add(x, one, unknown_span()).unwrap();
+        let res = b.bit_and(x_plus_one, not_x, unknown_span()).unwrap();
+        b.return_value(res, unknown_span()).unwrap();
+        let func = b.build();
+
+        let mut analysis = AnalysisManager::new();
+        analysis.run_all(&func);
+        let recs = recognize_mask_algebra(&func, analysis.database());
+        assert!(
+            recs.iter().any(|r| r.0 == SemanticConcept::LowestClearBitMask),
+            "operand order should not matter"
+        );
+    }
+
+    #[test]
+    fn does_not_misclassify_not_with_subtract_one() {
+        // fn f(x: u64) -> u64 { (~x) & (x - 1) } — not the lowest-clear-bit idiom.
+        let mut b = Builder::new("not_sub", &[("x", Type::u64())], Type::u64());
+        let x = b.parameter_index(0).unwrap();
+        let one = b.constant(ConstantData::u64(1), Type::u64(), unknown_span());
+        let not_x = b.bit_not(x, unknown_span()).unwrap();
+        let x_minus_one = b.sub(x, one, unknown_span()).unwrap();
+        let res = b.bit_and(not_x, x_minus_one, unknown_span()).unwrap();
+        b.return_value(res, unknown_span()).unwrap();
+        let func = b.build();
+
+        let mut analysis = AnalysisManager::new();
+        analysis.run_all(&func);
+        let recs = recognize_mask_algebra(&func, analysis.database());
+        assert!(
+            !recs.iter().any(|r| r.0 == SemanticConcept::LowestClearBitMask),
+            "~x & (x - 1) must not be recognized as LowestClearBitMask"
         );
     }
 

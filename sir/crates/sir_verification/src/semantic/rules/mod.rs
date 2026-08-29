@@ -1,6 +1,7 @@
 pub mod all_to_equal_full_mask;
 pub mod clear_lowest_set_bit_to_bitwise_and;
 pub mod lowest_set_bit_to_bitwise_and;
+pub mod lowest_clear_bit_mask_to_bitwise_and;
 pub mod count_filter_to_popcount;
 pub mod divide_to_shift;
 pub mod exists_to_not_equal_zero;

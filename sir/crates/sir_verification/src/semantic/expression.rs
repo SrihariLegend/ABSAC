@@ -78,6 +78,12 @@ pub enum SemanticExpression {
     /// Integer subtraction `(x - y)`.
     Subtract(Box<SemanticExpression>, Box<SemanticExpression>),
 
+    /// Integer addition `(x + y)`.
+    Add(Box<SemanticExpression>, Box<SemanticExpression>),
+
+    /// Bitwise NOT `~x`.
+    BitwiseNot(Box<SemanticExpression>),
+
     // ── Added for Positional Search (Phase 0018) ────────────
     /// Index of the first true element in a boolean array. Returns the length if none found.
     FirstTrue(Box<SemanticExpression>),
@@ -97,6 +103,9 @@ pub enum SemanticExpression {
 
     /// Isolates the lowest set bit of a bitvector: `x & -x`.
     LowestSetBit(Box<SemanticExpression>),
+
+    /// Isolates the lowest clear bit of a bitvector: `~x & (x + 1)`.
+    LowestClearBitMask(Box<SemanticExpression>),
 }
 
 /// A predicate for filtering collections.

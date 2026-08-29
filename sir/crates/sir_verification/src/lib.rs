@@ -176,6 +176,9 @@ impl Verifier {
         registry.register(Box::new(definitions::isolate_lowest_set_bit::IsolateLowestSetBitDefinition::new(
             sir_transform::ids::DefinitionId::new(301),
         )));
+        registry.register(Box::new(definitions::isolate_lowest_clear_bit::IsolateLowestClearBitDefinition::new(
+            sir_transform::ids::DefinitionId::new(302),
+        )));
 
         Self {
             registry,

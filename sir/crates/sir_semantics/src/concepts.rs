@@ -71,6 +71,8 @@ pub enum SemanticConcept {
     LowestSetBit,
     /// Operation: clearing the lowest set bit
     ClearLowestSetBit,
+    /// Operation: isolating the lowest clear (zero) bit
+    LowestClearBitMask,
     /// Operation: testing if a value is zero
     IsZero,
 
@@ -130,6 +132,7 @@ impl SemanticConcept {
         Self::SetCardinality,
         Self::LowestSetBit,
         Self::ClearLowestSetBit,
+        Self::LowestClearBitMask,
         Self::IsZero,
         Self::LoopUntilZero,
         Self::BitsetIteration,
@@ -191,6 +194,7 @@ impl fmt::Display for SemanticConcept {
             SemanticConcept::SetCardinality => write!(f, "SetCardinality"),
             SemanticConcept::LowestSetBit => write!(f, "LowestSetBit"),
             SemanticConcept::ClearLowestSetBit => write!(f, "ClearLowestSetBit"),
+            SemanticConcept::LowestClearBitMask => write!(f, "LowestClearBitMask"),
             SemanticConcept::IsZero => write!(f, "IsZero"),
             SemanticConcept::LoopUntilZero => write!(f, "LoopUntilZero"),
             SemanticConcept::BitsetIteration => write!(f, "BitsetIteration"),

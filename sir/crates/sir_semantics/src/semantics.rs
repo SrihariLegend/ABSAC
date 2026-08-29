@@ -574,7 +574,7 @@ impl SemanticEngine {
 
         // For mask algebra, we just set the structural description to MaskAlgebraExpression
         for (rid, region) in self.db.regions() {
-            if region.contains(SemanticConcept::ClearLowestSetBit) || region.contains(SemanticConcept::LowestSetBit) {
+            if region.contains(SemanticConcept::ClearLowestSetBit) || region.contains(SemanticConcept::LowestSetBit) || region.contains(SemanticConcept::LowestClearBitMask) {
                 use sir_transform::structures::SourceStructure;
                 // First description wins: a region overlapping another domain
                 // (e.g. a count loop over a logical sequence) may already have
@@ -997,6 +997,40 @@ impl SemanticEngine {
                                 Some(NodeKind::Neg { .. })
                             );
                             operand = if lhs_is_neg { rhs } else { lhs };
+                        }
+                        desc.roles.push(RegionRoles::MaskOperation {
+                            operand,
+                            result: and_node,
+                        });
+                    }
+                }
+            }
+            if region.contains(SemanticConcept::LowestClearBitMask) {
+                let mut op_info = None;
+                for node in func.arena.iter() {
+                    if let NodeKind::And { .. } = &node.kind {
+                        if region.nodes.contains(&node.id) {
+                            op_info = Some(node.id);
+                            break;
+                        }
+                    }
+                }
+                if let Some(and_node) = op_info {
+                    if let Some(desc) = self.structural_db.region_mut(region_id) {
+                        // The operand is the base value inside the `~x` operand:
+                        // `~x & (x + 1)` isolates the lowest clear bit of `x`.
+                        let mut operand = and_node;
+                        if let NodeKind::And { lhs, rhs } = func.get_node(and_node).unwrap().kind {
+                            if let Some(n) = func.get_node(lhs) {
+                                if let NodeKind::Not { operand: not_operand } = &n.kind {
+                                    operand = *not_operand;
+                                }
+                            }
+                            if let Some(n) = func.get_node(rhs) {
+                                if let NodeKind::Not { operand: not_operand } = &n.kind {
+                                    operand = *not_operand;
+                                }
+                            }
                         }
                         desc.roles.push(RegionRoles::MaskOperation {
                             operand,
