@@ -69,5 +69,21 @@ pub fn generate(context: &TransformationContext, concepts: &HashSet<SemanticConc
         candidates.push((strategy, explanation, effects, expected_cost, def_id));
     }
 
+    if concepts.contains(&SemanticConcept::SetLowestClearBit) {
+        let def_id = DefinitionId::new(303);
+
+        let strategy = ImplementationStrategy::SetLowestClearBit;
+        let explanation = CandidateExplanation {
+            source_concepts: vec![SemanticConcept::SetLowestClearBit],
+            rationale: "x | (x + 1) matches set lowest clear bit idiom",
+        };
+        let effects = vec![CandidateEffect::InstructionSubstitution];
+
+        let mut expected_cost = CostProfile::default();
+        expected_cost.instruction_count = 3; // not + blsmsk + or
+
+        candidates.push((strategy, explanation, effects, expected_cost, def_id));
+    }
+
     candidates
 }

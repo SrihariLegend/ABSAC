@@ -63,6 +63,9 @@ pub enum SemanticExpression {
     /// Bitwise AND `(x & y)`.
     BitwiseAnd(Box<SemanticExpression>, Box<SemanticExpression>),
 
+    /// Bitwise OR `(x | y)`.
+    BitwiseOr(Box<SemanticExpression>, Box<SemanticExpression>),
+
     /// Integer division `(x / y)`.
     Divide(Box<SemanticExpression>, Box<SemanticExpression>),
 
@@ -106,6 +109,9 @@ pub enum SemanticExpression {
 
     /// Isolates the lowest clear bit of a bitvector: `~x & (x + 1)`.
     LowestClearBitMask(Box<SemanticExpression>),
+
+    /// Sets the lowest clear bit of a bitvector: `x | (x + 1)`.
+    SetLowestClearBit(Box<SemanticExpression>),
 }
 
 /// A predicate for filtering collections.

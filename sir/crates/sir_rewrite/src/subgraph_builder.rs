@@ -233,6 +233,18 @@ impl<'a> SubgraphBuilder<'a> {
         )
     }
 
+    pub fn bitwise_or(&mut self, lhs: LocalNodeId, rhs: LocalNodeId, span: Span) -> LocalNodeId {
+        let ty = self.get_type(lhs).unwrap_or(Type::i32());
+        self.alloc_node(
+            NodeKind::Or {
+                lhs: NodeId::new(lhs.as_u64()),
+                rhs: NodeId::new(rhs.as_u64()),
+            },
+            ty,
+            span,
+        )
+    }
+
     pub fn eq(&mut self, lhs: LocalNodeId, rhs: LocalNodeId, span: Span) -> LocalNodeId {
         self.alloc_node(
             NodeKind::Eq {

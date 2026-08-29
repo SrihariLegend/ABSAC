@@ -66,6 +66,8 @@ pub enum ImplementationStrategy {
     IsolateLowestBit,
     /// Isolate the lowest clear bit: `~x & (x + 1)`.
     IsolateLowestClearBit,
+    /// Set the lowest clear bit: `x | (x + 1)`.
+    SetLowestClearBit,
 }
 
 impl fmt::Display for ImplementationStrategy {
@@ -89,6 +91,7 @@ impl fmt::Display for ImplementationStrategy {
             ImplementationStrategy::ClearLowestBit => write!(f, "ClearLowestBit"),
             ImplementationStrategy::IsolateLowestBit => write!(f, "IsolateLowestBit"),
             ImplementationStrategy::IsolateLowestClearBit => write!(f, "IsolateLowestClearBit"),
+            ImplementationStrategy::SetLowestClearBit => write!(f, "SetLowestClearBit"),
         }
     }
 }

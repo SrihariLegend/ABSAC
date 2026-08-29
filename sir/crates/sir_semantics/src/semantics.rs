@@ -574,7 +574,7 @@ impl SemanticEngine {
 
         // For mask algebra, we just set the structural description to MaskAlgebraExpression
         for (rid, region) in self.db.regions() {
-            if region.contains(SemanticConcept::ClearLowestSetBit) || region.contains(SemanticConcept::LowestSetBit) || region.contains(SemanticConcept::LowestClearBitMask) {
+            if region.contains(SemanticConcept::ClearLowestSetBit) || region.contains(SemanticConcept::LowestSetBit) || region.contains(SemanticConcept::LowestClearBitMask) || region.contains(SemanticConcept::SetLowestClearBit) {
                 use sir_transform::structures::SourceStructure;
                 // First description wins: a region overlapping another domain
                 // (e.g. a count loop over a logical sequence) may already have
@@ -1035,6 +1035,46 @@ impl SemanticEngine {
                         desc.roles.push(RegionRoles::MaskOperation {
                             operand,
                             result: and_node,
+                        });
+                    }
+                }
+            }
+            if region.contains(SemanticConcept::SetLowestClearBit) {
+                let mut op_info = None;
+                for node in func.arena.iter() {
+                    if let NodeKind::Or { .. } = &node.kind {
+                        if region.nodes.contains(&node.id) {
+                            op_info = Some(node.id);
+                            break;
+                        }
+                    }
+                }
+                if let Some(or_node) = op_info {
+                    if let Some(desc) = self.structural_db.region_mut(region_id) {
+                        // The operand is the base value `x`: `x | (x + 1)` sets
+                        // the lowest clear bit of `x`. The operand is the side
+                        // that is NOT the `x + 1` addition.
+                        let mut operand = or_node;
+                        if let NodeKind::Or { lhs, rhs } = func.get_node(or_node).unwrap().kind {
+                            let lhs_is_add = matches!(
+                                func.get_node(lhs).map(|n| &n.kind),
+                                Some(NodeKind::Add { .. })
+                            );
+                            let rhs_is_add = matches!(
+                                func.get_node(rhs).map(|n| &n.kind),
+                                Some(NodeKind::Add { .. })
+                            );
+                            operand = if lhs_is_add && !rhs_is_add {
+                                rhs
+                            } else if rhs_is_add && !lhs_is_add {
+                                lhs
+                            } else {
+                                or_node
+                            };
+                        }
+                        desc.roles.push(RegionRoles::MaskOperation {
+                            operand,
+                            result: or_node,
                         });
                     }
                 }

@@ -191,6 +191,10 @@ impl Normalizer {
                 Box::new(self.normalize_recursive(lhs, steps, depth + 1)),
                 Box::new(self.normalize_recursive(rhs, steps, depth + 1)),
             ),
+            SemanticExpression::BitwiseOr(lhs, rhs) => SemanticExpression::BitwiseOr(
+                Box::new(self.normalize_recursive(lhs, steps, depth + 1)),
+                Box::new(self.normalize_recursive(rhs, steps, depth + 1)),
+            ),
             SemanticExpression::Divide(lhs, rhs) => SemanticExpression::Divide(
                 Box::new(self.normalize_recursive(lhs, steps, depth + 1)),
                 Box::new(self.normalize_recursive(rhs, steps, depth + 1)),
@@ -222,6 +226,10 @@ impl Normalizer {
             SemanticExpression::LowestClearBitMask(inner) => {
                 let normalized = self.normalize_recursive(inner, steps, depth + 1);
                 SemanticExpression::LowestClearBitMask(Box::new(normalized))
+            }
+            SemanticExpression::SetLowestClearBit(inner) => {
+                let normalized = self.normalize_recursive(inner, steps, depth + 1);
+                SemanticExpression::SetLowestClearBit(Box::new(normalized))
             }
             SemanticExpression::ClearLowestSetBit(inner) => {
                 let normalized = self.normalize_recursive(inner, steps, depth + 1);

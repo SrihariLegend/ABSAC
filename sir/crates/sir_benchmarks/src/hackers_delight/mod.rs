@@ -136,6 +136,31 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
         },
         BenchmarkDef {
             spec: BenchmarkSpec {
+                id: "HD008",
+                name: "set_lowest_clear_bit",
+                category: "Hacker's Delight",
+                input_desc: "x | (x + 1)",
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "MaskAlgebra",
+                    concepts: vec!["SetLowestClearBit"],
+                    representation: "MaskAlgebra",
+                    candidate: "SetLowestClearBit",
+                    proof: "SetLowestClearBit(x) == Or(x, Add(x, 1))",
+                    rewrite: "Or -> Or(x, Intrinsic(blsmsk(Not(x))))",
+                },
+            },
+            func: || {
+                let mut b = Builder::new("set_lowest_clear_bit", &[("x", Type::u64())], Type::u64());
+                let x = b.parameter_index(0).unwrap();
+                let one = b.constant(ConstantData::u64(1), Type::u64(), unknown_span());
+                let x_plus_one = b.add(x, one, unknown_span()).unwrap();
+                let res = b.bit_or(x, x_plus_one, unknown_span()).unwrap();
+                b.return_value(res, unknown_span()).unwrap();
+                b.build()
+            },
+        },
+        BenchmarkDef {
+            spec: BenchmarkSpec {
                 id: "HD002",
                 name: "brian_kernighan_popcount",
                 category: "Hacker's Delight",

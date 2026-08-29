@@ -19,6 +19,7 @@ use crate::semantic::rules::lowest_set_bit_to_bitwise_and::LowestSetBitToBitwise
 use crate::semantic::rules::modulo_to_and::ModuloToAnd;
 use crate::semantic::rules::multiply_to_shift::MultiplyToShift;
 use crate::semantic::rules::parity_to_bitwise_and_one::ParityToBitwiseAndOne;
+use crate::semantic::rules::set_lowest_clear_bit_to_bitwise_or::SetLowestClearBitToBitwiseOr;
 use crate::{Proof, ProofStep, VerificationBackend, VerificationResult};
 
 /// Symbolic verification via normalization.
@@ -46,6 +47,7 @@ impl SymbolicVerifier {
         normalizer.add_rule(Box::new(ClearLowestSetBitToBitwiseAnd));
         normalizer.add_rule(Box::new(LowestSetBitToBitwiseAnd));
         normalizer.add_rule(Box::new(LowestClearBitMaskToBitwiseAnd));
+        normalizer.add_rule(Box::new(SetLowestClearBitToBitwiseOr));
         Self { normalizer }
     }
 
