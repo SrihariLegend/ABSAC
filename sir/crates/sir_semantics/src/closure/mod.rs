@@ -29,6 +29,11 @@ impl ClosureEngine {
         self.rules.push(rule);
     }
 
+    /// Number of registered implication rules.
+    pub fn rule_count(&self) -> usize {
+        self.rules.len()
+    }
+
     /// Compute the semantic closure, adding derived truths to the database
     /// until a fixed point is reached.
     pub fn compute_closure(&self, db: &mut SemanticDatabase) {

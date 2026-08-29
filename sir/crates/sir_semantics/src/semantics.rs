@@ -228,6 +228,11 @@ impl SemanticEngine {
         &self.cost_db
     }
 
+    /// Number of semantic closure rules registered in the engine.
+    pub fn closure_rule_count(&self) -> usize {
+        self.closure_engine.rule_count()
+    }
+
     /// Derive semantic truths from the function graph and compiler facts.
     ///
     /// This calls each recognizer, which inspects the function's graph

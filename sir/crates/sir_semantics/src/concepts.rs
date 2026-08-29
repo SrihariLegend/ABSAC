@@ -97,6 +97,47 @@ pub enum ConceptKind {
 }
 
 impl SemanticConcept {
+    /// Every concept in the ontology. Kept in sync with the enum variants so
+    /// downstream tooling (e.g. the benchmark report) can enumerate the
+    /// ontology without re-typing the variant list.
+    pub const ALL: &'static [SemanticConcept] = &[
+        Self::LogicalSequence,
+        Self::FiniteCollection,
+        Self::MembershipTraversal,
+        Self::CardinalityReduction,
+        Self::DisjunctiveReduction,
+        Self::ConjunctiveReduction,
+        Self::ExclusiveReduction,
+        Self::FindFirst,
+        Self::SetIntersection,
+        Self::ModuloPowerOfTwo,
+        Self::MultiplyPowerOfTwo,
+        Self::DividePowerOfTwo,
+        Self::ShiftMask,
+        Self::PositionSearch,
+        Self::FirstOccurrence,
+        Self::LastOccurrence,
+        Self::TrailingZeroSearch,
+        Self::LeadingZeroSearch,
+        Self::FiniteSet,
+        Self::SetMembership,
+        Self::SetUnion,
+        Self::SetDifference,
+        Self::SetSymmetricDifference,
+        Self::SetSubset,
+        Self::SetEquality,
+        Self::SetEmpty,
+        Self::SetCardinality,
+        Self::LowestSetBit,
+        Self::ClearLowestSetBit,
+        Self::IsZero,
+        Self::LoopUntilZero,
+        Self::BitsetIteration,
+        Self::AtMostOneBitSet,
+        Self::PredicateMap,
+        Self::ElementSequence,
+    ];
+
     pub fn kind(&self) -> ConceptKind {
         match self {
             // Structures
