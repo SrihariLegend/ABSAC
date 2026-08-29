@@ -29,6 +29,36 @@ pub fn generate(context: &TransformationContext, concepts: &HashSet<SemanticConc
         return candidates;
     }
 
+    if concepts.contains(&SemanticConcept::BytePermutation) {
+        let mut expected_cost = CostProfile::default();
+        expected_cost.instruction_count = 2; // bswap + shr for width alignment
+        candidates.push((
+            ImplementationStrategy::ByteSwap,
+            CandidateExplanation {
+                source_concepts: vec![SemanticConcept::BytePermutation],
+                rationale: "composed byte swap matches byte-swap instruction",
+            },
+            vec![CandidateEffect::InstructionSubstitution],
+            expected_cost,
+            DefinitionId::new(312),
+        ));
+    }
+
+    if concepts.contains(&SemanticConcept::BitPermutation) {
+        let mut expected_cost = CostProfile::default();
+        expected_cost.instruction_count = 2; // rbit + shr for width alignment
+        candidates.push((
+            ImplementationStrategy::ReverseBits,
+            CandidateExplanation {
+                source_concepts: vec![SemanticConcept::BitPermutation],
+                rationale: "composed stage chain matches reverse-bits instruction",
+            },
+            vec![CandidateEffect::InstructionSubstitution],
+            expected_cost,
+            DefinitionId::new(313),
+        ));
+    }
+
     if !concepts.contains(&SemanticConcept::CircularPermutation) {
         return candidates;
     }

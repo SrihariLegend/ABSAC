@@ -16,3 +16,5 @@ pub mod isolate_lowest_clear_bit;
 pub mod set_lowest_clear_bit;
 pub mod rotate_left;
 pub mod rotate_right;
+pub mod byte_swap;
+pub mod bit_reverse;

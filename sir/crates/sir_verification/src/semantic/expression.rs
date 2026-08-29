@@ -119,6 +119,12 @@ pub enum SemanticExpression {
 
     /// Right rotation: `(x >> k) | (x << (w - k))`.
     RotateRight(Box<SemanticExpression>, Box<SemanticExpression>),
+
+    /// Byte-order reversal: swapping adjacent 8-bit groups.
+    ByteSwap(Box<SemanticExpression>),
+
+    /// Full bit reversal (reversing individual bit positions).
+    BitReverse(Box<SemanticExpression>),
 }
 
 /// A predicate for filtering collections.

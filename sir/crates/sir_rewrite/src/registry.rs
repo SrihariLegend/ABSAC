@@ -2,12 +2,14 @@ use crate::recipe::RecipeRegistry;
 use crate::recipes::all::AllRecipe;
 use crate::recipes::any::AnyRecipe;
 use crate::recipes::bitscan_forward::BitScanForwardRecipe;
+use crate::recipes::byte_swap::ByteSwapRecipe;
 use crate::recipes::bitscan_reverse::BitScanReverseRecipe;
 use crate::recipes::divide_shift::DivideShiftRecipe;
 use crate::recipes::leading_zero_count::LeadingZeroCountRecipe;
 use crate::recipes::modulo_and::BitwiseAndModuloRecipe;
 use crate::recipes::multiply_shift::MultiplyShiftRecipe;
 use crate::recipes::parity::ParityRecipe;
+use crate::recipes::reverse_bits::ReverseBitsRecipe;
 use crate::recipes::rotate::RotateRecipe;
 use crate::recipes::popcount::PopcountRecipe;
 use crate::recipes::shift_mask::ShiftMaskRecipe;
@@ -88,6 +90,16 @@ pub fn default_registry() -> RecipeRegistry {
     // ID 311: RotateRight
     registry.register(Box::new(RotateRecipe::new_right(DefinitionId::new(
         311,
+    ))));
+
+    // ID 312: ByteSwap
+    registry.register(Box::new(ByteSwapRecipe::new(DefinitionId::new(
+        312,
+    ))));
+
+    // ID 313: ReverseBits
+    registry.register(Box::new(ReverseBitsRecipe::new(DefinitionId::new(
+        313,
     ))));
 
     registry

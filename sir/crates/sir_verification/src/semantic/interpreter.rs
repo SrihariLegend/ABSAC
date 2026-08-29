@@ -496,6 +496,42 @@ impl Interpreter {
                 let kk = kv % width;
                 Ok(Value::Integer(((xv >> kk) | (xv << (width - kk))) & (u64::MAX >> (64 - width))))
             }
+            SemanticExpression::ByteSwap(x) => {
+                let xv = self.evaluate(x, env)?;
+                let xv = match xv {
+                    Value::Integer(i) => i,
+                    Value::BitVector(bv) => bv.bits as u64,
+                    other => {
+                        return Err(InterpreterError::TypeMismatch {
+                            expected: "Integer or BitVector",
+                            found: other,
+                        })
+                    }
+                };
+                // 16-bit byte swap: ((x & 0xFF) << 8) | ((x >> 8) & 0xFF)
+                Ok(Value::Integer(((xv & 0xFF) << 8) | ((xv >> 8) & 0xFF)))
+            }
+            SemanticExpression::BitReverse(x) => {
+                let xv = self.evaluate(x, env)?;
+                let xv = match xv {
+                    Value::Integer(i) => i,
+                    Value::BitVector(bv) => bv.bits as u64,
+                    other => {
+                        return Err(InterpreterError::TypeMismatch {
+                            expected: "Integer or BitVector",
+                            found: other,
+                        })
+                    }
+                };
+                // 8-bit reversal of the low byte.
+                let mut r = 0u64;
+                for i in 0..8 {
+                    if xv & (1 << i) != 0 {
+                        r |= 1 << (7 - i);
+                    }
+                }
+                Ok(Value::Integer(r))
+            }
         }
     }
 

@@ -8,6 +8,8 @@ use crate::errors::UnknownReason;
 use crate::obligation::ProofObligation;
 use crate::semantic::normalizer::Normalizer;
 use crate::semantic::rules::all_to_equal_full_mask::AllToEqualFullMask;
+use crate::semantic::rules::bit_reverse_to_stages::BitReverseToStages;
+use crate::semantic::rules::byte_swap_to_masked_shift_pair::ByteSwapToMaskedShiftPair;
 use crate::semantic::rules::clear_lowest_set_bit_to_bitwise_and::ClearLowestSetBitToBitwiseAnd;
 use crate::semantic::rules::count_filter_to_popcount::CountFilterToPopcount;
 use crate::semantic::rules::divide_to_shift::DivideToShift;
@@ -52,6 +54,8 @@ impl SymbolicVerifier {
         normalizer.add_rule(Box::new(SetLowestClearBitToBitwiseOr));
         normalizer.add_rule(Box::new(RotateLeftToShiftPair));
         normalizer.add_rule(Box::new(RotateRightToShiftPair));
+        normalizer.add_rule(Box::new(ByteSwapToMaskedShiftPair));
+        normalizer.add_rule(Box::new(BitReverseToStages));
         Self { normalizer }
     }
 

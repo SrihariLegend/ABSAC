@@ -288,11 +288,13 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "byte_swap",
                 category: "Hacker's Delight",
                 input_desc: "((x & 0xFF) << 8) | ((x >> 8) & 0xFF)",
-                expected: ExpectedKnowledge::MissingKnowledge {
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "BitPermutation",
                     concepts: vec!["BytePermutation"],
-                    closure: vec!["CombinePermutations"],
-                    representations: vec!["BitPermutation"],
-                    rewrites: vec!["bswap"],
+                    representation: "BitPermutation",
+                    candidate: "ByteSwap",
+                    proof: "ByteSwap(x) == Or(Shl(And(x, 0xFF), 8), And(Shr(x, 8), 0xFF))",
+                    rewrite: "Or -> Intrinsic(bswap) >> 16",
                 },
             },
             func: || {
@@ -320,11 +322,13 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "reverse_bits",
                 category: "Hacker's Delight",
                 input_desc: "swap adjacent bits, then pairs, then nibbles...",
-                expected: ExpectedKnowledge::MissingKnowledge {
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "BitPermutation",
                     concepts: vec!["BitPermutation"],
-                    closure: vec!["CombinePermutations"],
-                    representations: vec!["BitPermutation"],
-                    rewrites: vec!["rbit"],
+                    representation: "BitPermutation",
+                    candidate: "ReverseBits",
+                    proof: "BitReverse(x) == S3(S2(S1(x)))",
+                    rewrite: "Or -> Intrinsic(rbit) >> 24",
                 },
             },
             func: || {
@@ -362,6 +366,37 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 let res = b.bit_or(and3_1, shl3, unknown_span()).unwrap();
                 
                 b.return_value(res, unknown_span()).unwrap();
+                b.build()
+            },
+        },
+        BenchmarkDef {
+            spec: BenchmarkSpec {
+                id: "BP001",
+                name: "rotate_left_naive",
+                category: "Hacker's Delight",
+                input_desc: "(x << n) | (x >> (64 - n))",
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "BitPermutation",
+                    concepts: vec!["CircularPermutation"],
+                    representation: "BitPermutation",
+                    candidate: "RotateLeft",
+                    proof: "RotateLeft(x, n) == Or(Shl(x, n), Shr(x, Sub(64, n)))",
+                    rewrite: "Or -> Rol",
+                },
+            },
+            func: || {
+                let mut b = Builder::new("rotate_naive", &[("x", Type::u64()), ("n", Type::u64())], Type::u64());
+                let x = b.parameter_index(0).unwrap();
+                let n = b.parameter_index(1).unwrap();
+                
+                let sixty_four = b.constant(ConstantData::u64(64), Type::u64(), unknown_span());
+                
+                let left_shift = b.shl(x, n, unknown_span()).unwrap();
+                let diff = b.sub(sixty_four, n, unknown_span()).unwrap();
+                let right_shift = b.shr(x, diff, unknown_span()).unwrap();
+                let or = b.bit_or(left_shift, right_shift, unknown_span()).unwrap();
+                
+                b.return_value(or, unknown_span()).unwrap();
                 b.build()
             },
         },

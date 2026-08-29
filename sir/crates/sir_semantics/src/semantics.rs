@@ -577,6 +577,31 @@ impl SemanticEngine {
             self.db.add_truth(truth);
         }
 
+        // Masked swap stages: `(x & m) << s | (x >> s) & m`. Chains of these
+        // stages are composed into BytePermutation/BitPermutation by the
+        // CombinePermutations closure rule.
+        let swap_recs = crate::recognizers::permutation::recognize_masked_shift_swaps(func, analysis);
+        for (_concept, explanation, node_ids, inputs, outputs, parameter) in swap_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation.clone());
+            self.db.add_region(region);
+
+            let truth = SemanticTruth {
+                parameters: vec![parameter],
+                id: crate::truth::TruthId::new(0),
+                concept: explanation.concept,
+                inputs,
+                outputs,
+                origin: rid,
+                provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+            };
+            self.db.add_truth(truth);
+        }
+
         let pred_recs = predicate_collection::recognize_predicate_collection(func, analysis);
         for (_concept, explanation, node_ids) in pred_recs {
             let rid = self.db.next_region_id();

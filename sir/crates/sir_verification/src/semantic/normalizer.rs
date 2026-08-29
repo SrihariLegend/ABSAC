@@ -247,6 +247,14 @@ impl Normalizer {
                 Box::new(self.normalize_recursive(lhs, steps, depth + 1)),
                 Box::new(self.normalize_recursive(rhs, steps, depth + 1)),
             ),
+            SemanticExpression::ByteSwap(inner) => {
+                let normalized = self.normalize_recursive(inner, steps, depth + 1);
+                SemanticExpression::ByteSwap(Box::new(normalized))
+            }
+            SemanticExpression::BitReverse(inner) => {
+                let normalized = self.normalize_recursive(inner, steps, depth + 1);
+                SemanticExpression::BitReverse(Box::new(normalized))
+            }
         }
     }
 }

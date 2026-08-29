@@ -72,6 +72,10 @@ pub enum ImplementationStrategy {
     RotateLeft,
     /// Hardware rotate right: `ror(x, k)`.
     RotateRight,
+    /// Byte-order reversal via a byte-swap instruction.
+    ByteSwap,
+    /// Full bit reversal via a reverse-bits instruction.
+    ReverseBits,
 }
 
 impl fmt::Display for ImplementationStrategy {
@@ -98,6 +102,8 @@ impl fmt::Display for ImplementationStrategy {
             ImplementationStrategy::SetLowestClearBit => write!(f, "SetLowestClearBit"),
             ImplementationStrategy::RotateLeft => write!(f, "RotateLeft"),
             ImplementationStrategy::RotateRight => write!(f, "RotateRight"),
+            ImplementationStrategy::ByteSwap => write!(f, "ByteSwap"),
+            ImplementationStrategy::ReverseBits => write!(f, "ReverseBits"),
         }
     }
 }

@@ -98,6 +98,145 @@ pub fn recognize_shift_pairs(
     results
 }
 
+/// Recognizes the masked-swap stage idiom: bits `i` and `i + shift` are
+/// exchanged for every set bit `i` in `mask` via
+/// `(x & mask) << shift | (x >> shift) & mask`.
+///
+/// One stage performs a single swap distance; a chain of stages composes
+/// into a full byte reversal (HD004) or bit reversal (HD005) through the
+/// `CombinePermutations` closure rule.
+#[allow(clippy::type_complexity)]
+pub fn recognize_masked_shift_swaps(
+    func: &Function,
+    _analysis: &FactDatabase,
+) -> Vec<(
+    SemanticConcept,
+    RecognitionExplanation,
+    Vec<NodeId>,
+    Vec<ValueId>,
+    Vec<ValueId>,
+    TruthParameter,
+)> {
+    let mut results = Vec::new();
+
+    for node in func.arena.iter() {
+        if let NodeKind::Or { lhs, rhs } = &node.kind {
+            let or_node = node.id;
+            let (l_kind, r_kind) = (
+                func.get_node(*lhs).map(|n| &n.kind),
+                func.get_node(*rhs).map(|n| &n.kind),
+            );
+
+            // Try both operand orders: Or(Shl(And(x,m),s), And(Shr(x,s),m)) and
+            // Or(And(Shr(x,s),m), Shl(And(x,m),s)).
+            let matched = match (l_kind, r_kind) {
+                (Some(NodeKind::Shl { lhs: a, rhs: s1 }), Some(NodeKind::And { .. })) => {
+                    check_masked_swap(func, *a, *s1, *rhs)
+                }
+                (Some(NodeKind::And { .. }), Some(NodeKind::Shl { lhs: a, rhs: s1 })) => {
+                    check_masked_swap(func, *a, *s1, *lhs)
+                }
+                _ => None,
+            };
+
+            if let Some((x, mask, shift, and_lhs_node, and_rhs_node, shr_node)) = matched {
+                // The mask and shift must be compile-time constants so the
+                // parameter is exact math, not a runtime value.
+                let (Some(mask_val), Some(shift_val)) = (
+                    constant_u64(func, &mask),
+                    constant_u64(func, &shift),
+                ) else {
+                    continue;
+                };
+
+                results.push((
+                    SemanticConcept::MaskedShiftSwap,
+                    RecognitionExplanation {
+                        concept: SemanticConcept::MaskedShiftSwap,
+                        triggering_facts: vec![
+                            "Masked left shift OR masked right shift of the same value",
+                            "Both sides use the same mask and shift amount",
+                        ],
+                    },
+                    vec![or_node, *lhs, *rhs, x, mask, shift, and_lhs_node, and_rhs_node, shr_node],
+                    vec![ValueId::new(x.0)],
+                    vec![ValueId::new(or_node.0)],
+                    TruthParameter::MaskedShiftSwap {
+                        mask: mask_val,
+                        shift: shift_val as u32,
+                    },
+                ));
+            }
+        }
+    }
+
+    results
+}
+
+/// Validate the four operands of a masked swap stage and return
+/// `(x, mask, shift, and_lhs, and_rhs, shr_node)` on success.
+fn check_masked_swap(
+    func: &Function,
+    shl_lhs: NodeId,
+    shl_rhs: NodeId,
+    and_node: NodeId,
+) -> Option<(NodeId, NodeId, NodeId, NodeId, NodeId, NodeId)> {
+    // Left side: Shl(And(x, mask), shift)
+    let and_node_l = func.get_node(shl_lhs)?;
+    let NodeKind::And { lhs: a, rhs: b } = &and_node_l.kind else {
+        return None;
+    };
+    let x = *a;
+    let mask = *b;
+    if constant_u64(func, &mask).is_none() {
+        return None;
+    }
+    let shift = shl_rhs;
+    if constant_u64(func, &shift).is_none() {
+        return None;
+    }
+
+    // Right side: And(Shr(x, shift), mask) — same x, same mask, same shift.
+    let and2 = func.get_node(and_node)?;
+    let NodeKind::And { lhs: c, rhs: d } = &and2.kind else {
+        return None;
+    };
+    let (and_lhs, and_rhs) = (*c, *d);
+    let (shr_node, mask2) = match (func.get_node(and_lhs), func.get_node(and_rhs)) {
+        (Some(n), _) if matches!(n.kind, NodeKind::Shr { .. }) => (and_lhs, and_rhs),
+        (_, Some(n)) if matches!(n.kind, NodeKind::Shr { .. }) => (and_rhs, and_lhs),
+        _ => return None,
+    };
+    let shr = func.get_node(shr_node)?;
+    let NodeKind::Shr { lhs: sx, rhs: ss } = &shr.kind else {
+        return None;
+    };
+    if sx != &x {
+        return None;
+    }
+    if ss != &shift {
+        return None;
+    }
+    if mask2 != mask {
+        return None;
+    }
+    if constant_u64(func, &mask2).is_none() {
+        return None;
+    }
+
+    Some((x, mask, shift, and_lhs, and_rhs, shr_node))
+}
+
+/// Read a constant u64 value from a node.
+fn constant_u64(func: &Function, node: &NodeId) -> Option<u64> {
+    let n = func.get_node(*node)?;
+    if let NodeKind::Constant(c) = &n.kind {
+        c.as_u64()
+    } else {
+        None
+    }
+}
+
 /// Check the `Sub(width, k)` shape of the complementary shift.
 ///
 /// The amount `k` is used directly as the rotation amount; the subtraction
@@ -219,6 +358,58 @@ mod tests {
         let func = b.build();
 
         let recs = recognize_shift_pairs(&func, &FactDatabase::default());
+        assert!(recs.is_empty());
+    }
+
+    #[test]
+    fn recognizes_masked_swap_stage() {
+        // HD004 shape: ((x & 0xFF) << 8) | ((x >> 8) & 0xFF)
+        let mut b = Builder::new("byte_swap_16", &[("x", Type::u32())], Type::u32());
+        let x = b.parameter_index(0).unwrap();
+        let mask = b.constant(ConstantData::u32(0xFF), Type::u32(), unknown_span());
+        let eight = b.constant(ConstantData::u32(8), Type::u32(), unknown_span());
+
+        let low = b.bit_and(x, mask, unknown_span()).unwrap();
+        let low_shifted = b.shl(low, eight, unknown_span()).unwrap();
+        let high = b.shr(x, eight, unknown_span()).unwrap();
+        let high_masked = b.bit_and(high, mask, unknown_span()).unwrap();
+        let res = b.bit_or(low_shifted, high_masked, unknown_span()).unwrap();
+        b.return_value(res, unknown_span()).unwrap();
+        let func = b.build();
+
+        let recs = recognize_masked_shift_swaps(&func, &FactDatabase::default());
+        assert_eq!(recs.len(), 1);
+        let (concept, _exp, node_ids, inputs, outputs, param) = &recs[0];
+        assert_eq!(*concept, SemanticConcept::MaskedShiftSwap);
+        assert!(node_ids.contains(&res));
+        assert_eq!(inputs, &vec![ValueId::new(x.0)]);
+        assert_eq!(outputs, &vec![ValueId::new(res.0)]);
+        match param {
+            TruthParameter::MaskedShiftSwap { mask, shift } => {
+                assert_eq!(*mask, 0xFF);
+                assert_eq!(*shift, 8);
+            }
+            _ => panic!("expected MaskedShiftSwap parameter"),
+        }
+    }
+
+    #[test]
+    fn masked_swap_requires_constant_mask_and_shift() {
+        // Same shape but a runtime shift amount: must not match.
+        let mut b = Builder::new("dynamic", &[("x", Type::u32()), ("s", Type::u32())], Type::u32());
+        let x = b.parameter_index(0).unwrap();
+        let s = b.parameter_index(1).unwrap();
+        let mask = b.constant(ConstantData::u32(0xFF), Type::u32(), unknown_span());
+
+        let low = b.bit_and(x, mask, unknown_span()).unwrap();
+        let low_shifted = b.shl(low, s, unknown_span()).unwrap();
+        let high = b.shr(x, s, unknown_span()).unwrap();
+        let high_masked = b.bit_and(high, mask, unknown_span()).unwrap();
+        let res = b.bit_or(low_shifted, high_masked, unknown_span()).unwrap();
+        b.return_value(res, unknown_span()).unwrap();
+        let func = b.build();
+
+        let recs = recognize_masked_shift_swaps(&func, &FactDatabase::default());
         assert!(recs.is_empty());
     }
 }

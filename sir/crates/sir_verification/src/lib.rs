@@ -27,6 +27,8 @@ use crate::backends::symbolic::SymbolicVerifier;
 use crate::definitions::all::AllDefinition;
 use crate::definitions::any::AnyDefinition;
 use crate::definitions::bitscan_forward::BitScanForwardDefinition;
+use crate::definitions::byte_swap::ByteSwapDefinition;
+use crate::definitions::bit_reverse::BitReverseDefinition;
 use crate::definitions::bitscan_reverse::BitScanReverseDefinition;
 use crate::definitions::divide_shift::DivideShiftDefinition;
 use crate::definitions::leading_zero_count::LeadingZeroCountDefinition;
@@ -189,6 +191,12 @@ impl Verifier {
         )));
         registry.register(Box::new(RotateRightDefinition::new(
             sir_transform::ids::DefinitionId::new(311),
+        )));
+        registry.register(Box::new(ByteSwapDefinition::new(
+            sir_transform::ids::DefinitionId::new(312),
+        )));
+        registry.register(Box::new(BitReverseDefinition::new(
+            sir_transform::ids::DefinitionId::new(313),
         )));
 
         Self {
