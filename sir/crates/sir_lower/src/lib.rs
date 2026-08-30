@@ -386,7 +386,9 @@ fn get_node_id(
     type_hint: Option<Type>,
 ) -> Option<NodeId> {
     let ref_str = strip_type(ref_str);
-    if let Some(id) = value_map.get(&ref_str) {
+    // Strip leading @ for global references
+    let ref_str_owned = ref_str.trim_start_matches('@').to_string();
+    if let Some(id) = value_map.get(&ref_str_owned) {
         return Some(*id);
     }
     // Check if it's a parameter
@@ -494,7 +496,7 @@ pub fn lower(text: &str) -> Result<Function, String> {
     let ret_ty = parse_type(&ir.ret_type).unwrap_or(Type::Unit);
 
     // Build parameter list for SIR
-    let sir_params: Vec<(&str, Type)> = ir.params.iter().map(|(name, ty)| {
+    let mut sir_params: Vec<(&str, Type)> = ir.params.iter().map(|(name, ty)| {
         let sir_ty = parse_type(ty).unwrap_or(Type::u64());
         // For pointer params, model as pointer to u8
         let sir_ty = if ty.starts_with("ptr") {
@@ -505,7 +507,37 @@ pub fn lower(text: &str) -> Result<Function, String> {
         (name.as_str(), sir_ty)
     }).collect();
 
+    // Scan for global array references (e.g., @popcount_table) in the function body.
+    // These are added as extra implicit parameters so the SIR function can access them.
+    let mut globals: Vec<String> = Vec::new();
+    for line in text.lines() {
+        if line.contains("getelementptr") && line.contains(" ptr @") {
+            if let Some(at) = line.find(" ptr @") {
+                let after = &line[at + 5..];
+                if let Some(comma) = after.find(',') {
+                    let gname = after[..comma].trim().trim_start_matches('@').to_string();
+                    if !gname.starts_with("llvm.") && !globals.contains(&gname) {
+                        globals.push(gname);
+                    }
+                }
+            }
+        }
+    }
+
+    // Add globals as extra Array<u8, 256> parameters
+    let mut global_param_names: Vec<String> = Vec::new();
+    for gname in &globals {
+        global_param_names.push(format!("__glob_{}", gname));
+    }
+    for pname in &global_param_names {
+        sir_params.push((
+            pname.as_str(),
+            Type::Array { element: Box::new(Type::u8()), length: 256 },
+        ));
+    }
+
     let mut builder = Builder::new(&ir.name, &sir_params, ret_ty);
+    let n_orig_params = ir.params.len();
 
     // Value map: LLVM value name → SIR NodeId
     let mut value_map: HashMap<String, NodeId> = HashMap::new();
@@ -514,6 +546,13 @@ pub fn lower(text: &str) -> Result<Function, String> {
     for (i, (name, _)) in ir.params.iter().enumerate() {
         let node_id = builder.parameter_index(i).unwrap();
         value_map.insert(name.clone(), node_id);
+    }
+
+    // Map global names to their extra parameter NodeIds
+    for (i, gname) in globals.iter().enumerate() {
+        let param_idx = n_orig_params + i;
+        let node_id = builder.parameter_index(param_idx).unwrap();
+        value_map.insert(gname.clone(), node_id);
     }
 
     // Detect loop structure: find the back-edge block (the one that branches to itself or to a predecessor)
@@ -1124,23 +1163,31 @@ fn emit_instruction(
 
         "getelementptr" => {
             // getelementptr inbounds i8, ptr %0, i64 %7
-            // This is buf[i] — model as ArrayAccess(base, index)
+            //   → buf[i] — model as ArrayAccess(base, index)
+            // getelementptr inbounds [256 x i8], ptr @table, i64 0, i64 %11
+            //   → table[%11] — multi-index GEP, skip index 0
             if inst.operands.len() < 3 {
                 return Err(format!("getelementptr needs type + ptr + index: {}", inst.raw));
             }
-            // operand 0: "inbounds i8" or "i8" — the element type
-            // operand 1: "ptr %0" — the base pointer
-            // operand 2: "i64 %7" — the index
+            // operand 0: "inbounds i8" or "inbounds [256 x i8]" — the element type
+            let elem_type_str = inst.operands[0].trim_start_matches("inbounds").trim();
+            let elem_ty = parse_type(elem_type_str).unwrap_or(Type::u8());
+
+            // operand 1: "ptr %0" or "ptr @table" — the base pointer
             let base_str = strip_type(&inst.operands[1]);
             let base = get_node_id(&base_str, value_map, params, builder, None)
                 .ok_or(format!("cannot resolve gep base '{}'", base_str))?;
-            let index_str = strip_type(&inst.operands[2]);
+
+            // Determine the index: for 3-operand GEP it's operand[2].
+            // For 4+ operand GEP (multi-index), skip the first index (0) and use the last.
+            let index_str = if inst.operands.len() >= 4 {
+                // Multi-index: use the last operand as the index, skip the first (0)
+                strip_type(inst.operands.last().unwrap())
+            } else {
+                strip_type(&inst.operands[2])
+            };
             let index = get_node_id(&index_str, value_map, params, builder, None)
                 .ok_or(format!("cannot resolve gep index '{}'", index_str))?;
-
-            // The element type from operand 0
-            let elem_type_str = inst.operands[0].trim_start_matches("inbounds").trim();
-            let elem_ty = parse_type(elem_type_str).unwrap_or(Type::u8());
 
             let node_id = builder.array_access(base, index, elem_ty, span)
                 .map_err(|e| format!("{:?}", e))?;
