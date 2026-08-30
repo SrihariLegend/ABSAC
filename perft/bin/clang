@@ -1,0 +1,3 @@
+#!/bin/bash
+# clang shim — maps clang flags to gcc equivalents
+exec gcc "$@"

@@ -5,7 +5,8 @@
   "return_type": "long long",
   "params": [
     { "name": "buf", "type": "const uint8_t *", "kind": "buffer", "size": 4096 },
-    { "name": "count", "type": "long", "kind": "scalar", "value": 4096 }
+    { "name": "count", "type": "long", "kind": "scalar", "value": 4096 },
+    { "name": "bitsinbyte", "type": "const uint64_t *", "kind": "buffer", "size": 256 }
   ],
   "iterations": 100000,
   "warmup": 1000,
