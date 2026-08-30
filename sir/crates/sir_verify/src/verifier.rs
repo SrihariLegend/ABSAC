@@ -391,12 +391,14 @@ impl<'a> Verifier<'a> {
                 // between operand and result (they can differ — that's the point).
                 NodeKind::Convert { operand, target_ty, .. } => {
                     if let Some(op_ty) = self.node_type(*operand) {
-                        if !op_ty.is_integer() {
+                        // Convert accepts any integer OR bool as the operand
+                        // (zext i1 to i64 is valid — bool is the common case)
+                        if !op_ty.is_integer() && !op_ty.is_bool() {
                             self.errors.push(VerificationError::TypeMismatch {
                                 node: node.id,
                                 kind: node.kind.clone(),
                                 input_index: 0,
-                                expected: Type::i32(), // any integer
+                                expected: Type::i32(), // any integer or bool
                                 actual: op_ty,
                             });
                         }

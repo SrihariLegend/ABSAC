@@ -802,8 +802,16 @@ fn lower_loop_function(
 
     // Now emit the exit block instructions
     if let Some(exit_lbl) = exit_label {
-        if let Some(&exit_idx) = ir.block_map.get(&exit_lbl) {
+        // Follow the block chain from the loop exit to the return.
+        // There may be intermediate blocks (e.g., post-loop and+zext before ret).
+        let mut current_label = exit_lbl;
+        let mut visited = std::collections::HashSet::new();
+        while let Some(&exit_idx) = ir.block_map.get(&current_label) {
+            if !visited.insert(exit_idx) {
+                break; // avoid cycles
+            }
             let exit_block = &ir.blocks[exit_idx];
+            let mut next_label = None;
             for inst in &exit_block.instructions {
                 if inst.opcode == "phi" {
                     // Exit block phi: resolve from loop output
@@ -814,7 +822,8 @@ fn lower_loop_function(
                     let _ty = parts[0];
                     let rest = parts.get(1).unwrap_or(&"");
 
-                    // Find the incoming from the loop block
+                    // Find the incoming value — try the loop block first,
+                    // then any other block that we've already processed.
                     let mut found_val = None;
                     let mut chars = rest.chars().peekable();
                     let mut in_bracket = false;
@@ -832,8 +841,17 @@ fn lower_loop_function(
                                 let val = pair_parts.get(0).cloned().unwrap_or_default();
                                 let label = pair_parts.get(1).cloned().unwrap_or_default();
                                 let label_trimmed = label.trim().trim_start_matches('%');
-                                if label_trimmed == loop_label.as_str() || label_trimmed == loop_label.as_str() {
+                                // Prefer the loop-block incoming, but accept any
+                                // incoming whose value is in the value_map.
+                                if label_trimmed == loop_label.as_str() {
                                     found_val = Some(val);
+                                } else if found_val.is_none() {
+                                    // Try to resolve from value_map (might be from
+                                    // an intermediate block we already processed).
+                                    let val_stripped = strip_type(&val);
+                                    if value_map.contains_key(&val_stripped) {
+                                        found_val = Some(val);
+                                    }
                                 }
                             }
                             ',' if in_bracket => {
@@ -862,11 +880,25 @@ fn lower_loop_function(
                         let ret_node = get_node_id(&ret_str, value_map, &ir.params, builder, None)
                             .ok_or(format!("cannot resolve return value '{}'", ret_str))?;
                         builder.return_value(ret_node, span).map_err(|e| format!("return error: {:?}", e))?;
+                    } else {
+                        // ret void — emit a Unit return
+                        let unit = builder.constant(ConstantData::Unit, Type::Unit, span);
+                        builder.return_value(unit, span).map_err(|e| format!("return error: {:?}", e))?;
+                    }
+                } else if inst.opcode == "br" {
+                    // Unconditional br: follow to the next block
+                    if inst.operands.len() == 1 {
+                        next_label = Some(inst.operands[0].trim_start_matches("label ").trim_start_matches('%').to_string());
                     }
                 } else {
                     // Other instructions in exit block
                     emit_instruction(inst, builder, value_map, &ir.params, span)?;
                 }
+            }
+            // Follow to the next block if there was an unconditional br
+            match next_label {
+                Some(lbl) => current_label = lbl,
+                None => break, // ret or conditional br — stop
             }
         }
     }
@@ -890,6 +922,10 @@ fn lower_straight_line(
                     let ret_node = get_node_id(&ret_str, value_map, &ir.params, builder, None)
                         .ok_or(format!("cannot resolve return value '{}'", ret_str))?;
                     builder.return_value(ret_node, span).map_err(|e| format!("return error: {:?}", e))?;
+                } else {
+                    // ret void
+                    let unit = builder.constant(ConstantData::Unit, Type::Unit, span);
+                    builder.return_value(unit, span).map_err(|e| format!("return error: {:?}", e))?;
                 }
             } else {
                 emit_instruction(inst, builder, value_map, &ir.params, span)?;
