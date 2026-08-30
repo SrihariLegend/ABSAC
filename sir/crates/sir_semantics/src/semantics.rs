@@ -959,6 +959,36 @@ impl SemanticEngine {
                     }
                 }
 
+                // Fallback: if no Array<Bool> collection was found, look for a
+                // non-boolean array indexed by a loop carried input (e.g., a byte
+                // buffer being iterated: buf[i] where i is a loop counter). This
+                // generalizes recognition to real-world byte/integer buffers.
+                if collection.is_none() {
+                    for node in func.arena.iter() {
+                        if region.nodes.contains(&node.id) {
+                            if let NodeKind::Loop { carried_inputs, .. } = &node.kind {
+                                for inner in func.arena.iter() {
+                                    if region.nodes.contains(&inner.id) {
+                                        if let NodeKind::ArrayAccess { base, index } = &inner.kind {
+                                            if carried_inputs.contains(index) {
+                                                if let Some(base_node) = func.get_node(*base) {
+                                                    if matches!(base_node.kind, NodeKind::Parameter { .. }) {
+                                                        collection = Some(*base);
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if collection.is_some() {
+                            break;
+                        }
+                    }
+                }
+
                 if let (Some(collection), Some(result)) = (collection, result_node) {
                     if let Some(desc) = self.structural_db.region_mut(region_id) {
                         if let (Some(scalar), Some(operator)) =
