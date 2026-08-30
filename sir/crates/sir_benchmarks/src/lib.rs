@@ -1,4 +1,6 @@
 pub mod framework;
+pub mod emit;
+pub mod real_kernels;
 pub mod hackers_delight;
 pub mod boolean_reductions;
 pub mod positional_search;
