@@ -399,14 +399,17 @@ fn get_node_id(
     if let Some(val) = parse_int_constant(&ref_str) {
         let span = Span::unknown();
         let ty = type_hint.unwrap_or(Type::u64());
-        let const_val = if val < 0 {
-            ConstantData::i64(val)
-        } else {
-            // Use the type hint to create the right constant
-            match &ty {
-                Type::Integer { signed: true, .. } => ConstantData::i64(val),
-                _ => ConstantData::u64(val as u64),
-            }
+        let const_val = match &ty {
+            Type::Integer { width: IntegerWidth::I8, signed: false, .. } => ConstantData::u8(val as u8),
+            Type::Integer { width: IntegerWidth::I8, signed: true, .. } => ConstantData::i8(val as i8),
+            Type::Integer { width: IntegerWidth::I16, signed: false, .. } => ConstantData::u16(val as u16),
+            Type::Integer { width: IntegerWidth::I16, signed: true, .. } => ConstantData::i16(val as i16),
+            Type::Integer { width: IntegerWidth::I32, signed: false, .. } => ConstantData::u32(val as u32),
+            Type::Integer { width: IntegerWidth::I32, signed: true, .. } => ConstantData::i32(val as i32),
+            Type::Integer { width: IntegerWidth::I64, signed: false, .. } => ConstantData::u64(val as u64),
+            Type::Integer { width: IntegerWidth::I64, signed: true, .. } => ConstantData::i64(val),
+            Type::Bool => ConstantData::boolean(val != 0),
+            _ => ConstantData::u64(val as u64),
         };
         return Some(builder.constant(const_val, ty, span));
     }
@@ -434,6 +437,52 @@ fn extract_first_function(text: &str) -> String {
         }
     }
     lines[start..].join("\n")
+}
+
+/// Lower a specific LLVM IR function (by name) to SIR.
+pub fn lower_function(text: &str, func_name: &str) -> Result<Function, String> {
+    let func_text = extract_function_by_name(text, func_name);
+    if func_text.is_empty() {
+        return Err(format!("function '{}' not found", func_name));
+    }
+    lower(&func_text)
+}
+
+/// Extract a specific function by name from LLVM IR text.
+fn extract_function_by_name(text: &str, name: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    for (i, line) in lines.iter().enumerate() {
+        if line.contains("define ") && line.contains(&format!("@{}", name)) {
+            // Found the function — extract until closing brace
+            for (j, end_line) in lines.iter().enumerate().skip(i + 1) {
+                if end_line.trim() == "}" {
+                    return lines[i..=j].join("\n");
+                }
+            }
+        }
+    }
+    String::new()
+}
+
+/// List all function names in the LLVM IR text.
+pub fn list_functions(text: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for line in text.lines() {
+        if line.contains("define ") && line.contains(" @") {
+            // Extract function name between @ and (
+            if let Some(at_pos) = line.find('@') {
+                let after_at = &line[at_pos + 1..];
+                if let Some(open_paren) = after_at.find('(') {
+                    let name = after_at[..open_paren].trim().to_string();
+                    // Skip intrinsic declarations
+                    if !name.starts_with("llvm.") && !name.starts_with("_") {
+                        names.push(name);
+                    }
+                }
+            }
+        }
+    }
+    names
 }
 
 /// Lower an LLVM IR function to SIR.
@@ -478,7 +527,6 @@ pub fn lower(text: &str) -> Result<Function, String> {
 
     if ir.blocks.len() < 2 {
         for (i, b) in ir.blocks.iter().enumerate() {
-            eprintln!("  block[{}] label='{}' insts={} preds={:?}", i, b.label, b.instructions.len(), b.preds);
         }
         return Err("function has too few blocks for the lowerer".to_string());
     }
@@ -488,7 +536,6 @@ pub fn lower(text: &str) -> Result<Function, String> {
     // The exit block also has phi nodes, but its incomings are from the entry and the loop block.
     for (i, b) in ir.blocks.iter().enumerate() {
         let has_phi = b.instructions.iter().any(|i| i.opcode == "phi");
-        eprintln!("  block[{}] label='{}' has_phi={} preds={:?}", i, b.label, has_phi, b.preds);
     }
     let loop_block_idx = ir.blocks.iter().position(|b| {
         // The loop block has a phi that references itself as an incoming block
@@ -521,6 +568,19 @@ fn lower_loop_function(
     value_map: &mut HashMap<String, NodeId>,
 ) -> Result<(), String> {
     let span = Span::unknown();
+
+    // Emit entry block instructions (non-branch) before the loop.
+    // The entry block often contains an initial comparison (e.g., icmp sgt n, 0)
+    // whose result is used by exit-block phis.
+    if loop_idx > 0 {
+        let entry_block = &ir.blocks[0];
+        for inst in &entry_block.instructions {
+            if inst.opcode == "br" || inst.opcode == "ret" {
+                continue;
+            }
+            emit_instruction(inst, builder, value_map, &ir.params, span)?;
+        }
+    }
 
     // The loop block has phi nodes. Each phi has two incoming values:
     // one from the entry (initial value) and one from the loop body (next value).
@@ -630,19 +690,28 @@ fn lower_loop_function(
 
     for (phi_result, init_str) in &carried_initials {
         let init_str = strip_type(init_str);
-        let node_id = if let Some(id) = get_node_id(&init_str, value_map, &ir.params, builder, None) {
+        let phi_ty = phis.iter().find(|p| &p.result == phi_result).map(|p| p.ty.as_str()).unwrap_or("i64");
+        let sir_ty = parse_type(phi_ty).unwrap_or(Type::u64());
+        let node_id = if let Some(id) = get_node_id(&init_str, value_map, &ir.params, builder, Some(sir_ty.clone())) {
             id
         } else if let Some(val) = parse_int_constant(&init_str) {
-            // Create a constant node
-            let ty = phis.iter().find(|p| &p.result == phi_result).map(|p| p.ty.as_str()).unwrap_or("i64");
-            let sir_ty = parse_type(ty).unwrap_or(Type::u64());
-            let const_val = if val < 0 {
-                ConstantData::i64(val)
-            } else {
-                ConstantData::u64(val as u64)
+            // Create a constant node with the PHI's declared type
+            let const_val = match &sir_ty {
+                Type::Integer { width: IntegerWidth::I8, signed: false, .. } => ConstantData::u8(val as u8),
+                Type::Integer { width: IntegerWidth::I8, signed: true, .. } => ConstantData::i8(val as i8),
+                Type::Integer { width: IntegerWidth::I16, signed: false, .. } => ConstantData::u16(val as u16),
+                Type::Integer { width: IntegerWidth::I16, signed: true, .. } => ConstantData::i16(val as i16),
+                Type::Integer { width: IntegerWidth::I32, signed: false, .. } => ConstantData::u32(val as u32),
+                Type::Integer { width: IntegerWidth::I32, signed: true, .. } => ConstantData::i32(val as i32),
+                Type::Integer { width: IntegerWidth::I64, signed: false, .. } => ConstantData::u64(val as u64),
+                Type::Integer { width: IntegerWidth::I64, signed: true, .. } => ConstantData::i64(val),
+                Type::Bool => ConstantData::boolean(val != 0),
+                _ => ConstantData::u64(val as u64),
             };
             builder.constant(const_val, sir_ty, span)
         } else {
+            // The initial value might be defined in the entry block (e.g., a load).
+            // Try to emit entry block instructions to resolve it.
             return Err(format!("cannot resolve initial value '{}' for phi {}", init_str, phi_result));
         };
         carried_init_nodes.push(node_id);
@@ -672,7 +741,6 @@ fn lower_loop_function(
     }
 
     for inst in &loop_block.instructions {
-        eprintln!("  opcode='{}' operands={:?} result={:?}", inst.opcode, inst.operands, inst.result);
     }
 
     // Find the termination condition: the conditional br at the end of the loop block
@@ -844,7 +912,7 @@ fn emit_instruction(
     let result_name = inst.result.clone();
 
     match inst.opcode.as_str() {
-        "add" | "sub" | "mul" | "and" | "or" | "xor" | "shl" | "lshr" | "ashr" => {
+        "add" | "sub" | "mul" | "and" | "or" | "xor" | "shl" | "lshr" | "ashr" | "udiv" | "sdiv" | "urem" | "srem" => {
             // Binary op: operands are like "i64 %7, i64 %1" or "i8 %10, 1"
             if inst.operands.len() < 2 {
                 return Err(format!("{} needs 2 operands: {}", inst.opcode, inst.raw));
@@ -869,6 +937,8 @@ fn emit_instruction(
                 "shl" => builder.shl(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
                 "lshr" => builder.shr(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
                 "ashr" => builder.shr(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
+                "udiv" | "sdiv" => builder.div(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
+                "urem" | "srem" => builder.rem(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
                 _ => unreachable!(),
             };
 
