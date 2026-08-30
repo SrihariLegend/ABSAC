@@ -927,16 +927,28 @@ fn emit_instruction(
             let rhs = get_node_id(&rhs_str, value_map, params, builder, op_type)
                 .ok_or(format!("cannot resolve rhs '{}' in {}", rhs_str, inst.raw))?;
 
+            let is_bool = inst.operands[0].split_whitespace().next()
+                .map(|t| t == "i1")
+                .unwrap_or(false);
             let node_id = match inst.opcode.as_str() {
                 "add" => builder.add(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
                 "sub" => builder.sub(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
                 "mul" => builder.mul(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
+                "and" if is_bool => builder.bool_and(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
                 "and" => builder.bit_and(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
+                "or" if is_bool => builder.bool_or(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
                 "or" => builder.bit_or(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
+                "xor" if is_bool => {
+                    // SIR has no BoolXor. Convert bools to i8, bit_xor, return i8.
+                    let lhs_i8 = builder.convert(lhs, Type::u8(), sir_nodes::ConvertKind::ZeroExtend, span)
+                        .map_err(|e| format!("{:?}", e))?;
+                    let rhs_i8 = builder.convert(rhs, Type::u8(), sir_nodes::ConvertKind::ZeroExtend, span)
+                        .map_err(|e| format!("{:?}", e))?;
+                    builder.bit_xor(lhs_i8, rhs_i8, span).map_err(|e| format!("{:?}", e))?
+                }
                 "xor" => builder.bit_xor(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
                 "shl" => builder.shl(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
-                "lshr" => builder.shr(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
-                "ashr" => builder.shr(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
+                "lshr" | "ashr" => builder.shr(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
                 "udiv" | "sdiv" => builder.div(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
                 "urem" | "srem" => builder.rem(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
                 _ => unreachable!(),
@@ -960,7 +972,9 @@ fn emit_instruction(
                 return Err(format!("icmp needs cmp_type + type + lhs + rhs: {}", inst.raw));
             }
             let cmp_type = parts[0].trim();
-            // parts[1] is the type, parts[2] is "lhs, rhs"
+            // parts[1] is the type (e.g., "i8", "i64", "i1")
+            let cmp_ty = parse_type(parts[1].trim());
+            // parts[2] is "lhs, rhs"
             let remaining = parts[2];
             let comma_parts: Vec<&str> = remaining.splitn(2, ',').collect();
             if comma_parts.len() < 2 {
@@ -968,9 +982,9 @@ fn emit_instruction(
             }
             let lhs_str = strip_type(comma_parts[0].trim());
             let rhs_str = strip_type(comma_parts[1].trim());
-            let lhs = get_node_id(&lhs_str, value_map, params, builder, None)
+            let lhs = get_node_id(&lhs_str, value_map, params, builder, cmp_ty.clone())
                 .ok_or(format!("cannot resolve lhs '{}' in {}", lhs_str, inst.raw))?;
-            let rhs = get_node_id(&rhs_str, value_map, params, builder, None)
+            let rhs = get_node_id(&rhs_str, value_map, params, builder, cmp_ty)
                 .ok_or(format!("cannot resolve rhs '{}' in {}", rhs_str, inst.raw))?;
 
             let node_id = match cmp_type {
@@ -1099,6 +1113,26 @@ fn emit_instruction(
                 value_map.insert(name, node_id);
             }
             Ok(Some(node_id))
+        }
+
+        "store" => {
+            // store i8 %result, ptr %out_ptr
+            // SIR Store { ptr, value } → returns Unit
+            if inst.operands.len() < 2 {
+                return Err(format!("store needs value + ptr: {}", inst.raw));
+            }
+            // operand 0: "i8 %result" (the value)
+            // operand 1: "ptr %out_ptr" (the pointer)
+            let val_str = strip_type(&inst.operands[0]);
+            let ptr_str = strip_type(&inst.operands[1]);
+            let val = get_node_id(&val_str, value_map, params, builder, None)
+                .ok_or(format!("cannot resolve store value '{}'", val_str))?;
+            let ptr = get_node_id(&ptr_str, value_map, params, builder, None)
+                .ok_or(format!("cannot resolve store ptr '{}'", ptr_str))?;
+            let _node_id = builder.store(ptr, val, span)
+                .map_err(|e| format!("{:?}", e))?;
+            // Store produces no value (Unit) — don't insert into value_map
+            Ok(None)
         }
 
         "br" | "ret" | "phi" => {
