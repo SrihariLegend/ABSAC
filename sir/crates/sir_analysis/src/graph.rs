@@ -52,6 +52,9 @@ pub fn dataflow_inputs(kind: &NodeKind) -> Vec<NodeId> {
         // Pack: wraps an array value.
         NodeKind::Pack { array } => vec![*array],
 
+        // Convert: wraps a single operand.
+        NodeKind::Convert { operand, .. } => vec![*operand],
+
         // Select: condition + two value branches.
         NodeKind::Select {
             cond,

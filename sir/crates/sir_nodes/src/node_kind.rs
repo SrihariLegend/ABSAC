@@ -13,6 +13,17 @@ pub enum CmpOperator {
     Ge,
 }
 
+/// The kind of type conversion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ConvertKind {
+    /// Zero-extend: pad with zeros (e.g., u8 → u64).
+    ZeroExtend,
+    /// Sign-extend: replicate the sign bit (e.g., i8 → i64).
+    SignExtend,
+    /// Truncate: keep the low bits (e.g., i64 → i8).
+    Truncate,
+}
+
 /// The kind of a node in the SIR graph.
 ///
 /// `NodeKind` enumerates every operation the IR can represent. Each variant
@@ -82,6 +93,13 @@ pub enum NodeKind {
         array: NodeId,
         scalar: NodeId,
         op: CmpOperator,
+    },
+    /// Type conversion (zero-extend, sign-extend, truncate).
+    /// The operand has one integer type, the result has another.
+    Convert {
+        operand: NodeId,
+        target_ty: Type,
+        kind: ConvertKind,
     },
 
     // ── Comparisons ─────────────────────────────────────────
@@ -190,6 +208,7 @@ impl NodeKind {
             NodeKind::TrailingZeros { .. } => "TrailingZeros",
             NodeKind::Pack { .. } => "Pack",
             NodeKind::ArrayCmpMask { .. } => "ArrayCmpMask",
+            NodeKind::Convert { .. } => "Convert",
             NodeKind::Eq { .. } => "Eq",
             NodeKind::Ne { .. } => "Ne",
             NodeKind::Lt { .. } => "Lt",
@@ -253,6 +272,7 @@ impl NodeKind {
             | NodeKind::Deallocate { ptr: operand } => vec![*operand],
             NodeKind::Pack { array } => vec![*array],
             NodeKind::ArrayCmpMask { array, scalar, .. } => vec![*array, *scalar],
+            NodeKind::Convert { operand, .. } => vec![*operand],
             NodeKind::Select {
                 cond,
                 true_val,

@@ -387,6 +387,32 @@ impl<'a> Verifier<'a> {
                     let _ = self.node_type(*scalar);
                 }
 
+                // Convert: operand is any integer, result is target_ty. No type constraint
+                // between operand and result (they can differ — that's the point).
+                NodeKind::Convert { operand, target_ty, .. } => {
+                    if let Some(op_ty) = self.node_type(*operand) {
+                        if !op_ty.is_integer() {
+                            self.errors.push(VerificationError::TypeMismatch {
+                                node: node.id,
+                                kind: node.kind.clone(),
+                                input_index: 0,
+                                expected: Type::i32(), // any integer
+                                actual: op_ty,
+                            });
+                        }
+                    }
+                    // Result type should match target_ty
+                    if node.ty != *target_ty {
+                        self.errors.push(VerificationError::TypeMismatch {
+                            node: node.id,
+                            kind: node.kind.clone(),
+                            input_index: 0,
+                            expected: target_ty.clone(),
+                            actual: node.ty.clone(),
+                        });
+                    }
+                }
+
                 // Comparisons: operands must be same type. Result is Bool (checked by node.ty).
                 NodeKind::Eq { lhs, rhs }
                 | NodeKind::Ne { lhs, rhs }

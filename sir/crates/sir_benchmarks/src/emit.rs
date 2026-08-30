@@ -198,6 +198,16 @@ fn emit_expr(
         NodeKind::ArrayAccess { base, index } => {
             format!("{}[{}]", emit_operand(*base, func, carrier_map), emit_operand(*index, func, carrier_map))
         }
+        NodeKind::Convert { operand, kind, .. } => {
+            // Emit the appropriate C cast. For zero-extend/truncate, use (target_type)value.
+            let o = emit_operand(*operand, func, carrier_map);
+            let target_c = c_type(&node.ty);
+            match kind {
+                sir_nodes::ConvertKind::ZeroExtend | sir_nodes::ConvertKind::SignExtend | sir_nodes::ConvertKind::Truncate => {
+                    format!("(({}) {})", target_c, o)
+                }
+            }
+        }
         NodeKind::TupleExtract { index, .. } => {
             // Loop output variable: o_{index}
             format!("o_{}", index)

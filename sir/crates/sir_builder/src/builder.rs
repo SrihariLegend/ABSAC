@@ -443,6 +443,18 @@ impl Builder {
         Ok(self.alloc_node(NodeKind::Pack { array }, bv_ty, Effects::empty(), span))
     }
 
+    /// Create a Convert node: zero-extend, sign-extend, or truncate.
+    pub fn convert(
+        &mut self,
+        operand: NodeId,
+        target_ty: Type,
+        kind: sir_nodes::ConvertKind,
+        span: Span,
+    ) -> Result<NodeId, BuildError> {
+        let _ = self.get_node(operand)?;
+        Ok(self.alloc_node(NodeKind::Convert { operand, target_ty: target_ty.clone(), kind }, target_ty, Effects::empty(), span))
+    }
+
     // ── Comparisons ─────────────────────────────────────────
 
     fn comparison(

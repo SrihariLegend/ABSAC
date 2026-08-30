@@ -281,6 +281,11 @@ impl RewriteBuilder {
             NodeKind::Pack { array } => NodeKind::Pack {
                 array: resolve(array)?,
             },
+            NodeKind::Convert { operand, target_ty, kind } => NodeKind::Convert {
+                operand: resolve(operand)?,
+                target_ty: target_ty.clone(),
+                kind: *kind,
+            },
             NodeKind::ArrayCmpMask { array, scalar, op } => NodeKind::ArrayCmpMask {
                 array: resolve(array)?,
                 scalar: resolve(scalar)?,
@@ -498,6 +503,11 @@ impl RewriteBuilder {
                 false_val: r(false_val),
             },
             NodeKind::Pack { array } => NodeKind::Pack { array: r(array) },
+            NodeKind::Convert { operand, target_ty, kind } => NodeKind::Convert {
+                operand: r(operand),
+                target_ty: target_ty.clone(),
+                kind: *kind,
+            },
             NodeKind::ArrayCmpMask { array, scalar, op } => NodeKind::ArrayCmpMask {
                 array: r(array),
                 scalar: r(scalar),
