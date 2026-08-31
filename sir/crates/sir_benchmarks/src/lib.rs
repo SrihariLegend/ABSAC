@@ -8,6 +8,8 @@ pub mod failures;
 pub mod non_optimizable;
 pub mod composition;
 pub mod graph;
+pub mod vector_plan;
+pub mod vector_emit;
 
 use framework::BenchmarkDef;
 

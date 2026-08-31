@@ -100,7 +100,14 @@ fn emit_operand(
             let idx = node.id.as_u64() as usize;
             func.params
                 .get(idx)
-                .map(|p| p.name.clone())
+                .map(|p| {
+                    // Sanitize LLVM auto-generated names like %0, %1
+                    if p.name.starts_with('%') {
+                        format!("p{}", idx)
+                    } else {
+                        p.name.clone()
+                    }
+                })
                 .unwrap_or_else(|| format!("p{}", idx))
         }
         NodeKind::Constant(_) => emit_expr(node, func, carrier_map),
@@ -230,11 +237,17 @@ pub fn emit_c(func: &Function) -> String {
         .iter()
         .enumerate()
         .map(|(i, p)| {
+            // Sanitize LLVM auto-generated names like %0, %1
+            let pname = if p.name.starts_with('%') {
+                format!("p{}", i)
+            } else {
+                p.name.clone()
+            };
             if let Type::Array { element, .. } = &p.ty {
                 // Arrays decay to pointers in C function params
-                format!("const {} *{}", c_type(element), p.name)
+                format!("const {} *{}", c_type(element), pname)
             } else {
-                format!("{} {}", c_type(&p.ty), p.name)
+                format!("{} {}", c_type(&p.ty), pname)
             }
         })
         .collect();
@@ -341,12 +354,16 @@ fn emit_loop(loop_node: &Node, func: &Function, out: &mut String) {
     out.push_str("    while (1) {\n");
 
     // Emit ALL body nodes (except carried inputs) as variable assignments.
-    // This includes output and termination nodes — they need to be computed
-    // before we can assign outputs and check the termination condition.
+    // Deduplicate: the lowerer may map multiple LLVM values to the same
+    // SIR node (e.g., load pass-through from GEP). Track emitted nodes.
     let skip_set: std::collections::HashSet<NodeId> = carried_inputs.iter().copied().collect();
+    let mut emitted: std::collections::HashSet<NodeId> = std::collections::HashSet::new();
     for &node_id in body {
         if skip_set.contains(&node_id) {
             continue;
+        }
+        if !emitted.insert(node_id) {
+            continue; // already emitted this node
         }
         let node = func.get_node(node_id).unwrap();
         let ty = c_type(&node.ty);

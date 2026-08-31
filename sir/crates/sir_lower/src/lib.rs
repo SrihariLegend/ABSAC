@@ -831,12 +831,26 @@ fn lower_loop_function(
     ).map_err(|e| format!("loop build error: {:?}", e))?;
 
     // Map phi results to the loop outputs (via TupleExtract)
+    let mut extract_for_output: Vec<NodeId> = Vec::new();
     for (i, phi_result) in carried_names.iter().enumerate() {
         let output_ty = builder.function().get_node(output_nodes[i])
             .map(|n| n.ty.clone())
             .unwrap_or(Type::u64());
         let extract = builder.tuple_extract(loop_node, i, output_ty, span).unwrap();
         value_map.insert(phi_result.clone(), extract);
+        extract_for_output.push(extract);
+    }
+
+    // Also map the "next" values (output_nodes) to their TupleExtracts.
+    // This ensures that exit-block phis referencing output values
+    // (e.g., %5 = phi [0, %entry], [%13, %loop]) resolve to the
+    // TupleExtract, not the loop body node.
+    // We FORCE remap here (overwriting the carried-init mapping from line 766)
+    // because the carried-init mapping was only for body emission, and
+    // the exit block needs the TupleExtract.
+    for (i, (_, next_str)) in carried_nexts.iter().enumerate() {
+        let next_str = strip_type(next_str);
+        value_map.insert(next_str, extract_for_output[i]);
     }
 
     // Now emit the exit block instructions
@@ -906,7 +920,14 @@ fn lower_loop_function(
 
                     if let Some(val) = found_val {
                         let val = strip_type(&val);
-                        if let Some(id) = get_node_id(&val, value_map, &ir.params, builder, None) {
+                        // Check if this value was already remapped to a TupleExtract
+                        // (loop phi results are remapped earlier). If so, use that.
+                        if let Some(id) = value_map.get(&val) {
+                            // Already remapped — use the existing mapping (TupleExtract)
+                            if let Some(result) = &inst.result {
+                                value_map.insert(result.clone(), id.clone());
+                            }
+                        } else if let Some(id) = get_node_id(&val, value_map, &ir.params, builder, None) {
                             if let Some(result) = &inst.result {
                                 value_map.insert(result.clone(), id);
                             }
