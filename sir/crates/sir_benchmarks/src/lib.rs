@@ -11,6 +11,7 @@ pub mod graph;
 pub mod vector_plan;
 pub mod vector_emit;
 pub mod compositional_proof;
+pub mod gate5a;
 
 use framework::BenchmarkDef;
 
