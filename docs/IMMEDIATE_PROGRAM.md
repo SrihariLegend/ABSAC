@@ -108,9 +108,22 @@ If this fails, MCTS is unjustified for the current action space.
 
 ### Gate 6: Generalization
 
+```
+Gate 6A: FAILED — 50% false-positive recognition on held-out negatives
+         3/6 negative cases incorrectly recognized as CardinalityReduction
+         Root causes: volatile not tracked, stride not checked,
+         accumulator independence not checked
+         See docs/GATE6A_RESULTS.md
+
+Gate 6B: NOT TESTED — reserved for unseen fusion opportunities
+         (must fix 6A safety issues first)
+```
+
 Pass when:
 
-- the system produces verified wins on held-out real kernels.
+- the system produces verified wins on held-out real kernels;
+- false-positive recognition rate is negligible;
+- safe abstention works correctly.
 
 Only after Gate 6 should the general Arena become a major implementation effort.
 

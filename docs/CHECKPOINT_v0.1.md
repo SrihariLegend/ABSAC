@@ -70,7 +70,8 @@ Gate 5A:  COMPLETE Target-plan landscape (69 plans, E0 within 0-14%)
 Gate 5B-W:  PASSED Hand-constructed fusion witness (28-35%)
 Gate 5B-A:  OPEN   Automated fusion from primitive actions
 Gate 5B-S:  OPEN   Search discovers fusion
-Gate 6:   NOT TESTED  Held-out generalization
+Gate 6A:  FAILED   50% false-positive recognition on held-out negatives
+Gate 6:   NOT TESTED  Held-out generalization (after safety fixes)
 ```
 
 ## Revised Next Sequence
