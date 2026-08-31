@@ -73,16 +73,36 @@ If this fails, improve ontology/lowering — not search.
 
 ### Gate 4: Concrete correctness
 
-Pass when:
+```
+Gate 4A: PASSED — compositional correctness argument
+                    + extensive adversarial validation (16.8M tests, ASan + UBSan)
 
-- the actual source and generated candidate are concretely verified;
-- adversarial differential testing passes.
+Gate 4B: OPEN   — mechanically checked concrete end-to-end equivalence
+```
+
+The six lemmas are human-written mathematical arguments supported by
+testing. They are NOT machine-checked proofs. Gate 4B requires solver
+verification of per-chunk identities, loop invariant, tail decomposition,
+region binding, and intrinsic semantics.
 
 ### Gate 5: Search value
 
-Pass when:
+```
+Gate 5A: COMPLETE — target-plan search landscape mapped
+    69 plans enumerated, Engine 0 within 0-14% of measured best.
+    Deterministic selection captures most of the benefit.
+    No MCTS needed at this scale.
 
-- bounded exhaustive or beam search finds a profitable sequence that Engine 0 misses.
+Gate 5B-Witness: PASSED — hand-constructed semantic composition
+    Multi-reduction fusion provides 28-35% improvement over
+    independent vectorization. No single recipe contains this.
+
+Gate 5B-Automation: OPEN — ABSAC has not yet generated the fusion
+    from primitive actions.
+
+Gate 5B-Search: OPEN — search has not yet been shown to discover
+    the fusion when Engine 0 does not.
+```
 
 If this fails, MCTS is unjustified for the current action space.
 

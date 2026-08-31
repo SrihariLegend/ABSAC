@@ -1,13 +1,24 @@
-# Gate 5B — Semantic Composition Search
+# Gate 5B — Semantic Composition
 
 ## Date: 2025-07-14
-## Status: PASSED (proof of concept)
+## Status
 
-## Objective
+```
+Gate 5B-Witness:    PASSED — hand-constructed semantic composition
+                        provides 28-35% improvement.
 
-Determine whether search can construct an optimization from primitive
-semantic actions that the deterministic pipeline does not already contain
-as one complete recipe.
+Gate 5B-Automation: OPEN   — ABSAC has not yet generated the fusion
+                        from primitive actions.
+
+Gate 5B-Search:     OPEN   — search has not yet been shown to discover
+                        it when Engine 0 does not.
+```
+
+What has been confirmed: a valuable compositional transformation exists
+and can be represented as a combination of semantic operations.
+
+What has not been confirmed: ABSAC search automatically discovers and
+constructs it.
 
 ## Challenge: Multi-Reduction Fusion
 
@@ -103,49 +114,59 @@ ALL CORRECTNESS TESTS PASSED.
    (35% vs 28%) because the All reduction can't early-exit (all bytes
    match), so the savings from sharing the load are fully realized.
 
-## Gate 5B Pass Condition Assessment
+## Objective
 
-> A strong pass requires all of:
-> 1. The final implementation is not directly encoded as one benchmark-specific recipe. ✓
-> 2. Search composes reusable primitive actions. ✓ (recognize + fuse + select)
-> 3. Engine 0 does not find the final candidate. ✓ (Engine 0 vectorizes each loop independently)
-> 4. Bounded exhaustive search establishes that a better candidate exists. ✓ (fused is measured better)
-> 5. Beam or another search strategy finds it under a smaller budget. N/A (hand-constructed for now)
-> 6. The candidate is concretely validated or proven. ✓ (differential testing 0-200)
-> 7. The measured improvement is statistically meaningful. ✓ (28-35%, well above noise)
-> 8. The result survives syntactic variants of the source. NOT YET TESTED
+Determine whether a valuable compositional transformation exists that
+the deterministic pipeline does not already contain as one complete recipe,
+and whether search can discover it from primitive actions.
 
-**Status: Proof of concept PASSED.** Items 5 and 8 require further work.
+## What This Confirms
 
-The fusion was hand-constructed, not discovered by search. To fully pass
-Gate 5B, a search system must discover this fusion from primitive actions
-without being told the answer. This is future work.
+A valuable compositional transformation exists:
 
-However, the proof of concept demonstrates:
-- The fusion opportunity exists and is measurable (28-35%)
-- The deterministic pipeline misses it (3vec vs fused)
-- The composition is from reusable primitives (same recognizers + a new fusion action)
-- The result is correct and statistically meaningful
+```text
+Recognize 3 reductions + fuse traversals + select targets
+→ 28-35% improvement over independent vectorization
+```
 
-## What This Proves
+No single registered recipe contains this. The deterministic pipeline
+(Engine 0) vectorizes each loop independently and misses the cross-reduction
+sharing opportunity.
 
-The multi-reduction fusion demonstrates that **semantic composition
-can discover optimizations beyond per-loop vectorization**. The key
-insight is that semantic recognition reveals shared structure (same
-buffer, same traversal) that a syntactic per-loop vectorizer cannot
-exploit.
+## What This Does NOT Confirm
 
-This is evidence for Outcome 3 (search composes new transformations),
-though the search system itself has not yet been built. The fusion
-was hand-constructed to prove the opportunity exists.
+ABSAC search has not yet automatically discovered or constructed this
+fusion from primitive actions. The fused implementation was hand-written
+to prove the opportunity exists. Gate 5B-Automation and Gate 5B-Search
+remain open.
 
-## Three Legitimate Outcomes Assessment
+## Early-Exit Interaction
+
+`All` has early-exit behavior, while `Sum` and `Cardinality` require
+scanning the entire input. In a fused implementation, the early exit is
+lost because `Sum` and `Cardinality` require the full traversal anyway.
+
+This is functionally correct (timing is not observable), but profitability
+depends on workload distribution:
+
+```
+All alone (random data): early exit → 139× speedup
+All fused (random data): no early exit, but shared load → still fast
+All fused (all_equal): no early exit possible → fusion is pure win
+```
+
+The cost model must distinguish these cases. This makes the current
+witness an excellent future training example for context-dependent
+optimization.
+
+## Accurate Outcome Status
 
 | Outcome | Status |
 |---------|--------|
-| 1. Deterministic lowering is enough | Partially confirmed for single-loop plans |
-| 2. Search helps select plans | Confirmed at margin (8-14% from Gate 5A) |
-| 3. Search composes new transformations | **Proof of concept confirmed** (28-35% from fusion) |
+| Deterministic lowering is enough | Confirmed for most single-loop target selection |
+| Search helps target-plan selection | Confirmed marginally, up to 14% |
+| Semantic composition creates additional value | Confirmed, 28-35% |
+| Search automatically composes transformations | Not yet confirmed |
 
 ## No MCTS Needed Yet
 
