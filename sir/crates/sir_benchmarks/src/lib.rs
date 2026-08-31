@@ -10,6 +10,7 @@ pub mod composition;
 pub mod graph;
 pub mod vector_plan;
 pub mod vector_emit;
+pub mod compositional_proof;
 
 use framework::BenchmarkDef;
 

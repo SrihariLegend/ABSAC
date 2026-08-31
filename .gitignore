@@ -18,3 +18,5 @@ Thumbs.db
 # Dirac
 .dirac-cache/
 
+gate4/differential
+gate4/differential_asan
