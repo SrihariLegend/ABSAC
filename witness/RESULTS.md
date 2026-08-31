@@ -135,9 +135,9 @@ Clang loads 4 bytes, compares, widens to 64-bit, and accumulates with
 iteration group, with the comparison result occupying only 4 of 32
 vector lanes.
 
-#### GCC: wide vectors + wrong reduction algorithm
+#### GCC: wide vectors + less efficient reduction structure
 
-GCC uses 32-byte vectors (correct width) but the wrong reduction
+GCC uses 32-byte vectors (correct width) but the less efficient reduction
 algorithm. The assembly for k50 shows:
 
 ```
@@ -173,10 +173,10 @@ semantic operation:
 
 `vpmovmskb` extracts 32 comparison results into a 32-bit GPR in one
 instruction. `popcntl` counts them in one instruction. This is the
-optimal algorithm for Cardinality — but neither compiler selects it.
+best observed target instruction for Cardinality — but neither compiler selects it.
 
 `vpsadbw` computes the sum of 8 unsigned bytes against zero in one
-instruction, producing 16-bit sums directly. This is the optimal
+instruction, producing 16-bit sums directly. This is the best observed
 algorithm for byte-Sum — but neither compiler selects it.
 
 ### Why semantic recognition enables this
@@ -190,7 +190,7 @@ the vector is profitable, considering:
 - target cost model
 
 A semantic recognizer sees `Cardinality(PredicateMap(buf, λx. (x & mask) == target))`
-and knows directly that the optimal implementation is:
+and knows directly that the best observed target plan is:
 ```
 for each 32-byte chunk:
     mask = AND(chunk, broadcast(mask))
@@ -200,7 +200,7 @@ for each 32-byte chunk:
 ```
 
 The semantic interpretation bypasses the cost model entirely. It maps
-each reduction type to its optimal vector algorithm:
+each reduction type to its best observed target instruction:
 - Cardinality → movemask + popcount
 - Sum → psadbw + accumulate
 - All → movemask + full-mask test (with early exit)
@@ -257,15 +257,15 @@ auto-vectorizing the loops. The headroom has two distinct causes:
 
 1. **Clang: narrow vectors + lane-wise accumulation.** Clang chooses
    VF=4 (4-byte vectors) and uses lane-wise accumulation (vpaddq).
-   Both width and algorithm are suboptimal.
+   Both width and algorithm are less efficient than the semantic plan.
 
-2. **GCC: wide vectors + wrong reduction algorithm.** GCC uses correct
-   32-byte vectors but selects the wrong reduction algorithm (vector
+2. **GCC: wide vectors + less efficient reduction structure.** GCC uses correct
+   32-byte vectors but selects a less efficient reduction structure (vector
    AND tower instead of movemask+popcount for Cardinality; zero-extend
-   + add instead of psadbw for Sum). Width is correct but algorithm is
-   suboptimal.
+   + add instead of psadbw for Sum). Width is correct but the reduction
+   structure is less efficient than the semantic plan.
 
-The semantic interpretation maps each reduction type to its optimal
+The semantic interpretation maps each reduction type to its best observed
 vector algorithm, bypassing both limitations. This is aligned with
 ABSAC's semantic thesis.
 

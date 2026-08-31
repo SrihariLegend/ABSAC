@@ -77,7 +77,7 @@ The headroom has two distinct causes for the two compilers:
 #### Clang: narrow vectors + lane-wise accumulation
 
 Clang uses VF=4 (4-byte vectors) and lane-wise accumulation (`vpaddq`).
-Both width and algorithm are suboptimal.
+Both width and algorithm are less efficient than the semantic plan.
 
 ```
 vmovd    (%rdi,%rax), %xmm7      # 4-byte load
@@ -87,9 +87,9 @@ vpand    %ymm3, %ymm7, %ymm7     # widen result
 vpaddq   %ymm7, %ymm1, %ymm1     # accumulate
 ```
 
-#### GCC: wide vectors + wrong reduction algorithm
+#### GCC: wide vectors + less efficient reduction structure
 
-GCC uses 32-byte vectors (correct width) but the wrong reduction
+GCC uses 32-byte vectors (correct width) but less efficient reduction
 algorithm. For k50, it uses a tower of `vextracti128` + `vpand` instead
 of `vpmovmskb` + `popcnt`:
 
@@ -106,7 +106,7 @@ then add) instead of `vpsadbw` (packed byte sum in one instruction).
 
 #### ABSAC: semantic algorithm selection
 
-ABSAC selects the optimal vector reduction instruction for each semantic
+ABSAC selects the best observed target instruction for each semantic
 operation:
 
 | Semantic operation | Clang's algorithm | GCC's algorithm | ABSAC's algorithm |
@@ -117,10 +117,10 @@ operation:
 
 `vpmovmskb` extracts 32 comparison results into a 32-bit GPR in one
 instruction. `popcntl` counts them in one instruction. This is the
-optimal algorithm for Cardinality — but neither compiler selects it.
+best observed target instruction for Cardinality — but neither compiler selects it.
 
 `vpsadbw` computes the sum of 8 unsigned bytes in one instruction. This
-is the optimal algorithm for byte-Sum — but neither compiler selects it.
+is the best observed target instruction for byte-Sum — but neither compiler selects it.
 
 **Semantic knowledge selects a better reduction algorithm, not merely a
 larger vector width.**
@@ -150,9 +150,9 @@ The Gate 3 implementation adds two modules to `sir_benchmarks`:
 
 1. **Semantic recognition selects a better reduction algorithm.** clang
    vectorizes at VF=4 with lane-wise accumulation. GCC vectorizes at VF=32
-   but uses the wrong reduction algorithm (vector AND tower instead of
+   but uses the less efficient reduction structure (vector AND tower instead of
    movemask+popcount; zero-extend+add instead of psadbw). ABSAC's semantic
-   recognition maps each reduction type to its optimal vector instruction.
+   recognition selects the best observed target instruction for each semantic operation.
 
 2. **ABSAC-generated code matches expert hand-written code.** ABSAC and
    the hand-written witness are in the same performance band — both are

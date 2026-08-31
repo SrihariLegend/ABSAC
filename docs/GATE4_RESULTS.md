@@ -1,13 +1,41 @@
-# Gate 4 — Concrete Correctness: Final Results
+# Gate 4 — Concrete Correctness: Results
 
 ## Date: 2025-07-14
-## Status: PASSED (compositional proof + 16.8M differential tests)
+## Status
+
+```
+Gate 4A: PASSED — compositional correctness argument
+                    + extensive adversarial validation
+
+Gate 4B: OPEN   — mechanically checked concrete end-to-end equivalence
+```
+
+The six lemmas below are human-written mathematical arguments supported
+by 16,869,913 differential tests. They are NOT machine-checked proofs.
+The per-byte and chunk lemmas are algebraic identities (true by the
+definition of x86 intrinsics), and the loop invariant is an induction
+argument. These are valid mathematical reasoning, but no solver or
+proof checker has verified them against a formal model of the AVX2
+instruction semantics.
+
+Gate 4B would require:
+1. The actual source SIR region is mechanically bound to the theorem's operands.
+2. The actual generated vector plan is encoded — not an idealized stand-in.
+3. The per-chunk identities are proven by a solver/proof checker.
+4. The loop invariant covers arbitrary valid n (mechanically).
+5. The tail decomposition is proven for all remainders.
+6. The target intrinsic semantics are modeled.
+7. The generated implementation's memory and overflow semantics match the source.
+8. A proof artifact or reproducible solver result exists.
+
+None of these are currently satisfied. The distinction matters: tests
+are not a formal proof over arbitrary lengths.
 
 ## Objective
 
-Prove that the ABSAC-generated AVX2 code is equivalent to the original
-scalar code for ALL valid inputs and lengths, using compositional proof
-supported by strengthened differential testing.
+Establish a correctness argument for the ABSAC-generated AVX2 code
+relative to the original scalar code, using compositional reasoning
+supported by extensive adversarial validation.
 
 ## Proof Structure
 
@@ -139,7 +167,9 @@ As an independent defense against bugs in the formal model or lowering:
 | **TOTAL** | | **16,869,913** | **0** |
 
 All tests also pass under **AddressSanitizer** (compiled with
-`-fsanitize=address`), confirming no memory safety violations.
+`-fsanitize=address`) and **UndefinedBehaviorSanitizer** (compiled with
+`-fsanitize=undefined`), confirming no memory safety violations and no
+undefined behavior (integer overflow, aliasing, shift, etc.).
 
 ## Proof vs Testing
 
@@ -162,15 +192,33 @@ Together, they form a two-layer correctness argument:
 1. **Proof:** why it's correct in general (algebraic identity + induction)
 2. **Testing:** that the implementation matches the proof (no lowering bugs)
 
-## What This Proves
+## What This Establishes
 
-The equivalence is established for:
-- All buffer lengths (0 to arbitrarily large)
-- All byte values (exhaustively verified for 1-byte case)
-- All mask/target combinations (exhaustively verified for 1-byte case)
-- All alignment offsets (0-31)
+The compositional argument provides mathematical reasoning for why the
+equivalence holds in general. The differential testing provides empirical
+verification that the implementation matches the argument.
+
+Together, they establish:
+- The algebraic identities (per-byte, chunk, tail) are correct by
+  the definition of x86 intrinsics
+- The induction argument (loop invariant) is mathematically valid
+- The implementation matches the argument across 16.8M test cases
 - No over-reads (guard-page verified)
 - No memory safety violations (ASan verified)
+- All alignment offsets (0-31) tested
+- All byte values and mask/target combinations exhaustively tested (1-byte)
+
+**This is strong engineering validation, not a machine-checked proof.**
+
+## What is NOT yet established (Gate 4B)
+
+- No solver has verified the per-chunk identities against a formal model
+  of AVX2 instruction semantics
+- The loop invariant is not mechanically checked for arbitrary n
+- The region binding is not formally verified against the SIR graph
+- No proof artifact or reproducible solver result exists
+- The intrinsic semantics are modeled by human reading of the Intel SDM,
+  not by a formal instruction model
 
 ## Limitations (honest assessment)
 
