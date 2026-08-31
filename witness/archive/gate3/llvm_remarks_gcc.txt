@@ -1,0 +1,6 @@
+/tmp/orig_kernels.c:4:28: optimized: loop vectorized using 32 byte vectors
+/tmp/orig_kernels.c:4:28: optimized: loop vectorized using 16 byte vectors
+/tmp/orig_kernels.c:9:28: optimized: loop vectorized using 32 byte vectors
+/tmp/orig_kernels.c:9:28: optimized: loop vectorized using 16 byte vectors
+/tmp/orig_kernels.c:14:28: optimized: loop vectorized using 32 byte vectors
+/tmp/orig_kernels.c:14:28: optimized: loop vectorized using 16 byte vectors

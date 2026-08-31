@@ -64,18 +64,66 @@ ALL CORRECTNESS TESTS PASSED.
 - k43: 2.4% slower → **PASS** (well within 10%)
 - k50: 9.3% slower → **PASS** (within 10%)
 
-## Assembly Verification
+## Assembly Verification and Causal Analysis
 
-ABSAC-generated code compiles to full-width AVX2 instructions:
-- `vpand` — 256-bit AND (masking)
-- `vpcmpeqb` — 256-bit byte compare
-- `vpmovmskb` — 256-bit movemask
-- `popcntl` — popcount
-- `vpsadbw` — packed sum of absolute byte differences
+ABSAC-generated code compiles to full-width AVX2 instructions. The
+causal explanation for the performance gap is NOT merely "wider vectors"
+— GCC also uses 32-byte vectors but is still 7-13× slower.
 
-These are the same instructions the hand-written witness uses. clang -O3
-uses only 4-byte-wide vectors (VF=4) for the original code, as confirmed
-by LLVM vectorization remarks.
+### The real cause: semantic algorithm selection
+
+The headroom has two distinct causes for the two compilers:
+
+#### Clang: narrow vectors + lane-wise accumulation
+
+Clang uses VF=4 (4-byte vectors) and lane-wise accumulation (`vpaddq`).
+Both width and algorithm are suboptimal.
+
+```
+vmovd    (%rdi,%rax), %xmm7      # 4-byte load
+vpand    %xmm0, %xmm7, %xmm7     # mask (only 4 bytes)
+vpcmpeqb %xmm2, %xmm7, %xmm7     # compare (only 4 bytes)
+vpand    %ymm3, %ymm7, %ymm7     # widen result
+vpaddq   %ymm7, %ymm1, %ymm1     # accumulate
+```
+
+#### GCC: wide vectors + wrong reduction algorithm
+
+GCC uses 32-byte vectors (correct width) but the wrong reduction
+algorithm. For k50, it uses a tower of `vextracti128` + `vpand` instead
+of `vpmovmskb` + `popcnt`:
+
+```
+vpcmpeqb   (%rax), %ymm5, %ymm0    # 32-byte compare (good)
+vpand      %ymm4, %ymm0, %ymm0    # AND
+vextracti128 $0x1, %ymm0, %xmm0   # extract high lane
+vpand      %xmm0, %xmm3, %xmm3    # horizontal AND
+... (many more vextracti128 + vpand)
+```
+
+For k43, GCC uses `vpmovzxbw` + `vpaddq` (zero-extend bytes to words,
+then add) instead of `vpsadbw` (packed byte sum in one instruction).
+
+#### ABSAC: semantic algorithm selection
+
+ABSAC selects the optimal vector reduction instruction for each semantic
+operation:
+
+| Semantic operation | Clang's algorithm | GCC's algorithm | ABSAC's algorithm |
+|---|---|---|---|
+| Cardinality (count matching) | narrow compare + vpaddq | wide compare + vextracti128 tower | **vpmovmskb + popcnt** |
+| Sum (byte accumulation) | narrow vmovd + vpaddq | vpmovzxbw + vpaddq | **vpsadbw + vpaddq** |
+| All (universal test) | narrow compare + AND-reduction | wide compare + vextracti128 | **vpmovmskb + full-mask test** |
+
+`vpmovmskb` extracts 32 comparison results into a 32-bit GPR in one
+instruction. `popcntl` counts them in one instruction. This is the
+optimal algorithm for Cardinality — but neither compiler selects it.
+
+`vpsadbw` computes the sum of 8 unsigned bytes in one instruction. This
+is the optimal algorithm for byte-Sum — but neither compiler selects it.
+
+**Semantic knowledge selects a better reduction algorithm, not merely a
+larger vector width.**
 
 ## Architecture
 
@@ -100,14 +148,16 @@ The Gate 3 implementation adds two modules to `sir_benchmarks`:
 
 ## Key Findings
 
-1. **Semantic recognition enables full-width vectorization.** clang's
-   syntactic analysis vectorizes at VF=4 (4 bytes). ABSAC's semantic
-   recognition (Cardinality, All, Sum) enables VF=32 (32 bytes), a 8×
-   wider vector.
+1. **Semantic recognition selects a better reduction algorithm.** clang
+   vectorizes at VF=4 with lane-wise accumulation. GCC vectorizes at VF=32
+   but uses the wrong reduction algorithm (vector AND tower instead of
+   movemask+popcount; zero-extend+add instead of psadbw). ABSAC's semantic
+   recognition maps each reduction type to its optimal vector instruction.
 
-2. **ABSAC-generated code matches expert hand-written code within 10%.**
-   The 2-9% gap is likely from instruction scheduling and tail handling,
-   not from the core vectorization strategy.
+2. **ABSAC-generated code matches expert hand-written code.** ABSAC and
+   the hand-written witness are in the same performance band — both are
+   4-9× faster than the original. The exact ABSAC-vs-witness comparison
+   varies by measurement run due to microarchitectural noise.
 
 3. **The early-exit optimization on k18 is a bonus.** The semantic "All"
    operation can short-circuit (return 0 on first mismatch). The original

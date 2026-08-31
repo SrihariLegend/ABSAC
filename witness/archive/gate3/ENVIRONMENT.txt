@@ -1,0 +1,49 @@
+=== Gate 3 Evidence Archive ===
+Date: 2026-08-31T14:36:11Z
+Commit: 5cc9087 Gate 3 PASSED: ABSAC-generated AVX2 code within 10% of hand-written witness
+
+=== Compilers ===
+Debian clang version 19.1.7 (3+b1)
+Target: x86_64-pc-linux-gnu
+Thread model: posix
+InstalledDir: /usr/lib/llvm-19/bin
+gcc (Debian 14.2.0-19) 14.2.0
+Copyright (C) 2024 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+=== CPU ===
+model name	: Intel(R) Core(TM) Ultra 9 275HX
+microcode	: 0xffffffff
+cpu MHz		: 3072.000
+
+=== CPU Features ===
+sse4_2
+popcnt
+bmi1
+avx2
+bmi2
+
+=== Cache ===
+L1d cache:                               1.1 MiB (24 instances)
+L1i cache:                               1.5 MiB (24 instances)
+L2 cache:                                72 MiB (24 instances)
+L3 cache:                                36 MiB (1 instance)
+Vulnerability L1tf:                      Not affected
+
+=== OS ===
+Linux OPTIMUS 6.18.33.1-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Fri Jun  5 01:12:21 UTC 2026 x86_64 GNU/Linux
+
+=== Benchmark flags (all kernels) ===
+Clang original:   clang -O3 -march=native -mavx2 -msse4.2 -mpopcnt
+Clang ABSAC:      clang -O2 -march=native -mavx2 -msse4.2 -mpopcnt  (and -O3 for matrix)
+Clang witness:    clang -O3 -march=native -mavx2 -msse4.2 -mpopcnt
+
+=== Benchmark conditions ===
+- CPU pinned to core 0 via sched_setaffinity
+- 4096-byte buffer: fits in L1 (48KB per core) — HOT CACHE RESIDENT
+- offset-varying: volatile offset = (offset+1)&0xFFF prevents hoisting
+- g_sink: volatile uint64_t XOR accumulator prevents dead-code elimination
+- 10000 iterations per measurement
+- Buffer: aligned_alloc(64, 1048576), 1MB total
+- Distributions: random (srand(42)), all_equal (memset)

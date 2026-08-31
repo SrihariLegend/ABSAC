@@ -112,38 +112,101 @@ k18: 600ns (AVX2) vs 3324ns (orig) = 5.5×.
 
 ## Why the headroom exists
 
-### The causal explanation (with evidence)
+### The causal explanation (with instruction-level evidence)
 
-clang -O3 vectorizes all three loops but at **VF=4** (4-byte vectors).
-The LLVM vectorization remarks confirm this. The hardware supports AVX2
-(32-byte vectors), but clang's cost model chooses VF=4 for these
-reduction patterns. Possible contributors:
-- reduction type (AND-reduction, SUM-reduction, COUNT-reduction)
-- cost model conservatism for data-dependent patterns
-- loop form / tail strategy
+The headroom is NOT merely about vector width. Both compilers leave
+headroom, but for DIFFERENT reasons:
 
-Hand-written AVX2 uses full 32-byte loads (`_mm256_loadu_si256`) and
-32-byte vector operations, processing 32 bytes per iteration.
+#### Clang: narrow vectors + lane-wise accumulation
 
-GCC uses 32-byte vectors but its code generation is less efficient for
-these patterns (296ns vs 207ns for k18), possibly due to loop versioning
-overhead or different instruction selection.
+clang -O3 vectorizes all three loops at **VF=4** (4-byte vectors), as
+confirmed by LLVM vectorization remarks. The assembly shows:
 
-### The semantic restructuring argument
+```
+vmovd    (%rdi,%rax), %xmm7      # 4-byte load
+vpand    %xmm0, %xmm7, %xmm7     # mask
+vpcmpeqb %xmm2, %xmm7, %xmm7     # compare
+vpand    %ymm3, %ymm7, %ymm7     # widen result
+vpaddq   %ymm7, %ymm1, %ymm1     # accumulate
+```
 
-The headroom is not about instruction selection (both clang and gcc pick
-the right instructions). It's about **vectorization width** — how many
-bytes per iteration.
+Clang loads 4 bytes, compares, widens to 64-bit, and accumulates with
+`vpaddq`. This is lane-wise accumulation at narrow width — 4 bytes per
+iteration group, with the comparison result occupying only 4 of 32
+vector lanes.
 
-If ABSAC recognizes:
-- k18 as `All(PredicateMap(buf, λx. x == val))` → vector compare + reduce.and
-- k50 as `Cardinality(PredicateMap(buf, λx. (x & mask) == target))` → vector compare + mask + popcount
-- k43 as `Sum(Map(buf, identity))` → vector byte-reduction + reduce.add
+#### GCC: wide vectors + wrong reduction algorithm
 
-...then ABSAC can directly emit a vector plan at full AVX2 width,
-bypassing clang's conservative VF=4 choice. The semantic recognition
-gives ABSAC the confidence to use full-width vectors that clang's
-syntactic analysis doesn't.
+GCC uses 32-byte vectors (correct width) but the wrong reduction
+algorithm. The assembly for k50 shows:
+
+```
+vpcmpeqb   (%rax), %ymm5, %ymm0    # 32-byte compare (good)
+vpand      %ymm4, %ymm0, %ymm0    # AND with mask
+vextracti128 $0x1, %ymm0, %xmm0   # extract high lane
+vpand      %xmm0, %xmm3, %xmm3    # horizontal AND reduction
+vextracti128 $0x1, %ymm3, %xmm0   # extract again
+vpand      %xmm0, %xmm3, %xmm0    # AND again
+...                               # many more vpand/vextracti128
+```
+
+GCC compares 32 bytes correctly, then reduces the result through a
+tower of `vextracti128` + `vpand` instructions — a vector-based
+counting scheme. It does NOT use `vpmovmskb` + `popcnt`.
+
+For k43 (Sum), GCC uses `vpmovzxbw` (zero-extend bytes to words) +
+`vpaddq` (accumulate), NOT `vpsadbw` (packed sum of absolute byte
+differences against zero). The zero-extend-and-add approach requires
+many more instructions than psadbw.
+
+### Semantic knowledge selects a better reduction algorithm
+
+The headroom is NOT just about vector width. It's about **algorithm
+selection** — choosing the right vector reduction instruction for each
+semantic operation:
+
+| Semantic operation | Clang's approach | GCC's approach | ABSAC's approach |
+|---|---|---|---|
+| Cardinality (count matching) | narrow compare + vpaddq | wide compare + vextracti128 tower | **vpmovmskb + popcnt** |
+| Sum (byte accumulation) | narrow vmovd + vpaddq | vpmovzxbw + vpaddq | **vpsadbw + vpaddq** |
+| All (universal test) | narrow compare + AND-reduction | wide compare + vextracti128 | **vpmovmskb + full-mask test** |
+
+`vpmovmskb` extracts 32 comparison results into a 32-bit GPR in one
+instruction. `popcntl` counts them in one instruction. This is the
+optimal algorithm for Cardinality — but neither compiler selects it.
+
+`vpsadbw` computes the sum of 8 unsigned bytes against zero in one
+instruction, producing 16-bit sums directly. This is the optimal
+algorithm for byte-Sum — but neither compiler selects it.
+
+### Why semantic recognition enables this
+
+A syntactic vectorizer sees a loop with a reduction variable and tries
+to vectorize the loop body. Its cost model evaluates whether widening
+the vector is profitable, considering:
+- reduction type
+- data dependencies
+- tail handling
+- target cost model
+
+A semantic recognizer sees `Cardinality(PredicateMap(buf, λx. (x & mask) == target))`
+and knows directly that the optimal implementation is:
+```
+for each 32-byte chunk:
+    mask = AND(chunk, broadcast(mask))
+    cmp = pcmpeqb(mask, broadcast(target))
+    bits = pmovmskb(cmp)
+    count += popcount(bits)
+```
+
+The semantic interpretation bypasses the cost model entirely. It maps
+each reduction type to its optimal vector algorithm:
+- Cardinality → movemask + popcount
+- Sum → psadbw + accumulate
+- All → movemask + full-mask test (with early exit)
+
+This is the core ABSAC thesis: **semantic knowledge selects a better
+reduction algorithm, not merely a larger vector width.**
 
 ## Distinct semantic endpoints (for Gate 3)
 
@@ -190,8 +253,21 @@ the orig CI for any kernel at 4096 bytes.
 
 **Gate 2 is PASSED.** There is 4-10× demonstrated headroom on these
 kernels that neither clang -O3 nor gcc -O3 reaches, despite both
-auto-vectorizing the loops. The headroom is in vectorization width,
-not instruction selection, and is aligned with ABSAC's semantic thesis.
+auto-vectorizing the loops. The headroom has two distinct causes:
+
+1. **Clang: narrow vectors + lane-wise accumulation.** Clang chooses
+   VF=4 (4-byte vectors) and uses lane-wise accumulation (vpaddq).
+   Both width and algorithm are suboptimal.
+
+2. **GCC: wide vectors + wrong reduction algorithm.** GCC uses correct
+   32-byte vectors but selects the wrong reduction algorithm (vector
+   AND tower instead of movemask+popcount for Cardinality; zero-extend
+   + add instead of psadbw for Sum). Width is correct but algorithm is
+   suboptimal.
+
+The semantic interpretation maps each reduction type to its optimal
+vector algorithm, bypassing both limitations. This is aligned with
+ABSAC's semantic thesis.
 
 ## Files
 
