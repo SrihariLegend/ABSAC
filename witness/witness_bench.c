@@ -30,10 +30,10 @@
 
 // ─── Configuration ──────────────────────────────────────────────────
 
-#define NTRIALS 20           // number of timed trials per measurement
+#define NTRIALS 15           // number of timed trials per measurement
 #define WARMUP  5            // warmup iterations before timing
 #define MAX_BUF (16 * 1024 * 1024)  // 16 MiB max buffer
-#define MAX_ITERS 100000     // cap calibration at 100K iterations
+#define MAX_ITERS 50000      // cap calibration at 50K iterations
 
 // ─── Timing ─────────────────────────────────────────────────────────
 
@@ -294,8 +294,12 @@ int main(int argc, char **argv) {
     if (!buf) { perror("aligned_alloc"); return 1; }
 
     // Size matrix
-    static const uint64_t sizes[] = {16, 256, 4096, 65536};
-    static const int nsizes = 4;
+    // Sizes: standard regimes + tail-edge sizes (mod 16/32 boundaries)
+    static const uint64_t sizes[] = {
+        16, 17, 31, 32, 33, 63, 64, 65,
+        256, 4096, 65536
+    };
+    static const int nsizes = 11;
 
     // Print header
     printf("kernel,distribution,size_bytes,candidate,correct,median_ns,min_ns,mad_ns,ci_lo_ns,ci_hi_ns,cycles_per_elem,speedup_vs_orig\n");

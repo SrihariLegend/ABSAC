@@ -31,31 +31,24 @@ static uint64_t k50_count_masked_scalar(const uint8_t *buf, uint64_t n, uint8_t 
 }
 
 // C. Chunked scalar — process 8 bytes per iteration
-//    Apply mask to each byte, compare to target, count matches.
-//    Uses SWAR to count matching bytes in a 64-bit word.
+//    Loads 8 bytes as uint64_t, then checks each byte individually (unrolled).
+//    This avoids the SWAR zero-byte detection false-positive problem
+//    (the haszero trick (v - lo) & ~v & hi has false positives from borrow propagation).
 static uint64_t k50_count_masked_chunked(const uint8_t *buf, uint64_t n, uint8_t mask, uint8_t target) {
     uint64_t count = 0;
     uint64_t i = 0;
 
-    uint64_t mask64 = (uint64_t)mask * 0x0101010101010101ULL;
-    uint64_t target64 = (uint64_t)target * 0x0101010101010101ULL;
-
     while (i + 8 <= n) {
         uint64_t chunk;
         __builtin_memcpy(&chunk, buf + i, 8);
-        uint64_t masked = chunk & mask64;
-
-        // Compare each byte to target: XOR, then check for zero bytes
-        uint64_t xor_val = masked ^ target64;
-
-        // SWAR zero-byte detection: a byte is zero if (v - 0x01) & ~v & 0x80 is set
-        const uint64_t lo = 0x0101010101010101ULL;
-        const uint64_t hi = 0x8080808080808080ULL;
-        uint64_t zeros = (xor_val - lo) & ~xor_val & hi;
-
-        // Count set bits in the high bits (popcount of zeros >> 7)
-        // Each matching byte contributes one bit at position 7, 15, 23, ...
-        count += __builtin_popcountll(zeros >> 7);
+        count += ((chunk & 0xFF) & mask) == target;
+        count += (((chunk >> 8) & 0xFF) & mask) == target;
+        count += (((chunk >> 16) & 0xFF) & mask) == target;
+        count += (((chunk >> 24) & 0xFF) & mask) == target;
+        count += (((chunk >> 32) & 0xFF) & mask) == target;
+        count += (((chunk >> 40) & 0xFF) & mask) == target;
+        count += (((chunk >> 48) & 0xFF) & mask) == target;
+        count += (((chunk >> 56) & 0xFF) & mask) == target;
         i += 8;
     }
 
@@ -66,30 +59,36 @@ static uint64_t k50_count_masked_chunked(const uint8_t *buf, uint64_t n, uint8_t
     return count;
 }
 
-// D. SWAR — same as chunked, but processes 8 bytes with a different technique
-//    Uses the "has zero byte" trick, then sums the 1-bit results.
+// D. SWAR — uses haszero trick as a fast filter, falls back to per-byte.
+//    The haszero trick (v - lo) & ~v & hi correctly detects if ANY byte is zero,
+//    but cannot count which bytes are zero (borrow propagation creates false positives).
+//    So we use it to skip chunks with no matches, and do per-byte for the rest.
 static uint64_t k50_count_masked_swar(const uint8_t *buf, uint64_t n, uint8_t mask, uint8_t target) {
     uint64_t count = 0;
     uint64_t i = 0;
 
     uint64_t mask64 = (uint64_t)mask * 0x0101010101010101ULL;
     uint64_t target64 = (uint64_t)target * 0x0101010101010101ULL;
+    const uint64_t lo = 0x0101010101010101ULL;
+    const uint64_t hi = 0x8080808080808080ULL;
 
     while (i + 8 <= n) {
         uint64_t chunk;
         __builtin_memcpy(&chunk, buf + i, 8);
-        uint64_t masked = chunk & mask64;
-        uint64_t xor_val = masked ^ target64;
+        uint64_t xor_val = (chunk & mask64) ^ target64;
 
-        // Check if each byte is zero after XOR
-        // If byte == 0, then (byte - 1) has bit 7 set while ~byte has bit 7 set
-        uint64_t t = ~xor_val & (xor_val - 0x0101010101010101ULL);
-        t &= 0x8080808080808080ULL;
-
-        // Each set high bit = one match. Shift down and popcount.
-        count += __builtin_popcountll(t) / 8;  // divide by 8 because popcount counts all 8 bit positions
-        // Actually we need only the high bits. t already only has high bits set.
-        // So popcount(t) = number of matching bytes directly.
+        // Fast filter: if no byte is zero, skip per-byte check
+        uint64_t might_have_zero = (xor_val - lo) & ~xor_val & hi;
+        if (might_have_zero) {
+            count += ((chunk & 0xFF) & mask) == target;
+            count += (((chunk >> 8) & 0xFF) & mask) == target;
+            count += (((chunk >> 16) & 0xFF) & mask) == target;
+            count += (((chunk >> 24) & 0xFF) & mask) == target;
+            count += (((chunk >> 32) & 0xFF) & mask) == target;
+            count += (((chunk >> 40) & 0xFF) & mask) == target;
+            count += (((chunk >> 48) & 0xFF) & mask) == target;
+            count += (((chunk >> 56) & 0xFF) & mask) == target;
+        }
         i += 8;
     }
 
