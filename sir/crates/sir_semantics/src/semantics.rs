@@ -265,7 +265,7 @@ impl SemanticEngine {
             boolean_collection, cardinality_reduction, conjunctive_reduction,
             disjunctive_reduction, divide_power_of_two, exclusive_reduction, finite_collection,
             is_zero, membership_traversal, modulo_power_of_two, multiply_power_of_two, predicate_collection,
-            shift_mask, set_algebra, mask_algebra,
+            shift_mask, set_algebra, mask_algebra, sum_reduction,
         };
 
         let is_zero_recs = is_zero::recognize_is_zero(func, analysis);
@@ -394,6 +394,27 @@ impl SemanticEngine {
             region.add_concept(explanation.concept, explanation.clone());
             self.db.add_region(region);
             
+            let truth = SemanticTruth {
+                parameters: vec![],
+                concept: explanation.concept,
+                inputs,
+                outputs,
+                origin: rid, id: crate::truth::TruthId::new(0), provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+            };
+            self.db.add_truth(truth);
+        }
+
+        let sum_recs =
+            sum_reduction::recognize_sum_reduction(func, analysis);
+        for (_concept, explanation, node_ids, inputs, outputs) in sum_recs {
+            let rid = self.db.next_region_id();
+            let mut region = Region::new(rid);
+            for node_id in &node_ids {
+                region.nodes.insert(*node_id);
+            }
+            region.add_concept(explanation.concept, explanation.clone());
+            self.db.add_region(region);
+
             let truth = SemanticTruth {
                 parameters: vec![],
                 concept: explanation.concept,

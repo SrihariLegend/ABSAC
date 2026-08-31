@@ -15,6 +15,8 @@ pub enum SemanticConcept {
     MembershipTraversal,
     /// Operation: counting how many elements satisfy a condition
     CardinalityReduction,
+    /// Operation: summing the values of elements in a collection
+    SumReduction,
     /// Operation: checking if at least one element satisfies a condition
     DisjunctiveReduction,
     /// Operation: checking if all elements satisfy a condition
@@ -129,6 +131,7 @@ impl SemanticConcept {
         Self::FiniteCollection,
         Self::MembershipTraversal,
         Self::CardinalityReduction,
+        Self::SumReduction,
         Self::DisjunctiveReduction,
         Self::ConjunctiveReduction,
         Self::ExclusiveReduction,
@@ -206,6 +209,7 @@ impl fmt::Display for SemanticConcept {
             SemanticConcept::FiniteCollection => write!(f, "FiniteCollection"),
             SemanticConcept::MembershipTraversal => write!(f, "MembershipTraversal"),
             SemanticConcept::CardinalityReduction => write!(f, "CardinalityReduction"),
+            SemanticConcept::SumReduction => write!(f, "SumReduction"),
             SemanticConcept::DisjunctiveReduction => write!(f, "DisjunctiveReduction"),
             SemanticConcept::ConjunctiveReduction => write!(f, "ConjunctiveReduction"),
             SemanticConcept::ExclusiveReduction => write!(f, "ExclusiveReduction"),

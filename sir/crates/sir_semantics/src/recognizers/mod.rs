@@ -4,6 +4,7 @@ pub mod boolean_collection;
 pub mod is_zero;
 pub mod loop_until_zero;
 pub mod cardinality_reduction;
+pub mod sum_reduction;
 pub mod conjunctive_reduction;
 pub mod disjunctive_reduction;
 pub mod divide_power_of_two;

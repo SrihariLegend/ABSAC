@@ -3,8 +3,9 @@ use sir_lower::lower_function;
 use sir_semantics::semantics::SemanticEngine;
 
 fn main() {
-    let ll_text = std::fs::read_to_string("../corpus/kernels.ll").unwrap();
-    for name in &["k18_all_equal", "k43_sum_ascii", "k50_count_masked"] {
+    let ll_text = std::fs::read_to_string("../gate6a/heldout_corpus.ll").unwrap();
+    for name in &["h03_count_nonzero", "h05_sum_int32", "h07_count_zero", "h08_count_above",
+                    "n02_volatile_read", "n04_stride2", "n06_dependent"] {
         let func = lower_function(&ll_text, name).unwrap();
         let mut mgr = AnalysisManager::new();
         mgr.run_all(&func);
