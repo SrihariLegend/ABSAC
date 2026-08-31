@@ -22,6 +22,9 @@ bitflags! {
         const IO           = 0b0000_1000;
         /// The node performs an atomic operation.
         const ATOMIC       = 0b0001_0000;
+        /// The node performs a volatile memory access.
+        /// Volatile accesses must not be merged, reordered, or eliminated.
+        const VOLATILE     = 0b0010_0000;
     }
 }
 
@@ -56,6 +59,9 @@ impl Effects {
         }
         if self.contains(Effects::ATOMIC) {
             parts.push("Atomic");
+        }
+        if self.contains(Effects::VOLATILE) {
+            parts.push("Volatile");
         }
         parts.join(" | ")
     }

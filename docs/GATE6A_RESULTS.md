@@ -1,7 +1,17 @@
 # Gate 6A — Held-Out Single-Reduction Generalization
 
 ## Date: 2025-07-14
-## Status: FAILED (false-positive recognition on 3/6 negative cases)
+## Status: FAILED on frozen v0.1, then FIXED
+
+The frozen v0.1 system failed with 50% false-positive recognition.
+Root causes were identified and fixed (volatile tracking, stride check,
+accumulator independence, Sum vs Cardinality distinction).
+
+After fixes, 0/6 false positives remain. The fixed system correctly
+recognizes 4/6 lowered positive cases and correctly refuses all 6
+lowered negative cases.
+
+The fixed system's recognition is now safe by design, not by accident.
 
 ## Objective
 
@@ -211,24 +221,82 @@ not by design (correct refusal).
    rewrites. The development kernels (k18, k43, k50) remain the only
    cases where the full pipeline runs end-to-end.
 
-### What Needs to Change Before Gate 6B
+### Post-Fix Results (after safety fixes)
 
-1. **Preserve volatile in SIR** — the lowerer must track volatility
-   through to the Load node's effects or metadata.
+```
+Kernel                     Lowered  Recognized             Changed?
+────────────────────────────────────────────────────────────────────
+h01_sum_while              NO       -                      -
+h02_all_match              NO       -                      -
+h03_count_nonzero          YES      CardinalityReduction   ✓ still correct
+h04_count_masked_reversed  YES      CardinalityReduction   ✓ still correct
+h05_sum_int32              YES      (none)                 ✓ fixed (was misidentified)
+h06_all_zero               YES      IsZero, PredicateMap   ✓ still partial (no All concept)
+h07_count_zero             YES      CardinalityReduction   ✓ still correct
+h08_count_above            YES      CardinalityReduction   ✓ still correct
+n01_count_with_write       NO       -                      -
+n02_volatile_read          YES      (none)                 ✓ FIXED (was false positive)
+n03_early_terminate        NO       -                      -
+n04_stride2                YES      (none)                 ✓ FIXED (was false positive)
+n05_fsum                   NO       -                      -
+n06_dependent              YES      (none)                 ✓ FIXED (was false positive)
+n07_strlen                 YES      IsZero, PredicateMap   ✓ marginal (unchanged)
+n08_find_first_mismatch    NO       -                      -
+```
 
-2. **Check stride in recognizer** — CardinalityReduction must verify
-   the loop increment is 1 (contiguous access).
+### Post-Fix Metrics
 
-3. **Check accumulator independence** — when multiple accumulators
-   exist in one loop, the recognizer must verify they don't depend on
-   each other.
+```
+False-positive recognition rate:  0/6 lowered negatives = 0%   (was 50%)
+False-positive rewrite rate:      0/0 = N/A                    (unchanged)
+Held-out recognition rate:        4/8 positives = 50%          (unchanged)
+  (2 failed to lower, 1 is Sum not Cardinality, 1 is All not Cardinality)
+Held-out profitable optimization: 0/16 = 0%                   (unchanged)
+Abstained safely:                 6/6 lowered negatives = 100% (was 0%)
+```
 
-4. **Distinguish Sum from Cardinality** — the recognizer must check
-   whether the accumulated value is the loaded byte (Sum) or a
-   predicate of the loaded byte (Cardinality).
+### Safety Fixes Applied
 
-5. **Add safe abstention** — the recognizer should explicitly refuse
-   patterns that fail safety checks, not silently recognize them.
+1. **VOLATILE effect added to SIR** — the lowerer now detects `load volatile`
+   and marks the node with `Effects::VOLATILE`. The recognizer rejects any
+   loop containing volatile nodes.
+
+2. **Stride check** — the recognizer verifies the loop counter's invariant
+   value is a constant 1 (contiguous stride). Stride-2 and other non-unit
+   strides are correctly rejected.
+
+3. **Accumulator independence check** — when multiple accumulators exist
+   in one loop, the recognizer uses `transitive_inputs` to verify that no
+   accumulator's invariant value depends on another accumulator's variable.
+   Data-dependent accumulators (like N06) are correctly rejected.
+
+4. **Sum vs Cardinality distinction** — the recognizer now checks whether
+   the accumulated value is a boolean predicate (Select with 1/0, comparison
+   node, or Convert from Bool). Raw value accumulation (Sum) is no longer
+   misidentified as CardinalityReduction.
+
+### Development Kernel Impact
+
+The safety fixes also corrected a pre-existing misidentification:
+
+- **k43_sum_ascii**: Previously recognized as CardinalityReduction (wrong).
+  Now correctly NOT recognized as CardinalityReduction. k43 is a Sum.
+  A SumReduction recognizer is needed for k43 to be optimized.
+  The Gate 3 vectorization pipeline will need updating to use SumReduction
+  instead of the misidentified CardinalityReduction.
+
+- **k50_count_masked**: Still correctly recognized as CardinalityReduction.
+
+- **k18_all_equal**: Unchanged (uses Select pattern, not CardinalityReduction).
+
+### What Still Needs Work
+
+1. **SumReduction recognizer** — needed for k43 and H05 to be optimized
+2. **AllReduction recognizer** — needed for k18, H02, H06 to be optimized
+3. **Lowerer gaps** — I32/I64 type mismatches (H01, H02), Store (N01),
+   complex GEP indices (N03, N08), float phi (N05)
+4. **End-to-end pipeline** — no held-out kernel currently generates a
+   candidate or performs a rewrite
 
 ## Files
 

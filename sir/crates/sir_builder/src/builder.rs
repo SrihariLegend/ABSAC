@@ -232,6 +232,13 @@ impl Builder {
         self.alloc_node(kind, ty, effects, span)
     }
 
+    /// Add extra effects to an existing node (e.g., marking a load as volatile).
+    pub fn add_effects(&mut self, id: NodeId, extra: Effects) {
+        if let Some(node) = self.func.arena.get_mut(id) {
+            node.effects |= extra;
+        }
+    }
+
     // ── Value nodes ─────────────────────────────────────────
 
     /// Create a constant node.

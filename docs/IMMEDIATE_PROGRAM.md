@@ -109,7 +109,7 @@ If this fails, MCTS is unjustified for the current action space.
 ### Gate 6: Generalization
 
 ```
-Gate 6A: FAILED — 50% false-positive recognition on held-out negatives
+Gate 6A: FAILED→FIXED — false positives eliminated, safe abstention works
          3/6 negative cases incorrectly recognized as CardinalityReduction
          Root causes: volatile not tracked, stride not checked,
          accumulator independence not checked

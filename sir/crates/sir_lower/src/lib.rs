@@ -1159,14 +1159,23 @@ fn emit_instruction(
 
         "load" => {
             // load i8, ptr %9, align 1
+            // load volatile i8, ptr %9, align 1
             // The first operand is the type, second is the pointer
             if inst.operands.len() < 2 {
                 return Err(format!("load needs type + ptr: {}", inst.raw));
             }
-            let loaded_ty = parse_type(&inst.operands[0]).unwrap_or(Type::u8());
+            // Detect volatile keyword
+            let is_volatile = inst.operands[0].contains("volatile");
+            let type_str = inst.operands[0].replace("volatile", "").trim().to_string();
+            let loaded_ty = parse_type(&type_str).unwrap_or(Type::u8());
             let ptr_str = strip_type(&inst.operands[1]);
             let ptr = get_node_id(&ptr_str, value_map, params, builder, None)
                 .ok_or(format!("cannot resolve load ptr '{}'", ptr_str))?;
+
+            // If the load is volatile, mark the node with VOLATILE effect
+            if is_volatile {
+                builder.add_effects(ptr, Effects::VOLATILE);
+            }
 
             // If the pointer came from a getelementptr, we already have it
             // as a node. We model load-from-GEP as ArrayAccess.
