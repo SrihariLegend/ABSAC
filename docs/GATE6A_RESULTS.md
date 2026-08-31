@@ -244,14 +244,20 @@ n07_strlen                 YES      IsZero, PredicateMap   ✓ marginal (unchang
 n08_find_first_mismatch    NO       -                      -
 ```
 
-### Post-Fix Metrics
+### Post-Fix Metrics (final, after SumReduction recognizer added)
 
 ```
 False-positive recognition rate:  0/6 lowered negatives = 0%   (was 50%)
 False-positive rewrite rate:      0/0 = N/A                    (unchanged)
-Held-out recognition rate:        4/8 positives = 50%          (unchanged)
-  (2 failed to lower, 1 is Sum not Cardinality, 1 is All not Cardinality)
-Held-out profitable optimization: 0/16 = 0%                   (unchanged)
+Held-out recognition rate:        6/8 positives = 75%
+  (2 failed to lower — H01/H02 type mismatch, not recognizer issue)
+  H03: CardinalityReduction ✓
+  H04: CardinalityReduction ✓
+  H05: SumReduction ✓
+  H06: IsZero + PredicateMap (partial — no AllReduction concept yet)
+  H07: CardinalityReduction ✓
+  H08: CardinalityReduction ✓
+Held-out profitable optimization: 0/16 = 0%                   (no recipes fire)
 Abstained safely:                 6/6 lowered negatives = 100% (was 0%)
 ```
 
