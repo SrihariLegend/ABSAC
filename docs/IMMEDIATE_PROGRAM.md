@@ -281,6 +281,26 @@ Remediation D3 (P0A, commit c3ebb54):
        loops, unproven in general) and now only fires when no slot
        consumer exists — a future binding pass must prove the bound
        claim per shape or refuse.
+  WHOLESALE-TUPLE QUARANTINE (advisor PS002 follow-up, commit 141fb26
+       follow-on): "no recognized slot consumer" is not "no observable
+       consumer" — the wholesale tuple path is too dangerous to leave
+       enabled. Complete use classification now gates the four
+       SchemaChecked reduction recipes: EVERY use of the loop tuple
+       must be a recognized slot extract (TupleExtract or numeric
+       FieldAccess), exactly one consumer, reading the accumulator
+       position; otherwise UnknownConsumer/UnauthorizedLiveOut →
+       abstain. wrap_direct_tuple_return refuses multi-element tuples
+       outright (the "index == termination bound at exit" invention is
+       an unproven exit-index assumption — PS002 class). Single-value
+       (non-tuple) loop results remain enabled. PS002 is the canonical
+       permanent example: a TRUE theorem (any == pack != 0) applied to
+       the wrong observable boundary is still an incorrect compiler
+       transformation. Assurance is now two-dimensional: TheoremAssurance
+       (local semantic theorem) x ApplicationAssurance (theorem
+       correctly bound to the complete concrete rewrite + frame
+       conditions); EndToEnd = min of both. Regression family in
+       liveout_binding_tests.rs (whole-tuple, multi-consumer, opaque
+       projection, position-mutation, single-authorized-slot = enabled).
   Remaining P0A queue (advisor order): (1) ProposalBinding + exact
        proposal binding (step 2: per-proposal declaration of source
        nodes, live-ins/outs, memory accesses, iteration domain,

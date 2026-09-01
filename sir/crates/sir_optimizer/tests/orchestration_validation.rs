@@ -152,13 +152,16 @@ fn test_orchestration_multiple_rewrites() {
         );
     }
 
-    // 3 rewrites, not 4: the count/any/parity loops are proven by the
-    // SchemaChecked reduction definitions, but the modulo region's
+    // 0 rewrites, previously 3 then 4: the modulo region's
     // ModuloAndDefinition is Stub-quarantined (advisor P0 verifier
-    // audit) and can no longer authorize a rewrite. Iteration 4
-    // correctly converges with zero proven candidates.
+    // audit), AND the count/any/parity loops return their (value,
+    // index) tuples wholesale into the external call. The reduction
+    // theorems cover slot 0 only; rebuilding the tuples would invent
+    // the index slots from the termination bound — the PS002
+    // corruption class (wholesale-tuple quarantine). Abstention is
+    // the honest result until complete live-out binding exists.
     assert_eq!(
-        result.rewrites_applied, 3,
-        "Expected exactly 3 rewrites (modulo is Stub-quarantined)"
+        result.rewrites_applied, 0,
+        "wholesale tuple returns must NOT rewrite (wholesale-tuple quarantine)"
     );
 }

@@ -86,9 +86,17 @@ fn validate_predicate_reductions() {
             .arena
             .iter()
             .any(|n| matches!(n.kind, sir_nodes::NodeKind::Loop { .. }));
-        let expected_output = rewritten && !has_loop;
+        let expected_output = false; // wholesale-tuple quarantine: abstain (see boolean_reductions_validation)
 
-        if !expected_output {
+        // Wholesale-tuple quarantine (advisor PS002 follow-up): this
+        // function returns the loop tuple (count, index) wholesale. The
+        // count theorem covers slot 0 only; rebuilding the tuple would
+        // invent the index slot from the termination bound — an
+        // unproven exit-index assumption (PS002 corruption class).
+        // Recognition/proof/selection may succeed; the REWRITE must
+        // abstain until complete live-out binding exists.
+        let _ = has_loop;
+        if rewritten {
             all_passed = false;
         }
 
@@ -102,7 +110,11 @@ fn validate_predicate_reductions() {
             if expected_output { "✓" } else { "✗" }
         );
 
-        // Print the rewritten SIR for visual confirmation
+        // Wholesale-tuple quarantine (advisor PS002 follow-up): the
+        // count loop returns its (count, index) tuple wholesale into the
+        // return. The theorem covers slot 0 only; rebuilding invents the
+        // index slot from the termination bound (PS002 corruption
+        // class). Abstain until complete live-out binding exists.
         if rewritten {
             println!("\n--- {} Rewritten SIR ---", name);
             for node in result.function.arena.iter() {

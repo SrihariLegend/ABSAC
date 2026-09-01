@@ -32,6 +32,12 @@ pub enum RewriteError {
         reduction_position: usize,
     },
 
+    /// A consumer of the loop tuple exists in a form the recipe cannot
+    /// classify (whole-tuple escape, copy, store, non-numeric projection,
+    /// multiple consumers). Until complete use-closure binding exists,
+    /// the rewrite abstains (advisor PS002 follow-up).
+    UnknownConsumer { value: sir_types::NodeId, reason: String },
+
     /// Indicates a compiler bug — an invariant was violated.
     InternalInvariantViolation(String),
 }
@@ -62,6 +68,9 @@ impl std::fmt::Display for RewriteError {
                 "unauthorized live-out: consumer {consumer} reads tuple slot {field} \
                  but the theorem only covers the reduction slot {reduction_position}"
             ),
+            RewriteError::UnknownConsumer { value, reason } => {
+                write!(f, "unknown consumer of {value}: {reason}")
+            }
             RewriteError::InternalInvariantViolation(msg) => {
                 write!(f, "INTERNAL INVARIANT VIOLATION: {msg}")
             }

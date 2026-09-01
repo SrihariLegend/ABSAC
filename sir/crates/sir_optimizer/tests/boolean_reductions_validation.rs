@@ -124,7 +124,17 @@ fn validate_boolean_reductions() {
             .any(|n| matches!(n.kind, sir_nodes::NodeKind::Loop { .. }));
         let expected_output = rewritten && !has_loop;
 
-        if !expected_output {
+        // Wholesale-tuple quarantine (advisor PS002 follow-up): these
+        // functions return the loop tuple (reduction, index) wholesale.
+        // The reduction theorem covers slot 0 only; rebuilding the
+        // tuple invents the index slot from the termination bound — an
+        // unproven exit-index assumption (PS002 corruption class).
+        // Recognized/proven/selected may still succeed (the theorem is
+        // true); the REWRITE must abstain until complete live-out
+        // binding (ProposalBinding) authorizes every observable slot.
+        let expected_output = false;
+
+        if rewritten {
             all_passed = false;
         }
 

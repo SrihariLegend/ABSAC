@@ -199,7 +199,13 @@ fn build_mixed_reductions() -> sir_nodes::Function {
 #[test]
 fn validate_boolean_boundaries() {
     let benchmarks = vec![
-        ("BS005_NonBoolean", build_non_boolean_array(), true), // Now supported via PredicateCollection!
+        // Wholesale-tuple quarantine (advisor PS002 follow-up): BS005
+        // returns the loop tuple (count, index) wholesale. The count
+        // theorem covers slot 0 only; rebuilding the tuple would invent
+        // the index slot from the termination bound — an unproven
+        // exit-index assumption. Abstain until complete live-out
+        // binding exists.
+        ("BS005_NonBoolean", build_non_boolean_array(), false),
         (
             "BS006_InterruptingSideEffects",
             build_side_effect_interrupt(),

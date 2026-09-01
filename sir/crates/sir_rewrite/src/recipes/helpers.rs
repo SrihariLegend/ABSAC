@@ -54,17 +54,85 @@ pub fn find_tuple_consumer(function: &sir_nodes::Function, tuple: NodeId) -> Opt
 /// live-out) cannot be satisfied by the replacement — replacing it, or
 /// rebuilding the whole tuple underneath it, silently changes program
 /// semantics (PS002 audit: `array_find_last` returned a constant after
-/// its loop was rebuilt). Returns Ok(None) when the loop tuple has no
-/// slot consumer; Err when a consumer reads a non-reduction slot.
+/// its loop was rebuilt).
+///
+/// COMPLETE USE CLASSIFICATION (advisor PS002 follow-up): "no recognized
+/// slot consumer" is NOT "no observable consumer". The loop tuple can
+/// escape whole (returned/copied/stored), flow through an unsupported
+/// projection form, or have several consumers. Therefore:
+///
+///   - tuple result, NO use found ............ Err (abstain; removing a
+///     possibly-observable loop is DCE, not this recipe's proof)
+///   - tuple result, unrecognized use ........ Err (UnknownConsumer)
+///   - tuple result, use observes another slot  Err (UnauthorizedLiveOut)
+///   - tuple result, >1 use .................. Err (MultipleConsumers)
+///   - tuple result, exactly one accumulator-slot extract ... Ok(Some)
+///   - NON-tuple result ...................... Ok(None): every use
+///     observes the whole value, which IS the theorem's subject; the
+///     caller replaces the loop directly (replace_all_uses is uniform
+///     and no projection can observe a sub-value).
+///
+/// Only the last case authorizes a rewrite; everything else abstains
+/// until complete live-out binding (ProposalBinding) exists.
 pub fn authorized_tuple_consumer(
     function: &sir_nodes::Function,
     loop_node: NodeId,
     accumulator: Option<NodeId>,
 ) -> Result<Option<NodeId>, RewriteError> {
-    let (node, field) = match find_tuple_consumer(function, loop_node) {
-        Some(c) => c,
-        None => return Ok(None),
-    };
+    let loop_ty = function
+        .get_node(loop_node)
+        .map(|n| n.ty.clone())
+        .ok_or(RewriteError::NodeNotFound(loop_node))?;
+
+    // Collect every use of the loop result.
+    let mut uses: Vec<(NodeId, Option<usize>)> = Vec::new();
+    for node in function.arena.iter() {
+        if node.id == loop_node {
+            continue;
+        }
+        if node.kind.input_nodes().contains(&loop_node) {
+            let slot = match &node.kind {
+                NodeKind::TupleExtract { tuple, index } if *tuple == loop_node => Some(*index),
+                NodeKind::FieldAccess { base, field } if *base == loop_node => {
+                    field.parse::<usize>().ok()
+                }
+                _ => None,
+            };
+            uses.push((node.id, slot));
+        }
+    }
+
+    // Non-tuple results: every use observes the whole (single) value.
+    if !matches!(loop_ty, Type::Tuple { .. }) {
+        return Ok(None);
+    }
+
+    // Tuple results: every use must be a recognized slot extract.
+    if uses.is_empty() {
+        // "No recognized consumer" is not "no observable consumer" — the
+        // tuple may escape whole or through an unrecognized form. Refuse.
+        return Err(RewriteError::UnknownConsumer {
+            value: loop_node,
+            reason: "no recognized consumer: whole-tuple escape, copy, store, or \
+                     unsupported projection — live-out binding incomplete, refusing"
+                .to_string(),
+        });
+    }
+    if uses.iter().any(|(_, slot)| slot.is_none()) {
+        return Err(RewriteError::UnknownConsumer {
+            value: loop_node,
+            reason: "unrecognized consumer form observing the loop tuple".to_string(),
+        });
+    }
+    if uses.len() > 1 {
+        return Err(RewriteError::UnknownConsumer {
+            value: loop_node,
+            reason: "multiple consumers of the loop tuple: the recipe replaces \
+                     exactly one; all others would dangle or observe uncovered slots"
+                .to_string(),
+        });
+    }
+
     // Single-output loops have exactly one possible reduction slot.
     let red_pos = match loop_reduction_position(function, loop_node, accumulator) {
         Some(pos) => pos,
@@ -82,9 +150,11 @@ pub fn authorized_tuple_consumer(
             0
         }
     };
+    let (node, slot) = uses[0];
+    let field = slot.expect("classified above");
     if field != red_pos {
         return Err(RewriteError::UnauthorizedLiveOut {
-            consumer: loop_node,
+            consumer: node,
             field,
             reduction_position: red_pos,
         });
@@ -184,6 +254,22 @@ pub fn wrap_direct_tuple_return(
     let Type::Tuple { elements } = &node.ty else {
         return Ok(new_scalar);
     };
+    // WHOLESALE TUPLE RECONSTRUCTION QUARANTINE (advisor PS002 follow-up):
+    // filling non-reduction slots with the termination bound assumes
+    // "index at exit == bound" — sound only for specific ascending,
+    // zero-trip-checked loop shapes and never proven here. Any use of
+    // this path for a multi-field tuple silently invents observable
+    // values. Complete live-out binding (ProposalBinding) must prove
+    // each non-reduction slot before this path may return.
+    if elements.len() > 1 {
+        return Err(RewriteError::UnknownConsumer {
+            value: result,
+            reason: "wholesale tuple reconstruction quarantined: rebuilding \
+                     non-reduction slots from the termination bound is an \
+                     unproven exit-index assumption (PS002 class)"
+                .to_string(),
+        });
+    }
     let red_pos = loop_reduction_position(function, result, accumulator).ok_or_else(|| {
         RewriteError::MissingRole {
             role: "reduction output".to_string(),

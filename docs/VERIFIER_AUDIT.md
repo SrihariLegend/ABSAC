@@ -171,3 +171,86 @@ pass must either prove the bound claim per shape or refuse.
 Test state: 502/502 passing (was 504; PS002/ps001 expectations flipped
 to honest abstention). Corpora unchanged: dev 40/50 lowered, D3 7/16,
 0 rewrites either side.
+
+## PS002 as canonical example (advisor follow-up, this commit)
+
+**A true theorem applied to the wrong observable boundary is still an
+incorrect compiler transformation.** PS002 is the canonical permanent
+example:
+
+```text
+The theorem was true              exists(seq) == (pack(seq) != 0)
+The recognized concept was true   DisjunctiveReduction on `found`
+The authorization referred to a real region
+The candidate was structurally valid
+The rewrite was still wrong       array_find_last returned a constant
+```
+
+The theorem described ONE PROJECTION of the loop result (field 0,
+`any`), while the rewrite replaced the ENTIRE result tuple and invented
+values for the other observable projections (field 1, the returned
+position, became the termination-bound constant). Proving equality of
+`source_tuple.any` does not license the claim
+`source_tuple == candidate_tuple`.
+
+### Two-dimensional assurance (recorded, to implement)
+
+```text
+TheoremAssurance:      is the local semantic theorem valid?
+ApplicationAssurance:  is that theorem correctly bound to the complete
+                       concrete rewrite?
+
+EndToEndAssurance = min(TheoremAssurance, ApplicationAssurance)
+```
+
+PS002: TheoremAssurance plausibly SchemaChecked; ApplicationAssurance
+FAILED (observable live-outs not covered); EndToEndAssurance FAILED.
+Even a MachineChecked local theorem must not automatically produce a
+MachineChecked rewrite — the checker must issue assurance for the
+COMPLETE artifact (theorem + source role binding + candidate role
+binding + complete live-out map + frame conditions + identities).
+
+### Wholesale tuple reconstruction: QUARANTINED
+
+"No recognized slot consumer" is not equivalent to "no observable
+consumer exists" — the tuple may escape whole, be copied, stored, or
+pass through an unrecognized projection. Implemented this commit:
+
+- `authorized_tuple_consumer()` is now a COMPLETE use classification:
+  every use of the loop result must be a recognized slot extract
+  reading the accumulator position; any unknown consumer form, any
+  uncovered slot, any additional consumer, or no consumer at all →
+  `UnknownConsumer`/`UnauthorizedLiveOut` → abstain.
+- `wrap_direct_tuple_return()` refuses multi-element tuples outright —
+  filling non-reduction slots with the termination bound was an
+  unproven exit-index assumption (sound only for specific ascending
+  zero-trip-checked shapes, never proven).
+- Single-value (non-tuple) loop results remain enabled: every use
+  observes the whole value, which IS the theorem's subject.
+- Enabled tuple case: exactly ONE consumer, reading the accumulator
+  slot. Everything else abstains until ProposalBinding provides the
+  complete live-out map.
+
+Enabled-case audit of the four SchemaChecked recipe integrations
+(popcount/all/any/parity × their recipes): all four share
+`authorized_tuple_consumer` and inherit the complete-use rule. Frame
+conditions (unchanged effects/memory — all four regions are
+READ_MEMORY-only pure loops) hold by recognizer gating. The exit-index
+assumption is no longer reachable (helper refuses). Residual: the
+per-recipe audit questions (PHI flows, copies, stores — no such
+NodeKinds are consumed by the recipes today) are recorded here;
+ProposalBinding must make the enumeration complete rather than
+pattern-based.
+
+### PS002 regression family (liveout_binding_tests.rs)
+
+```text
+whole tuple return ............... abstain
+multiple consumers (slots 0+1) ... abstain
+unrecognized projection form ..... abstain
+single accumulator-slot extract .. MAY rewrite
+```
+
+Plus `ps002_position_mutation_must_not_rewrite` (position semantics
+mutated, Any truth unchanged → abstain). Test state: 506/506.
+Corpora unchanged (dev 40/50, D3 7/16, 0 rewrites).

@@ -101,9 +101,17 @@ fn bs001_pipeline_runs_all_stages() {
         "Should select at least one candidate (got {})",
         rec.candidates_selected
     );
-    assert!(
-        result.rewrites_applied > 0,
-        "Should apply the popcount rewrite"
+    // Wholesale-tuple quarantine (advisor PS002 follow-up): this test's
+    // loop returns the (count, index) tuple wholesale. The popcount
+    // theorem covers slot 0 only; rebuilding the tuple would invent the
+    // index slot from the termination bound — an unproven exit-index
+    // assumption (PS002 corruption class). The theorem may still be
+    // proven and the candidate selected; the REWRITE must abstain
+    // until complete live-out binding (ProposalBinding) exists.
+    assert_eq!(
+        result.rewrites_applied, 0,
+        "wholesale tuple return must NOT rewrite: the popcount theorem covers \
+         slot 0 only and the index slot is not authorized (UnknownConsumer guard)"
     );
 }
 
