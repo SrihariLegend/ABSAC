@@ -203,7 +203,12 @@ fn main() {
     // ── Generation ─────────────────────────────────────────
     print_section("Layer 4 — Generation (Candidate Plans)");
     let mut generator = CandidateGenerator::new();
-    generator.generate(inference.context_database(), semantics.database());
+    let authorizations = sir_semantics::authorization::derive_authorizations(
+        &func,
+        analysis.database(),
+        semantics.database(),
+    );
+    generator.generate(inference.context_database(), semantics.database(), &authorizations);
     let candidates: Vec<Candidate> = generator.database().all_candidates().cloned().collect();
     println!("  candidates generated: {}", candidates.len());
     for c in &candidates {

@@ -128,7 +128,12 @@ fn run_full_pipeline() -> (Verifier, Vec<(ProofObligation, VerificationResult)>)
 
     // Generation
     let mut generator = CandidateGenerator::new();
-    generator.generate(inference.context_database(), semantics.database());
+    let authorizations = sir_semantics::authorization::derive_authorizations(
+        &func,
+        analysis.database(),
+        semantics.database(),
+    );
+    generator.generate(inference.context_database(), semantics.database(), &authorizations);
 
     // Build the Verifier and create obligations
     let verifier = Verifier::new();

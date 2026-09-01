@@ -180,9 +180,17 @@ impl Optimizer {
             }
         }
 
-        // ── 4. Generation ─────────────────────────────────────
+        // ── 4. Authorization + Generation ────────────────────
+        // Authorizations derive from complete certificates; only they
+        // can admit candidates (X06 structural fix). Re-derived every
+        // pass, so rewrites naturally invalidate stale certificates.
+        let authorizations = sir_semantics::authorization::derive_authorizations(
+            function,
+            analysis.database(),
+            semantics.database(),
+        );
         let mut generator = CandidateGenerator::new();
-        generator.generate(inference.context_database(), semantics.database());
+        generator.generate(inference.context_database(), semantics.database(), &authorizations);
 
         let candidate_count = generator.database().all_candidates().count();
 

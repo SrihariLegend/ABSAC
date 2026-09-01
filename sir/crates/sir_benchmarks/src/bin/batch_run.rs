@@ -122,9 +122,15 @@ fn main() {
             result.beliefs += ctxs.len();
         }
 
-        // Generation
+        // Authorization + Generation (X06 structural fix: candidates
+        // require complete certificates; uncertified regions yield none)
+        let authorizations = sir_semantics::authorization::derive_authorizations(
+            &func,
+            analysis.database(),
+            semantics.database(),
+        );
         let mut generator = CandidateGenerator::new();
-        generator.generate(inference.context_database(), semantics.database());
+        generator.generate(inference.context_database(), semantics.database(), &authorizations);
         let candidates: Vec<Candidate> = generator.database().all_candidates().cloned().collect();
         result.candidates = candidates.len();
 

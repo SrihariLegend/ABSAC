@@ -239,6 +239,19 @@ impl Builder {
         }
     }
 
+    /// Record an LLVM operation flag (nsw/nuw) on a node as metadata.
+    ///
+    /// `nsw`/`nuw` mean overflow produces POISON, not wrapping. Dropping
+    /// these flags would authorize vector reassociation of signed sums
+    /// whose behavior differs on overflow (Gate 6A-v2 finding X02).
+    /// The metadata is consumed by the reduction certificate's
+    /// integer-semantics check.
+    pub fn set_overflow_flag(&mut self, id: NodeId, flag: &str) {
+        if let Some(node) = self.func.arena.get_mut(id) {
+            node.metadata.insert("llvm.overflow", flag);
+        }
+    }
+
     // ── Value nodes ─────────────────────────────────────────
 
     /// Create a constant node.

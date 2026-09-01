@@ -113,8 +113,13 @@ impl SemanticDatabase {
             return;
         }
 
-        // Build reverse index: node -> Vec<RegionId>
-        let mut node_to_regions: HashMap<NodeId, Vec<RegionId>> = HashMap::new();
+        // Build reverse index: node -> Vec<RegionId>.
+        // BTreeMap, not HashMap: merge resolution must be deterministic
+        // (HashMap iteration order varies per process, which made the
+        // merged-region layout — and hence candidate generation —
+        // nondeterministic run-to-run).
+        let mut node_to_regions: std::collections::BTreeMap<NodeId, Vec<RegionId>> =
+            std::collections::BTreeMap::new();
         for (&rid, region) in &self.regions {
             for &nid in &region.nodes {
                 // Do not merge based on shared Parameters or Constants
@@ -160,8 +165,13 @@ impl SemanticDatabase {
             resolved_map.insert(src, ultimate);
         }
 
-        // Merge regions according to the resolved merge map
-        for (source_id, target_id) in &resolved_map {
+        // Merge regions according to the resolved merge map,
+        // processing sources in ascending RegionId order for
+        // determinism (resolved_map itself is a HashMap).
+        let mut resolved_sorted: Vec<(RegionId, RegionId)> =
+            resolved_map.iter().map(|(k, v)| (*k, *v)).collect();
+        resolved_sorted.sort();
+        for (source_id, target_id) in &resolved_sorted {
             if let Some(source) = self.regions.remove(source_id) {
                 if let Some(target_region) = self.regions.get_mut(target_id) {
                     for &nid in &source.nodes {

@@ -162,6 +162,16 @@ fn detect_reductions(
                         None
                     }
                 }
+                NodeKind::Sub { lhs, rhs } => {
+                    // Decrementing induction (reverse scan, PS002-style):
+                    // i_next = i - step. Only a unit decrement counts as a
+                    // contiguous-traversal counter.
+                    if *lhs == carry {
+                        Some("sub".to_string())
+                    } else {
+                        None
+                    }
+                }
                 NodeKind::And { lhs, rhs } | NodeKind::BoolAnd { lhs, rhs } => {
                     if *lhs == carry || *rhs == carry {
                         Some("bitwise_and".to_string())
@@ -224,6 +234,14 @@ fn detect_reductions(
                             *rhs
                         } else {
                             *lhs
+                        }
+                    }
+                    NodeKind::Sub { lhs, rhs } => {
+                        // For a decrementing counter the step is the subtrahend.
+                        if *lhs == carry {
+                            *rhs
+                        } else {
+                            continue; // rhs - carry is not a carried reduction
                         }
                     }
                     NodeKind::Select { true_val, false_val, .. } => {

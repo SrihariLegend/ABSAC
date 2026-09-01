@@ -99,8 +99,13 @@ fn knowledge_pass(func: &Function) -> KnowledgePass {
         }
     }
 
+    let authorizations = sir_semantics::authorization::derive_authorizations(
+        func,
+        analysis.database(),
+        semantics.database(),
+    );
     let mut generator = CandidateGenerator::new();
-    generator.generate(inference.context_database(), semantics.database());
+    generator.generate(inference.context_database(), semantics.database(), &authorizations);
     let candidates: Vec<Candidate> = generator.database().all_candidates().cloned().collect();
     let candidates_generated = candidates.len();
 

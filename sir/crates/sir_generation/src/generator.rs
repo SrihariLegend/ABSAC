@@ -82,12 +82,16 @@ impl CandidateGenerator {
 
     /// Generate candidates for every transformation context.
     ///
-    /// Each context is inspected by generator functions that produce
-    /// candidates when applicable.
+    /// ── Authorization requirement (X06 structural fix) ──
+    /// The authorization database is a REQUIRED argument. Regions
+    /// without a complete certificate produce zero candidates — there
+    /// is no code path that generates a candidate from raw truths or
+    /// beliefs.
     pub fn generate(
         &mut self,
         context_db: &TransformationContextDatabase,
         semantic_db: &SemanticDatabase,
+        auth_db: &sir_semantics::authorization::AuthorizationDatabase,
     ) {
         let empty_concepts = std::collections::HashSet::new();
 
@@ -98,7 +102,7 @@ impl CandidateGenerator {
                 .unwrap_or(&empty_concepts);
 
             for ctx in contexts {
-                let candidates = crate::generators::all_plans(ctx, concepts);
+                let candidates = crate::generators::all_plans(ctx, concepts, auth_db);
                 for mut candidate in candidates {
                     candidate.id = self.db.next_id();
                     self.db.add(region_id, candidate);

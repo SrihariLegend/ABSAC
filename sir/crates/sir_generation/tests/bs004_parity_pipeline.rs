@@ -79,7 +79,12 @@ fn bs004_trace_pipeline() {
     let mut inference = InferenceEngine::new();
     inference.infer(semantics.database(), semantics.structural_database());
     let mut generator = CandidateGenerator::new();
-    generator.generate(inference.context_database(), semantics.database());
+    let authorizations = sir_semantics::authorization::derive_authorizations(
+        &func,
+        analysis.database(),
+        semantics.database(),
+    );
+    generator.generate(inference.context_database(), semantics.database(), &authorizations);
 
     for c in generator.database().all_candidates() {
         println!("  {}: {:?}", c.id, c.strategy);

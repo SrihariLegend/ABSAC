@@ -42,7 +42,9 @@ fn make_all_concepts() -> HashSet<SemanticConcept> {
 fn all_four_generators_produce_candidates() {
     let ctx = make_context();
     let concepts = make_all_concepts();
-    let candidates: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
+    let mut auth_db = sir_semantics::authorization::AuthorizationDatabase::new();
+    auth_db.grant_for_unit_test(sir_types::RegionId::new(0), concepts.clone().into_iter().collect());
+    let candidates = generators::all_plans(&ctx, &concepts, &auth_db);
     // Four strategies apply to the count-over-sequence concepts: Popcount,
     // BitIteration, PackedBitfield, MaskConstruction. The BitsetIteration
     // Popcount is scoped to Kernighan-style loops and does not apply.
@@ -57,7 +59,9 @@ fn all_four_generators_produce_candidates() {
 fn all_strategies_are_distinct() {
     let ctx = make_context();
     let concepts = make_all_concepts();
-    let candidates: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
+    let mut auth_db = sir_semantics::authorization::AuthorizationDatabase::new();
+    auth_db.grant_for_unit_test(sir_types::RegionId::new(0), concepts.clone().into_iter().collect());
+    let candidates = generators::all_plans(&ctx, &concepts, &auth_db);
     let strategies: HashSet<_> = candidates.iter().map(|c| c.strategy).collect();
     assert_eq!(strategies.len(), 4);
 }
@@ -66,7 +70,9 @@ fn all_strategies_are_distinct() {
 fn each_candidate_has_effects() {
     let ctx = make_context();
     let concepts = make_all_concepts();
-    let candidates: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
+    let mut auth_db = sir_semantics::authorization::AuthorizationDatabase::new();
+    auth_db.grant_for_unit_test(sir_types::RegionId::new(0), concepts.clone().into_iter().collect());
+    let candidates = generators::all_plans(&ctx, &concepts, &auth_db);
     for c in &candidates {
         assert!(
             !c.effects.is_empty(),
@@ -80,7 +86,9 @@ fn each_candidate_has_effects() {
 fn each_candidate_has_explanation() {
     let ctx = make_context();
     let concepts = make_all_concepts();
-    let candidates: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
+    let mut auth_db = sir_semantics::authorization::AuthorizationDatabase::new();
+    auth_db.grant_for_unit_test(sir_types::RegionId::new(0), concepts.clone().into_iter().collect());
+    let candidates = generators::all_plans(&ctx, &concepts, &auth_db);
     for c in &candidates {
         assert!(
             !c.explanation.rationale.is_empty(),
@@ -107,7 +115,9 @@ fn bitmask_context_produces_four_candidates() {
         assumptions,
     );
     let concepts = make_all_concepts();
-    let candidates: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
+    let mut auth_db = sir_semantics::authorization::AuthorizationDatabase::new();
+    auth_db.grant_for_unit_test(sir_types::RegionId::new(0), concepts.clone().into_iter().collect());
+    let candidates = generators::all_plans(&ctx, &concepts, &auth_db);
     // All 4 generators check for BitSet representation, which matches.
     // BitMask as source structure is still valid.
     assert_eq!(candidates.len(), 4);
@@ -117,8 +127,10 @@ fn bitmask_context_produces_four_candidates() {
 fn generation_is_deterministic() {
     let ctx = make_context();
     let concepts = make_all_concepts();
-    let first: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
-    let second: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
+    let mut auth_db = sir_semantics::authorization::AuthorizationDatabase::new();
+    auth_db.grant_for_unit_test(sir_types::RegionId::new(0), concepts.clone().into_iter().collect());
+    let first = generators::all_plans(&ctx, &concepts, &auth_db);
+    let second = generators::all_plans(&ctx, &concepts, &auth_db);
     assert_eq!(first.len(), second.len());
     for (a, b) in first.iter().zip(second.iter()) {
         assert_eq!(a.strategy, b.strategy);
@@ -129,7 +141,9 @@ fn generation_is_deterministic() {
 fn explanations_contain_source_concepts() {
     let ctx = make_context();
     let concepts = make_all_concepts();
-    let candidates: Vec<_> = generators::all_plans(&ctx, &concepts).collect();
+    let mut auth_db = sir_semantics::authorization::AuthorizationDatabase::new();
+    auth_db.grant_for_unit_test(sir_types::RegionId::new(0), concepts.clone().into_iter().collect());
+    let candidates = generators::all_plans(&ctx, &concepts, &auth_db);
     for c in &candidates {
         assert!(
             !c.explanation.source_concepts.is_empty(),

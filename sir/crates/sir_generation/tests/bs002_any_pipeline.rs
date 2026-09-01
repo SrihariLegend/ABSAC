@@ -138,7 +138,12 @@ fn bs002_trace_pipeline() {
 
     // ── Phase 4: Generation ──
     let mut generator = CandidateGenerator::new();
-    generator.generate(inference.context_database(), semantics.database());
+    let authorizations = sir_semantics::authorization::derive_authorizations(
+        &func,
+        analysis.database(),
+        semantics.database(),
+    );
+    generator.generate(inference.context_database(), semantics.database(), &authorizations);
     let db = generator.database();
     let candidate_count = db.all_candidates().count();
     println!("[BS002] Generation: {} candidates", candidate_count);

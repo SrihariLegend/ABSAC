@@ -1114,6 +1114,24 @@ fn emit_instruction(
                 _ => unreachable!(),
             };
 
+            // ── Preserve LLVM operation flags (X02, Gate 6A-v2) ──
+            // `nsw`/`nuw` mean overflow produces POISON, not wrapping.
+            // Previously dropped, which authorized vector reassociation of
+            // signed-overflow-sensitive sums. The metadata is consumed by
+            // the reduction certificate's integer-semantics check.
+            let flag = if inst.raw.contains(" nsw ") && inst.raw.contains(" nuw ") {
+                Some("nsw+nuw")
+            } else if inst.raw.contains(" nsw ") {
+                Some("nsw")
+            } else if inst.raw.contains(" nuw ") {
+                Some("nuw")
+            } else {
+                None
+            };
+            if let Some(flag) = flag {
+                builder.set_overflow_flag(node_id, flag);
+            }
+
             if let Some(name) = result_name {
                 value_map.insert(name, node_id);
             }

@@ -15,7 +15,9 @@ fn main() {
             }
  // dump node kinds
             for node in func.arena.iter() {
-                println!("  %{} {:?}", node.id.0, node.kind);
+                let meta = format!("{:?}", node.metadata);
+            let meta_s = if meta.contains("llvm") { format!(" META={}", meta) } else { String::new() };
+            println!("  %{} {:?}{}", node.id.0, node.kind, meta_s);
             }
         }
         Err(e) => println!("lower failed: {}", e),
