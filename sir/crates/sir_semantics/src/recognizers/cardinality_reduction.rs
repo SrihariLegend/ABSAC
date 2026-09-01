@@ -48,6 +48,30 @@ pub fn recognize_cardinality_reduction(
                 continue;
             }
 
+            // ── Closed-world check (ReductionCertificate completeness) ──
+            // Every memory base reachable from the loop region must be
+            // identified. If the footprint has more than one base (or any
+            // unresolvable base), the certificate cannot describe the
+            // computation completely and recognition must abstain — even
+            // though the high-level concept may be true.
+            // (Gate 6A-v1 finding N15: count(a[i]==b[i]) was recognized with
+            // only `a` declared; the certificate forbids partial footprints.)
+            let body_nodes = collect_loop_body_nodes(&node.kind);
+            match crate::certificate::memory_footprint(func, &body_nodes) {
+                crate::certificate::FootprintCheck::Complete(bases) if bases.len() == 1 => {}
+                crate::certificate::FootprintCheck::Complete(bases) => {
+                    // Zero bases = no memory read; multiple bases = footprint
+                    // the current truth structure cannot bind completely.
+                    // Both must abstain.
+                    if bases.len() > 1 {
+                        continue;
+                    }
+                }
+                crate::certificate::FootprintCheck::Incomplete(_) => {
+                    continue;
+                }
+            }
+
             if let Some(loop_fact) = analysis.loops.get(&node.id) {
                 let sum_reductions: Vec<_> = loop_fact
                     .reductions

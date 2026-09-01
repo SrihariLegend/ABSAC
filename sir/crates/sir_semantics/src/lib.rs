@@ -6,6 +6,7 @@
 //! This is Layer 2 of the knowledge hierarchy:
 //!   Facts (sir_analysis) → Truths (sir_semantics) → Beliefs (sir_inference)
 
+pub mod certificate;
 pub mod closure;
 pub mod concepts;
 pub mod cost;

@@ -86,10 +86,21 @@ fn main() {
         };
 
         // Verify
+        // ══════════════════════════════════════════════════════════
+        // MANDATORY GATE: only verified SIR may enter analysis/semantics.
+        // No code path may invoke semantic recognition on unverified SIR.
+        // (Gate 6A-v1 finding: V07 produced invalid SIR and recognition
+        // still ran on it — this gate makes that structurally impossible.)
         let mut verifier = sir_verify::Verifier::new(&func);
         result.verified = verifier.verify();
+        if !result.verified {
+            result.error = Some("verify: SIR failed structural verification — analysis/semantics gated".to_string());
+            print_result(&result);
+            results.push(result);
+            continue;
+        }
 
-        // Analysis
+        // Analysis (only reachable when SIR verified)
         let mut analysis = AnalysisManager::new();
         analysis.run_all(&func);
         result.facts = analysis.database().total_facts();

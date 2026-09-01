@@ -44,6 +44,18 @@ pub fn recognize_sum_reduction(
                 continue;
             }
 
+            // ── Closed-world check (ReductionCertificate completeness) ──
+            // See certificate.rs and cardinality_reduction.rs. A sum truth
+            // may only fire when the loop's memory footprint is a single,
+            // fully-resolvable base.
+            {
+                let body_nodes = collect_loop_body_nodes(&node.kind);
+                match crate::certificate::memory_footprint(func, &body_nodes) {
+                    crate::certificate::FootprintCheck::Complete(bases) if bases.len() <= 1 => {}
+                    _ => continue,
+                }
+            }
+
             if let Some(loop_fact) = analysis.loops.get(&node.id) {
                 let sum_reductions: Vec<_> = loop_fact
                     .reductions

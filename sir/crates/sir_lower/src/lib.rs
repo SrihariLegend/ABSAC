@@ -447,7 +447,35 @@ pub fn lower_function(text: &str, func_name: &str) -> Result<Function, String> {
     if func_text.is_empty() {
         return Err(format!("function '{}' not found", func_name));
     }
-    lower(&func_text)
+    let func = lower(&func_text)?;
+
+    // ══════════════════════════════════════════════════════════
+    // MANDATORY LOWERER VALIDATION (Gate 6A-v1, Priority 0A)
+    //
+    // No code path may obtain unverified SIR from the lowerer.
+    // Finding: V07 lowered to structurally invalid SIR (two-loop CFG
+    // bug) and returned Ok — recognition then ran on broken IR.
+    // Verification is now part of lowering: lowering that produces
+    // invalid SIR is an error, not silent success.
+    //
+    // This contains the more dangerous future failure mode only
+    // partially: structurally valid SIR with wrong semantics still
+    // requires translation validation (future work).
+    // ══════════════════════════════════════════════════════════
+    let mut verifier = sir_verify::Verifier::new(&func);
+    if !verifier.verify() {
+        let summary: Vec<String> = verifier
+            .errors()
+            .iter()
+            .take(3)
+            .map(|e| format!("{:?}", e))
+            .collect();
+        return Err(format!(
+            "lowered SIR failed verification (soundness gate): {}",
+            summary.join("; ")
+        ));
+    }
+    Ok(func)
 }
 
 /// Extract a specific function by name from LLVM IR text.
@@ -608,16 +636,52 @@ fn lower_loop_function(
 ) -> Result<(), String> {
     let span = Span::unknown();
 
-    // Emit entry block instructions (non-branch) before the loop.
+    // Emit pre-loop block instructions (non-branch) before the loop.
+    //
     // The entry block often contains an initial comparison (e.g., icmp sgt n, 0)
-    // whose result is used by exit-block phis.
+    // whose result is used by exit-block phis. Pre-header blocks between the
+    // entry and the loop often contain value conversions (e.g., zext i32 %1 to
+    // i64 for a mixed-width loop bound) that the loop body references.
+    //
+    // Gate 6A-v1 finding: only the entry block was emitted, so a zext in an
+    // intermediate pre-header block was never lowered and the loop body's
+    // icmp failed with "cannot resolve rhs" (V02, N16, H01, H02).
+    //
+    // We emit ALL blocks that appear before the loop, EXCEPT:
+    //   - the loop's exit block (it consumes loop outputs — must run after),
+    //   - blocks containing ret (they belong to an alternate exit path).
+    //
+    // The loop's exit label is determined from the loop block's conditional
+    // branch (the target that is not the loop itself).
     if loop_idx > 0 {
-        let entry_block = &ir.blocks[0];
-        for inst in &entry_block.instructions {
-            if inst.opcode == "br" || inst.opcode == "ret" {
+        // Find the loop's exit label from its conditional branch
+        let loop_exit_label: Option<String> = ir.blocks[loop_idx].instructions.iter().find_map(|inst| {
+            if inst.opcode == "br" && inst.operands.len() >= 3 {
+                let true_label = inst.operands[1].trim_start_matches("label ").trim_start_matches('%').to_string();
+                let false_label = inst.operands[2].trim_start_matches("label ").trim_start_matches('%').to_string();
+                let loop_label = &ir.blocks[loop_idx].label;
+                Some(if true_label == *loop_label { false_label } else { true_label })
+            } else {
+                None
+            }
+        });
+
+        for (bi, b) in ir.blocks.iter().enumerate() {
+            if bi >= loop_idx {
+                break;
+            }
+            if Some(b.label.clone()) == loop_exit_label {
                 continue;
             }
-            emit_instruction(inst, builder, value_map, &ir.params, span)?;
+            if b.instructions.iter().any(|i| i.opcode == "ret") {
+                continue;
+            }
+            for inst in &b.instructions {
+                if inst.opcode == "br" || inst.opcode == "ret" || inst.opcode == "phi" {
+                    continue;
+                }
+                emit_instruction(inst, builder, value_map, &ir.params, span)?;
+            }
         }
     }
 
@@ -1259,7 +1323,8 @@ fn emit_instruction(
             let callee = inst.operands.first()
                 .map(|s| s.trim())
                 .unwrap_or("");
-            if callee.contains("llvm.umax") || callee.contains("llvm.umin") {
+            if callee.contains("llvm.umax") || callee.contains("llvm.umin")
+                || callee.contains("llvm.smax") || callee.contains("llvm.smin") {
                 // Model as select(gt(a,b), a, b) for umax, or select(lt(a,b), a, b) for umin
                 // operands: "@llvm.umax.i8(i8 %10, i8 %8"  (with closing paren possibly)
                 // Actually the operands were split by commas, so:
@@ -1275,17 +1340,20 @@ fn emit_instruction(
                     if parts.len() >= 2 {
                         let a_str = strip_type(parts[0]);
                         let b_str = strip_type(parts[1]);
-                        let a = get_node_id(&a_str, value_map, params, builder, None)
+                        // Extract declared operand type (e.g., "i32 %1" → i32) so
+                        // constant operands get the correct width
+                        let op_ty = parts[0].split_whitespace().next().and_then(parse_type);
+                        let a = get_node_id(&a_str, value_map, params, builder, op_ty.clone())
                             .ok_or(format!("cannot resolve umax operand '{}'", a_str))?;
-                        let b = get_node_id(&b_str, value_map, params, builder, None)
+                        let b = get_node_id(&b_str, value_map, params, builder, op_ty)
                             .ok_or(format!("cannot resolve umax operand '{}'", b_str))?;
 
-                        let node_id = if callee.contains("llvm.umax") {
-                            // umax(a, b) = select(a > b, a, b)
+                        let node_id = if callee.contains("llvm.umax") || callee.contains("llvm.smax") {
+                            // umax/smax(a, b) = select(a > b, a, b)
                             let cmp = builder.gt(a, b, span).map_err(|e| format!("{:?}", e))?;
                             builder.select(cmp, a, b, span).map_err(|e| format!("{:?}", e))?
                         } else {
-                            // umin(a, b) = select(a < b, a, b)
+                            // umin/smin(a, b) = select(a < b, a, b)
                             let cmp = builder.lt(a, b, span).map_err(|e| format!("{:?}", e))?;
                             builder.select(cmp, a, b, span).map_err(|e| format!("{:?}", e))?
                         };

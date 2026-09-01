@@ -9,3 +9,4 @@ authors.workspace = true
 sir_types = { path = "../sir_types" }
 sir_nodes = { path = "../sir_nodes" }
 sir_builder = { path = "../sir_builder" }
+sir_verify = { path = "../sir_verify" }
