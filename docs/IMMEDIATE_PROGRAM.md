@@ -109,15 +109,29 @@ If this fails, MCTS is unjustified for the current action space.
 ### Gate 6: Generalization
 
 ```
-Gate 6A: FAILED→FIXED — false positives eliminated, safe abstention works
-         3/6 negative cases incorrectly recognized as CardinalityReduction
-         Root causes: volatile not tracked, stride not checked,
-         accumulator independence not checked
-         See docs/GATE6A_RESULTS.md
+Gate 6A-v0:  FAILED   50% false positives on held-out negatives (3/6).
+                     Preserved as a historical record — do not overwrite.
 
-Gate 6B: NOT TESTED — reserved for unseen fusion opportunities
-         (must fix 6A safety issues first)
+Gate 6A-Rem: PASSED   on the regression corpus only (0/6). NOT held-out
+                     proof — the corpus was inspected and is now D1.
+
+Gate 6A-v1:  FAILED   fresh blind corpus (H1): 1/4 lowered negatives
+                     falsely recognized (N15 — certificate completeness
+                     gap), 1 frontend soundness bug (V07 — SIR verifier
+                     caught invalid two-loop lowering), 2/8 positives
+                     lost to mixed-width lowering, All-reduction recall
+                     miss (V03).
+
+Gate 6A-v2:  OPEN     requires a fresh corpus after next remediation.
+
+Gate 6B:     RESERVED — uncontaminated pre-frozen fusion corpus.
+             Must not be inspected while automating fusion.
 ```
+
+Generational protocol: freeze → evaluate blindly → fail → preserve the
+failure → understand the missing semantics → remediate → evaluate on a
+new frontier. Each failing corpus becomes the next regression set
+(H0→D1, H1→D2). Failures are never overwritten by remediation results.
 
 Pass when:
 

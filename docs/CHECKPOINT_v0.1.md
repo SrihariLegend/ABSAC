@@ -70,8 +70,14 @@ Gate 5A:  COMPLETE Target-plan landscape (69 plans, E0 within 0-14%)
 Gate 5B-W:  PASSED Hand-constructed fusion witness (28-35%)
 Gate 5B-A:  OPEN   Automated fusion from primitive actions
 Gate 5B-S:  OPEN   Search discovers fusion
-Gate 6A:  FAILED→FIXED  False positives eliminated, safe abstention works
-Gate 6:   NOT TESTED  Held-out generalization (after safety fixes)
+Gate 6A-v0:  FAILED   50% false-positive recognition on held-out negatives
+                     (3/6 — preserved in GATE6A_RESULTS.md)
+Gate 6A-Rem: PASSED   on regression corpus only (0/6 — not held-out proof)
+Gate 6A-v1:  FAILED   fresh blind corpus: 1/4 false positive (N15
+                     certificate gap), 1 frontend soundness bug (V07),
+                     2/8 positives lost to lowering, All-reduction miss
+Gate 6A-v2:  OPEN     fresh corpus after next remediation
+Gate 6B:   RESERVED  uncontaminated fusion corpus
 ```
 
 ## Revised Next Sequence
