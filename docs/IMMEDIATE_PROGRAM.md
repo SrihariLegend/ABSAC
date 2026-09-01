@@ -169,10 +169,47 @@ Remediation D3 (P0A, commit c3ebb54):
   Remaining P0A audit queue (before Gate 6B): candidate concrete
        bindings (memory bases, predicates, bounds, accumulator) checked
        against authorization bindings — required before fusion.
-  Still open in D3: volatile stores (x01), atomic loads (x05),
-       map-then-sum recall (w03), two-loop lowering (w08, third corpus
-       hitting the gap), u8/I64 accumulator mismatch (w07), early-exit
-       gep (x08).
+  P0A concrete binding step 1 (commit e62db09):
+       — ConcreteFacts on every TransformationAuthorization: memory
+         bases (from the footprint certificate), reassociable
+         accumulator (accumulators_are_reassociable now returns its
+         identity), authorized effects; copied into every
+         AuthorizationRef at the gate;
+       — ConcreteBindingDigest on every candidate: FNV-1a over all
+         authorization-relevant fields (fingerprint, region, context,
+         definition, strategy, cited concepts, effects,
+         representation, constraints, assumptions — sorted, so
+         HashSet order cannot perturb it); the optimizer rejects any
+         candidate whose digest no longer recomputes;
+       — rewrite-engine revalidation: stale authorization or invalid
+         digest → refused before any mutation; the collection a recipe
+         binds must be one of the authorization's concrete memory
+         bases (the "authorize A, rewrite B" confusion is denied
+         structurally);
+       — adversarial mutation tests: definition swap, region rebind,
+         fingerprint flip, strategy-family swap — all detected.
+  P0A status (advisor correction, adopted):
+       structural choke point COMPLETE; authorization provenance
+       COMPLETE; concrete binding OPEN (step 1 of the binding model
+       done: bases + accumulator + effects bound; per-proposal
+       declaration of live-ins/live-outs/iteration-domain/predicate
+       still needs TransformationContext plumbing);
+       P0A overall NOT YET CLOSED.
+  ScalarExpression definedness gate (advisor: fail closed NOW, commit
+       e62db09): Div/Rem refuse unless the divisor is a constant
+       nonzero literal; shifts refuse unless the amount is a constant
+       in [0, width); nsw/nuw nodes refuse the scalar and Composition
+       grants. Witness impact accepted: HD003/BP001 rotate-by-variable
+       abstain until a DefinednessCertificate provides shift-range
+       proofs (tests updated to assert abstention).
+  Volatile/atomic fail-closed (lowerer): volatile stores and atomic
+       loads/stores now refuse loudly with an explicit "unsupported"
+       error class (x01, x05) instead of parser accidents.
+  Still open in D3: map-then-sum recall (w03), two-loop lowering (w08,
+       third corpus hitting the gap), u8/I64 accumulator mismatch
+       (w07), early-exit gep (x08). Volatile (x01) and atomic (x05)
+       are now loud UNSUPPORTED refusals — intentional abstention,
+       recorded as unsupported rather than unresolved.
 
 Gate 6A-v3:  OPEN     requires a fresh corpus after D3 remediation.
 
