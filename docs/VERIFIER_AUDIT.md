@@ -325,3 +325,56 @@ guards, internal live values) is covered today only by the
 recognizer's structural gating (pure read-only regions), not by an
 issued artifact. H3 must not freeze until at least one transformation
 completes the full chain (C3 gate requirement).
+
+## ProposalBinding (first derivation, commit of 2026-07 session)
+
+`sir_semantics::binding` now contains the ProposalBinding model — the
+exact binding between one concrete source region, its authorization,
+its complete observable interface, and the application frame:
+
+- `ReductionRoleMap` — collection, element access, induction (+ start,
+  bound, stride ±1 contract), predicate, accumulator, recurrence,
+  identity, reduction position, live-ins, effects, integer semantics.
+  This is the ONLY legitimate role scan; downstream stages must
+  consume the map, not rescan the graph.
+- `LiveOutBinding` — Preserved / Reconstructed { slot } / Dead /
+  Guarded. Complete use-closure over the loop node's users: zero uses
+  → all outputs Dead; exactly one use that is the whole result flowing
+  to Return (single output) or a recognized reduction-slot extraction
+  → Reconstructed (+ Dead for every unobserved slot); a non-reduction
+  slot projection, multiple uses, or any unrecognized use form →
+  `BindingError::UnclassifiedUse` (unknown means NOT dead).
+- `FrameCondition` + conservative contract: read-only nonvolatile
+  memory, no atomics, no stores, no calls, no unmodeled traps, single
+  normal exit, known finite trip count. Derivation REFUSES (fail-
+  closed) when the contract fails — incomplete bindings cannot become
+  legal candidates.
+- Authority cross-check: the accumulator bound into the map must equal
+  the authorization's certified accumulator
+  (`accumulators_are_reassociable`, which excludes the induction
+  counter). A role set disagreeing with the certified accumulator is a
+  binding error.
+
+Pipeline fix required by the derivation: `derive_roles` previously
+selected the role accumulator with a naive last-match over the loop's
+detected reductions — the unit-stride induction counter (itself a
+"sum" recurrence) could be bound as the accumulator for loops that
+have both. It now skips unit counters, matching
+`accumulators_are_reassociable`. 512/512 tests pass; dev corpus
+unchanged (40/50 lowered, 0 rewrites).
+
+Tests (`crates/sir_semantics/tests/proposal_binding.rs`):
+- `any_accumulator_slot_extract_binds_completely` — the enabled case
+  (single accumulator-slot extract) binds completely: role map,
+  conservative frame, slot 0 Reconstructed + slot 1 Dead, stable
+  digest.
+- `any_whole_tuple_return_refuses_binding` — PS002 shape refused.
+- `any_index_slot_consumer_refuses_binding` — a slot the theorem does
+  not cover is neither preserved nor dead; refused.
+
+Still open end-to-end: the binding is derived but NOT yet consumed by
+the recipes (they still scan via `RewriteRegion` accessors) and no
+`CheckedApplication`/`EndToEndVerificationArtifact` is issued yet. The
+audit matrix stays honest: the four families remain Open end-to-end
+until a recipe consumes the binding and an application checker issues
+the second artifact.

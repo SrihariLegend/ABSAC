@@ -301,15 +301,27 @@ Remediation D3 (P0A, commit c3ebb54):
        conditions); EndToEnd = min of both. Regression family in
        liveout_binding_tests.rs (whole-tuple, multi-consumer, opaque
        projection, position-mutation, single-authorized-slot = enabled).
-  Remaining P0A queue (advisor order): (1) ProposalBinding + exact
-       proposal binding (step 2: per-proposal declaration of source
-       nodes, live-ins/outs, memory accesses, iteration domain,
-       predicate, accumulator + recurrence, result, effects, definition,
-       strategy family, assumptions, guards — compared against the
-       database at authorization and pre-rewrite); (2) role-map plumbing
-       so recipes consume the authorized binding instead of
+  ProposalBinding FIRST DERIVATION COMPLETE (sir_semantics::binding):
+       ReductionRoleMap + LiveOutBinding (Preserved/Reconstructed/Dead/
+       Guarded) + FrameCondition with the conservative first-slice
+       contract; derive_proposal_binding is fail-closed (unclassified
+       use, unsupported frame, or role/certified-accumulator
+       disagreement = binding error, never a guessed value);
+       derive_roles now skips unit counters when selecting the role
+       accumulator (pipeline fix). 3 integration tests; 512/512 green;
+       corpus unchanged (40/50, 0 rewrites). NEXT: wire recipes to
+       consume the binding (no more global scans), then
+       CheckedApplication + EndToEndVerificationArtifact.
+  Remaining P0A queue (advisor order): (1) ProposalBinding [DERIVED,
+       awaiting recipe consumption + application checker]; (2) role-map
+       plumbing so recipes consume the authorized binding instead of
        rediscovering it (certificate binding vs recipe binding must not
        be two implementations); (3) upgrade quarantined definitions to
+       ConcreteSolverChecked (obligation from actual pair, mutation-
+       sensitive) starting with the unsigned arithmetic identities;
+       (4) map-then-sum recall, two-loop lowering, accumulator width,
+       C3 freeze, fresh H3; before fusion: seal Gate 6B or independent
+       post-freeze corpus creation. (3) upgrade quarantined definitions to
        ConcreteSolverChecked (obligation from actual pair, mutation-
        sensitive) starting with the unsigned arithmetic identities;
        (4) map-then-sum recall, two-loop lowering, accumulator width,

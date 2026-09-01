@@ -1009,6 +1009,13 @@ impl SemanticEngine {
                             result_node = Some(node.id);
                             if let Some(loop_fact) = analysis.loops.get(&node.id) {
                                 for reduction in &loop_fact.reductions {
+                                    // The unit-stride induction counter is also
+                                    // detected as a "sum"/"sub" recurrence — it is
+                                    // the traversal index, never the accumulated
+                                    // value (matches accumulators_are_reassociable).
+                                    if crate::authorization::is_unit_counter(func, reduction) {
+                                        continue;
+                                    }
                                     if matches!(
                                         reduction.reduction_kind.as_str(),
                                         "sum" | "bitwise_or" | "bitwise_and" | "bitwise_xor"

@@ -723,7 +723,7 @@ impl AuthorizationDatabase {
 /// The counter is exempt from overflow-flag checks: it is the index,
 /// not an accumulated value. Same definition as the recognizers' stride
 /// check: kind "sum" with a constant-1 invariant.
-fn is_unit_counter(func: &Function, r: &sir_analysis::facts::ReductionVar) -> bool {
+pub(crate) fn is_unit_counter(func: &Function, r: &sir_analysis::facts::ReductionVar) -> bool {
     // A unit counter is a contiguous-traversal index: forward (+1, kind
     // "sum") or reverse (-1, kind "sub" from a reverse scan).
     if r.reduction_kind != "sum" && r.reduction_kind != "sub" {
