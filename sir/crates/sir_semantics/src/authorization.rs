@@ -115,6 +115,21 @@ fn divisor_is_proven_nonzero(func: &Function, kind: &NodeKind) -> bool {
     }
 }
 
+/// Signed division/remainder has an exceptional second case:
+/// `INT_MIN / -1` (and `INT_MIN % -1`) overflow the result type and
+/// trap in C / produce poison-flagged UB in LLVM. The udiv/sdiv/
+/// urem/srem distinction is taken from the operand type's signedness
+/// (SIR types carry signedness). Until a DefinednessCertificate can
+/// prove `x != INT_MIN`, signed division and remainder by ANY
+/// constant are refused — the transformation families that rewrite
+/// them (divide→shift, modulo→mask) are also invalid for negative
+/// operands (e.g. -1 % 8 = -1 but -1 & 7 = 7), so no signed div/rem
+/// region qualifies for scalar authorization today.
+fn signed_div_or_rem(node: &sir_nodes::Node) -> bool {
+    matches!(node.kind, NodeKind::Div { .. } | NodeKind::Rem { .. })
+        && matches!(&node.ty, sir_types::Type::Integer { signed: true, .. })
+}
+
 /// Whitelist scan for scalar-expression transformations.
 ///
 /// "Pure" (no observable effects) does NOT imply total or safely
@@ -149,11 +164,23 @@ fn scalar_expression_is_defined(func: &Function, region_nodes: &[NodeId]) -> Res
     for id in &all_nodes {
         let Some(node) = func.get_node(*id) else { continue };
         match &node.kind {
-            // Division/remainder: a constant NONZERO divisor is a
-            // proven nonzero divisor (e.g. x % 8). A variable divisor
-            // has no proof — refuse (a rewrite must not move or
-            // duplicate a possible trap).
+            // Division/remainder — two separate questions (advisor
+            // audit):
+            //   1. Definedness: unsigned div/rem needs divisor != 0;
+            //    signed additionally has the INT_MIN / -1 trap.
+            // 2. Transformation legality: modulo→mask and divide→shift
+            //    are only equivalent for unsigned (or proven
+            //    non-negative) operands. Signed div/rem regions are
+            //    refused outright.
             NodeKind::Div { .. } | NodeKind::Rem { .. } => {
+                if signed_div_or_rem(node) {
+                    return Err(format!(
+                        "region contains signed div/rem (sdiv/srem: \
+                         INT_MIN/-1 unmodeled; modulo-to-mask invalid \
+                         for negative operands): node %{}",
+                        id.0
+                    ));
+                }
                 if !divisor_is_proven_nonzero(func, &node.kind) {
                     return Err(format!(
                         "region contains {} without a nonzero-divisor proof \

@@ -5,6 +5,15 @@ use sir_optimizer::optimizer::Optimizer;
 use sir_rewrite::registry::default_registry;
 use sir_types::{ConstantData, Span, Type};
 
+// BA001/BA002/BA004 use UNSIGNED operands: the modulo→mask,
+// divide→shift and shift-mask identities are only equivalent for
+// unsigned (or proven non-negative) values — see the advisor's
+// signed div/rem audit. BA003 (multiply) keeps i32: two's-complement
+// wrapping makes x * 2^k == x << k for every bit pattern.
+fn u32_type() -> Type {
+    Type::u32()
+}
+
 fn i32_type() -> Type {
     Type::i32()
 }
@@ -14,18 +23,18 @@ fn unknown_span() -> Span {
 }
 
 fn create_ba001_modulo() -> sir_nodes::Function {
-    let mut b = Builder::new("ba001_modulo", &[("x", i32_type())], i32_type());
+    let mut b = Builder::new("ba001_modulo", &[("x", u32_type())], u32_type());
     let x = b.parameter_index(0).unwrap();
-    let c = b.constant(ConstantData::i32(16), i32_type(), unknown_span());
+    let c = b.constant(ConstantData::u32(16), u32_type(), unknown_span());
     let res = b.rem(x, c, unknown_span()).unwrap();
     b.return_value(res, unknown_span()).unwrap();
     b.build()
 }
 
 fn create_ba002_divide() -> sir_nodes::Function {
-    let mut b = Builder::new("ba002_divide", &[("x", i32_type())], i32_type());
+    let mut b = Builder::new("ba002_divide", &[("x", u32_type())], u32_type());
     let x = b.parameter_index(0).unwrap();
-    let c = b.constant(ConstantData::i32(8), i32_type(), unknown_span());
+    let c = b.constant(ConstantData::u32(8), u32_type(), unknown_span());
     let res = b.div(x, c, unknown_span()).unwrap();
     b.return_value(res, unknown_span()).unwrap();
     b.build()
@@ -41,9 +50,9 @@ fn create_ba003_multiply() -> sir_nodes::Function {
 }
 
 fn create_ba004_shift_mask() -> sir_nodes::Function {
-    let mut b = Builder::new("ba004_shift_mask", &[("x", i32_type())], i32_type());
+    let mut b = Builder::new("ba004_shift_mask", &[("x", u32_type())], u32_type());
     let x = b.parameter_index(0).unwrap();
-    let c = b.constant(ConstantData::i32(4), i32_type(), unknown_span());
+    let c = b.constant(ConstantData::u32(4), u32_type(), unknown_span());
     let shl = b.shl(x, c, unknown_span()).unwrap();
     let res = b.shr(shl, c, unknown_span()).unwrap();
     b.return_value(res, unknown_span()).unwrap();

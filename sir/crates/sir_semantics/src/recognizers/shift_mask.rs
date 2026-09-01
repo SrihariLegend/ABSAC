@@ -34,6 +34,17 @@ pub fn recognize_shift_mask(
                             sir_nodes::NodeKind::Constant(l_c),
                         ) = (&r_amt_node.kind, &l_amt_node.kind)
                         {
+                            // Transformation legality (advisor audit): the
+                            // (x << k) >> k → x & mask identity only holds
+                            // for UNSIGNED right shift. A signed >> is an
+                            // ARITHMETIC shift (sign-extending), so
+                            // (x << k) >> k = -1 ≠ x & mask for negative x.
+                            if matches!(
+                                &node.ty,
+                                sir_types::Type::Integer { signed: true, .. }
+                            ) {
+                                continue;
+                            }
                             if r_c == l_c {
                                 results.push((
                                     SemanticConcept::ShiftMask,

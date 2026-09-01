@@ -21,7 +21,7 @@ fn build_orchestration_function() -> sir_nodes::Function {
                     length: 64,
                 },
             ),
-            ("x", Type::i32()),
+            ("x", Type::u32()),
         ],
         Type::i32(),
     );
@@ -99,8 +99,10 @@ fn build_orchestration_function() -> sir_nodes::Function {
         )
         .unwrap();
 
-    // 4. Modulo Power of Two
-    let divisor = b.constant(ConstantData::i32(16), Type::i32(), Span::unknown());
+    // 4. Modulo Power of Two — UNSIGNED (the mask rewrite is only
+    // equivalent for unsigned operands; see signed div/rem audit).
+    // `x` is only consumed here, so it is declared u32 outright.
+    let divisor = b.constant(ConstantData::u32(16), Type::u32(), Span::unknown());
     let mod_res = b.rem(x, divisor, Span::unknown()).unwrap();
 
     // Use an external call to keep all independent loops alive (prevents DCE)

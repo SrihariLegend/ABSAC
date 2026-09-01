@@ -156,14 +156,23 @@ fn build_arithmetic(name: &str, op: &str, divisor: u64, signed: bool) -> ZooProg
 
     b.return_value(res, unknown()).unwrap();
 
-    // Modulo/Multiply works on signed/unsigned.
-    // ShiftMask works on unsigned, fails verification on signed (due to sign extension).
-    // Divide works on unsigned, fails verification on signed.
     //
     // Definedness gate (fail-closed): shift_mask with a full-width
     // shift (val == 32) is poison in LLVM semantics; without a
     // shift-range proof the authorization abstains — zero rewrites.
-    let expected = if op == "shift_mask" && divisor >= 32 { 0 } else { 1 };
+    // Transformation legality (advisor signed div/rem audit): the
+    // modulo→mask, divide→shift and shift-mask identities hold for
+    // UNSIGNED operands only. Signed div/rem additionally has the
+    // INT_MIN/-1 trap. Signed cases must abstain.
+    // Multiply is legal for both: two's-complement wrapping makes
+    // x * 2^k == x << k for every bit pattern.
+    let expected = if signed && op != "multiply" {
+        0
+    } else if op == "shift_mask" && divisor >= 32 {
+        0
+    } else {
+        1
+    };
 
     ZooProgram {
         name: name.to_string(),

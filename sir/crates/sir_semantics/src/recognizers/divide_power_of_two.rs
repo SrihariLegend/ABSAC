@@ -14,6 +14,19 @@ pub fn recognize_divide_power_of_two(
 
     for node in func.arena.iter() {
         if let sir_nodes::NodeKind::Div { lhs, rhs } = &node.kind {
+            // Transformation legality (advisor audit): divide→shift is
+            // equivalent only for UNSIGNED division. Signed division
+            // truncates toward zero (-7 / 16 = 0) while an arithmetic
+            // right shift rounds toward -∞ (-7 >> 4 = -1). A
+            // power-of-two divisor alone does not authorize the
+            // rewrite; signed division additionally has the
+            // INT_MIN / -1 trap.
+            if matches!(
+                &node.ty,
+                sir_types::Type::Integer { signed: true, .. }
+            ) {
+                continue;
+            }
             if let Some(rhs_node) = func.get_node(*rhs) {
                 if let sir_nodes::NodeKind::Constant(c) = &rhs_node.kind {
                     let is_power_of_two = if let Some(v) = c.as_u64() {
