@@ -148,10 +148,27 @@ Remediation D3 (P0A, commit c3ebb54):
        never authorization.
        Fixed pre-existing pipeline nondeterminism (HashMap-ordered
        region merging) exposed by the gate.
-  D3 validation on the regression set (NOT held-out proof): 487/487
+  D3 validation on the regression set (NOT held-out proof): 494/494
        tests, H2 corpus 11/16 lowered, 0 false positives, x02 → 0
-       candidates (overflow refusal), x06 → 0 candidates (belief
-       remains, authorization absent), dev corpus unchanged (40/50).
+       candidates (overflow refusal), x06 → 0 candidates and NO false
+       FirstOccurrence truth (semantic precision), dev corpus unchanged
+       (40/50).
+  P0A hardening (commit 3691fcf, advisor audit):
+       — region merging = true connected components (union-find) +
+         oracle test (the old merge could under-merge transitively);
+       — UntrustedProposal/AuthorizedCandidate type split (proposal →
+         candidate only through a matched authorization, crate-private);
+       — authorization provenance travels with candidates
+         (AuthorizationRef: fingerprint + region + domains), optimizer
+         rejects stale authorization before rewriting;
+       — per-domain authorization issuance; the scalar grant inside
+         reduction regions is now an explicit Composition certificate,
+         not a capability escalation;
+       — determinism invariant tests (oracle + repeated fresh-engine
+         runs identical); 8/8 fresh-process runs stable.
+  Remaining P0A audit queue (before Gate 6B): candidate concrete
+       bindings (memory bases, predicates, bounds, accumulator) checked
+       against authorization bindings — required before fusion.
   Still open in D3: volatile stores (x01), atomic loads (x05),
        map-then-sum recall (w03), two-loop lowering (w08, third corpus
        hitting the gap), u8/I64 accumulator mismatch (w07), early-exit
