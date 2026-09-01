@@ -9,7 +9,7 @@ use sir_transform::context::ContextId;
 use sir_transform::ids::DefinitionId;
 use sir_transform::representation::Representation;
 use sir_transform::structures::SourceStructure;
-use sir_types::RegionId;
+use sir_types::{NodeId, RegionId};
 
 /// Unique identifier for a candidate plan.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -159,6 +159,14 @@ pub struct Candidate {
     /// mismatched authorizations instead of trusting the generator's
     /// filter alone.
     pub authorization: AuthorizationRef,
+    /// ConcreteBindingDigest (advisor P0A item 2): FNV-1a over every
+    /// field that participates in the authorization decision — the
+    /// authorization version, region, definition, strategy, cited
+    /// concepts, effects, representation, constraints, assumptions.
+    /// Downstream stages recompute it before trusting the candidate:
+    /// any in-flight mutation of a bound field after authorization is
+    /// detected as a digest mismatch.
+    pub binding_digest: u64,
 }
 
 /// Authorization provenance that travels with a candidate: which
@@ -176,6 +184,14 @@ pub struct AuthorizationRef {
     pub region: RegionId,
     /// Domains whose certificates cover this candidate's cited concepts.
     pub domains: Vec<sir_semantics::authorization::DomainKind>,
+    /// Concrete binding facts copied from the matched authorization:
+    /// the exact memory bases, accumulator, and effects the
+    /// certificate covers. Empty = no binding declared (unit tests).
+    pub concrete: sir_semantics::authorization::ConcreteFacts,
+    /// The authorized region's node set (certificate provenance).
+    /// The rewrite layer checks that every replaced value lies within
+    /// this set — the rewrite may only touch authorized nodes.
+    pub region_nodes: Vec<NodeId>,
 }
 
 impl AuthorizationRef {
@@ -187,6 +203,8 @@ impl AuthorizationRef {
             function_fingerprint: 0,
             region: RegionId::new(u64::MAX),
             domains: Vec::new(),
+            concrete: Default::default(),
+            region_nodes: Vec::new(),
         }
     }
 
@@ -264,8 +282,10 @@ impl UntrustedProposal {
 
     /// Mint an authorized candidate. Crate-private by design: nothing
     /// outside sir_generation can turn a proposal into a candidate.
+    /// The binding digest is computed here, over the proposal's declared
+    /// fields and the matched authorization — once, at the trust boundary.
     pub(crate) fn authorize(self, id: CandidateId, auth: AuthorizationRef) -> Candidate {
-        Candidate {
+        let mut candidate = Candidate {
             id,
             region: self.region,
             context_id: self.context_id,
@@ -279,6 +299,67 @@ impl UntrustedProposal {
             constraints: self.constraints,
             assumptions: self.assumptions,
             authorization: auth,
-        }
+            binding_digest: 0,
+        };
+        candidate.binding_digest = compute_binding_digest(&candidate);
+        candidate
+    }
+}
+
+/// FNV-1a chunk mixer.
+fn digest_chunk(h: u64, bytes: &[u8]) -> u64 {
+    let mut h = h;
+    for &b in bytes {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+fn digest_str(h: u64, s: &str) -> u64 {
+    digest_chunk(h, s.as_bytes())
+}
+
+/// FNV-1a over every field that participates in the authorization
+/// decision (advisor P0A item 2): authorization version, region,
+/// context, definition, strategy, cited concepts, effects,
+/// representation, constraints, assumptions. Set-typed fields are
+/// hashed in sorted order (determinism). Downstream stages recompute
+/// this from the candidate's own fields: any in-flight mutation of a
+/// bound field after authorization is detected as a mismatch.
+fn compute_binding_digest(c: &Candidate) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    h = digest_chunk(h, &c.authorization.function_fingerprint.to_le_bytes());
+    h = digest_chunk(h, &c.region.0.to_le_bytes());
+    h = digest_chunk(h, &c.context_id.0.to_le_bytes());
+    h = digest_chunk(h, &c.definition_id.0.to_le_bytes());
+    h = digest_str(h, &format!("{:?}", c.strategy));
+    let mut names: Vec<String> = Vec::new();
+    for concept in &c.explanation.source_concepts {
+        names.push(format!("{:?}", concept));
+    }
+    for effect in &c.effects {
+        names.push(format!("{:?}", effect));
+    }
+    names.push(format!("{:?}", c.representation));
+    for constraint in &c.constraints {
+        names.push(format!("{:?}", constraint));
+    }
+    for assumption in &c.assumptions {
+        names.push(format!("{:?}", assumption));
+    }
+    names.sort();
+    for s in names {
+        h = digest_str(h, &s);
+    }
+    h
+}
+
+impl Candidate {
+    /// Recompute and compare the concrete binding digest. False means
+    /// a bound field changed after authorization — the candidate is
+    /// misbound and must not proceed to rewriting.
+    pub fn binding_digest_valid(&self) -> bool {
+        compute_binding_digest(self) == self.binding_digest
     }
 }

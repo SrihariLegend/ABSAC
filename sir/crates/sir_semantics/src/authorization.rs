@@ -32,7 +32,7 @@ use std::collections::{HashMap, HashSet};
 use sir_analysis::facts::FactDatabase;
 use sir_analysis::graph;
 use sir_nodes::{Function, NodeKind};
-use sir_types::{Effects, NodeId, RegionId};
+use sir_types::{ConstantData, Effects, NodeId, RegionId};
 
 use crate::certificate::{memory_footprint, FootprintCheck};
 use crate::concepts::SemanticConcept;
@@ -88,6 +88,128 @@ fn overflow_semantics_of(func: &Function, id: NodeId) -> IntegerSemantics {
         _ => IntegerSemantics::Modular,
     }
 }
+// ─────────────────────────────────────────────────────────────────
+// Definedness gate (advisor directive — scalar domains fail closed)
+// ─────────────────────────────────────────────────────────────────
+
+/// True when the operation's divisor is a constant known to be
+/// nonzero — the only nonzero-divisor proof available before a
+/// full DefinednessCertificate exists.
+fn divisor_is_proven_nonzero(func: &Function, kind: &NodeKind) -> bool {
+    let rhs = match kind {
+        NodeKind::Div { rhs, .. } | NodeKind::Rem { rhs, .. } => *rhs,
+        _ => return false,
+    };
+    match func.get_node(rhs).map(|n| &n.kind) {
+        Some(NodeKind::Constant(c)) => {
+            // Nonzero is provable for any literal: unsigned decodes via
+            // as_u64, signed via i64 parse. Zero of either sign fails.
+            let nonzero = |v: &str| v.parse::<i64>().map(|d| d != 0).unwrap_or(false);
+            match c {
+                ConstantData::Integer { value, .. } => Some(nonzero(value)),
+                _ => None,
+            }
+            .unwrap_or(false)
+        }
+        _ => false,
+    }
+}
+
+/// Whitelist scan for scalar-expression transformations.
+///
+/// "Pure" (no observable effects) does NOT imply total or safely
+/// transformable. Until a DefinednessCertificate exists (nonzero
+/// divisors, valid shift ranges, no-overflow proofs, poison
+/// preconditions — Gate 4B is open), only operations with fully
+/// modeled behavior may be transformed:
+///
+///   and/or/xor/not, well-defined add/sub/mul, safe constants,
+///   well-constrained shifts, total casts, comparisons, selects.
+///
+/// A region containing any partially-modeled operation is refused:
+///   - Div / Rem — no nonzero-divisor proof (trap/UB risk)
+///   - shifts by a non-constant amount or an out-of-range constant
+///   - nsw / nuw operations — overflow produces POISON, and no
+///     poison-precondition proof exists yet (X02 machinery, reused)
+///
+/// This gate applies to the ScalarExpression domain and to the
+/// derived Composition grant inside reduction regions.
+fn scalar_expression_is_defined(func: &Function, region_nodes: &[NodeId]) -> Result<(), String> {
+    // Region nodes plus their transitive inputs: the scalar expression
+    // may consume values computed outside the region's own node set.
+    let mut all_nodes: Vec<NodeId> = region_nodes.to_vec();
+    for &n in region_nodes {
+        for input in graph::transitive_inputs(n, &func.arena) {
+            if !all_nodes.contains(&input) {
+                all_nodes.push(input);
+            }
+        }
+    }
+
+    for id in &all_nodes {
+        let Some(node) = func.get_node(*id) else { continue };
+        match &node.kind {
+            // Division/remainder: a constant NONZERO divisor is a
+            // proven nonzero divisor (e.g. x % 8). A variable divisor
+            // has no proof — refuse (a rewrite must not move or
+            // duplicate a possible trap).
+            NodeKind::Div { .. } | NodeKind::Rem { .. } => {
+                if !divisor_is_proven_nonzero(func, &node.kind) {
+                    return Err(format!(
+                        "region contains {} without a nonzero-divisor proof \
+                         (no DefinednessCertificate yet)",
+                        if matches!(node.kind, NodeKind::Div { .. }) {
+                            "Div"
+                        } else {
+                            "Rem"
+                        }
+                    ));
+                }
+            }
+            NodeKind::Shl { rhs, .. } | NodeKind::Shr { rhs, .. } => {
+                // A shift is well-constrained only when the amount is a
+                // constant strictly below the operand bit width. Signed
+                // literals decode via i64 (negative → invalid).
+                let amount = match func.get_node(*rhs).map(|n| &n.kind) {
+                    Some(NodeKind::Constant(c)) => match c {
+                        ConstantData::Integer { value, .. } => value.parse::<i64>().ok(),
+                        _ => None,
+                    },
+                    _ => None,
+                }
+                .filter(|a| *a >= 0)
+                .map(|a| a as u64);
+                let width = match &node.ty {
+                    sir_types::Type::Integer { width, .. } => width.bits() as u64,
+                    _ => 0,
+                };
+                match amount {
+                    Some(amt) if width > 0 && amt < width => {}
+                    other => {
+                        return Err(format!(
+                            "shift amount not provably in range (amount={:?}, width={}): node %{}",
+                            other.map(|a| a.to_string()),
+                            width,
+                            id.0
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
+        // Poison-possible arithmetic (nsw/nuw): the scalar expression
+        // families rewrite arithmetic; without a no-overflow proof the
+        // refinement relation is not maintained. Abstain.
+        if node.metadata.contains_key("llvm.overflow") {
+            return Err(format!(
+                "region carries an nsw/nuw operation (poison semantics unmodeled): node %{}",
+                id.0
+            ));
+        }
+    }
+    Ok(())
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Region interface certificate
 // ─────────────────────────────────────────────────────────────────
@@ -412,6 +534,42 @@ pub struct TransformationAuthorization {
     pub authorized_concepts: Vec<SemanticConcept>,
     /// Node provenance (region nodes + certificate-relevant nodes).
     pub provenance: Vec<NodeId>,
+    /// Concrete binding facts (advisor P0A item 2, step 1): the exact
+    /// memory bases, accumulator, and effects this certificate covers.
+    /// The rewrite layer compares the nodes a recipe binds (collection,
+    /// accumulator, replaced values) against these facts — authorization
+    /// must bind the exact candidate, not merely its domain.
+    pub concrete: ConcreteFacts,
+}
+
+/// Concrete facts of the certified region: what the certificate
+/// actually covers, node by node. A candidate's requested binding
+/// (memory base, accumulator, effects) must be matched against these
+/// facts before a rewrite is allowed to proceed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConcreteFacts {
+    /// Memory bases read (resolved to root parameters), in region
+    /// layout order — from the interface certificate's footprint.
+    pub memory_bases: Vec<NodeId>,
+    /// The reassociable accumulator's carried variable, when the
+    /// region carries a certified reduction recurrence.
+    pub accumulator: Option<NodeId>,
+    /// The region writes memory (closed-world refuses these today).
+    pub has_memory_writes: bool,
+    /// Effects the closed world permits for this region: READ_MEMORY
+    /// when the region reads a bound base, empty for pure regions.
+    /// A candidate requesting effects beyond this exceeds authorization.
+    pub authorized_effects: Effects,
+}
+impl Default for ConcreteFacts {
+    fn default() -> Self {
+        Self {
+            memory_bases: Vec::new(),
+            accumulator: None,
+            has_memory_writes: false,
+            authorized_effects: Effects::empty(),
+        }
+    }
 }
 
 impl TransformationAuthorization {
@@ -487,6 +645,7 @@ impl AuthorizationDatabase {
             domain: DomainCertificate::ScalarExpression,
             authorized_concepts: concepts,
             provenance: vec![],
+            concrete: ConcreteFacts::default(),
         });
     }
 }
@@ -550,16 +709,21 @@ fn accumulators_are_reassociable(
     lf: &sir_analysis::facts::LoopFact,
     carried_inputs: &[NodeId],
     outputs: &[NodeId],
-) -> bool {
+) -> Option<NodeId> {
+    // Returns the reassociable accumulator's carried variable (the
+    // accumulated value — never the induction counter), or None when
+    // the recurrence is not certifiable.
+
     // A unit-increment counter must exist (contiguous traversal).
     let has_counter = lf
         .reductions
         .iter()
         .any(|r| is_unit_counter(func, r));
     if !has_counter {
-        return false;
+        return None;
     }
 
+    let mut accumulator = None;
     for r in &lf.reductions {
         if is_unit_counter(func, r) {
             continue; // induction variable, not an accumulated value
@@ -572,10 +736,13 @@ fn accumulators_are_reassociable(
         };
         let sem = overflow_semantics_of(func, out);
         if !sem.allows_reassociation() {
-            return false; // poison semantics + no range proof → abstain
+            return None; // poison semantics + no range proof → abstain
+        }
+        if accumulator.is_none() {
+            accumulator = Some(r.variable);
         }
     }
-    true
+    accumulator
 }
 
 /// The X06 invariant: a PositionSearch's result select must bind the
@@ -649,6 +816,20 @@ pub fn derive_authorizations(
                 .unwrap_or(false)
         });
 
+        // Concrete binding facts (advisor P0A item 2, step 1): shared
+        // across the authorizations issued for this region. All derive
+        // from the same interface certificate.
+        let mut concrete = ConcreteFacts {
+            memory_bases: interface.memory_bases.clone(),
+            accumulator: None, // set below when a reduction certifies
+            has_memory_writes: interface.has_memory_writes,
+            authorized_effects: if interface.memory_bases.is_empty() {
+                Effects::empty()
+            } else {
+                Effects::READ_MEMORY
+            },
+        };
+
         // Concept lists, one per domain — issued as SEPARATE
         // authorizations below (never a blended list).
         let mut reduction_concepts: Vec<SemanticConcept> = Vec::new();
@@ -669,9 +850,15 @@ pub fn derive_authorizations(
                                 outputs,
                                 carried_inputs,
                                 ..
-                            } => accumulators_are_reassociable(
-                                func, lf, carried_inputs, outputs,
-                            ),
+                            } => {
+                                let acc = accumulators_are_reassociable(
+                                    func, lf, carried_inputs, outputs,
+                                );
+                                if acc.is_some() {
+                                    concrete.accumulator = acc;
+                                }
+                                acc.is_some()
+                            }
                             _ => false,
                         },
                         None => false,
@@ -705,10 +892,16 @@ pub fn derive_authorizations(
         // ── Domain 3: closed-world pure scalar region ──
         // No memory reads, no calls, no volatile/atomic (interface
         // certificate): scalar bit-manipulation families are
-        // authorized on the closed-world guarantee alone. Loops over
+        // authorized on the closed-world guarantee alone — PLUS a
+        // definedness gate (advisor: fail closed NOW). Loops over
         // scalars (Kernighan, tzcnt) qualify — their state is fully
         // visible in the carried values.
-        if !has_memory_reads {
+        let definedness = if has_memory_reads {
+            Err("region reads memory".to_string())
+        } else {
+            scalar_expression_is_defined(func, &region_nodes)
+        };
+        if !has_memory_reads && definedness.is_ok() {
             for c in scalar_op_concepts() {
                 if !scalar_concepts.contains(c) {
                     scalar_concepts.push(*c);
@@ -731,6 +924,7 @@ pub fn derive_authorizations(
                 domain: reduction_domain.clone(),
                 authorized_concepts: reduction_concepts,
                 provenance: region_nodes.clone(),
+                concrete: concrete.clone(),
             });
 
             // Composition authorization (derived, explicit): scalar
@@ -738,17 +932,22 @@ pub fn derive_authorizations(
             // closed world (e.g. blsr inside a counting loop); they
             // are equivalence-proved downstream. Issued only when the
             // reduction certificate itself was granted — never as a
-            // capability escalation from it (P0A hardening item 5).
-            db.add(TransformationAuthorization {
-                region: region_id,
-                function_fingerprint: fingerprint,
-                domain: DomainCertificate::Composition {
-                    base: Box::new(reduction_domain),
-                    derived: Box::new(DomainCertificate::ScalarExpression),
-                },
-                authorized_concepts: scalar_bit_ops().to_vec(),
-                provenance: region_nodes.clone(),
-            });
+            // capability escalation from it (P0A hardening item 5) —
+            // AND only when the region's scalar expression is fully
+            // defined (same definedness gate as the scalar domain).
+            if scalar_expression_is_defined(func, &region_nodes).is_ok() {
+                db.add(TransformationAuthorization {
+                    region: region_id,
+                    function_fingerprint: fingerprint,
+                    domain: DomainCertificate::Composition {
+                        base: Box::new(reduction_domain),
+                        derived: Box::new(DomainCertificate::ScalarExpression),
+                    },
+                    authorized_concepts: scalar_bit_ops().to_vec(),
+                    provenance: region_nodes.clone(),
+                    concrete: concrete.clone(),
+                });
+            }
         }
 
         if !position_concepts.is_empty() {
@@ -758,6 +957,7 @@ pub fn derive_authorizations(
                 domain: DomainCertificate::PositionSearch { result_binds_index: true },
                 authorized_concepts: position_concepts,
                 provenance: region_nodes.clone(),
+                concrete: concrete.clone(),
             });
         }
 
@@ -768,6 +968,7 @@ pub fn derive_authorizations(
                 domain: DomainCertificate::ScalarExpression,
                 authorized_concepts: scalar_concepts,
                 provenance: region_nodes.clone(),
+                concrete: concrete.clone(),
             });
         }
     }

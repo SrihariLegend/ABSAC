@@ -47,6 +47,18 @@ impl RewriteEngine {
         // 1. Verify ID alignment
         self.verify_ids(candidate, proof)?;
 
+        // 1.5 Revalidate authorization + binding (advisor P0A item 2:
+        // the rewrite layer revalidates AuthorizationRef + binding
+        // digest before trusting the candidate). An empty region-node
+        // set (unit-test refs) skips the scope check.
+        if !candidate.authorization.matches_function(function)
+            || !candidate.binding_digest_valid()
+        {
+            return Err(RewriteError::RecipeFailed(
+                "candidate authorization is stale or binding digest invalid".to_string(),
+            ));
+        }
+
         // 2. Fetch StructuralDescription
         let structural = structural_db
             .region(candidate.region)
@@ -75,6 +87,22 @@ impl RewriteEngine {
         // 5. Invoke recipe → ReplacementPatch
         let builder = crate::subgraph_builder::SubgraphBuilder::with_function(function);
         let patch = recipe.build_patch(function, &rewrite_region, builder)?;
+
+        // 5.5 Concrete base binding (advisor P0A item 2): when the
+        // authorization binds concrete memory bases, any collection the
+        // recipe binds must be one of them. A recipe reaching a
+        // different array (the "authorize A, rewrite B" confusion) is
+        // denied here. Regions without bound bases (pure scalar) skip.
+        if let Ok(collection) = rewrite_region.collection() {
+            let bases = &candidate.authorization.concrete.memory_bases;
+            if !bases.is_empty() && !bases.contains(&collection) {
+                return Err(RewriteError::RecipeFailed(format!(
+                    "recipe binds collection %{} outside the authorized memory bases {:?}",
+                    collection.0,
+                    bases
+                )));
+            }
+        }
 
         // 6. Assemble RewritePlan
         let plan = RewritePlan {

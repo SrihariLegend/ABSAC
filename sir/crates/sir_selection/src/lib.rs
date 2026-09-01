@@ -24,6 +24,7 @@ mod tests {
     fn make_candidate(id: u64, expected_cost: CostProfile) -> Candidate {
         Candidate {
             authorization: sir_generation::candidate::AuthorizationRef::for_unit_test(),
+        binding_digest: 0,
             id: CandidateId::new(id),
             region: RegionId::new(1),
             context_id: ContextId::new(1),

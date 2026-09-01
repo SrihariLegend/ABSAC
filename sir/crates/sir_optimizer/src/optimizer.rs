@@ -284,11 +284,15 @@ impl Optimizer {
             // (stale-certificate rejection) — a hash mismatch means the
             // function changed since derivation; the hash itself is only
             // a version key, the proof below remains the equivalence
-            // authority.
-            if !best.candidate.authorization.matches_function(function) {
+            // authority. The binding digest must also still match: any
+            // in-flight mutation of a bound field (strategy, definition,
+            // concepts, constraints) invalidates the candidate.
+            if !best.candidate.authorization.matches_function(function)
+                || !best.candidate.binding_digest_valid()
+            {
                 println!(
-                    "Iteration {}: candidate {} has stale authorization \
-                     (function changed since derivation) — skipped",
+                    "Iteration {}: candidate {} has stale authorization or \
+                     invalid binding digest — skipped",
                     iteration_number, best.candidate.id
                 );
                 continue;

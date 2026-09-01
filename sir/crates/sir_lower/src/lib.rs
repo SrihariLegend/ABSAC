@@ -1246,6 +1246,16 @@ fn emit_instruction(
             if inst.operands.len() < 2 {
                 return Err(format!("load needs type + ptr: {}", inst.raw));
             }
+            // ── Fail-closed memory semantics (advisor D3 queue item 1) ──
+            // Atomic accesses carry ordering semantics our single-thread
+            // functional model cannot represent. Refuse loudly as an
+            // explicit UNSUPPORTED class — never as an ordinary read.
+            if inst.raw.contains("atomic") {
+                return Err(format!(
+                    "unsupported: atomic load (ordering semantics not modeled): {}",
+                    inst.raw
+                ));
+            }
             // Detect volatile keyword
             let is_volatile = inst.operands[0].contains("volatile");
             let type_str = inst.operands[0].replace("volatile", "").trim().to_string();
@@ -1315,6 +1325,23 @@ fn emit_instruction(
             // SIR Store { ptr, value } → returns Unit
             if inst.operands.len() < 2 {
                 return Err(format!("store needs value + ptr: {}", inst.raw));
+            }
+            // ── Fail-closed memory semantics (advisor D3 queue item 1) ──
+            // A volatile store has observable occurrence + ordering
+            // semantics; dropping or merging it changes program behavior.
+            // Refuse loudly as an explicit UNSUPPORTED class — never
+            // silently lower it as an ordinary write.
+            if inst.raw.contains("volatile") {
+                return Err(format!(
+                    "unsupported: volatile store (observable occurrence/ordering semantics): {}",
+                    inst.raw
+                ));
+            }
+            if inst.raw.contains("atomic") {
+                return Err(format!(
+                    "unsupported: atomic store (ordering semantics not modeled): {}",
+                    inst.raw
+                ));
             }
             // operand 0: "i8 %result" (the value)
             // operand 1: "ptr %out_ptr" (the pointer)

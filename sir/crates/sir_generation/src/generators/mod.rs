@@ -97,13 +97,25 @@ pub fn all_plans(
 
         // Record which domains cover this proposal (provenance).
         let mut domains = Vec::new();
+        let mut concrete = sir_semantics::authorization::ConcreteFacts::default();
+        let mut region_nodes: Vec<sir_types::NodeId> = Vec::new();
         for auth in region_auths {
             if cites.iter().any(|c| auth.authorized_concepts.contains(c)) {
                 if !domains.contains(&auth.domain.kind()) {
                     domains.push(auth.domain.kind());
                 }
+                // Concrete facts: all authorizations of a region share
+                // the same interface certificate, so the first match's
+                // facts are the region's concrete binding.
+                if region_nodes.is_empty() {
+                    region_nodes = auth.provenance.clone();
+                }
             }
         }
+        let concrete = region_auths
+            .first()
+            .map(|a| a.concrete.clone())
+            .unwrap_or_default();
 
         candidates.push(proposal.authorize(
             crate::candidate::CandidateId::new(0), // assigned by database
@@ -111,6 +123,8 @@ pub fn all_plans(
                 function_fingerprint,
                 region: context.region,
                 domains,
+                concrete,
+                region_nodes,
             },
         ));
     }

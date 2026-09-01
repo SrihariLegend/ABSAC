@@ -411,6 +411,14 @@ mod tests {
     #[test]
     fn test_arithmetic() {
         for def in benchmarks() {
+            // HD003/BP001 (rotate by variable amount) currently ABSTAIN:
+            // their shift amounts are unproven ranges (x << k with
+            // k >= width is poison in LLVM semantics), so the
+            // definedness gate refuses authorization until a
+            // DefinednessCertificate provides shift-range proofs.
+            if def.spec.id == "HD003" || def.spec.id == "BP001" {
+                continue;
+            }
             run_benchmark((def.func)(), &def.spec);
         }
     }
@@ -447,26 +455,33 @@ mod tests {
                 .collect()
         }
 
-        // HD003 (rotate left): a single Rol.
+        // HD003 (rotate left by variable amount): NOW ABSTAINS under
+        // the definedness gate (advisor: fail closed while Gate 4B is
+        // open). `x << k` with unproven k range is poison-possible, so
+        // the Rol rewrite is not authorized. Re-enable when a
+        // DefinednessCertificate provides shift-range proofs. The
+        // hand-written rotate witness (Gate 3) remains valid evidence
+        // of headroom — witness ≠ automated capability.
         let hd003 = defs
             .iter()
             .find(|d| d.spec.id == "HD003")
             .expect("HD003 present");
         let res = optimizer.optimize(&(hd003.func)());
-        assert!(res.rewrites_applied > 0, "HD003 must rewrite");
-        let kinds = node_kinds(&res.function);
-        assert!(kinds.iter().any(|k| k == "Rol"), "HD003 IR lacks Rol: {:?}", kinds);
-        assert!(!kinds.iter().any(|k| k == "Or"), "HD003 IR kept the shift pair: {:?}", kinds);
+        assert_eq!(
+            res.rewrites_applied, 0,
+            "HD003 must abstain on unproven shift ranges (definedness gate)"
+        );
 
-        // BP001 (rotate left, parameter named n): also a single Rol.
+        // BP001 (rotate left, parameter named n): same abstention.
         let bp001 = defs
             .iter()
             .find(|d| d.spec.id == "BP001")
             .expect("BP001 present");
         let res = optimizer.optimize(&(bp001.func)());
-        assert!(res.rewrites_applied > 0, "BP001 must rewrite");
-        let kinds = node_kinds(&res.function);
-        assert!(kinds.iter().any(|k| k == "Rol"), "BP001 IR lacks Rol: {:?}", kinds);
+        assert_eq!(
+            res.rewrites_applied, 0,
+            "BP001 must abstain on unproven shift ranges (definedness gate)"
+        );
 
         // HD004 (byte swap): bswap intrinsic + Shr for width alignment.
         let hd004 = defs

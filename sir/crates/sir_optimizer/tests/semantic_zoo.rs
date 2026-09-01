@@ -159,7 +159,11 @@ fn build_arithmetic(name: &str, op: &str, divisor: u64, signed: bool) -> ZooProg
     // Modulo/Multiply works on signed/unsigned.
     // ShiftMask works on unsigned, fails verification on signed (due to sign extension).
     // Divide works on unsigned, fails verification on signed.
-    let expected = 1;
+    //
+    // Definedness gate (fail-closed): shift_mask with a full-width
+    // shift (val == 32) is poison in LLVM semantics; without a
+    // shift-range proof the authorization abstains — zero rewrites.
+    let expected = if op == "shift_mask" && divisor >= 32 { 0 } else { 1 };
 
     ZooProgram {
         name: name.to_string(),

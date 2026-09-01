@@ -120,6 +120,7 @@ mod tests {
 
         Candidate {
             authorization: AuthorizationRef::for_unit_test(),
+            binding_digest: 0,
             id: CandidateId::new(0),
             region: RegionId::new(0),
             context_id: ContextId::new(0),
