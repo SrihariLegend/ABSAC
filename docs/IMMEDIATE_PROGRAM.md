@@ -136,6 +136,27 @@ Gate 6A-v2:  FAILED   fresh blind corpus (H2): 1/7 lowered negatives
                      Generational trend: 3/6 → 1/4 → 1/7 observed (not
                      statistically meaningful — qualitative only).
 
+Remediation D3 (P0A, commit c3ebb54):
+  P0A: candidate generation is certificate-gated —
+       sir_semantics::authorization derives TransformationAuthorizations
+       from complete RegionInterfaceCertificates + domain certificates
+       (Reduction with overflow semantics / PositionSearch with the
+       binds-index invariant / ScalarExpression). AuthorizationDatabase
+       is a required argument of CandidateGenerator::generate; the
+       gate in generators::all_plans refuses candidates citing
+       unauthorized operation concepts. Truths/beliefs are evidence,
+       never authorization.
+       Fixed pre-existing pipeline nondeterminism (HashMap-ordered
+       region merging) exposed by the gate.
+  D3 validation on the regression set (NOT held-out proof): 487/487
+       tests, H2 corpus 11/16 lowered, 0 false positives, x02 → 0
+       candidates (overflow refusal), x06 → 0 candidates (belief
+       remains, authorization absent), dev corpus unchanged (40/50).
+  Still open in D3: volatile stores (x01), atomic loads (x05),
+       map-then-sum recall (w03), two-loop lowering (w08, third corpus
+       hitting the gap), u8/I64 accumulator mismatch (w07), early-exit
+       gep (x08).
+
 Gate 6A-v3:  OPEN     requires a fresh corpus after D3 remediation.
 
 Gate 6B:     RESERVED — blindness protocol must be established before
