@@ -12,6 +12,7 @@ use crate::errors::{RejectReason, UnknownReason};
 use crate::obligation::ProofObligation;
 use crate::semantic::interpreter::Interpreter;
 use crate::{Proof, ProofStep, VerificationBackend, VerificationLimits, VerificationResult};
+use crate::registry::VerificationStatus;
 
 /// Exhaustive verification via concrete enumeration.
 ///
@@ -90,6 +91,10 @@ impl ExhaustiveVerifier {
             steps: vec![ProofStep::ExhaustiveCheck {
                 states_checked: total,
             }],
+            // Checker-issued fields are stamped by Verifier::verify;
+            // placeholder values here are overwritten at issuance.
+            assurance: VerificationStatus::Stub,
+            obligation_digest: 0,
         })
     }
 }

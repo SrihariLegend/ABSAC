@@ -4,6 +4,7 @@
 //! symbolic normalization and exhaustive enumeration.
 //! Never reads or modifies SIR.
 
+pub mod artifact;
 pub mod errors;
 pub mod obligation;
 pub mod registry;
@@ -44,7 +45,15 @@ use crate::registry::{TransformationRegistry, VerificationStatus};
 use crate::report::{ReportEntry, ReportStatus, VerificationReport};
 use crate::validation::AssumptionValidator;
 
-/// A completed proof of equivalence.
+/// A completed proof of equivalence, ISSUED by the checker.
+///
+/// Authority model (advisor item 3): the fields below are the
+/// checker-issued theorem artifact. Backends produce a discharge
+/// trace; `Verifier::verify` stamps `assurance` (the ISSUED level,
+/// min of the definition-declared cap and the backend capability) and
+/// `obligation_digest` (binding this artifact to the exact concrete
+/// obligation). Definitions cannot raise their issued assurance; a
+/// self-declared high level is only a cap.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Proof {
     /// The original theorem that was proven.
@@ -55,6 +64,13 @@ pub struct Proof {
     pub backend: VerificationBackend,
     /// The sequence of steps that established equivalence.
     pub steps: Vec<ProofStep>,
+    /// CHECKER-ISSUED assurance (not definition metadata):
+    /// `min(definition cap, backend capability)`, set by
+    /// `Verifier::verify` at issuance. Policy gates on this field.
+    pub assurance: VerificationStatus,
+    /// Digest binding this artifact to the exact concrete obligation
+    /// (theorem + assumptions + domain). Diagnostic authority.
+    pub obligation_digest: u64,
 }
 
 /// A single step in a proof trace.
@@ -236,6 +252,15 @@ impl Verifier {
         verifier
     }
 
+    /// Create a verifier over a CUSTOM registry (testing and honest
+    /// composition). The verifier still caps issuance at backend
+    /// capability regardless of what the registry's definitions
+    /// declare — a definition author cannot self-certify.
+    pub fn with_registry(mut self, registry: TransformationRegistry) -> Self {
+        self.registry = registry;
+        self
+    }
+
     /// Build proof obligations for all candidates in the database.
     ///
     /// For each candidate, looks up its TransformationDefinition,
@@ -276,12 +301,11 @@ impl Verifier {
         context: &TransformationContext,
     ) -> VerificationResult {
         // Step -1 (advisor P0): quarantine stub-backed definitions.
-        // The assurance level is looked up from the REGISTRY, not from
-        // the obligation — a definition whose obligation is a theorem
-        // template (hardcoded constants, tautologies, or a shape that
-        // never references the actual source/candidate nodes) cannot
-        // establish equivalence, and the verifier must say so instead
-        // of laundering the recognizer's assumptions through a "proof".
+        // Fast-path rejection: the definition's declared status is a
+        // CAP, and a Stub obligation's theorem is a template regardless
+        // of what any backend might compute, so there is nothing to
+        // discharge. (The AUTHORITATIVE gate is post-discharge on the
+        // ISSUED level — see below.)
         if let Some(def) = self.registry.lookup(obligation.definition) {
             if def.verification_status() < self.min_verification_level {
                 return VerificationResult::Unknown(UnknownReason::InsufficientAssurance {
@@ -299,7 +323,7 @@ impl Verifier {
             });
         }
 
-        match self.policy {
+        let discharged = match self.policy {
             VerificationPolicy::SymbolicOnly => SymbolicVerifier::new().verify(obligation),
 
             VerificationPolicy::ExhaustiveOnly => {
@@ -310,20 +334,56 @@ impl Verifier {
                 // Try symbolic first
                 let symbolic = SymbolicVerifier::new();
                 match symbolic.verify(obligation) {
-                    VerificationResult::Proven(proof) => {
-                        return VerificationResult::Proven(proof);
-                    }
                     VerificationResult::Rejected(reason) => {
                         return VerificationResult::Rejected(reason);
                     }
                     VerificationResult::Unknown(_) => {
                         // Fall through to exhaustive
+                        ExhaustiveVerifier::new(self.limits.clone()).verify(obligation)
                     }
+                    proven => proven,
                 }
-
-                // Fall back to exhaustive
-                ExhaustiveVerifier::new(self.limits.clone()).verify(obligation)
             }
+        };
+
+        // Step 3 (advisor item 3): CHECKER-ISSUED assurance. The
+        // definition's declaration is only a cap; the backend's
+        // capability is what its method can establish; the ISSUED
+        // level is their minimum. Policy gates on the issued level,
+        // never on the definition's declaration — so a definition
+        // author cannot self-certify by declaring MachineChecked.
+        match &discharged {
+            VerificationResult::Proven(proof) => {
+                let declared_cap = self
+                    .registry
+                    .lookup(obligation.definition)
+                    .map(|def| def.verification_status())
+                    .unwrap_or(VerificationStatus::Stub); // unknown definition: fail closed
+                let backend_cap = proof.backend.max_assurance();
+                let issued = declared_cap.min(backend_cap);
+                let mut proof = proof.clone();
+                proof.assurance = issued;
+                proof.obligation_digest = crate::artifact::fnv1a64(
+                    format!(
+                        "{:?}|{:?}|{:?}",
+                        obligation.definition, obligation.theorem, obligation.assumptions
+                    )
+                    .as_bytes(),
+                );
+                if issued < self.min_verification_level {
+                    return VerificationResult::Unknown(UnknownReason::InsufficientAssurance {
+                        definition: self
+                            .registry
+                            .lookup(obligation.definition)
+                            .map(|def| def.name())
+                            .unwrap_or("<unknown>"),
+                        status: issued,
+                        minimum: self.min_verification_level,
+                    });
+                }
+                VerificationResult::Proven(proof)
+            }
+            other => other.clone(),
         }
     }
 

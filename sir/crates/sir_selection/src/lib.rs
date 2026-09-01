@@ -59,6 +59,9 @@ mod tests {
                 normalized_theorem: Theorem::new(dummy_expr.clone(), dummy_expr.clone()),
                 backend: VerificationBackend::Exhaustive,
                 steps: vec![],
+                // Test fixture: never reaches a policy gate.
+                assurance: sir_verification::registry::VerificationStatus::SchemaChecked,
+                obligation_digest: 0,
             },
         }
     }

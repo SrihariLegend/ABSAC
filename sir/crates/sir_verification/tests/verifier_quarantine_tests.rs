@@ -342,3 +342,117 @@ fn exhaustive_backend_cannot_prove_for_stub_definition() {
         "MUTATION ACCEPTED: Constant(0)==Constant(0) 'proved' through exhaustive backend for a quarantined definition"
     );
 }
+
+
+
+// ────────────────────────────────────────────────────────────
+// 3. Checker-issued assurance (advisor item 3)
+// ────────────────────────────────────────────────────────────
+//
+// A definition's `verification_status()` is a CAP, not a status. The
+// checker issues min(declared cap, backend capability) and gates
+// policy on the ISSUED level. A definition author cannot self-certify
+// by declaring MachineChecked.
+
+use sir_generation::candidate::Candidate;
+use sir_verification::registry::{TransformationDefinition, TransformationRegistry};
+
+/// A malicious/naive definition that declares MachineChecked for
+/// itself. The checker must still cap issuance at backend capability.
+struct SelfCertifyingDef;
+
+impl TransformationDefinition for SelfCertifyingDef {
+    fn id(&self) -> DefinitionId {
+        DefinitionId::new(999)
+    }
+    fn name(&self) -> &'static str {
+        "self-certifying"
+    }
+    fn verification_status(&self) -> VerificationStatus {
+        // The attack: declare the highest possible level for oneself.
+        VerificationStatus::MachineChecked
+    }
+    fn applicability(&self, _candidate: &Candidate) -> bool {
+        true
+    }
+    fn obligation(&self, _candidate: &Candidate) -> ProofObligation {
+        tautology_obligation(DefinitionId::new(999))
+    }
+}
+
+fn self_certifying_registry() -> TransformationRegistry {
+    let mut registry = TransformationRegistry::new();
+    registry.register(Box::new(SelfCertifyingDef));
+    registry
+}
+
+#[test]
+fn definition_cannot_self_certify_machine_checked() {
+    // The definition declares MachineChecked; the symbolic backend's
+    // capability is SchemaChecked. The ISSUED level on the artifact
+    // must be the backend cap — the definition cannot raise it.
+    let verifier = Verifier::with_policy(VerificationPolicy::SymbolicOnly)
+        .with_registry(self_certifying_registry());
+    let obligation = tautology_obligation(DefinitionId::new(999));
+    let context = make_context();
+    match verifier.verify(&obligation, &context) {
+        VerificationResult::Proven(proof) => {
+            assert_eq!(
+                proof.assurance,
+                VerificationStatus::SchemaChecked,
+                "ISSUED assurance must be capped at backend capability                  (Symbolic = SchemaChecked) regardless of the definition's \
+                 self-declared MachineChecked"
+            );
+            assert_ne!(
+                proof.obligation_digest, 0,
+                "issued artifact must carry a nonzero obligation digest"
+            );
+        }
+        other => panic!(
+            "Expected checker-issued Proven with capped assurance, got {:?}",
+            other
+        ),
+    }
+}
+
+#[test]
+fn self_certified_machine_checked_fails_strict_policy() {
+    // Same self-certifying definition under a strict policy: the
+    // checker issued SchemaChecked (backend cap) — below the
+    // ConcreteSolverChecked minimum. Fail closed regardless of the
+    // definition's declaration.
+    let verifier = Verifier::with_policy(VerificationPolicy::SymbolicOnly)
+        .with_registry(self_certifying_registry())
+        .with_min_verification_level(VerificationStatus::ConcreteSolverChecked);
+    let obligation = tautology_obligation(DefinitionId::new(999));
+    let context = make_context();
+    let result = verifier.verify(&obligation, &context);
+    match result {
+        VerificationResult::Proven(_) => panic!(
+            "SOUNDNESS: self-certified MachineChecked must not pass a \
+             ConcreteSolverChecked policy — the checker, not the definition, \
+             issues assurance"
+        ),
+        VerificationResult::Unknown(UnknownReason::InsufficientAssurance { status, minimum, .. }) => {
+            assert_eq!(status, VerificationStatus::SchemaChecked);
+            assert_eq!(minimum, VerificationStatus::ConcreteSolverChecked);
+        }
+        other => panic!("Expected InsufficientAssurance quarantine, got {:?}", other),
+    }
+}
+
+#[test]
+fn issued_assurance_from_symbolic_backend_is_schema_checked() {
+    // Existing SchemaChecked definitions discharged by the Symbolic
+    // backend: the ISSUED level must be SchemaChecked (min of
+    // definition cap and backend capability) — never higher.
+    let verifier = Verifier::with_policy(VerificationPolicy::SymbolicOnly);
+    let obligation = tautology_obligation(DefinitionId::new(4)); // Any
+    let context = make_context();
+    match verifier.verify(&obligation, &context) {
+        VerificationResult::Proven(proof) => {
+            assert_eq!(proof.assurance, VerificationStatus::SchemaChecked);
+        }
+        other => panic!("Expected Proven with issued SchemaChecked, got {:?}", other),
+    }
+}

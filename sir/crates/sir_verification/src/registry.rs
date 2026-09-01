@@ -20,10 +20,16 @@ pub trait TransformationDefinition {
     /// Human-readable name.
     fn name(&self) -> &'static str;
 
-    /// The honest assurance level of this definition's proof path
-    /// (advisor P0: theorem-shaped stubs are not proofs). The verifier
-    /// refuses to return Proven for definitions below the engine's
-    /// minimum level — a Stub can NEVER authorize a rewrite.
+    /// The MAXIMUM assurance the checker may issue for obligations
+    /// produced by this definition's schema (advisor item 3: checker-
+    /// issued assurance is distinct from definition metadata).
+    ///
+    /// This is a CAP, not a status: the definition cannot raise its
+    /// issued assurance by declaring a higher level. The verifier
+    /// issues `min(self declaration, backend capability)` and gates
+    /// policy on the ISSUED level, never on this declaration alone.
+    /// A Stub declaration still fails closed regardless of what any
+    /// backend proves (the obligation quality itself is untrusted).
     fn verification_status(&self) -> VerificationStatus;
 
     /// Is this transformation applicable to the given candidate?

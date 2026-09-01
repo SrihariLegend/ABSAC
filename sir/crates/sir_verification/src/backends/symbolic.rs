@@ -5,6 +5,7 @@
 //! it never enumerates inputs.
 
 use crate::errors::UnknownReason;
+use crate::registry::VerificationStatus;
 use crate::obligation::ProofObligation;
 use crate::semantic::normalizer::Normalizer;
 use crate::semantic::rules::all_to_equal_full_mask::AllToEqualFullMask;
@@ -73,6 +74,10 @@ impl SymbolicVerifier {
                 normalized_theorem: crate::semantic::theorem::Theorem::new(lhs_nf, rhs_nf),
                 backend: VerificationBackend::Symbolic,
                 steps,
+                // Checker-issued fields are stamped by Verifier::verify;
+                // placeholder values here are overwritten at issuance.
+                assurance: VerificationStatus::Stub,
+                obligation_digest: 0,
             })
         } else {
             VerificationResult::Unknown(UnknownReason::UnsupportedRule {

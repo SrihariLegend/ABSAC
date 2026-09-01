@@ -254,3 +254,74 @@ single accumulator-slot extract .. MAY rewrite
 Plus `ps002_position_mutation_must_not_rewrite` (position semantics
 mutated, Any truth unchanged → abstain). Test state: 506/506.
 Corpora unchanged (dev 40/50, D3 7/16, 0 rewrites).
+
+## Checker-issued assurance (advisor item 3 — implemented)
+
+The authority model is now enforced in code:
+
+```text
+Definition            declares a CAP on assurance (was: "declares status")
+Theorem checker       ISSUES assurance = min(declared cap, backend capability)
+Backend               declares capability (what its method can establish)
+Policy                gates on the ISSUED level, never the declaration
+```
+
+- `TransformationDefinition::verification_status()` is documented as a
+  **cap**: raising it cannot raise the issued level.
+- `VerificationBackend::max_assurance()`: Symbolic → SchemaChecked
+  (handwritten algebraic rules); Exhaustive → ConcreteSolverChecked
+  (complete enumeration of the declared finite domain — the backend
+  refuses oversized domains, so Proven implies complete coverage of
+  the declared domain; replay = re-enumerate with recorded limits).
+  MachineChecked is reserved for a trusted-prover replay artifact;
+  nothing issues it yet.
+- `Verifier::verify` stamps `proof.assurance` (issued) and
+  `proof.obligation_digest` (binds artifact to exact concrete
+  obligation) post-discharge, then gates policy on the ISSUED level.
+- `Verifier::with_registry` allows testing with adversarial
+  definitions — used to prove a self-certifying definition (declares
+  MachineChecked, backed by a tautology) is issued at SchemaChecked
+  and fails a strict (ConcreteSolverChecked) policy.
+
+Tests: `definition_cannot_self_certify_machine_checked`,
+`self_certified_machine_checked_fails_strict_policy`,
+`issued_assurance_from_symbolic_backend_is_schema_checked`.
+
+Residual (honest): the `assurance` field is publicly writable by
+construction sites within the workspace; authority is enforced by the
+single issuance point in `Verifier::verify` (any proof returned to the
+pipeline has been stamped by the checker). True unforgeability
+(artifact constructors not exported) arrives with the two-artifact
+model below.
+
+## Next: two-artifact end-to-end model (advisor sequence, pending)
+
+```text
+CheckedTheorem      theorem artifact (proof.assurance + obligation_digest
+                    are its first implementation)
+CheckedApplication  AuthorizationId, function fingerprint, source region,
+                    candidate identity, role-map identity, complete
+                    live-out map, frame condition, assumptions/guards,
+                    checker-issued assurance, result
+EndToEndVerificationArtifact
+                    issued ONLY when both artifacts match on source
+                    function/region, candidate, definition, role map,
+                    assumptions; only this artifact authorizes mutation
+```
+
+## Recipe integration audit matrix (advisor — honest state)
+
+| Family | Local theorem | Exact accumulator binding | Complete live-outs | Frame condition | End-to-end |
+|---|---|---|---|---|---|
+| Any      | Schema | Pending | Point guard only | Pending | Open |
+| All      | Schema | Pending | Point guard only | Pending | Open |
+| Parity   | Schema | Pending | Point guard only | Pending | Open |
+| Popcount | Schema | Pending | Point guard only | Pending | Open |
+
+These are NOT end-to-end verified. The point guard
+(`authorized_tuple_consumer`) covers the surviving tuple condition
+only; the application frame (effects, termination, traps, poison,
+guards, internal live values) is covered today only by the
+recognizer's structural gating (pure read-only regions), not by an
+issued artifact. H3 must not freeze until at least one transformation
+completes the full chain (C3 gate requirement).

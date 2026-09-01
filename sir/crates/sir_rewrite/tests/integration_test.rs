@@ -82,6 +82,9 @@ fn make_proof() -> Proof {
         ),
         backend: sir_verification::VerificationBackend::Symbolic,
         steps: vec![],
+        // Test fixture only; never used to authorize a rewrite.
+        assurance: sir_verification::registry::VerificationStatus::SchemaChecked,
+        obligation_digest: 0,
     }
 }
 
