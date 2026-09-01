@@ -481,14 +481,25 @@ impl SemanticEngine {
 
         let conjunctive_recs =
             conjunctive_reduction::recognize_conjunctive_reduction(func, analysis);
-        for (_concept, explanation, node_ids) in conjunctive_recs {
+        for (_concept, explanation, node_ids, inputs, outputs) in conjunctive_recs {
             let rid = self.db.next_region_id();
             let mut region = Region::new(rid);
             for node_id in &node_ids {
                 region.nodes.insert(*node_id);
             }
-            region.add_concept(explanation.concept, explanation);
+            region.add_concept(explanation.concept, explanation.clone());
             self.db.add_region(region);
+
+            let truth = SemanticTruth {
+                parameters: vec![],
+                concept: explanation.concept,
+                inputs,
+                outputs,
+                origin: rid,
+                id: crate::truth::TruthId::new(0),
+                provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+            };
+            self.db.add_truth(truth);
         }
 
         let exclusive_recs = exclusive_reduction::recognize_exclusive_reduction(func, analysis);

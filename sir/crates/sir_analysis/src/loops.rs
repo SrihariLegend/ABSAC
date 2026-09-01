@@ -115,6 +115,11 @@ fn get_constant_u64(func: &Function, id: NodeId) -> Option<u64> {
     }
 }
 
+/// Check if a node is an integer constant 0.
+fn is_zero_constant(func: &Function, id: NodeId) -> bool {
+    get_constant_u64(func, id) == Some(0)
+}
+
 /// Check if a Loop body contains another Loop (nesting).
 fn is_nested_loop(func: &Function, body: &[NodeId]) -> bool {
     for &body_id in body {
@@ -186,6 +191,21 @@ fn detect_reductions(
                         None
                     }
                 }
+                NodeKind::Select { true_val, false_val, .. } => {
+                    // Sticky-reset reduction: keep the carried value while a
+                    // condition holds, reset to a constant identity otherwise.
+                    // Form 1: select(c, carry, reset) — All(c) with init 1.
+                    // Form 2: select(c, reset, carry) — All(¬c) with init 1.
+                    // (Gate 6A-v1: V03/k18 all-same accumulators lower to this
+                    // form; the All-reduction recognizer needs the fact.)
+                    if *true_val == carry && is_zero_constant(func, *false_val) {
+                        Some("select_reset".to_string())
+                    } else if *false_val == carry && is_zero_constant(func, *true_val) {
+                        Some("select_reset".to_string())
+                    } else {
+                        None
+                    }
+                }
                 _ => None,
             };
 
@@ -204,6 +224,16 @@ fn detect_reductions(
                             *rhs
                         } else {
                             *lhs
+                        }
+                    }
+                    NodeKind::Select { true_val, false_val, .. } => {
+                        // For a carry-preserving select, the "invariant value"
+                        // is the reset arm (the constant the accumulator
+                        // collapses to when the condition fails).
+                        if *true_val == carry {
+                            *false_val
+                        } else {
+                            *true_val
                         }
                     }
                     _ => continue,
