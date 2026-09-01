@@ -108,7 +108,6 @@ If this fails, MCTS is unjustified for the current action space.
 
 ### Gate 6: Generalization
 
-```
 Gate 6A-v0:  FAILED   50% false positives on held-out negatives (3/6).
                      Preserved as a historical record — do not overwrite.
 
@@ -122,11 +121,26 @@ Gate 6A-v1:  FAILED   fresh blind corpus (H1): 1/4 lowered negatives
                      lost to mixed-width lowering, All-reduction recall
                      miss (V03).
 
-Gate 6A-v2:  OPEN     requires a fresh corpus after next remediation.
+Remediation D2:
+  0A: mandatory SIR verification gate (lower_function fails loudly)
+  0B: ReductionCertificate closed-world memory-footprint check
+  1:  llvm.smax/smin, pre-header emission, operand type hints
+  2:  AllReduction (select_reset form) recognized — V03/H06/k18
 
-Gate 6B:     RESERVED — uncontaminated pre-frozen fusion corpus.
-             Must not be inspected while automating fusion.
-```
+Gate 6A-v2:  FAILED   fresh blind corpus (H2): 1/7 lowered negatives
+                     false-recognized (X02 signed-overflow — certificate
+                     lacks overflow semantics), AND the first unsafe
+                     candidate generation (X06 running max → PositionSearch
+                     belief → BitScanForward candidate, contained only by
+                     a role-completeness failure in the rewrite layer).
+                     Generational trend: 3/6 → 1/4 → 1/7 observed (not
+                     statistically meaningful — qualitative only).
+
+Gate 6A-v3:  OPEN     requires a fresh corpus after D3 remediation.
+
+Gate 6B:     RESERVED — blindness protocol must be established before
+             fusion automation (seal corpus now or independent post-freeze
+             construction). Must not be inspected while automating fusion.
 
 Generational protocol: freeze → evaluate blindly → fail → preserve the
 failure → understand the missing semantics → remediate → evaluate on a
