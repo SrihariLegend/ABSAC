@@ -4,7 +4,7 @@ use sir_types::Span;
 use crate::error::RewriteError;
 use crate::patch::{ReplacementPatch, ReplacementValue};
 use crate::recipe::RewriteRecipe;
-use crate::recipes::helpers::{collection_length, find_tuple_extract, loop_reduction_position, wrap_direct_tuple_return};
+use crate::recipes::helpers::{authorized_tuple_consumer, collection_length, loop_reduction_position, wrap_direct_tuple_return};
 use crate::region::RewriteRegion;
 use crate::subgraph_builder::SubgraphBuilder;
 use sir_types::Type;
@@ -170,9 +170,12 @@ impl RewriteRecipe for PopcountRecipe {
         let mut old_result = region.result()?;
         let accumulator = region.accumulator().ok().flatten();
 
-        // Prefer replacing the TupleExtract consumer when one exists; when the tuple
-        // is returned wholesale the loop's tuple result is rebuilt below.
-        if let Some(extract) = find_tuple_extract(function, old_result) {
+        // Replace the tuple-slot consumer ONLY when it reads the
+        // accumulator slot (PS002 audit: a consumer reading a different
+        // slot — e.g. a position live-out — cannot be satisfied by a
+        // popcount; replacing the tuple wholesale under it silently
+        // changes program semantics).
+        if let Some(extract) = authorized_tuple_consumer(function, old_result, accumulator)? {
             old_result = extract;
         }
 

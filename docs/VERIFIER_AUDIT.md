@@ -120,3 +120,54 @@ Answers to the binding questions per class:
    obligation + result in the proof artifact (ConcreteSolverChecked).
 4. Only then may the definition's `verification_status` be raised and
    the corresponding recipe re-enabled.
+
+## PS002 end-to-end audit (advisor directive, this commit)
+
+The advisor flagged that PS002 (`last_set_bit`) was "legitimate" only by
+proxy of arriving through the SchemaChecked Any path rather than the
+Stub bitscan path. End-to-end inspection (new diagnostic binary
+`ps002_inspect`) found a **live semantic corruption**, not a safe
+independent optimization:
+
+- The PS002 loop's live-out is the **position** (field 1 of the loop
+  tuple: index of the last true element), not the boolean `found`
+  accumulator (field 0) the Any theorem covers.
+- The Any recipe only recognized `TupleExtract` consumers; the builder
+  emits `FieldAccess` — so the recipe misclassified the function as
+  "tuple returned wholesale", rebuilt the loop tuple as
+  `(any_bit, termination_bound, termination_bound)`, and the returned
+  position silently became a **constant**. Type-valid, structurally
+  verified (sir_verify passed), authorized by a true SchemaChecked
+  theorem — and semantically destroyed.
+- Classification: advisor hypothesis **3** — "the candidate is correctly
+  authorized at concept level but incorrectly bound to concrete roles."
+  The theorem `exists(seq) == (pack(seq) != 0)` is true and says
+  nothing about the position output. ProposalBinding was exactly the
+  missing link.
+
+**Fix (fail-closed, no ProposalBinding required):**
+
+- `RewriteError::UnauthorizedLiveOut { consumer, field, reduction_position }`
+- Shared helper `authorized_tuple_consumer()` (sir_rewrite helpers):
+  finds both TupleExtract and FieldAccess consumers of the loop result
+  and refuses unless the consumer reads the accumulator slot.
+- Wired into the any/all/parity/popcount recipes. The popcount recipe
+  additionally no longer trusts a consumer of a non-accumulator slot.
+- PS002/ps001 expectations flipped to abstention (bitscan path was
+  already Stub-quarantined; the Any path now refuses).
+- Advisor's targeted regression added:
+  `ps002_position_mutation_must_not_rewrite` — a variant with identical
+  Any truth but different position semantics (sentinel 0, scan starts
+  at 32) must not rewrite either; a rewrite blind to the position
+  binding would corrupt both identically.
+
+Residual risk (recorded, not fixed): the wholesale-tuple path
+(`wrap_direct_tuple_return`) still fills non-reduction slots with the
+loop termination bound under the assumption "index == bound at exit"
+— sound for ascending count loops, unproven in general. It now only
+fires when the loop tuple has **no** slot consumer. A future binding
+pass must either prove the bound claim per shape or refuse.
+
+Test state: 502/502 passing (was 504; PS002/ps001 expectations flipped
+to honest abstention). Corpora unchanged: dev 40/50 lowered, D3 7/16,
+0 rewrites either side.

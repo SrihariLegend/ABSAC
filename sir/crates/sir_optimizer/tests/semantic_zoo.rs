@@ -440,15 +440,22 @@ pub fn generate_semantic_zoo() -> Vec<ZooProgram> {
         name: "ps001_first_set_bit".to_string(),
         family: Family::PositionSearch,
         function: build_ps001_first_set_bit(),
-        // BitscanForward is Stub-quarantined (advisor P0 audit); the
-        // Any-reduction candidate is SchemaChecked and may still fire.
-        expected_rewrites: 1,
+        // PS002-audit consequence: the zoo ps001 function returns the
+        // POSITION (field 1) like PS002, and the Any-reduction recipe
+        // now refuses to rebind a live-out its theorem does not cover
+        // (UnauthorizedLiveOut). BitscanForward is Stub-quarantined.
+        expected_rewrites: 0,
     });
     zoo.push(ZooProgram {
         name: "ps002_last_set_bit".to_string(),
         family: Family::PositionSearch,
         function: build_ps002_last_set_bit(),
-        expected_rewrites: 1,
+        // PS002 END-TO-END AUDIT (advisor): the Any candidate was
+        // authorized at concept level but bound to the wrong live-out —
+        // the returned position was silently rewired to the rebuilt
+        // tuple's non-reduction slot. The authorized-consumer guard
+        // refuses; expected rewrites: 0.
+        expected_rewrites: 0,
     });
     zoo.push(ZooProgram {
         name: "ps003_trailing_zero_count".to_string(),

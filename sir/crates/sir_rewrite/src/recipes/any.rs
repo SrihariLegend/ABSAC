@@ -4,7 +4,7 @@ use sir_types::{ConstantData, Span, Type};
 use crate::error::RewriteError;
 use crate::patch::{ReplacementPatch, ReplacementValue};
 use crate::recipe::RewriteRecipe;
-use crate::recipes::helpers::{collection_length, emit_pack, find_tuple_extract, wrap_direct_tuple_return};
+use crate::recipes::helpers::{authorized_tuple_consumer, collection_length, emit_pack, wrap_direct_tuple_return};
 use crate::region::RewriteRegion;
 use crate::subgraph_builder::SubgraphBuilder;
 
@@ -40,9 +40,13 @@ impl RewriteRecipe for AnyRecipe {
         let result = region.result()?;
         let accumulator = region.accumulator().ok().flatten();
 
-        // Prefer replacing the TupleExtract consumer when one exists; when the tuple
-        // is returned wholesale the loop's tuple result is rebuilt below.
-        let extract = find_tuple_extract(function, result);
+        // Prefer replacing the tuple-slot consumer when one exists; when the
+        // tuple is returned wholesale the loop's tuple result is rebuilt
+        // below. The consumer must read the ACCUMULATOR slot — a slot the
+        // theorem does not cover (e.g. a position/index live-out) refuses
+        // the rewrite (PS002 audit: array_find_last was silently rewritten
+        // to return a constant).
+        let extract = authorized_tuple_consumer(function, result, accumulator)?;
         let target = extract.unwrap_or(result);
 
         let packed = emit_pack(function, region, &mut builder)?;

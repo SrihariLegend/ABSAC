@@ -20,6 +20,18 @@ pub enum RewriteError {
     /// The recipe failed to produce a patch.
     RecipeFailed(String),
 
+    /// The loop's downstream consumer reads a tuple slot the recipe's
+    /// theorem does not speak about (e.g. a position/index live-out
+    /// while the theorem covers only the boolean accumulator).
+    /// Replacing it would silently change program semantics — the
+    /// rewrite must refuse (advisor PS002 audit: "correctly authorized
+    /// at concept level but incorrectly bound to concrete roles").
+    UnauthorizedLiveOut {
+        consumer: sir_types::NodeId,
+        field: usize,
+        reduction_position: usize,
+    },
+
     /// Indicates a compiler bug — an invariant was violated.
     InternalInvariantViolation(String),
 }
@@ -41,6 +53,15 @@ impl std::fmt::Display for RewriteError {
                 write!(f, "structural verification failed: {} errors", errors.len())
             }
             RewriteError::RecipeFailed(msg) => write!(f, "recipe failed: {msg}"),
+            RewriteError::UnauthorizedLiveOut {
+                consumer,
+                field,
+                reduction_position,
+            } => write!(
+                f,
+                "unauthorized live-out: consumer {consumer} reads tuple slot {field} \
+                 but the theorem only covers the reduction slot {reduction_position}"
+            ),
             RewriteError::InternalInvariantViolation(msg) => {
                 write!(f, "INTERNAL INVARIANT VIOLATION: {msg}")
             }

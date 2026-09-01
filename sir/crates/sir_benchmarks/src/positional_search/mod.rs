@@ -53,17 +53,19 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "last_set_bit",
                 category: "Positional search",
                 input_desc: "find last true in array",
-                // PS002 ALSO matches an Any-style reduction over the
-                // same loop — that AnyDefinition candidate is
-                // SchemaChecked and its rewrite is independent of the
-                // quarantined BitscanReverse path, so it still rewrites.
-                expected: ExpectedKnowledge::Optimizes {
-                    semantic_domain: "Search",
-                    concepts: vec!["LastOccurrence", "LogicalSequence"],
-                    representation: "BitScan",
-                    candidate: "BitscanReverse",
-                    proof: "Last(LogicalSequence) == LeadingZeros(Pack(LogicalSequence))",
-                    rewrite: "Loop -> LeadingZeros",
+                // PS002 END-TO-END AUDIT (advisor): the loop's live-out
+                // is the POSITION (field 1 of the loop tuple), not the
+                // boolean `found` accumulator. The AnyDefinition theorem
+                // (exists == pack != 0) is true, but the recipe rebuild
+                // rewired the position live-out to the rebuilt tuple's
+                // non-reduction slot — `array_find_last` silently became
+                // "return a constant". The authorized-consumer guard now
+                // refuses (UnauthorizedLiveOut: consumer reads slot 1,
+                // theorem covers slot 0); the bitscan path is
+                // Stub-quarantined. Honest result: NO rewrite until
+                // ProposalBinding can prove which live-outs are safe.
+                expected: ExpectedKnowledge::NonOptimizable {
+                    reason: "Any candidate authorized at concept level but bound to the wrong live-out: the returned position is not the accumulator slot (UnauthorizedLiveOut guard)",
                 },
             },
             func: || {

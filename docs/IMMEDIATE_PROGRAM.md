@@ -258,6 +258,29 @@ Remediation D3 (P0A, commit c3ebb54):
        (ConcreteSolverChecked) quarantines SchemaChecked too.
        Gate 4B status: OPEN (necessarily). Quarantined families return
        when obligations bind actual nodes and discharge concretely.
+  PS002 END-TO-END AUDIT (advisor directive 2, this cycle): the
+       SchemaChecked Any candidate on PS002 was NOT a safe independent
+       optimization — it was a live semantic corruption caught before
+       shipping. The Any recipe did not recognize FieldAccess slot
+       consumers (only TupleExtract), so it took the
+       wholesale-tuple-rebuild path, filled the non-reduction slots
+       with the termination bound, and `array_find_last` silently
+       became "return a constant": type-valid, structurally verified,
+       semantically destroyed. Advisor hypothesis 3 confirmed: "correctly
+       authorized at concept level but incorrectly bound to concrete
+       roles." Fix: RewriteError::UnauthorizedLiveOut +
+       authorized_tuple_consumer() shared guard — reduction recipes
+       (any/all/parity/popcount) may replace a loop tuple slot ONLY when
+       the consumer reads the accumulator slot; a consumer reading a
+       position/index live-out refuses the rewrite. Targeted regression
+       added (position-mutated variant with identical Any truth must
+       not rewrite). PS002/ps001 expectations flipped to honest
+       abstention; recorded in docs/VERIFIER_AUDIT.md. Residual risk
+       recorded: the wholesale-tuple path still assumes
+       "index == termination bound at exit" (sound for ascending count
+       loops, unproven in general) and now only fires when no slot
+       consumer exists — a future binding pass must prove the bound
+       claim per shape or refuse.
   Remaining P0A queue (advisor order): (1) ProposalBinding + exact
        proposal binding (step 2: per-proposal declaration of source
        nodes, live-ins/outs, memory accesses, iteration domain,

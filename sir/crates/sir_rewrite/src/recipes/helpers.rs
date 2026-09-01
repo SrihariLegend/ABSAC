@@ -20,6 +20,78 @@ pub fn find_tuple_extract(function: &sir_nodes::Function, tuple: NodeId) -> Opti
     })
 }
 
+/// Find a tuple-slot consumer of the given tuple value, recognizing both
+/// `TupleExtract { index }` and `FieldAccess { field: "N" }` (the builder
+/// creates the latter; the PS002 audit found recipes blind to it).
+/// Returns the consumer node and its slot index.
+pub fn find_tuple_consumer(function: &sir_nodes::Function, tuple: NodeId) -> Option<(NodeId, usize)> {
+    for node in function.arena.iter() {
+        match &node.kind {
+            NodeKind::TupleExtract { tuple: t, index } => {
+                if *t == tuple {
+                    return Some((node.id, *index));
+                }
+            }
+            NodeKind::FieldAccess { base, field } => {
+                if *base == tuple {
+                    if let Ok(pos) = field.parse::<usize>() {
+                        return Some((node.id, pos));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Authorized slot consumer for a reduction recipe.
+///
+/// A reduction theorem (popcount/all/any/parity) speaks ONLY about the
+/// accumulator output of the loop. If the loop's tuple is consumed
+/// downstream by a slot extract, that extract must read the accumulator
+/// position; a consumer reading a different slot (e.g. a position/index
+/// live-out) cannot be satisfied by the replacement — replacing it, or
+/// rebuilding the whole tuple underneath it, silently changes program
+/// semantics (PS002 audit: `array_find_last` returned a constant after
+/// its loop was rebuilt). Returns Ok(None) when the loop tuple has no
+/// slot consumer; Err when a consumer reads a non-reduction slot.
+pub fn authorized_tuple_consumer(
+    function: &sir_nodes::Function,
+    loop_node: NodeId,
+    accumulator: Option<NodeId>,
+) -> Result<Option<NodeId>, RewriteError> {
+    let (node, field) = match find_tuple_consumer(function, loop_node) {
+        Some(c) => c,
+        None => return Ok(None),
+    };
+    // Single-output loops have exactly one possible reduction slot.
+    let red_pos = match loop_reduction_position(function, loop_node, accumulator) {
+        Some(pos) => pos,
+        None => {
+            let single = match function.get_node(loop_node) {
+                Some(n) => matches!(&n.kind,
+                    NodeKind::Loop { outputs, .. } if outputs.len() == 1),
+                None => false,
+            };
+            if !single {
+                return Err(RewriteError::MissingRole {
+                    role: "reduction output position".to_string(),
+                });
+            }
+            0
+        }
+    };
+    if field != red_pos {
+        return Err(RewriteError::UnauthorizedLiveOut {
+            consumer: loop_node,
+            field,
+            reduction_position: red_pos,
+        });
+    }
+    Ok(Some(node))
+}
+
 /// The loop bound: the operand of the termination comparison that is not a loop output.
 ///
 /// The index output equals this bound at loop exit (the loop runs while the
