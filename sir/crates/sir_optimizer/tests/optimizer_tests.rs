@@ -34,6 +34,7 @@ fn optimize_iteration_limit_is_respected() {
     let func = build_empty_function();
     let optimizer = Optimizer::new(
         OptimizerConfig {
+            allow_unit_test_authorizations: false,
             max_iterations: 3,
             max_total_rewrites: None,
             beam_width: None,
@@ -51,6 +52,7 @@ fn optimize_max_total_rewrites_is_respected() {
     let func = build_empty_function();
     let optimizer = Optimizer::new(
         OptimizerConfig {
+            allow_unit_test_authorizations: false,
             max_iterations: 10,
             max_total_rewrites: Some(0),
             beam_width: None,

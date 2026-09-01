@@ -20,12 +20,42 @@ pub trait TransformationDefinition {
     /// Human-readable name.
     fn name(&self) -> &'static str;
 
+    /// The honest assurance level of this definition's proof path
+    /// (advisor P0: theorem-shaped stubs are not proofs). The verifier
+    /// refuses to return Proven for definitions below the engine's
+    /// minimum level — a Stub can NEVER authorize a rewrite.
+    fn verification_status(&self) -> VerificationStatus;
+
     /// Is this transformation applicable to the given candidate?
     fn applicability(&self, candidate: &Candidate) -> bool;
 
     /// Construct the full proof obligation for a given candidate.
     /// Owns: theorem construction, assumption enumeration, domain specification.
     fn obligation(&self, candidate: &Candidate) -> ProofObligation;
+}
+
+/// Explicit assurance level of a transformation definition's proof
+/// (advisor directive). Production rewrite policy fails closed on
+/// insufficient level; the level travels with the proof artifact.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum VerificationStatus {
+    /// Hardcoded example or unconditional result that does not bind
+    /// actual source/candidate operands. NEVER permits a rewrite.
+    Stub,
+    /// Backed by differential/unit tests but no concrete proof.
+    /// Permitted only in explicitly experimental mode.
+    TestedOnly,
+    /// Checks a valid theorem schema and concrete bindings/
+    /// preconditions, relying on trusted handwritten verification
+    /// code. Usable during research with honest labeling.
+    SchemaChecked,
+    /// The exact source/candidate expressions and assumptions were
+    /// submitted to a solver; the candidate carries a reproducible
+    /// obligation/result.
+    ConcreteSolverChecked,
+    /// Checked by an independent proof system with a replayable
+    /// artifact. Required for the strongest Gate 4B claim.
+    MachineChecked,
 }
 
 /// Registry of known transformation definitions.

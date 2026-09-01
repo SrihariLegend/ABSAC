@@ -221,10 +221,23 @@ use sir_rewrite::registry::default_registry;
 
 #[test]
 fn ps001_first_set_bit_optimizer() {
+    // ADVISOR P0 VERIFIER QUARANTINE: the BitscanForwardDefinition
+    // obligation is a variable-placeholder template that never binds the
+    // actual source/candidate operands (Stub) — it may not authorize a
+    // rewrite. The loop->tz rewrite returns when the definition is
+    // upgraded to ConcreteSolverChecked with a node-bound obligation.
     let func = build_ps001_first_set_bit();
     let optimizer = Optimizer::new(OptimizerConfig::default(), default_registry());
     let result = optimizer.optimize(&func);
-    assert_eq!(result.rewrites_applied, 1);
+    // The Any-reduction candidate over the same loop is SchemaChecked
+    // and still proves/rewrites; the hard quarantine invariant is that
+    // the bitscan path must not produce TrailingZeros.
+    let has_tz = result
+        .function
+        .arena
+        .iter()
+        .any(|n| matches!(n.kind, sir_nodes::NodeKind::TrailingZeros { .. }));
+    assert!(!has_tz, "BitscanForward is Stub-quarantined: must not rewrite to TrailingZeros");
 }
 
 #[test]
@@ -237,18 +250,22 @@ fn ps002_last_set_bit_optimizer() {
 
 #[test]
 fn ps003_trailing_zero_count_optimizer() {
+    // TrailingZeroCountDefinition obligation is a tautology —
+    // Stub-quarantined (advisor P0 verifier audit).
     let func = build_ps003_trailing_zero_count();
     let optimizer = Optimizer::new(OptimizerConfig::default(), default_registry());
     let result = optimizer.optimize(&func);
-    assert_eq!(result.rewrites_applied, 1);
+    assert_eq!(result.rewrites_applied, 0, "TrailingZeroCount is Stub-quarantined");
 }
 
 #[test]
 fn ps004_leading_zero_count_optimizer() {
+    // LeadingZeroCountDefinition obligation is a tautology —
+    // Stub-quarantined (advisor P0 verifier audit).
     let func = build_ps004_leading_zero_count();
     let optimizer = Optimizer::new(OptimizerConfig::default(), default_registry());
     let result = optimizer.optimize(&func);
-    assert_eq!(result.rewrites_applied, 1);
+    assert_eq!(result.rewrites_applied, 0, "LeadingZeroCount is Stub-quarantined");
 }
 
 /// The PS001 `first_set_bit` termination-condition form (as built by the
@@ -299,12 +316,14 @@ pub fn build_ps001_termination_form() -> sir_nodes::Function {
 
 #[test]
 fn ps001_termination_form_optimizer() {
-    // The PS001 termination-condition form must be recognized as
-    // FirstOccurrence and rewritten to TrailingZeros, eliminating the loop.
+    // The PS001 termination-condition form used to be recognized as
+    // Stub-quarantined (advisor P0 verifier audit) — the rewrite must
+    // NOT fire until the obligation binds actual nodes and is discharged
+    // concretely. No TrailingZeros may appear in the result.
     let func = build_ps001_termination_form();
     let optimizer = Optimizer::new(OptimizerConfig::default(), default_registry());
     let result = optimizer.optimize(&func);
-    assert_eq!(result.rewrites_applied, 1);
+    assert_eq!(result.rewrites_applied, 0, "BitscanForward is Stub-quarantined");
 
     let has_tz = result
         .function
@@ -316,6 +335,6 @@ fn ps001_termination_form_optimizer() {
         .arena
         .iter()
         .any(|n| matches!(n.kind, sir_nodes::NodeKind::Loop { .. }));
-    assert!(has_tz, "expected TrailingZeros in the rewritten IR");
-    assert!(!has_loop, "expected the search loop to be eliminated");
+    assert!(!has_tz, "TrailingZeros must NOT appear (bitscan Stub-quarantined)");
+    assert!(has_loop, "the search loop must survive (no authorized rewrite)");
 }

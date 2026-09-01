@@ -152,13 +152,8 @@ fn comp001() -> BenchmarkDef {
             name: "count_clear_lowest_set_bit_is_zero",
             category: "Semantic Composition",
             input_desc: "count += ((x & (x - 1)) == 0)",
-            expected: ExpectedKnowledge::Optimizes {
-                semantic_domain: "MaskAlgebra",
-                concepts: vec!["AtMostOneBitSet", "LogicalSequence", "ClearLowestSetBit"],
-                representation: "MaskAlgebra",
-                candidate: "ClearLowestBit",
-                proof: "Success",
-                rewrite: "blsr",
+            expected: ExpectedKnowledge::NonOptimizable {
+                reason: "ClearLowestSetBit definition is Stub-quarantined (advisor P0 verifier audit); the hand-proven composition witness stands separately in Gate 3/4A",
             },
         },
         func: || {

@@ -1073,9 +1073,32 @@ fn emit_instruction(
 
     match inst.opcode.as_str() {
         "add" | "sub" | "mul" | "and" | "or" | "xor" | "shl" | "lshr" | "ashr" | "udiv" | "sdiv" | "urem" | "srem" => {
-            // Binary op: operands are like "i64 %7, i64 %1" or "i8 %10, 1"
             if inst.operands.len() < 2 {
                 return Err(format!("{} needs 2 operands: {}", inst.opcode, inst.raw));
+            }
+            // ── Fail-closed semantic gates (advisor signedness audit) ──
+            // SIR has a single Shr/Div/Rem node whose emitted-C semantics
+            // follow the operand type, and the lowerer types every LLVM
+            // `iN` as UNSIGNED. Signed opcodes therefore mistranslate
+            // (negative operands get unsigned semantics; sdiv INT_MIN/-1
+            // trap is unmodeled). Refuse loudly instead of silently
+            // producing a differently-defined program.
+            if matches!(inst.opcode.as_str(), "ashr" | "sdiv" | "srem") {
+                return Err(format!(
+                    "unsupported: signed opcode '{}' (SIR Shr/Div/Rem are unsigned-model; arithmetic-shift and signed-division semantics are not representable): {}",
+                    inst.opcode, inst.raw
+                ));
+            }
+            // `exact` means poison if the division has a remainder —
+            // poison semantics are unmodeled; fail closed (advisor
+            // arithmetic-flags directive).
+            if inst.raw.contains(" exact ")
+                && matches!(inst.opcode.as_str(), "udiv" | "sdiv" | "lshr" | "ashr" | "shl")
+            {
+                return Err(format!(
+                    "unsupported: 'exact' division/shift flag (poison-on-inexact semantics not modeled): {}",
+                    inst.raw
+                ));
             }
             // Extract the type from the first operand (e.g., "i8 %10" → i8)
             let op_type = inst.operands[0].split_whitespace().next()
@@ -1165,13 +1188,28 @@ fn emit_instruction(
             let rhs = get_node_id(&rhs_str, value_map, params, builder, cmp_ty)
                 .ok_or(format!("cannot resolve rhs '{}' in {}", rhs_str, inst.raw))?;
 
+            // ── Fail-closed signedness gate (advisor signedness audit) ──
+            // SIR comparison semantics on lowered code are UNSIGNED: the
+            // lowerer types every LLVM `iN` as unsigned and the emitted C
+            // compares unsigned operands unsigned-ly. Collapsing signed
+            // predicates (sgt/sge/slt/sle) onto the same nodes
+            // mistranslates any potentially-negative operand — e.g.
+            // `icmp sgt i8 %x, -1` becomes `%x > 255` under unsigned
+            // semantics. Refuse loudly; only eq/ne (signedness-agnostic)
+            // and unsigned predicates lower.
+            if matches!(cmp_type, "sgt" | "sge" | "slt" | "sle") {
+                return Err(format!(
+                    "unsupported: signed icmp '{}' (SIR comparison semantics are unsigned-model; signed predicate would mistranslate negative operands): {}",
+                    cmp_type, inst.raw
+                ));
+            }
             let node_id = match cmp_type {
                 "eq" => builder.eq(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
                 "ne" => builder.ne(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
-                "sgt" | "ugt" => builder.gt(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
-                "sge" | "uge" => builder.ge(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
-                "slt" | "ult" => builder.lt(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
-                "sle" | "ule" => builder.le(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
+                "ugt" => builder.gt(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
+                "uge" => builder.ge(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
+                "ult" => builder.lt(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
+                "ule" => builder.le(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
                 _ => return Err(format!("unsupported icmp type: {}", cmp_type)),
             };
 

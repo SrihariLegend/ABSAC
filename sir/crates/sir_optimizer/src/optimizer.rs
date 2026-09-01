@@ -290,6 +290,22 @@ impl Optimizer {
             // id and compare the candidate's carried copies exactly.
             // An unknown id (forged or from a previous pass) is
             // rejected here.
+            // Sentinel gate (advisor sentinel hardening): the UNIT_TEST
+            // AuthorizationId bypasses the database lookup. Production
+            // candidates are always minted with real ids, so a sentinel
+            // reaching the optimizer means the candidate was constructed
+            // outside the authorization pipeline. Reject unless this is
+            // an explicitly test-permitting configuration.
+            if best.candidate.authorization.authorization_id
+                == sir_semantics::authorization::AuthorizationId::UNIT_TEST
+                && !self.config.allow_unit_test_authorizations
+            {
+                println!(
+                    "Iteration {}: REJECTED candidate {} — UNIT_TEST authorization sentinel in production optimizer",
+                    iteration_number, best.candidate.id
+                );
+                continue;
+            }
             if !best.candidate.authorization.matches_function(function)
                 || !best.candidate.binding_digest_valid()
                 || !sir_generation::candidate::exact_binding_matches(

@@ -166,13 +166,13 @@ fn build_arithmetic(name: &str, op: &str, divisor: u64, signed: bool) -> ZooProg
     // INT_MIN/-1 trap. Signed cases must abstain.
     // Multiply is legal for both: two's-complement wrapping makes
     // x * 2^k == x << k for every bit pattern.
-    let expected = if signed && op != "multiply" {
-        0
-    } else if op == "shift_mask" && divisor >= 32 {
-        0
-    } else {
-        1
-    };
+    //
+    // ADVISOR P0 VERIFIER QUARANTINE: all four bitwise-arithmetic
+    // definitions (ModuloAnd, DivideShift, MultiplyShift, ShiftMask)
+    // have Stub obligations that never bind actual operands — none may
+    // authorize a rewrite. Every arithmetic family entry now expects
+    // 0 rewrites until those definitions are ConcreteSolverChecked.
+    let expected = 0;
 
     ZooProgram {
         name: name.to_string(),
@@ -440,6 +440,8 @@ pub fn generate_semantic_zoo() -> Vec<ZooProgram> {
         name: "ps001_first_set_bit".to_string(),
         family: Family::PositionSearch,
         function: build_ps001_first_set_bit(),
+        // BitscanForward is Stub-quarantined (advisor P0 audit); the
+        // Any-reduction candidate is SchemaChecked and may still fire.
         expected_rewrites: 1,
     });
     zoo.push(ZooProgram {
@@ -452,13 +454,17 @@ pub fn generate_semantic_zoo() -> Vec<ZooProgram> {
         name: "ps003_trailing_zero_count".to_string(),
         family: Family::PositionSearch,
         function: build_ps003_trailing_zero_count(),
-        expected_rewrites: 1,
+        // TrailingZeroCount definition is a tautology — Stub-quarantined
+        // (advisor P0 verifier audit): zero rewrites.
+        expected_rewrites: 0,
     });
     zoo.push(ZooProgram {
         name: "ps004_leading_zero_count".to_string(),
         family: Family::PositionSearch,
         function: build_ps004_leading_zero_count(),
-        expected_rewrites: 1,
+        // LeadingZeroCount obligation is a tautology — Stub-quarantined
+        // (advisor P0 verifier audit).
+        expected_rewrites: 0,
     });
 
     // 4. Predicate Reductions

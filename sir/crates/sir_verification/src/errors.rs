@@ -34,6 +34,14 @@ pub enum RejectReason {
 pub enum UnknownReason {
     /// No backend is applicable to this obligation.
     NoApplicableBackend,
+    /// The definition's assurance level is below the engine's minimum
+    /// (advisor P0: theorem-shaped stubs are not proofs — a stub- or
+    /// test-backed definition can never return Proven).
+    InsufficientAssurance {
+        definition: &'static str,
+        status: crate::registry::VerificationStatus,
+        minimum: crate::registry::VerificationStatus,
+    },
     /// The domain is too large for exhaustive verification.
     DomainTooLarge { states: Option<u64>, max: u64 },
     /// The domain state count overflowed u64 during computation.

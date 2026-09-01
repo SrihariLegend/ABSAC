@@ -18,6 +18,17 @@ impl MultiplyShiftDefinition {
 }
 
 impl TransformationDefinition for MultiplyShiftDefinition {
+    fn verification_status(&self) -> crate::registry::VerificationStatus {
+        // STUB (quarantined, advisor P0 audit): the obligation is a
+        // hardcoded or tautological theorem template that never binds
+        // the actual source/candidate operands — changing the region's
+        // constant, swapping operands, or changing widths cannot cause
+        // rejection. This definition may not authorize a rewrite until
+        // its obligation is built from the actual pair and discharged
+        // concretely.
+        crate::registry::VerificationStatus::Stub
+    }
+
     fn id(&self) -> DefinitionId {
         self.id
     }

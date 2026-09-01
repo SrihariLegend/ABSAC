@@ -270,6 +270,10 @@ pub fn run_benchmark(func: Function, spec: &BenchmarkSpec) {
         },
         ExpectedKnowledge::NonOptimizable { .. } => {
             assert!(!has_rewrite, "Should not have rewritten a non-optimizable benchmark");
+            // Quarantine note: stub-backed definitions may still attempt
+            // proofs and legitimately SchemaChecked candidates may still
+            // prove — the hard invariant is NO REWRITE (advisor P0: a
+            // quarantined definition can never authorize a mutation).
             println!("Result: DECLINED OPTIMIZATION (Matches Specification)");
         },
         ExpectedKnowledge::ProvenanceGraph { .. } => {

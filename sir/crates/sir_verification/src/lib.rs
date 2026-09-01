@@ -40,7 +40,7 @@ use crate::definitions::rotate_right::RotateRightDefinition;
 use crate::definitions::shift_mask::ShiftMaskDefinition;
 use crate::definitions::trailing_zero_count::TrailingZeroCountDefinition;
 use crate::obligation::{ProofObligation, ProofObligationDatabase};
-use crate::registry::TransformationRegistry;
+use crate::registry::{TransformationRegistry, VerificationStatus};
 use crate::report::{ReportEntry, ReportStatus, VerificationReport};
 use crate::validation::AssumptionValidator;
 
@@ -132,6 +132,11 @@ pub struct Verifier {
     registry: TransformationRegistry,
     policy: VerificationPolicy,
     limits: VerificationLimits,
+    /// Minimum assurance level that may return Proven (advisor P0).
+    /// Definitions below this level are quarantined: verify() returns
+    /// Unknown(InsufficientAssurance) — never Proven. Default:
+    /// SchemaChecked (research mode with honest labeling).
+    min_verification_level: VerificationStatus,
 }
 
 impl Verifier {
@@ -203,7 +208,18 @@ impl Verifier {
             registry,
             policy: VerificationPolicy::Default,
             limits: VerificationLimits::default(),
+            // Research mode: SchemaChecked with honest labeling is the
+            // minimum. Stubs and test-only definitions are quarantined.
+            min_verification_level: VerificationStatus::SchemaChecked,
         }
+    }
+
+    /// Set the minimum assurance level that may return Proven.
+    /// Production rewrite policy should require ConcreteSolverChecked
+    /// or higher; Stub can NEVER authorize a rewrite at any setting.
+    pub fn with_min_verification_level(mut self, level: VerificationStatus) -> Self {
+        self.min_verification_level = level;
+        self
     }
 
     /// Create a verifier with a specific policy.
@@ -259,6 +275,23 @@ impl Verifier {
         obligation: &ProofObligation,
         context: &TransformationContext,
     ) -> VerificationResult {
+        // Step -1 (advisor P0): quarantine stub-backed definitions.
+        // The assurance level is looked up from the REGISTRY, not from
+        // the obligation — a definition whose obligation is a theorem
+        // template (hardcoded constants, tautologies, or a shape that
+        // never references the actual source/candidate nodes) cannot
+        // establish equivalence, and the verifier must say so instead
+        // of laundering the recognizer's assumptions through a "proof".
+        if let Some(def) = self.registry.lookup(obligation.definition) {
+            if def.verification_status() < self.min_verification_level {
+                return VerificationResult::Unknown(UnknownReason::InsufficientAssurance {
+                    definition: def.name(),
+                    status: def.verification_status(),
+                    minimum: self.min_verification_level,
+                });
+            }
+        }
+
         // Step 0: Validate assumptions
         if let Err(assumption) = AssumptionValidator::validate(obligation, context) {
             return VerificationResult::Rejected(crate::errors::RejectReason::AssumptionViolated {

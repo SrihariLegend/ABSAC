@@ -14,13 +14,8 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "first_set_bit",
                 category: "Positional search",
                 input_desc: "find first true in array",
-                expected: ExpectedKnowledge::Optimizes {
-                    semantic_domain: "Search",
-                    concepts: vec!["PositionSearch", "LogicalSequence"],
-                    representation: "BitScan",
-                    candidate: "BitscanForward",
-                    proof: "First(LogicalSequence) == TrailingZeros(Pack(LogicalSequence))",
-                    rewrite: "Loop -> TrailingZeros",
+                expected: ExpectedKnowledge::NonOptimizable {
+                    reason: "BitScanForward definition is Stub-quarantined: obligation does not bind actual source/candidate operands",
                 },
             },
             func: || {
@@ -58,6 +53,10 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "last_set_bit",
                 category: "Positional search",
                 input_desc: "find last true in array",
+                // PS002 ALSO matches an Any-style reduction over the
+                // same loop — that AnyDefinition candidate is
+                // SchemaChecked and its rewrite is independent of the
+                // quarantined BitscanReverse path, so it still rewrites.
                 expected: ExpectedKnowledge::Optimizes {
                     semantic_domain: "Search",
                     concepts: vec!["LastOccurrence", "LogicalSequence"],
@@ -113,13 +112,8 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "trailing_zero_count",
                 category: "Positional search",
                 input_desc: "count trailing zeros of a scalar",
-                expected: ExpectedKnowledge::Optimizes {
-                    semantic_domain: "Search",
-                    concepts: vec!["TrailingZeroSearch"],
-                    representation: "BitScan",
-                    candidate: "TrailingZeroCount",
-                    proof: "TrailingZeroSearch == TrailingZeros(x)",
-                    rewrite: "Loop -> TrailingZeros",
+                expected: ExpectedKnowledge::NonOptimizable {
+                    reason: "TrailingZeroCount definition is Stub-quarantined: obligation is a tautology (LeadingZeros(v)==LeadingZeros(v))",
                 },
             },
             func: || {
@@ -157,13 +151,8 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "leading_zero_count",
                 category: "Positional search",
                 input_desc: "count leading zeros of a scalar",
-                expected: ExpectedKnowledge::Optimizes {
-                    semantic_domain: "Search",
-                    concepts: vec!["LeadingZeroSearch"],
-                    representation: "BitScan",
-                    candidate: "LeadingZeroCount",
-                    proof: "LeadingZeroSearch == LeadingZeros(x)",
-                    rewrite: "Loop -> LeadingZeros",
+                expected: ExpectedKnowledge::NonOptimizable {
+                    reason: "LeadingZeroCount definition is Stub-quarantined: obligation is a tautology",
                 },
             },
             func: || {

@@ -14,13 +14,15 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "modulo_power_of_two",
                 category: "Arithmetic identities",
                 input_desc: "x % 8",
-                expected: ExpectedKnowledge::Optimizes {
-                    semantic_domain: "Arithmetic",
-                    concepts: vec!["ModuloPowerOfTwo"],
-                    representation: "BitwiseArithmetic",
-                    candidate: "BitwiseAnd",
-                    proof: "Modulo(x, 2^k) == And(x, 2^k - 1)",
-                    rewrite: "Rem -> And",
+                // QUARANTINED (advisor P0 verifier audit): the
+                // ModuloAndDefinition obligation is a hardcoded template
+                // (Modulo(x,16)==And(x,15)) that never binds the actual
+                // divisor or operand — a theorem-shaped stub, not a
+                // proof. The identity itself is true for unsigned x;
+                // re-enabling requires a ConcreteSolverChecked
+                // obligation built from the actual nodes.
+                expected: ExpectedKnowledge::NonOptimizable {
+                    reason: "ModuloAnd definition is Stub-quarantined: obligation does not bind actual source/candidate operands",
                 },
             },
             func: || {
@@ -38,13 +40,8 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "divide_power_of_two",
                 category: "Arithmetic identities",
                 input_desc: "x / 16",
-                expected: ExpectedKnowledge::Optimizes {
-                    semantic_domain: "Arithmetic",
-                    concepts: vec!["DividePowerOfTwo"],
-                    representation: "BitwiseArithmetic",
-                    candidate: "ShiftRight",
-                    proof: "Div(x, 2^k) == Shr(x, k)",
-                    rewrite: "Div -> Shr",
+                expected: ExpectedKnowledge::NonOptimizable {
+                    reason: "DivideShift definition is Stub-quarantined: obligation is Constant(0)==Constant(0)",
                 },
             },
             func: || {
@@ -62,13 +59,8 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "multiply_power_of_two",
                 category: "Arithmetic identities",
                 input_desc: "x * 32",
-                expected: ExpectedKnowledge::Optimizes {
-                    semantic_domain: "Arithmetic",
-                    concepts: vec!["MultiplyPowerOfTwo"],
-                    representation: "BitwiseArithmetic",
-                    candidate: "ShiftLeft",
-                    proof: "Mul(x, 2^k) == Shl(x, k)",
-                    rewrite: "Mul -> Shl",
+                expected: ExpectedKnowledge::NonOptimizable {
+                    reason: "MultiplyShift definition is Stub-quarantined: obligation is Constant(0)==Constant(0)",
                 },
             },
             func: || {
@@ -89,13 +81,8 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "isolate_lowest_set_bit",
                 category: "Hacker's Delight",
                 input_desc: "x & -x",
-                expected: ExpectedKnowledge::Optimizes {
-                    semantic_domain: "MaskAlgebra",
-                    concepts: vec!["LowestSetBit"],
-                    representation: "MaskAlgebra",
-                    candidate: "IsolateLowestBit",
-                    proof: "LowestSetBit(x) == And(x, Neg(x))",
-                    rewrite: "And -> Intrinsic(blsi)",
+                expected: ExpectedKnowledge::NonOptimizable {
+                    reason: "IsolateLowestSetBit definition is Stub-quarantined: obligation is a free-variable template",
                 },
             },
             func: || {
@@ -114,13 +101,8 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "isolate_lowest_clear_bit",
                 category: "Hacker's Delight",
                 input_desc: "~x & (x + 1)",
-                expected: ExpectedKnowledge::Optimizes {
-                    semantic_domain: "MaskAlgebra",
-                    concepts: vec!["LowestClearBitMask"],
-                    representation: "MaskAlgebra",
-                    candidate: "IsolateLowestClearBit",
-                    proof: "LowestClearBitMask(x) == And(Not(x), Add(x, 1))",
-                    rewrite: "And -> Intrinsic(blsi(Not(x)))",
+                expected: ExpectedKnowledge::NonOptimizable {
+                    reason: "IsolateLowestClearBit definition is Stub-quarantined: obligation is a free-variable template",
                 },
             },
             func: || {
@@ -140,13 +122,8 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "set_lowest_clear_bit",
                 category: "Hacker's Delight",
                 input_desc: "x | (x + 1)",
-                expected: ExpectedKnowledge::Optimizes {
-                    semantic_domain: "MaskAlgebra",
-                    concepts: vec!["SetLowestClearBit"],
-                    representation: "MaskAlgebra",
-                    candidate: "SetLowestClearBit",
-                    proof: "SetLowestClearBit(x) == Or(x, Add(x, 1))",
-                    rewrite: "Or -> Or(x, Intrinsic(blsmsk(Not(x))))",
+                expected: ExpectedKnowledge::NonOptimizable {
+                    reason: "SetLowestClearBit definition is Stub-quarantined: obligation is a free-variable template",
                 },
             },
             func: || {
@@ -288,13 +265,8 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "byte_swap",
                 category: "Hacker's Delight",
                 input_desc: "((x & 0xFF) << 8) | ((x >> 8) & 0xFF)",
-                expected: ExpectedKnowledge::Optimizes {
-                    semantic_domain: "BitPermutation",
-                    concepts: vec!["BytePermutation"],
-                    representation: "BitPermutation",
-                    candidate: "ByteSwap",
-                    proof: "ByteSwap(x) == Or(Shl(And(x, 0xFF), 8), And(Shr(x, 8), 0xFF))",
-                    rewrite: "Or -> Intrinsic(bswap) >> 16",
+                expected: ExpectedKnowledge::NonOptimizable {
+                    reason: "ByteSwap definition is Stub-quarantined: obligation is a free-variable template",
                 },
             },
             func: || {
@@ -322,13 +294,8 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "reverse_bits",
                 category: "Hacker's Delight",
                 input_desc: "swap adjacent bits, then pairs, then nibbles...",
-                expected: ExpectedKnowledge::Optimizes {
-                    semantic_domain: "BitPermutation",
-                    concepts: vec!["BitPermutation"],
-                    representation: "BitPermutation",
-                    candidate: "ReverseBits",
-                    proof: "BitReverse(x) == S3(S2(S1(x)))",
-                    rewrite: "Or -> Intrinsic(rbit) >> 24",
+                expected: ExpectedKnowledge::NonOptimizable {
+                    reason: "BitReverse definition is Stub-quarantined: obligation is a free-variable template",
                 },
             },
             func: || {
@@ -483,35 +450,37 @@ mod tests {
             "BP001 must abstain on unproven shift ranges (definedness gate)"
         );
 
-        // HD004 (byte swap): bswap intrinsic + Shr for width alignment.
+        // HD004 (byte swap): QUARANTINED (advisor P0 verifier audit) —
+        // the ByteSwapDefinition obligation is a variable-shape template
+        // that never binds the actual source operands, so a recipe may
+        // not rewrite on its basis. Abstention is the honest behavior
+        // until the definition is ConcreteSolverChecked.
         let hd004 = defs
             .iter()
             .find(|d| d.spec.id == "HD004")
             .expect("HD004 present");
         let res = optimizer.optimize(&(hd004.func)());
-        assert!(res.rewrites_applied > 0, "HD004 must rewrite");
+        assert!(res.rewrites_applied == 0, "HD004 must abstain (Stub quarantine)");
         let kinds = node_kinds(&res.function);
         assert!(
-            kinds.iter().any(|k| k == "Intrinsic(bswap)"),
-            "HD004 IR lacks bswap: {:?}",
+            !kinds.iter().any(|k| k == "Intrinsic(bswap)"),
+            "HD004 must not emit bswap while quarantined: {:?}",
             kinds
         );
-        assert!(kinds.iter().any(|k| k == "Shr"), "HD004 IR lacks Shr: {:?}", kinds);
 
-        // HD005 (reverse bits): rbit intrinsic + Shr for width alignment.
+        // HD005 (reverse bits): QUARANTINED (Stub, same audit) — rbit
+        // recipe backed by BitReverseDefinition (Stub) must abstain.
         let hd005 = defs
             .iter()
             .find(|d| d.spec.id == "HD005")
             .expect("HD005 present");
         let res = optimizer.optimize(&(hd005.func)());
-        assert!(res.rewrites_applied > 0, "HD005 must rewrite");
+        assert!(res.rewrites_applied == 0, "HD005 must abstain (Stub quarantine)");
         let kinds = node_kinds(&res.function);
         assert!(
-            kinds.iter().any(|k| k == "Intrinsic(rbit)"),
-            "HD005 IR lacks rbit: {:?}",
+            !kinds.iter().any(|k| k == "Intrinsic(rbit)"),
+            "HD005 must not emit rbit while quarantined: {:?}",
             kinds
         );
-        assert!(kinds.iter().any(|k| k == "Shr"), "HD005 IR lacks Shr: {:?}", kinds);
     }
-
 }

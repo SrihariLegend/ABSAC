@@ -152,14 +152,13 @@ fn test_orchestration_multiple_rewrites() {
         );
     }
 
-    // We expect exactly 4 rewrites because there are 4 independent non-overlapping optimizable regions.
-    // Iteration 1 should rewrite the highest priority one.
-    // Iteration 2 should rewrite the next highest.
-    // Iteration 3 ...
-    // Iteration 4 ...
-    // Iteration 5 should find no remaining candidates and converge.
+    // 3 rewrites, not 4: the count/any/parity loops are proven by the
+    // SchemaChecked reduction definitions, but the modulo region's
+    // ModuloAndDefinition is Stub-quarantined (advisor P0 verifier
+    // audit) and can no longer authorize a rewrite. Iteration 4
+    // correctly converges with zero proven candidates.
     assert_eq!(
-        result.rewrites_applied, 4,
-        "Expected exactly 4 rewrites to be applied"
+        result.rewrites_applied, 3,
+        "Expected exactly 3 rewrites (modulo is Stub-quarantined)"
     );
 }

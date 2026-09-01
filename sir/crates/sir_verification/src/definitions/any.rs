@@ -29,6 +29,15 @@ impl AnyDefinition {
 }
 
 impl TransformationDefinition for AnyDefinition {
+    fn verification_status(&self) -> crate::registry::VerificationStatus {
+        // SCHEMACHECKED (advisor audit): the obligation binds the
+        // candidate's FixedLength constraint and is discharged by
+        // exhaustive enumeration of the semantic form over a trusted
+        // handwritten evaluator. Variable binding is positional, not
+        // node-identifying; research-grade with honest labeling.
+        crate::registry::VerificationStatus::SchemaChecked
+    }
+
     fn id(&self) -> DefinitionId {
         self.id
     }

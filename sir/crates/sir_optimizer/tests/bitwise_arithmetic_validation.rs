@@ -59,20 +59,29 @@ fn create_ba004_shift_mask() -> sir_nodes::Function {
     b.build()
 }
 
+// ADVISOR P0 VERIFIER QUARANTINE: all four bitwise-arithmetic
+// definitions (ModuloAnd, DivideShift, MultiplyShift, ShiftMask) have
+// Stub obligations — hardcoded theorems that never bind the actual
+// source/candidate operands. None may authorize a rewrite until the
+// obligation is built from the actual nodes and discharged concretely.
+// These tests now assert the quarantine; the identities themselves
+// remain true (for unsigned operands) and are re-enabled by upgrading
+// the definitions to ConcreteSolverChecked.
+
 #[test]
 fn validate_ba001_modulo() {
     let func = create_ba001_modulo();
     let mut optimizer = Optimizer::new(OptimizerConfig::default(), default_registry());
     let result = optimizer.optimize(&func);
 
-    assert_eq!(result.rewrites_applied, 1);
+    assert_eq!(result.rewrites_applied, 0, "ModuloAnd is Stub-quarantined");
 
     let has_and = result
         .function
         .arena
         .iter()
         .any(|n| matches!(n.kind, NodeKind::And { .. }));
-    assert!(has_and, "Should have been rewritten to a bitwise AND");
+    assert!(!has_and, "Must not emit AND while quarantined");
 }
 
 #[test]
@@ -81,14 +90,15 @@ fn validate_ba002_divide() {
     let mut optimizer = Optimizer::new(OptimizerConfig::default(), default_registry());
     let result = optimizer.optimize(&func);
 
-    assert_eq!(result.rewrites_applied, 1);
+    // Stub-quarantined (advisor P0 verifier audit).
+    assert_eq!(result.rewrites_applied, 0, "DivideShift is Stub-quarantined");
 
     let has_shr = result
         .function
         .arena
         .iter()
         .any(|n| matches!(n.kind, NodeKind::Shr { .. }));
-    assert!(has_shr, "Should have been rewritten to a shift right");
+    assert!(!has_shr, "Must not rewrite to shift while quarantined");
 }
 
 #[test]
@@ -97,14 +107,16 @@ fn validate_ba003_multiply() {
     let mut optimizer = Optimizer::new(OptimizerConfig::default(), default_registry());
     let result = optimizer.optimize(&func);
 
-    assert_eq!(result.rewrites_applied, 1);
+    // MultiplyShiftDefinition is a trivially-equal stub
+    // (Constant(0)==Constant(0)) — quarantined (advisor P0 audit).
+    assert_eq!(result.rewrites_applied, 0, "MultiplyShift is Stub-quarantined");
 
     let has_shl = result
         .function
         .arena
         .iter()
         .any(|n| matches!(n.kind, NodeKind::Shl { .. }));
-    assert!(has_shl, "Should have been rewritten to a shift left");
+    assert!(!has_shl, "Must not rewrite to shift while quarantined");
 }
 
 #[test]
@@ -113,12 +125,13 @@ fn validate_ba004_shift_mask() {
     let mut optimizer = Optimizer::new(OptimizerConfig::default(), default_registry());
     let result = optimizer.optimize(&func);
 
-    assert_eq!(result.rewrites_applied, 1);
+    // ShiftMask definition is Stub-quarantined (advisor P0 audit).
+    assert_eq!(result.rewrites_applied, 0);
 
     let has_and = result
         .function
         .arena
         .iter()
         .any(|n| matches!(n.kind, NodeKind::And { .. }));
-    assert!(has_and, "Should have been rewritten to a bitwise AND");
+    assert!(!has_and, "Must not rewrite to a bitwise AND while quarantined");
 }

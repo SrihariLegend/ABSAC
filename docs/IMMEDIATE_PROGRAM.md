@@ -231,6 +231,33 @@ Remediation D3 (P0A, commit c3ebb54):
        (two's-complement wrapping). Rotate shift-pair: variable k
        abstains; k==0 -> shr-by-width refused by the range check;
        LLVM 'exact' flag still unmodeled (not parsed).
+  GENERIC VERIFIER SOUNDNESS AUDIT (advisor P0, this cycle): FAILED
+       for the stub-backed class — recorded in docs/VERIFIER_AUDIT.md.
+       The verifier was accepting theorem-shaped stubs as proofs:
+       trivially-equal stubs (DivideShift/MultiplyShift/ShiftMask:
+       Constant(0)==Constant(0)), a hardcoded-constant stub (ModuloAnd:
+       Modulo(x,16)==And(x,15) regardless of the real divisor),
+       tautologies (leading/trailing zero count: f(v)==f(v)), and
+       free-variable templates (bitscan/byteswap/bitreverse/
+       clear-isolate-set-bit/rotate — positional VariableIds never
+       bound to candidate nodes; rotate hardcodes width 64 and ignores
+       k==0 poison). Response: VerificationStatus enum (Stub ->
+       TestedOnly -> SchemaChecked -> ConcreteSolverChecked ->
+       MachineChecked), required verification_status() trait method,
+       verifier quarantine (Stub can NEVER return Proven; default
+       minimum SchemaChecked), honest classification of all 20
+       definitions (16 Stub, 4 SchemaChecked), quarantined families now
+       expect abstention in tests with comments; lowerer fail-closed
+       for ashr/sdiv/srem/signed-icmp/exact-flag (SIR Shr/Div/Rem and
+       comparisons are unsigned-model; signed lowering silently
+       mistranslated — D3 corpus 11/16 -> 7/16 lowered, the honest
+       number); UNIT_TEST sentinel rejected by the optimizer unless
+       config explicitly allows it; adversarial verifier tests
+       (verifier_quarantine_tests.rs): stub + tautology never Proven,
+       mutated SchemaChecked theorems rejected, strict policy
+       (ConcreteSolverChecked) quarantines SchemaChecked too.
+       Gate 4B status: OPEN (necessarily). Quarantined families return
+       when obligations bind actual nodes and discharge concretely.
   Remaining P0A queue (advisor order): (1) ProposalBinding + exact
        proposal binding (step 2: per-proposal declaration of source
        nodes, live-ins/outs, memory accesses, iteration domain,
@@ -239,10 +266,12 @@ Remediation D3 (P0A, commit c3ebb54):
        database at authorization and pre-rewrite); (2) role-map plumbing
        so recipes consume the authorized binding instead of
        rediscovering it (certificate binding vs recipe binding must not
-       be two implementations); (3) rotate/shift-pair definedness
-       restriction audit; then map-then-sum recall, two-loop lowering,
-       accumulator width, C3 freeze, fresh H3; before fusion: seal
-       Gate 6B or independent post-freeze corpus creation.
+       be two implementations); (3) upgrade quarantined definitions to
+       ConcreteSolverChecked (obligation from actual pair, mutation-
+       sensitive) starting with the unsigned arithmetic identities;
+       (4) map-then-sum recall, two-loop lowering, accumulator width,
+       C3 freeze, fresh H3; before fusion: seal Gate 6B or independent
+       post-freeze corpus creation.
   ScalarExpression definedness gate (advisor: fail closed NOW, commit
        e62db09): Div/Rem refuse unless the divisor is a constant
        nonzero literal; shifts refuse unless the amount is a constant
