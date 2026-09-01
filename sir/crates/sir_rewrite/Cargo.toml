@@ -13,6 +13,7 @@ sir_generation = { path = "../sir_generation" }
 sir_verification = { path = "../sir_verification" }
 sir_verify = { path = "../sir_verify" }
 sir_semantics = { path = "../sir_semantics" }
+sir_analysis = { path = "../sir_analysis" }
 
 [dev-dependencies]
 sir_builder = { path = "../sir_builder" }

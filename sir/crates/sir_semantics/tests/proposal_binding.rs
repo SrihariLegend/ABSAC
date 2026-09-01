@@ -147,7 +147,7 @@ fn any_accumulator_slot_extract_binds_completely() {
             (LiveOutKind::Slot(0), LiveOutBinding::Reconstructed { slot: 0 }) => {
                 found_reconstructed = true;
             }
-            (LiveOutKind::Slot(1), LiveOutBinding::Dead) => {
+            (LiveOutKind::Slot(1), LiveOutBinding::Dead { .. }) => {
                 found_dead = true;
             }
             other => panic!("unexpected live-out slot: {:?}", other),
@@ -189,4 +189,191 @@ fn binding_err(
     result: &Result<sir_semantics::binding::ProposalBinding, BindingError>,
 ) -> BindingError {
     result.clone().err().expect("expected a binding error")
+}
+
+// ── Ambiguity hardening (advisor directive) ─────────────────
+
+/// A loop with TWO legitimate non-counter accumulators:
+/// `sum += board[i] as i32` and `count += 2`. Neither is a unit
+/// counter. With no role accumulator to trace the concept, binding
+/// must refuse with `AmbiguousRole("accumulator")` — never select
+/// first/last/by node order.
+fn build_two_accumulators() -> sir_nodes::Function {
+    let mut b = Builder::new(
+        "sum_and_count",
+        &[(
+            "board",
+            Type::Array {
+                element: Box::new(Type::Bool),
+                length: 64,
+            },
+        )],
+        Type::i32(),
+    );
+    let board = b.parameter_index(0).unwrap();
+    let i_initial = b.constant(
+        sir_types::ConstantData::u64(0),
+        Type::u64(),
+        Span::unknown(),
+    );
+    let one = b.constant(
+        sir_types::ConstantData::u64(1),
+        Type::u64(),
+        Span::unknown(),
+    );
+    let limit = b.constant(
+        sir_types::ConstantData::u64(64),
+        Type::u64(),
+        Span::unknown(),
+    );
+    let sum_initial = b.constant(
+        sir_types::ConstantData::i32(0),
+        Type::i32(),
+        Span::unknown(),
+    );
+    let cnt_initial = b.constant(
+        sir_types::ConstantData::i32(0),
+        Type::i32(),
+        Span::unknown(),
+    );
+
+    let elem = b
+        .array_access(board, i_initial, Type::Bool, Span::unknown())
+        .unwrap();
+    let elem_as_i32 = b
+        .convert(
+            elem,
+            Type::i32(),
+            sir_nodes::ConvertKind::ZeroExtend,
+            Span::unknown(),
+        )
+        .unwrap();
+    let one_i32 = b.constant(
+        sir_types::ConstantData::i32(1),
+        Type::i32(),
+        Span::unknown(),
+    );
+    let sum_next = b.add(sum_initial, elem_as_i32, Span::unknown()).unwrap();
+    let count_next = b.add(cnt_initial, elem_as_i32, Span::unknown()).unwrap();
+    let i_next = b.add(i_initial, one, Span::unknown()).unwrap();
+    let cond = b.lt(i_initial, limit, Span::unknown()).unwrap();
+
+    let loop_node = b
+        .r#loop(
+            &[elem, elem_as_i32, sum_next, count_next, i_next, cond],
+            cond,
+            &[sum_next, count_next, i_next],
+            &[sum_initial, cnt_initial, i_initial],
+            Type::Tuple {
+                elements: vec![Type::i32(), Type::i32(), Type::u64()],
+            },
+            Span::unknown(),
+        )
+        .unwrap();
+    b.return_value(loop_node, Span::unknown()).unwrap();
+    b.build()
+}
+#[test]
+fn two_non_counter_accumulators_must_be_ambiguous() {
+    let func = build_two_accumulators();
+    let mut analysis = AnalysisManager::new();
+    analysis.run_all(&func);
+
+    // Hand-built role set with NO accumulator identity: the concept
+    // does not trace to exactly one recurrence here.
+    let structural = StructuralDescription::new(
+        sir_types::RegionId::new(0),
+        sir_transform::structures::SourceStructure::LogicalSequence { length: 64 },
+    )
+    .with_roles(
+        sir_transform::roles::RegionRoles::BooleanCollectionReduction {
+            collection: sir_types::NodeId::new(0),
+            accumulator: None,
+            result: func
+                .arena
+                .iter()
+                .find(|n| matches!(n.kind, sir_nodes::NodeKind::Loop { .. }))
+                .map(|n| n.id)
+                .unwrap(),
+        },
+    );
+
+    let result = derive_proposal_binding(
+        &func,
+        analysis.database(),
+        &structural,
+        &ConcreteFacts::default(),
+    );
+    match binding_err(&result) {
+        BindingError::AmbiguousRole("accumulator") => {}
+        other => panic!("expected AmbiguousRole(accumulator), got {:?}", other),
+    }
+}
+
+#[test]
+fn reverse_traversal_refuses_binding() {
+    // Descending scan: i_next = i - 1. Every current candidate is a
+    // forward reduction — the binder must refuse rather than trust the
+    // candidate to match a reverse traversal.
+    let mut b = Builder::new(
+        "reverse_scan",
+        &[(
+            "board",
+            Type::Array {
+                element: Box::new(Type::Bool),
+                length: 64,
+            },
+        )],
+        Type::Bool,
+    );
+    let board = b.parameter_index(0).unwrap();
+    let i_initial = b.constant(
+        sir_types::ConstantData::u64(63),
+        Type::u64(),
+        Span::unknown(),
+    );
+    let one = b.constant(
+        sir_types::ConstantData::u64(1),
+        Type::u64(),
+        Span::unknown(),
+    );
+    let zero = b.constant(
+        sir_types::ConstantData::u64(0),
+        Type::u64(),
+        Span::unknown(),
+    );
+    let any_init = b.constant(
+        sir_types::ConstantData::boolean(false),
+        Type::Bool,
+        Span::unknown(),
+    );
+    let elem = b
+        .array_access(board, i_initial, Type::Bool, Span::unknown())
+        .unwrap();
+    let any_next = b.bool_or(any_init, elem, Span::unknown()).unwrap();
+    let i_next = b.sub(i_initial, one, Span::unknown()).unwrap();
+    let cond = b.gt(i_initial, zero, Span::unknown()).unwrap();
+    let loop_node = b
+        .r#loop(
+            &[elem, any_next, i_next, cond],
+            cond,
+            &[any_next, i_next],
+            &[any_init, i_initial],
+            Type::Tuple {
+                elements: vec![Type::Bool, Type::u64()],
+            },
+            Span::unknown(),
+        )
+        .unwrap();
+    let slot = b
+        .field_access(loop_node, "0", Type::Bool, Span::unknown())
+        .unwrap();
+    b.return_value(slot, Span::unknown()).unwrap();
+    let func = b.build();
+
+    let result = derive_for(&func);
+    match binding_err(&result) {
+        BindingError::UnsupportedShape(_) => {}
+        other => panic!("expected refusal of reverse traversal, got {:?}", other),
+    }
 }

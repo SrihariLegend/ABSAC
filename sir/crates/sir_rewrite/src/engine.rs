@@ -1,10 +1,17 @@
+use sir_analysis::facts::FactDatabase;
 use sir_generation::candidate::Candidate;
-use sir_nodes::Function;
+use sir_nodes::{Function, NodeKind};
+use sir_semantics::binding::LiveOutSlot;
+use sir_semantics::binding::{derive_proposal_binding, ProposalBinding};
 use sir_semantics::structure::StructuralDatabase;
+use sir_types::NodeId;
+use sir_verification::application_artifact::{CheckedApplication, EndToEndVerificationArtifact};
+use sir_verification::registry::VerificationStatus;
 use sir_verification::Proof;
 
 use crate::builder::RewriteBuilder;
 use crate::error::RewriteError;
+use crate::patch::ReplacementPatch;
 use crate::plan::RewritePlan;
 use crate::recipe::RecipeRegistry;
 use crate::region::RewriteRegion;
@@ -50,6 +57,7 @@ impl RewriteEngine {
             proof,
             structural_db,
             &sir_semantics::authorization::AuthorizationDatabase::new(),
+            &FactDatabase::new(),
         )
     }
 
@@ -65,6 +73,7 @@ impl RewriteEngine {
         proof: &Proof,
         structural_db: &StructuralDatabase,
         authorization_db: &sir_semantics::authorization::AuthorizationDatabase,
+        facts: &FactDatabase,
     ) -> Result<RewriteResult, RewriteError> {
         // 1. Verify ID alignment
         self.verify_ids(candidate, proof)?;
@@ -79,8 +88,7 @@ impl RewriteEngine {
             || !sir_generation::candidate::exact_binding_matches(candidate, authorization_db)
         {
             return Err(RewriteError::RecipeFailed(
-                "candidate authorization is stale, forged, or binding digest invalid"
-                    .to_string(),
+                "candidate authorization is stale, forged, or binding digest invalid".to_string(),
             ));
         }
 
@@ -95,8 +103,20 @@ impl RewriteEngine {
             })?
             .clone();
 
-        // 3. Assemble RewriteRegion
-        let rewrite_region = RewriteRegion::new(structural);
+        // 3. Derive the application binding (canonical binder — the
+        //    ONE legitimate role scan) and assemble RewriteRegion.
+        //    Reduction recipes refuse to rewrite without a binding;
+        //    scalar recipes proceed without one.
+        let rewrite_region =
+            match binding_for_region(function, facts, &structural, authorization_db) {
+                Ok(Some(binding)) => RewriteRegion::new(structural).with_binding(binding),
+                Ok(None) => RewriteRegion::new(structural),
+                Err(binding_error) => {
+                    return Err(RewriteError::RecipeFailed(format!(
+                        "application binding refused: {binding_error}"
+                    )));
+                }
+            };
 
         // 4. Look up recipe
         let recipe = self
@@ -123,11 +143,45 @@ impl RewriteEngine {
             if !bases.is_empty() && !bases.contains(&collection) {
                 return Err(RewriteError::RecipeFailed(format!(
                     "recipe binds collection %{} outside the authorized memory bases {:?}",
-                    collection.0,
-                    bases
+                    collection.0, bases
                 )));
             }
         }
+
+        // 5.75 Candidate frame + application assurance (advisor
+        //      directive: source frame ↔ candidate frame; the
+        //      matched end-to-end artifact is the ONLY route to
+        //      mutation). The candidate must not introduce writes,
+        //      calls, allocations, loops, traps, or memory reads
+        //      beyond the authorized collection.
+        let application = match &rewrite_region.binding {
+            Some(binding) => {
+                check_candidate_frame(function, &patch, binding, candidate)?;
+                let live_out_digest = live_out_digest(&binding.live_outs);
+                let app = CheckedApplication::new(
+                    candidate.authorization.authorization_id.0,
+                    sir_semantics::authorization::function_fingerprint(function),
+                    candidate.region.0,
+                    candidate.id.0,
+                    binding.map.digest(),
+                    live_out_digest,
+                    binding.frame.supported_conservative(),
+                    true,
+                    0,
+                    proof.assurance.min(VerificationStatus::SchemaChecked),
+                    proof.obligation_digest,
+                );
+                match EndToEndVerificationArtifact::new(proof.clone(), app) {
+                    Ok(e2e) => Some(e2e),
+                    Err(mismatch) => {
+                        return Err(RewriteError::RecipeFailed(format!(
+                            "end-to-end artifact construction failed: {mismatch:?}"
+                        )));
+                    }
+                }
+            }
+            None => None,
+        };
 
         // 6. Assemble RewritePlan
         let plan = RewritePlan {
@@ -156,6 +210,7 @@ impl RewriteEngine {
             provenance,
             diff,
             proof: proof.clone(),
+            end_to_end: application,
         })
     }
 
@@ -212,4 +267,114 @@ impl RewriteEngine {
             modified_edges: Vec::new(), // v0.1: edge changes computed in future refinement
         }
     }
+}
+
+/// Derive the canonical ProposalBinding for a region that carries a
+/// reduction role set; `Ok(None)` for regions without one (scalar
+/// recipes proceed under their own authorization). The concrete facts
+/// come from the candidate's authorization (retrieved from the
+/// database — the authority — not from the candidate's carried copy).
+fn binding_for_region(
+    function: &Function,
+    facts: &FactDatabase,
+    structural: &sir_semantics::structure::StructuralDescription,
+    authorization_db: &sir_semantics::authorization::AuthorizationDatabase,
+) -> Result<Option<ProposalBinding>, sir_semantics::binding::BindingError> {
+    if !has_reduction_roles(structural) {
+        return Ok(None);
+    }
+    let concrete = authorization_db
+        .for_region(structural.region)
+        .first()
+        .map(|auth| auth.concrete.clone())
+        .unwrap_or_default();
+    match derive_proposal_binding(function, facts, structural, &concrete) {
+        Ok(binding) => Ok(Some(binding)),
+        Err(e) => Err(e),
+    }
+}
+
+fn has_reduction_roles(structural: &sir_semantics::structure::StructuralDescription) -> bool {
+    structural.roles.iter().any(|role| {
+        matches!(
+            role,
+            sir_transform::roles::RegionRoles::BooleanCollectionReduction { .. }
+                | sir_transform::roles::RegionRoles::PredicateCollectionReduction { .. }
+        )
+    })
+}
+
+/// Candidate-frame check (advisor: source frame ↔ candidate frame).
+/// The candidate must not introduce writes, calls, allocations, nested
+/// loops, standalone loads, or division traps, and every external
+/// input it references must be a certified live-in of the binding
+/// (reads never go beyond the authorized collection).
+fn check_candidate_frame(
+    function: &Function,
+    patch: &ReplacementPatch,
+    binding: &ProposalBinding,
+    _candidate: &Candidate,
+) -> Result<(), RewriteError> {
+    use std::collections::BTreeSet;
+
+    let original_ids: BTreeSet<NodeId> = function.arena.nodes().keys().copied().collect();
+    let allowed_inputs: BTreeSet<NodeId> = binding.map.live_ins.iter().copied().collect();
+
+    for node in patch.arena.nodes() {
+        // Forbidden kinds: the conservative frame admits NO writes,
+        // calls, allocations, nested loops, standalone loads, or
+        // division traps in the candidate. Vectorized reads happen
+        // ONLY through Pack/ArrayCmpMask, whose array operand is the
+        // authorized collection (checked below).
+        let forbidden = matches!(
+            node.kind,
+            NodeKind::Store { .. }
+                | NodeKind::Call { .. }
+                | NodeKind::Intrinsic { .. }
+                | NodeKind::ExternalCall { .. }
+                | NodeKind::Allocate { .. }
+                | NodeKind::Deallocate { .. }
+                | NodeKind::Loop { .. }
+                | NodeKind::Load { .. }
+                | NodeKind::Div { .. }
+                | NodeKind::Rem { .. }
+        );
+        if forbidden {
+            return Err(RewriteError::RecipeFailed(format!(
+                "candidate introduces a node the conservative frame forbids: {:?}",
+                node.kind
+            )));
+        }
+        // Every external input of every candidate node must be a
+        // certified live-in (collection, constants, scalar — all
+        // bound by the role map). An uncertified input is an
+        // over-read/over-reach and refuses the rewrite.
+        for input in node.kind.input_nodes() {
+            if original_ids.contains(&input) && !allowed_inputs.contains(&input) {
+                return Err(RewriteError::RecipeFailed(format!(
+                    "candidate references uncertified input %{}",
+                    input.0
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Digest of the complete live-out classification: every slot's kind,
+/// binding state (with use-closure evidence), and replacement site.
+/// Two functions with the same digest expose the same observable
+/// interface to this rewrite.
+fn live_out_digest(live_outs: &[LiveOutSlot]) -> u64 {
+    let mut parts: Vec<String> = live_outs
+        .iter()
+        .map(|slot| {
+            format!(
+                "kind={:?}|binding={:?}|site={:?}",
+                slot.kind, slot.binding, slot.use_site
+            )
+        })
+        .collect();
+    parts.sort();
+    sir_verification::artifact::fnv1a64(parts.join(";").as_bytes())
 }

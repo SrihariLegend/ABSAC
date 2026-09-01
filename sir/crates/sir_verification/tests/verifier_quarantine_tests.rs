@@ -456,3 +456,93 @@ fn issued_assurance_from_symbolic_backend_is_schema_checked() {
         other => panic!("Expected Proven with issued SchemaChecked, got {:?}", other),
     }
 }
+
+// ── EndToEndVerificationArtifact (advisor: matched artifacts) ──
+
+use sir_verification::application_artifact::{
+    CheckedApplication, EndToEndMismatch, EndToEndVerificationArtifact,
+};
+
+fn fixture_proof(obligation: u64, assurance: VerificationStatus) -> sir_verification::Proof {
+    sir_verification::Proof {
+        theorem: Theorem::new(
+            SemanticExpression::Constant(ConstantData::u64(0)),
+            SemanticExpression::Constant(ConstantData::u64(0)),
+        ),
+        normalized_theorem: Theorem::new(
+            SemanticExpression::Constant(ConstantData::u64(0)),
+            SemanticExpression::Constant(ConstantData::u64(0)),
+        ),
+        backend: sir_verification::VerificationBackend::Symbolic,
+        steps: vec![],
+        assurance,
+        obligation_digest: obligation,
+    }
+}
+
+fn fixture_application(theorem_obligation: u64) -> CheckedApplication {
+    CheckedApplication::new(
+        7,      // authorization
+        42,     // source fingerprint
+        0,      // region
+        3,      // candidate
+        0xabc,  // role map digest
+        0xdef,  // live-out digest
+        true,   // source frame supported
+        true,   // candidate frame compatible
+        0,      // assumptions
+        VerificationStatus::SchemaChecked,
+        theorem_obligation,
+    )
+}
+
+#[test]
+fn matched_artifacts_construct_end_to_end() {
+    let theorem = fixture_proof(0x1234, VerificationStatus::SchemaChecked);
+    let application = fixture_application(0x1234);
+    let e2e = EndToEndVerificationArtifact::new(theorem, application)
+        .expect("matching artifacts must construct");
+    assert_eq!(e2e.assurance, VerificationStatus::SchemaChecked);
+    // The end-to-end digest is the identity of the pair.
+    assert!(e2e.end_to_end_digest != 0);
+}
+
+#[test]
+fn mismatched_artifacts_refuse_construction() {
+    // Application issued for a DIFFERENT theorem obligation.
+    let theorem = fixture_proof(0x1111, VerificationStatus::SchemaChecked);
+    let application = fixture_application(0x2222);
+    match EndToEndVerificationArtifact::new(theorem, application) {
+        Err(EndToEndMismatch::TheoremObligationMismatch {
+            theorem: 0x1111,
+            application: 0x2222,
+        }) => {}
+        other => panic!("expected TheoremObligationMismatch, got {:?}", other),
+    }
+}
+
+#[test]
+fn end_to_end_assurance_is_the_weaker_of_the_two() {
+    let theorem = fixture_proof(0x1234, VerificationStatus::ConcreteSolverChecked);
+    let application = fixture_application(0x1234);
+    // application issued SchemaChecked (application checker capability)
+    let e2e = EndToEndVerificationArtifact::new(theorem, application)
+        .expect("matching artifacts must construct");
+    assert_eq!(
+        e2e.assurance,
+        VerificationStatus::SchemaChecked,
+        "end-to-end assurance = min(theorem, application)"
+    );
+}
+
+#[test]
+fn tampered_application_artifact_refuses_construction() {
+    let theorem = fixture_proof(0x1234, VerificationStatus::SchemaChecked);
+    let mut application = fixture_application(0x1234);
+    // Mutation after issuance: the digest no longer matches the fields.
+    application.candidate_id = 999;
+    match EndToEndVerificationArtifact::new(theorem, application) {
+        Err(EndToEndMismatch::ApplicationDigestInconsistent) => {}
+        other => panic!("expected ApplicationDigestInconsistent, got {:?}", other),
+    }
+}

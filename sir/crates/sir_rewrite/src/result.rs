@@ -16,6 +16,11 @@ pub struct RewriteResult {
     pub diff: GraphDiff,
     /// The proof that authorized this rewrite.
     pub proof: Proof,
+    /// The matched end-to-end artifact that authorized mutation
+    /// (theorem + application). Present for reduction-region rewrites
+    /// (binding derived); None for scalar-family recipes that do not
+    /// yet derive an application binding.
+    pub end_to_end: Option<crate::end_to_end::EndToEndVerificationArtifact>,
 }
 
 /// Records why a synthetic node exists.

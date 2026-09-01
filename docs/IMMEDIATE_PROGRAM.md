@@ -301,17 +301,28 @@ Remediation D3 (P0A, commit c3ebb54):
        conditions); EndToEnd = min of both. Regression family in
        liveout_binding_tests.rs (whole-tuple, multi-consumer, opaque
        projection, position-mutation, single-authorized-slot = enabled).
-  ProposalBinding FIRST DERIVATION COMPLETE (sir_semantics::binding):
-       ReductionRoleMap + LiveOutBinding (Preserved/Reconstructed/Dead/
-       Guarded) + FrameCondition with the conservative first-slice
-       contract; derive_proposal_binding is fail-closed (unclassified
-       use, unsupported frame, or role/certified-accumulator
-       disagreement = binding error, never a guessed value);
-       derive_roles now skips unit counters when selecting the role
-       accumulator (pipeline fix). 3 integration tests; 512/512 green;
-       corpus unchanged (40/50, 0 rewrites). NEXT: wire recipes to
-       consume the binding (no more global scans), then
-       CheckedApplication + EndToEndVerificationArtifact.
+  ProposalBinding CONSUMED BY THE ANY RECIPE + END-TO-END ARTIFACT
+       (advisor sequence 4/5/6): sir_semantics::binding derives the
+       role map; RewriteEngine derives it for every reduction region
+       and passes it via RewriteRegion; AnyRecipe consumes ONLY the
+       binding (collection/op/scalar/slot from the map; refuses with
+       RecipeFailed when no binding). Hardening added: AmbiguousRole
+       (no heuristic selection among multiple non-counter
+       accumulators), forward-only +1 stride (reverse traversals
+       refuse), Dead live-outs carry UseClosureEvidence (direct users
+       + function fingerprint), predicate op bound as a role (fixes
+       the old emit_pack hardcoded-Gt bug — masks now use the TRUE
+       op). Candidate frame check (no writes/calls/alloc/loops/loads/
+       div traps; every external input a certified live-in).
+       CheckedApplication issued by the engine; EndToEndVerification
+       Artifact::new(Proof, CheckedApplication) verifies obligation
+       linkage + artifact digest, refuses on mismatch, and is the ONLY
+       route to mutation for reduction rewrites (RewriteResult carries
+       it). 518/518 green; corpus unchanged (40/50, 0 rewrites). NEXT:
+       All/Parity/Popcount consume the binding; CheckedApplication
+       assurance > SchemaChecked (solver-backed candidate frame);
+       transient-use closure via value-identical replacement is
+       documented but a PHI/select downstream grammar remains open.
   Remaining P0A queue (advisor order): (1) ProposalBinding [DERIVED,
        awaiting recipe consumption + application checker]; (2) role-map
        plumbing so recipes consume the authorized binding instead of

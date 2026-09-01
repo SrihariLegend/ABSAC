@@ -68,6 +68,11 @@ pub enum BindingError {
     UnclassifiedUse { use_site: NodeId, of_value: NodeId },
     /// The frame condition violates the conservative contract.
     FrameUnsupported(&'static str),
+    /// A role cannot be uniquely identified: the region contains
+    /// several legitimate candidates (e.g. two non-counter
+    /// accumulators in one loop) and the concept does not trace to
+    /// exactly one recurrence. No heuristic selection permitted.
+    AmbiguousRole(&'static str),
 }
 
 impl std::fmt::Display for BindingError {
@@ -85,6 +90,12 @@ impl std::fmt::Display for BindingError {
             ),
             BindingError::FrameUnsupported(reason) => {
                 write!(f, "frame condition unsupported: {reason}")
+            }
+            BindingError::AmbiguousRole(role) => {
+                write!(
+                    f,
+                    "role '{role}' is ambiguous: no unique concept-to-recurrence identity"
+                )
             }
         }
     }
@@ -117,19 +128,47 @@ pub enum LiveOutKind {
 ///   means NOT dead.
 /// - Guarded: a runtime predicate establishes preconditions with a
 ///   semantically valid fallback (future machinery; never produced).
+/// Evidence for a `Dead` live-out classification: the complete
+/// observable closure was checked against THIS function version. The
+/// binding must be reconstructed from the current function before any
+/// application — a Dead label from an earlier pass proves nothing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UseClosureEvidence {
+    /// Direct dataflow users of the loop node found in this function
+    /// version (the complete observable boundary).
+    pub direct_users: usize,
+    /// Fingerprint of the exact function version checked.
+    pub function_fingerprint: u64,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LiveOutBinding {
     Preserved,
-    Reconstructed { slot: usize },
-    Dead,
-    Guarded { guard: NodeId },
+    Reconstructed {
+        slot: usize,
+    },
+    /// No observable use exists in THIS exact function version.
+    Dead {
+        evidence: UseClosureEvidence,
+    },
+    Guarded {
+        guard: NodeId,
+    },
 }
 
-/// One classified observable of the loop result.
+/// One classified observable of the loop result. `use_site` is the
+/// node whose value the candidate replaces (the recognized projection
+/// or the `Return`) — the ONLY node a recipe may target for this
+/// live-out. Downstream users need no further analysis: the
+/// replacement is value-identical (`replace_all_uses`), so every
+/// downstream consumer observes an equal value.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LiveOutSlot {
     pub kind: LiveOutKind,
     pub binding: LiveOutBinding,
+    /// The recognized use site the rewrite replaces. `None` for Dead
+    /// slots (nothing to replace).
+    pub use_site: Option<NodeId>,
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -201,6 +240,13 @@ pub struct ReductionRoleMap {
     pub stride: i64,
     /// The element predicate / map input combined into the accumulator.
     pub predicate: Option<NodeId>,
+    /// Predicate collection: the concrete comparison operator the
+    /// elements are tested with (bound from the structural role's
+    /// operator node — never hardcoded in a recipe).
+    pub predicate_op: Option<sir_nodes::CmpOperator>,
+    /// Predicate collection: the scalar operand elements are compared
+    /// against.
+    pub predicate_scalar: Option<NodeId>,
     /// The accumulator's carried variable.
     pub accumulator: NodeId,
     /// Reduction kind ("bitwise_or", "bitwise_and", "sum", ...).
@@ -229,6 +275,8 @@ impl ReductionRoleMap {
             format!("reduction_position={}", self.reduction_position),
             format!("recurrence={}", self.recurrence),
             format!("effects={:?}", self.effects),
+            format!("predicate_op={:?}", self.predicate_op),
+            format!("predicate_scalar={:?}", self.predicate_scalar),
         ];
         parts.sort();
         fnv1a64(parts.join("|").as_bytes())
@@ -245,6 +293,12 @@ struct RegionReductionRoles {
     collection: NodeId,
     accumulator: Option<NodeId>,
     loop_node: NodeId,
+    /// Predicate role: the comparison node id (None for plain boolean
+    /// collections).
+    predicate_operator: Option<NodeId>,
+    /// Predicate role: the compared-against scalar (None for plain
+    /// boolean collections).
+    predicate_scalar: Option<NodeId>,
 }
 
 fn extract_reduction_roles(structural: &StructuralDescription) -> Option<RegionReductionRoles> {
@@ -260,12 +314,14 @@ fn extract_reduction_roles(structural: &StructuralDescription) -> Option<RegionR
                     collection: *collection,
                     accumulator: *accumulator,
                     loop_node: *result,
+                    predicate_operator: None,
+                    predicate_scalar: None,
                 });
             }
             RegionRoles::PredicateCollectionReduction {
                 collection,
-                scalar: _,
-                operator: _,
+                scalar,
+                operator,
                 accumulator,
                 result,
             } => {
@@ -274,6 +330,8 @@ fn extract_reduction_roles(structural: &StructuralDescription) -> Option<RegionR
                     collection: *collection,
                     accumulator: *accumulator,
                     loop_node: *result,
+                    predicate_operator: Some(*operator),
+                    predicate_scalar: Some(*scalar),
                 });
             }
             _ => continue,
@@ -290,11 +348,11 @@ fn constant_i64(function: &Function, id: NodeId) -> Option<i64> {
     }
 }
 
-/// Locate the loop's unit-stride induction counter.
-///
-/// A carried variable whose paired output is `carry ± 1`. Returns
-/// (carried index, start value, stride). Fail-closed: any other
-/// stride refuses.
+/// Locate the loop's induction counter. FORWARD-ONLY for the first
+/// vertical slice: a carried variable whose paired output is
+/// `carry + 1`. A `-1` role map is representable, but every current
+/// candidate implements forward reduction — a reverse traversal must
+/// refuse here rather than trust the candidate to match.
 struct Induction {
     carry: NodeId,
     stride: i64,
@@ -309,7 +367,6 @@ fn find_induction(
         let node = function.get_node(output)?;
         let step: Option<i64> = match &node.kind {
             NodeKind::Add { lhs, rhs } if *lhs == carry => constant_i64(function, *rhs),
-            NodeKind::Sub { lhs, rhs } if *lhs == carry => constant_i64(function, *rhs).map(|v| -v),
             _ => None,
         };
         if let Some(step) = step {
@@ -374,15 +431,20 @@ fn build_frame(
 // Complete use-closure live-out classification
 // ─────────────────────────────────────────────────────────────────
 
-/// All slots of the result tuple: the reduction slot is reconstructed
-/// by the candidate; every other slot is unobserved (single-use
-/// closure) and therefore Dead.
-fn classified_slots(output_count: usize, reduction_slot: usize) -> Vec<LiveOutSlot> {
+fn classified_slots(
+    output_count: usize,
+    reduction_slot: usize,
+    evidence: UseClosureEvidence,
+    projection: NodeId,
+) -> Vec<LiveOutSlot> {
     let mut slots: Vec<LiveOutSlot> = (0..output_count)
         .filter(|pos| *pos != reduction_slot)
         .map(|pos| LiveOutSlot {
             kind: LiveOutKind::Slot(pos),
-            binding: LiveOutBinding::Dead,
+            binding: LiveOutBinding::Dead {
+                evidence: evidence.clone(),
+            },
+            use_site: None,
         })
         .collect();
     slots.push(LiveOutSlot {
@@ -390,6 +452,7 @@ fn classified_slots(output_count: usize, reduction_slot: usize) -> Vec<LiveOutSl
         binding: LiveOutBinding::Reconstructed {
             slot: reduction_slot,
         },
+        use_site: Some(projection),
     });
     slots.sort_by_key(|s| match s.kind {
         LiveOutKind::WholeValue => usize::MAX,
@@ -431,17 +494,26 @@ pub fn classify_live_outs(
 
     if users.is_empty() {
         // Zero observable uses: every output is dead. Complete
-        // use-closure evidence — no use site exists anywhere.
+        // use-closure evidence — no use site exists anywhere in this
+        // exact function version.
+        let evidence = UseClosureEvidence {
+            direct_users: 0,
+            function_fingerprint: crate::authorization::function_fingerprint(function),
+        };
         if outputs.len() == 1 {
             return Ok(vec![LiveOutSlot {
                 kind: LiveOutKind::WholeValue,
-                binding: LiveOutBinding::Dead,
+                binding: LiveOutBinding::Dead { evidence },
+                use_site: None,
             }]);
         }
         return Ok((0..outputs.len())
             .map(|pos| LiveOutSlot {
                 kind: LiveOutKind::Slot(pos),
-                binding: LiveOutBinding::Dead,
+                binding: LiveOutBinding::Dead {
+                    evidence: evidence.clone(),
+                },
+                use_site: None,
             })
             .collect());
     }
@@ -472,6 +544,7 @@ pub fn classify_live_outs(
                     binding: LiveOutBinding::Reconstructed {
                         slot: map.reduction_position,
                     },
+                    use_site: Some(use_site),
                 }])
             } else {
                 // PS002: a multi-element tuple returned wholesale has
@@ -490,7 +563,11 @@ pub fn classify_live_outs(
                 of_value: map.loop_node,
             })?;
             if slot == map.reduction_position {
-                Ok(classified_slots(outputs.len(), slot))
+                let evidence = UseClosureEvidence {
+                    direct_users: users.len(),
+                    function_fingerprint: crate::authorization::function_fingerprint(function),
+                };
+                Ok(classified_slots(outputs.len(), slot, evidence, use_site))
             } else {
                 // A slot the theorem does not cover (e.g. the index
                 // live-out of a find-style loop) — never "preserved by
@@ -503,7 +580,11 @@ pub fn classify_live_outs(
         }
         NodeKind::TupleExtract { tuple, index } if *tuple == map.loop_node => {
             if *index == map.reduction_position {
-                Ok(classified_slots(outputs.len(), *index))
+                let evidence = UseClosureEvidence {
+                    direct_users: users.len(),
+                    function_fingerprint: crate::authorization::function_fingerprint(function),
+                };
+                Ok(classified_slots(outputs.len(), *index, evidence, use_site))
             } else {
                 Err(BindingError::UnclassifiedUse {
                     use_site,
@@ -589,14 +670,30 @@ pub fn derive_proposal_binding(
         .ok_or(BindingError::UnsupportedShape(
             "region loop has no loop facts",
         ))?;
-    let reduction = loop_fact
+    // Role identity chain (advisor): recognized reduction concept →
+    // certificate accumulator (role) → proposal accumulator. NO
+    // heuristic selection among multiple non-counter recurrences — a
+    // loop carrying `sum += value; count += predicate(value)` has two
+    // legitimate accumulators and the concept must trace to exactly
+    // ONE. First/last/node-order selection is forbidden.
+    let non_counter: Vec<_> = loop_fact
         .reductions
         .iter()
-        .find(|r| match roles.accumulator {
-            Some(acc) => r.variable == acc,
-            None => true,
-        })
-        .ok_or(BindingError::NoReduction)?;
+        .filter(|r| !crate::authorization::is_unit_counter(function, r))
+        .collect();
+    let reduction = match roles.accumulator {
+        Some(acc) => non_counter
+            .iter()
+            .copied()
+            .find(|r| r.variable == acc)
+            .ok_or(BindingError::NoReduction)?,
+        None => {
+            if non_counter.len() != 1 {
+                return Err(BindingError::AmbiguousRole("accumulator"));
+            }
+            non_counter[0]
+        }
+    };
     // The authorization's certified accumulator (accumulators_are_
     // reassociable — the induction counter is excluded there) is the
     // authority. A role set disagreeing with it is a binding failure:
@@ -715,6 +812,30 @@ pub fn derive_proposal_binding(
         }
     }
 
+    // 8b. Predicate roles: the comparison operator node and scalar
+    //     operand bound from the structural role (the binder resolves
+    //     the op; a recipe must never hardcode or rediscover it).
+    let (predicate_op, predicate_scalar) = match (roles.predicate_operator, roles.predicate_scalar)
+    {
+        (Some(op_node), Some(scalar)) => {
+            let op = match function.get_node(op_node).map(|n| &n.kind) {
+                Some(sir_nodes::NodeKind::Eq { .. }) => sir_nodes::CmpOperator::Eq,
+                Some(sir_nodes::NodeKind::Ne { .. }) => sir_nodes::CmpOperator::Ne,
+                Some(sir_nodes::NodeKind::Lt { .. }) => sir_nodes::CmpOperator::Lt,
+                Some(sir_nodes::NodeKind::Le { .. }) => sir_nodes::CmpOperator::Le,
+                Some(sir_nodes::NodeKind::Gt { .. }) => sir_nodes::CmpOperator::Gt,
+                Some(sir_nodes::NodeKind::Ge { .. }) => sir_nodes::CmpOperator::Ge,
+                _ => {
+                    return Err(BindingError::UnsupportedShape(
+                        "predicate operator node is not a comparison",
+                    ));
+                }
+            };
+            (Some(op), Some(scalar))
+        }
+        _ => (None, None),
+    };
+
     let loop_node = roles.loop_node;
     let map = ReductionRoleMap {
         region: roles.region,
@@ -726,6 +847,8 @@ pub fn derive_proposal_binding(
         bound,
         stride: induction.stride,
         predicate: Some(reduction.invariant_value),
+        predicate_op,
+        predicate_scalar,
         accumulator: reduction.variable,
         recurrence: reduction.reduction_kind.clone(),
         identity: Some(identity),

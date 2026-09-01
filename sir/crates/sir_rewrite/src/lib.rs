@@ -6,6 +6,7 @@
 
 pub mod builder;
 pub mod detached_arena;
+pub mod end_to_end;
 pub mod engine;
 pub mod error;
 pub mod local_id;

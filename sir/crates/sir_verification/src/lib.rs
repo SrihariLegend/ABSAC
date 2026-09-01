@@ -4,6 +4,7 @@
 //! symbolic normalization and exhaustive enumeration.
 //! Never reads or modifies SIR.
 
+pub mod application_artifact;
 pub mod artifact;
 pub mod errors;
 pub mod obligation;

@@ -1,3 +1,4 @@
+use sir_semantics::binding::ProposalBinding;
 use sir_semantics::structure::StructuralDescription;
 use sir_transform::roles::RegionRoles;
 use sir_types::NodeId;
@@ -7,30 +8,54 @@ use crate::error::RewriteError;
 /// A transient execution object assembled by `RewriteEngine` at rewrite time.
 ///
 /// Wraps the `StructuralDescription` (which carries `RegionRoles` assigned by
-/// semantic recognition) and adds the set of nodes outside the region that
-/// consume region-produced values.
+/// semantic recognition) and — for reduction regions — the derived
+/// `ProposalBinding`: the exact role map + complete observable interface
+/// + application frame. Recipes MUST consume the binding's role map;
+/// scanning the source function to rediscover semantic roles after a
+/// successful binding is forbidden (advisor invariant: once
+/// ProposalBinding succeeds, no later stage scans the source function
+/// to guess semantic roles).
 ///
 /// Not persisted — assembled fresh for each rewrite.
 #[derive(Clone, Debug)]
 pub struct RewriteRegion {
     /// The structural description from semantic recognition.
     pub structural: StructuralDescription,
+    /// The application binding (present when the canonical binder
+    /// derived one for this region in THIS function version).
+    pub binding: Option<ProposalBinding>,
 }
 
 impl RewriteRegion {
     pub fn new(structural: StructuralDescription) -> Self {
-        Self { structural }
+        Self {
+            structural,
+            binding: None,
+        }
+    }
+
+    /// Attach the derived ProposalBinding (engine-side; the recipe
+    /// never derives roles itself).
+    pub fn with_binding(mut self, binding: ProposalBinding) -> Self {
+        self.binding = Some(binding);
+        self
     }
 
     /// The boolean array collection being iterated (e.g., `board` in BS001).
     pub fn collection(&self) -> Result<NodeId, RewriteError> {
         for role in &self.structural.roles {
             match role {
-                RegionRoles::BooleanCollectionReduction { collection, .. } => return Ok(*collection),
-                RegionRoles::PredicateCollectionReduction { collection, .. } => return Ok(*collection),
-                RegionRoles::PositionSearch { collection, .. } => return collection.ok_or_else(|| RewriteError::MissingRole {
+                RegionRoles::BooleanCollectionReduction { collection, .. } => {
+                    return Ok(*collection)
+                }
+                RegionRoles::PredicateCollectionReduction { collection, .. } => {
+                    return Ok(*collection)
+                }
+                RegionRoles::PositionSearch { collection, .. } => {
+                    return collection.ok_or_else(|| RewriteError::MissingRole {
                         role: "collection".to_string(),
-                    }),
+                    })
+                }
                 _ => {}
             }
         }
@@ -43,9 +68,11 @@ impl RewriteRegion {
         for role in &self.structural.roles {
             match role {
                 RegionRoles::PredicateCollectionReduction { scalar, .. } => return Ok(*scalar),
-                RegionRoles::PositionSearch { scalar, .. } => return scalar.ok_or_else(|| RewriteError::MissingRole {
+                RegionRoles::PositionSearch { scalar, .. } => {
+                    return scalar.ok_or_else(|| RewriteError::MissingRole {
                         role: "predicate_scalar".to_string(),
-                    }),
+                    })
+                }
                 _ => {}
             }
         }
@@ -117,7 +144,9 @@ impl RewriteRegion {
     pub fn operator_node(&self) -> Result<NodeId, RewriteError> {
         for role in &self.structural.roles {
             match role {
-                RegionRoles::ArithmeticOperation { operator_node, .. } => return Ok(*operator_node),
+                RegionRoles::ArithmeticOperation { operator_node, .. } => {
+                    return Ok(*operator_node)
+                }
                 _ => {}
             }
         }
@@ -156,7 +185,9 @@ impl RewriteRegion {
     pub fn accumulator(&self) -> Result<Option<NodeId>, RewriteError> {
         for role in &self.structural.roles {
             match role {
-                RegionRoles::BooleanCollectionReduction { accumulator, .. } => return Ok(*accumulator),
+                RegionRoles::BooleanCollectionReduction { accumulator, .. } => {
+                    return Ok(*accumulator)
+                }
                 _ => {}
             }
         }
@@ -166,7 +197,9 @@ impl RewriteRegion {
     }
 
     /// The permutation's operand (the value being permuted) and its kind.
-    pub fn permutation(&self) -> Result<(NodeId, sir_transform::roles::PermutationKind), RewriteError> {
+    pub fn permutation(
+        &self,
+    ) -> Result<(NodeId, sir_transform::roles::PermutationKind), RewriteError> {
         for role in &self.structural.roles {
             match role {
                 RegionRoles::BitPermutation { operand, kind, .. } => {

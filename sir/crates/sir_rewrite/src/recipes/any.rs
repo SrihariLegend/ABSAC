@@ -1,10 +1,11 @@
+use sir_semantics::binding::{LiveOutBinding, LiveOutKind};
 use sir_transform::ids::DefinitionId;
 use sir_types::{ConstantData, Span, Type};
 
 use crate::error::RewriteError;
+use crate::local_id::LocalNodeId;
 use crate::patch::{ReplacementPatch, ReplacementValue};
 use crate::recipe::RewriteRecipe;
-use crate::recipes::helpers::{authorized_tuple_consumer, collection_length, emit_pack, wrap_direct_tuple_return};
 use crate::region::RewriteRegion;
 use crate::subgraph_builder::SubgraphBuilder;
 
@@ -37,26 +38,94 @@ impl RewriteRecipe for AnyRecipe {
         region: &RewriteRegion,
         mut builder: SubgraphBuilder,
     ) -> Result<ReplacementPatch, RewriteError> {
-        let result = region.result()?;
-        let accumulator = region.accumulator().ok().flatten();
+        // ── ROLE-MAP-ONLY (advisor invariant 6) ─────────────────
+        // Once ProposalBinding succeeds, no stage scans the source to
+        // guess semantic roles. The Any recipe consumes ONLY the
+        // binding's role map and classified observables; there is no
+        // global rediscovery of collection/accumulator/slot.
+        let binding = region.binding.as_ref().ok_or_else(|| {
+            RewriteError::RecipeFailed(
+                "Any requires an application binding (ProposalBinding); none was derived"
+                    .to_string(),
+            )
+        })?;
+        let map = &binding.map;
 
-        // Prefer replacing the tuple-slot consumer when one exists; when the
-        // tuple is returned wholesale the loop's tuple result is rebuilt
-        // below. The consumer must read the ACCUMULATOR slot — a slot the
-        // theorem does not cover (e.g. a position/index live-out) refuses
-        // the rewrite (PS002 audit: array_find_last was silently rewritten
-        // to return a constant).
-        let extract = authorized_tuple_consumer(function, result, accumulator)?;
-        let target = extract.unwrap_or(result);
+        // The classified observable interface: exactly one Reconstructed
+        // live-out determines the replacement target. Dead slots carry
+        // closure evidence and get no replacement (DCE removes them);
+        // any other binding state refuses.
+        let mut target: Option<sir_types::NodeId> = None;
+        for observable in &binding.live_outs {
+            match &observable.binding {
+                LiveOutBinding::Reconstructed { .. } => {
+                    let Some(site) = observable.use_site else {
+                        return Err(RewriteError::RecipeFailed(
+                            "reconstructed observable has no replacement site".to_string(),
+                        ));
+                    };
+                    if target.is_some() {
+                        return Err(RewriteError::RecipeFailed(
+                            "binding classifies more than one reconstructed observable".to_string(),
+                        ));
+                    }
+                    // The whole-value observable is replaced at the loop
+                    // node itself; a slot observable at its projection.
+                    target = Some(match observable.kind {
+                        LiveOutKind::WholeValue => map.loop_node,
+                        LiveOutKind::Slot(_) => site,
+                    });
+                }
+                LiveOutBinding::Dead { .. } => {
+                    // Unobserved slot: no replacement site; the rewrite
+                    // deletes the loop and this slot with it. Evidence
+                    // (direct users + function fingerprint) was checked
+                    // against THIS function version at derivation.
+                }
+                _ => {
+                    return Err(RewriteError::RecipeFailed(
+                        "unsupported live-out binding state".to_string(),
+                    ));
+                }
+            }
+        }
+        let target = target.ok_or_else(|| {
+            RewriteError::RecipeFailed("binding classifies no reconstructed observable".to_string())
+        })?;
 
-        let packed = emit_pack(function, region, &mut builder)?;
-
-        let width = match builder.get_type(packed) {
-            Some(Type::BitVector { width }) => width,
-            _ => 64, // Default
+        // ── Candidate ──────────────────────────────────────────
+        // Collection comes from the role map. The extent comes from
+        // the collection's own type — a missing extent refuses (no
+        // guessed width). A predicate collection emits
+        // array_cmp_mask(collection, scalar, TRUE op from the binding);
+        // a plain boolean collection emits pack(collection). The op is
+        // a role — never hardcoded, never rediscovered.
+        let collection = map.collection;
+        let width = match function.get_node(collection).map(|n| &n.ty) {
+            Some(Type::Array { length, .. }) => *length,
+            _ => {
+                return Err(RewriteError::RecipeFailed(format!(
+                    "collection %{} has no declared array extent",
+                    collection.0
+                )));
+            }
+        };
+        let span = Span::unknown();
+        let packed = match (map.predicate_op, map.predicate_scalar) {
+            (Some(op), Some(scalar)) => builder.array_cmp_mask(
+                LocalNodeId::new(collection.as_u64()),
+                LocalNodeId::new(scalar.as_u64()),
+                op,
+                span,
+            ),
+            (None, None) => builder.pack(LocalNodeId::new(collection.as_u64()), width, span),
+            _ => {
+                return Err(RewriteError::RecipeFailed(
+                    "predicate roles inconsistent (op without scalar or vice versa)".to_string(),
+                ));
+            }
         };
 
-        // Create zero constant for comparison
         let zero = builder.constant(
             ConstantData::u64(0),
             Type::BitVector { width },
@@ -64,22 +133,9 @@ impl RewriteRecipe for AnyRecipe {
         );
         let ne_zero = builder.ne(packed, zero, Span::unknown());
 
-        let new_value = if extract.is_none() {
-            wrap_direct_tuple_return(
-                function,
-                result,
-                accumulator,
-                collection_length(region),
-                ne_zero,
-                &mut builder,
-            )?
-        } else {
-            ne_zero
-        };
-
         Ok(builder.finish(vec![ReplacementValue {
             old: target,
-            new: new_value,
+            new: ne_zero,
         }]))
     }
 }

@@ -328,6 +328,7 @@ impl Optimizer {
                 best.proof,
                 semantics.structural_database(),
                 &authorizations,
+                analysis.database(),
             ) {
                 Ok(rewrite_result) => (rewrite_result.rewritten, 1usize),
                 Err(e) => {

@@ -313,18 +313,25 @@ EndToEndVerificationArtifact
 
 | Family | Local theorem | Exact accumulator binding | Complete live-outs | Frame condition | End-to-end |
 |---|---|---|---|---|---|
-| Any      | Schema | Pending | Point guard only | Pending | Open |
-| All      | Schema | Pending | Point guard only | Pending | Open |
-| Parity   | Schema | Pending | Point guard only | Pending | Open |
-| Popcount | Schema | Pending | Point guard only | Pending | Open |
+| Any      | Schema | Binding (role map) | Use-closure + Dead evidence | Source + candidate frames | Chain closed (Schema/Schema) |
+| All      | Schema | Binding (role map) | Use-closure + Dead evidence | Source + candidate frames | Chain OPEN (recipe not wired) |
+| Parity   | Schema | Binding (role map) | Use-closure + Dead evidence | Source + candidate frames | Chain OPEN (recipe not wired) |
+| Popcount | Schema | Binding (role map) | Use-closure + Dead evidence | Source + candidate frames | Chain OPEN (recipe not wired) |
 
-These are NOT end-to-end verified. The point guard
-(`authorized_tuple_consumer`) covers the surviving tuple condition
-only; the application frame (effects, termination, traps, poison,
-guards, internal live values) is covered today only by the
-recognizer's structural gating (pure read-only regions), not by an
-issued artifact. H3 must not freeze until at least one transformation
-completes the full chain (C3 gate requirement).
+The Any vertical slice now closes the full chain: the engine derives
+the ProposalBinding (canonical binder), AnyRecipe consumes ONLY the
+role map, the candidate frame is checked against the conservative
+contract (no writes/calls/allocations/loops/loads/div-traps, every
+external input a certified live-in), the engine issues
+`CheckedApplication`, and `EndToEndVerificationArtifact::new(Proof,
+CheckedApplication)` verifies obligation linkage + artifact digest
+before mutation. End-to-end assurance for Any is currently
+min(Schema, Schema) = Schema: the application checker is structural
+(role map + live-outs + frames), not solver-backed. All/Parity/
+Popcount still scan via their own recipe paths — the chain is open
+until they consume the binding the same way. H3 must not freeze until
+at least one transformation completes the full chain (C3 gate
+requirement) — Any satisfies that.
 
 ## ProposalBinding (first derivation, commit of 2026-07 session)
 
