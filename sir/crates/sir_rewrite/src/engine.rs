@@ -44,18 +44,43 @@ impl RewriteEngine {
         proof: &Proof,
         structural_db: &StructuralDatabase,
     ) -> Result<RewriteResult, RewriteError> {
+        self.rewrite_checked(
+            function,
+            candidate,
+            proof,
+            structural_db,
+            &sir_semantics::authorization::AuthorizationDatabase::new(),
+        )
+    }
+
+    /// Full rewrite entry point: as `rewrite`, but also enforces the
+    /// exact authorization comparison against the immutable database
+    /// (advisor directive: the optimizer AND the rewrite layer both
+    /// retrieve the original authorization; the candidate's carried
+    /// copies are advisory). Unit-test ids skip the lookup.
+    pub fn rewrite_checked(
+        &self,
+        function: &Function,
+        candidate: &Candidate,
+        proof: &Proof,
+        structural_db: &StructuralDatabase,
+        authorization_db: &sir_semantics::authorization::AuthorizationDatabase,
+    ) -> Result<RewriteResult, RewriteError> {
         // 1. Verify ID alignment
         self.verify_ids(candidate, proof)?;
 
         // 1.5 Revalidate authorization + binding (advisor P0A item 2:
         // the rewrite layer revalidates AuthorizationRef + binding
-        // digest before trusting the candidate). An empty region-node
-        // set (unit-test refs) skips the scope check.
+        // digest before trusting the candidate), then the exact
+        // database comparison (advisor directive 1: the FNV digest is
+        // a diagnostic; the immutable database is the authority).
         if !candidate.authorization.matches_function(function)
             || !candidate.binding_digest_valid()
+            || !sir_generation::candidate::exact_binding_matches(candidate, authorization_db)
         {
             return Err(RewriteError::RecipeFailed(
-                "candidate authorization is stale or binding digest invalid".to_string(),
+                "candidate authorization is stale, forged, or binding digest invalid"
+                    .to_string(),
             ));
         }
 

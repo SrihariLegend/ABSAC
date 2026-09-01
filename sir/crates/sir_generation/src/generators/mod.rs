@@ -95,31 +95,35 @@ pub fn all_plans(
             continue; // proposal stays untrusted; no Candidate is minted
         }
 
-        // Record which domains cover this proposal (provenance).
+        // Record which domains cover this proposal (provenance) and
+        // mint the authorization reference from the matched
+        // authorization's immutable record. All authorizations of a
+        // region share the same interface certificate, so the first
+        // match's facts are the region's concrete binding.
         let mut domains = Vec::new();
-        let mut concrete = sir_semantics::authorization::ConcreteFacts::default();
+        let mut matched_id = sir_semantics::authorization::AuthorizationId::UNIT_TEST;
         let mut region_nodes: Vec<sir_types::NodeId> = Vec::new();
         for auth in region_auths {
             if cites.iter().any(|c| auth.authorized_concepts.contains(c)) {
                 if !domains.contains(&auth.domain.kind()) {
                     domains.push(auth.domain.kind());
                 }
-                // Concrete facts: all authorizations of a region share
-                // the same interface certificate, so the first match's
-                // facts are the region's concrete binding.
                 if region_nodes.is_empty() {
+                    matched_id = auth.id;
                     region_nodes = auth.provenance.clone();
                 }
             }
         }
         let concrete = region_auths
-            .first()
+            .iter()
+            .find(|a| a.id == matched_id)
             .map(|a| a.concrete.clone())
             .unwrap_or_default();
 
         candidates.push(proposal.authorize(
             crate::candidate::CandidateId::new(0), // assigned by database
             AuthorizationRef {
+                authorization_id: matched_id,
                 function_fingerprint,
                 region: context.region,
                 domains,

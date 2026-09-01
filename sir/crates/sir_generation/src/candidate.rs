@@ -175,6 +175,12 @@ pub struct Candidate {
 /// check this before trusting a candidate.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AuthorizationRef {
+    /// Immutable identity of the issuing authorization in the
+    /// AuthorizationDatabase (advisor directive: the database is the
+    /// source of authority; the candidate's copies are advisory).
+    /// The optimizer/rewrite layers retrieve the original by this id
+    /// and compare exactly. UNIT_TEST (u64::MAX) skips the lookup.
+    pub authorization_id: sir_semantics::authorization::AuthorizationId,
     /// Fingerprint of the exact function the authorization was derived
     /// from. Hash mismatch ⇒ definitely stale (reject). Hash match ⇒
     /// proceed to exact structural checks — a finite hash is a version
@@ -186,11 +192,11 @@ pub struct AuthorizationRef {
     pub domains: Vec<sir_semantics::authorization::DomainKind>,
     /// Concrete binding facts copied from the matched authorization:
     /// the exact memory bases, accumulator, and effects the
-    /// certificate covers. Empty = no binding declared (unit tests).
+    /// certificate covers. Advisory copies — the authoritative record
+    /// lives in the AuthorizationDatabase and is compared exactly by
+    /// `exact_binding_matches`.
     pub concrete: sir_semantics::authorization::ConcreteFacts,
     /// The authorized region's node set (certificate provenance).
-    /// The rewrite layer checks that every replaced value lies within
-    /// this set — the rewrite may only touch authorized nodes.
     pub region_nodes: Vec<NodeId>,
 }
 
@@ -200,6 +206,7 @@ impl AuthorizationRef {
     /// pipeline. Production candidates always get gate-minted refs.
     pub fn for_unit_test() -> Self {
         Self {
+            authorization_id: sir_semantics::authorization::AuthorizationId::UNIT_TEST,
             function_fingerprint: 0,
             region: RegionId::new(u64::MAX),
             domains: Vec::new(),
@@ -362,4 +369,50 @@ impl Candidate {
     pub fn binding_digest_valid(&self) -> bool {
         compute_binding_digest(self) == self.binding_digest
     }
+}
+
+/// Exact authorization comparison (advisor directive: "the source of
+/// authority should remain the immutable AuthorizationDatabase").
+///
+/// The FNV digest is only a fast preliminary check against accidental
+/// mutation — it is NOT collision-resistant and never establishes that
+/// a candidate matches an authorization. This function is the
+/// authoritative check:
+///
+///   1. retrieve the immutable original authorization by the
+///      candidate's AuthorizationId (unknown id ⇒ forged/stale ⇒ false);
+///   2. compare the candidate's carried copies against the database
+///      record field by field (region, fingerprint, concrete facts,
+///      region nodes, cited concepts);
+///
+/// A candidate whose AuthorizationId is the UNIT_TEST sentinel skips
+/// the database retrieval (unit tests have no issuer) — production
+/// candidates are always minted with real ids.
+pub fn exact_binding_matches(
+    candidate: &Candidate,
+    db: &sir_semantics::authorization::AuthorizationDatabase,
+) -> bool {
+    use sir_semantics::authorization::AuthorizationId;
+
+    if candidate.authorization.authorization_id == AuthorizationId::UNIT_TEST {
+        // Unit-test escape: no issuer exists. Only structural checks
+        // (matches_function, digest) apply.
+        return true;
+    }
+
+    let Some(auth) = db.authorization(candidate.authorization.authorization_id) else {
+        return false; // unknown AuthorizationId: forged or stale
+    };
+
+    // Exact field comparison against the database record.
+    candidate.region == auth.region
+        && candidate.authorization.function_fingerprint == auth.function_fingerprint.0
+        && candidate.authorization.concrete == auth.concrete
+        && candidate.authorization.region_nodes == auth.provenance
+        // Every concept the candidate cites must be covered by the
+        // retrieved authorization (or be a descriptive data concept).
+        && candidate.explanation.source_concepts.iter().all(|c| {
+            sir_semantics::authorization::is_data_concept(c)
+                || auth.authorized_concepts.contains(c)
+        })
 }

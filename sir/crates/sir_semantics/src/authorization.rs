@@ -554,6 +554,12 @@ pub fn function_fingerprint(func: &Function) -> u64 {
 /// candidate generator may consume.
 #[derive(Clone, Debug)]
 pub struct TransformationAuthorization {
+    /// Immutable identity assigned by the issuing AuthorizationDatabase
+    /// (advisor directive: the database, not any candidate-carried
+    /// copy, is the source of authority). Candidates carry this id and
+    /// the optimizer/rewrite layers retrieve the original authorization
+    /// by it for exact comparison.
+    pub id: AuthorizationId,
     pub region: RegionId,
     pub function_fingerprint: FunctionFingerprint,
     pub domain: DomainCertificate,
@@ -569,10 +575,20 @@ pub struct TransformationAuthorization {
     pub concrete: ConcreteFacts,
 }
 
+/// Immutable identity of an issued authorization. Assigned by the
+/// AuthorizationDatabase at derivation time; monotonically increasing
+/// within a database. Carried by candidates as a REFERENCE — the
+/// authoritative record stays in the database.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct AuthorizationId(pub u64);
+
+impl AuthorizationId {
+    /// Sentinel for unit-test AuthorizationRefs (no database record).
+    /// The exact-comparison path skips database retrieval for this id.
+    pub const UNIT_TEST: AuthorizationId = AuthorizationId(u64::MAX);
+}
+
 /// Concrete facts of the certified region: what the certificate
-/// actually covers, node by node. A candidate's requested binding
-/// (memory base, accumulator, effects) must be matched against these
-/// facts before a rewrite is allowed to proceed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConcreteFacts {
     /// Memory bases read (resolved to root parameters), in region
@@ -610,9 +626,16 @@ impl TransformationAuthorization {
 
 /// Per-region authorizations. Produced by `derive_authorizations` once
 /// per pipeline pass; consumed by the candidate generator.
+///
+/// This database is the SOURCE OF AUTHORITY (advisor directive): a
+/// candidate's carried facts are copies, advisory only. The
+/// optimizer/rewrite layers retrieve the immutable original by
+/// AuthorizationId and compare exactly.
 #[derive(Default, Debug)]
 pub struct AuthorizationDatabase {
     map: HashMap<RegionId, Vec<TransformationAuthorization>>,
+    by_id: HashMap<AuthorizationId, RegionId>,
+    next_id: u64,
 }
 
 impl AuthorizationDatabase {
@@ -620,8 +643,22 @@ impl AuthorizationDatabase {
         Self::default()
     }
 
-    fn add(&mut self, auth: TransformationAuthorization) {
-        self.map.entry(auth.region).or_default().push(auth);
+    fn add(&mut self, mut auth: TransformationAuthorization) {
+        auth.id = AuthorizationId(self.next_id);
+        self.next_id += 1;
+        let region = auth.region;
+        self.by_id.insert(auth.id, auth.region);
+        self.map.entry(region).or_default().push(auth);
+    }
+
+    /// Retrieve the immutable original authorization by id. Returns
+    /// None for unknown ids — a candidate citing an unknown id is
+    /// forged or stale and must be rejected.
+    pub fn authorization(&self, id: AuthorizationId) -> Option<&TransformationAuthorization> {
+        let region = self.by_id.get(&id)?;
+        self.map
+            .get(region)
+            .and_then(|v| v.iter().find(|a| a.id == id))
     }
 
     /// Test-support: insert a fully-formed authorization (used by
@@ -667,6 +704,7 @@ impl AuthorizationDatabase {
         concepts: Vec<SemanticConcept>,
     ) {
         self.add(TransformationAuthorization {
+            id: AuthorizationId::UNIT_TEST, // reassigned by add()
             region,
             function_fingerprint: FunctionFingerprint(0),
             domain: DomainCertificate::ScalarExpression,
@@ -946,6 +984,8 @@ pub fn derive_authorizations(
                 stride_is_unit: true,
             };
             db.add(TransformationAuthorization {
+                // id: assigned by the database on insert
+                id: AuthorizationId(0),
                 region: region_id,
                 function_fingerprint: fingerprint,
                 domain: reduction_domain.clone(),
@@ -961,9 +1001,10 @@ pub fn derive_authorizations(
             // reduction certificate itself was granted — never as a
             // capability escalation from it (P0A hardening item 5) —
             // AND only when the region's scalar expression is fully
-            // defined (same definedness gate as the scalar domain).
             if scalar_expression_is_defined(func, &region_nodes).is_ok() {
                 db.add(TransformationAuthorization {
+                    // id: assigned by the database on insert
+                    id: AuthorizationId(0),
                     region: region_id,
                     function_fingerprint: fingerprint,
                     domain: DomainCertificate::Composition {
@@ -979,6 +1020,8 @@ pub fn derive_authorizations(
 
         if !position_concepts.is_empty() {
             db.add(TransformationAuthorization {
+                // id: assigned by the database on insert
+                id: AuthorizationId(0),
                 region: region_id,
                 function_fingerprint: fingerprint,
                 domain: DomainCertificate::PositionSearch { result_binds_index: true },
@@ -990,6 +1033,8 @@ pub fn derive_authorizations(
 
         if !scalar_concepts.is_empty() {
             db.add(TransformationAuthorization {
+                // id: assigned by the database on insert
+                id: AuthorizationId(0),
                 region: region_id,
                 function_fingerprint: fingerprint,
                 domain: DomainCertificate::ScalarExpression,

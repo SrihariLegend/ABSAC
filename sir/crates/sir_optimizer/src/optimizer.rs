@@ -278,31 +278,40 @@ impl Optimizer {
                 iteration_number, best.candidate.id, best.candidate.strategy
             );
 
-            // ── Authorization still valid? (advisor hardening item 4) ──
-            // The authorization travels with the candidate. Before any
-            // mutation, confirm it still describes THIS function version
-            // (stale-certificate rejection) — a hash mismatch means the
-            // function changed since derivation; the hash itself is only
-            // a version key, the proof below remains the equivalence
-            // authority. The binding digest must also still match: any
-            // in-flight mutation of a bound field (strategy, definition,
-            // concepts, constraints) invalidates the candidate.
+            // ── Authorization still valid? (advisor hardening items 1+4) ──
+            // Layer 1 (fast preliminary): fingerprint + binding digest.
+            // A hash mismatch means the function changed since
+            // derivation — definitely reject. A digest mismatch means a
+            // bound field changed in flight — definitely reject. The
+            // FNV digest is NOT collision-resistant; a match proves
+            // nothing by itself.
+            // Layer 2 (authority): retrieve the immutable original
+            // authorization from this pass's AuthorizationDatabase by
+            // id and compare the candidate's carried copies exactly.
+            // An unknown id (forged or from a previous pass) is
+            // rejected here.
             if !best.candidate.authorization.matches_function(function)
                 || !best.candidate.binding_digest_valid()
+                || !sir_generation::candidate::exact_binding_matches(
+                    best.candidate,
+                    &authorizations,
+                )
             {
                 println!(
-                    "Iteration {}: candidate {} has stale authorization or \
-                     invalid binding digest — skipped",
+                    "Iteration {}: candidate {} has stale authorization, \
+                     invalid binding digest, or failed exact authorization \
+                     comparison — skipped",
                     iteration_number, best.candidate.id
                 );
                 continue;
             }
 
-            let (next_function, rewrites_applied) = match self.rewrite_engine.rewrite(
+            let (next_function, rewrites_applied) = match self.rewrite_engine.rewrite_checked(
                 function,
                 best.candidate,
                 best.proof,
                 semantics.structural_database(),
+                &authorizations,
             ) {
                 Ok(rewrite_result) => (rewrite_result.rewritten, 1usize),
                 Err(e) => {

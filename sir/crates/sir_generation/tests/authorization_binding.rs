@@ -15,7 +15,9 @@ use sir_types::RegionId;
 use sir_semantics::authorization::FunctionFingerprint;
 
 fn unit_auth(region: RegionId, fingerprint: u64) -> TransformationAuthorization {
-    TransformationAuthorization {
+TransformationAuthorization {
+        // id: assigned by the database on grant_raw/insert
+        id: sir_semantics::authorization::AuthorizationId(0),
         region,
         function_fingerprint: FunctionFingerprint(fingerprint),
         domain: DomainCertificate::Reduction {
@@ -261,4 +263,68 @@ fn mutated_bound_fields_invalidate_digest() {
         let _ = DefinitionId(0);
         let _ = RegionId::new(0);
     }
+}
+
+#[test]
+fn forged_digest_with_unknown_authorization_id_is_rejected() {
+    use sir_generation::candidate::{exact_binding_matches, ImplementationStrategy};
+    use sir_generation::generator::CandidateGenerator;
+    use sir_semantics::authorization::AuthorizationId;
+    use sir_semantics::semantics::SemanticEngine;
+    use sir_analysis::manager::AnalysisManager;
+    use sir_inference::engine::InferenceEngine;
+
+    let func = build_count_loop("forgery_check", 64);
+    let mut analysis = AnalysisManager::new();
+    analysis.run_all(&func);
+    let mut semantics = SemanticEngine::new();
+    semantics.derive(&func, analysis.database());
+    let mut inference = InferenceEngine::new();
+    inference.infer(semantics.database(), semantics.structural_database());
+    let authorizations = sir_semantics::authorization::derive_authorizations(
+        &func,
+        analysis.database(),
+        semantics.database(),
+    );
+    let mut generator = CandidateGenerator::new();
+    generator.generate(
+        inference.context_database(),
+        semantics.database(),
+        &authorizations,
+        &func,
+    );
+
+    let candidates: Vec<_> = generator.database().all_candidates().cloned().collect();
+    assert!(!candidates.is_empty());
+    let candidate = &candidates[0];
+
+    // Baseline: a pipeline candidate passes the exact comparison
+    // against the database that issued it.
+    assert!(exact_binding_matches(candidate, &authorizations));
+
+    // Attack (advisor case): candidate copied with a matching forged
+    // digest (all carried fields self-consistent) but an
+    // AuthorizationId that was never issued. Only the immutable
+    // database lookup can catch this — the digest cannot.
+    let mut forged = candidate.clone();
+    forged.authorization.authorization_id = AuthorizationId(999_999);
+    assert!(forged.binding_digest_valid(), "precondition: self-consistent");
+    assert!(
+        !exact_binding_matches(&forged, &authorizations),
+        "unknown AuthorizationId must be rejected by the database"
+    );
+
+    // Attack: same candidate checked against a FRESH database — its id
+    // has no record there either. The carried copies prove nothing.
+    let fresh = sir_semantics::authorization::AuthorizationDatabase::new();
+    assert!(
+        !exact_binding_matches(candidate, &fresh),
+        "a database that did not issue the id must reject the candidate"
+    );
+
+    // Defense in depth note: a definition/strategy mutation with a
+    // REAL id is caught by the FNV digest (see
+    // mutated_bound_fields_invalidate_digest); compute_binding_digest
+    // is private, so candidates outside sir_generation cannot reforge
+    // it — and the exact comparison ignores the digest entirely.
 }
