@@ -190,11 +190,59 @@ Remediation D3 (P0A, commit c3ebb54):
          fingerprint flip, strategy-family swap — all detected.
   P0A status (advisor correction, adopted):
        structural choke point COMPLETE; authorization provenance
-       COMPLETE; concrete binding OPEN (step 1 of the binding model
-       done: bases + accumulator + effects bound; per-proposal
-       declaration of live-ins/live-outs/iteration-domain/predicate
-       still needs TransformationContext plumbing);
-       P0A overall NOT YET CLOSED.
+       COMPLETE; memory-base binding COMPLETE as step 1; exact
+       proposal binding OPEN (ProposalBinding model — proposals must
+       declare source nodes, live-ins/outs, memory accesses with
+       index expressions, iteration domain, predicate/map, accumulator
+       binding + recurrence + semantics, result, effects, definition,
+       strategy family, assumptions, runtime guards; authorize() must
+       retrieve the immutable authorization and compare these facts
+       exactly; recipes must CONSUME the authorized role map instead
+       of re-deriving bindings); scalar definedness PARTIAL (shifts
+       hardened; signed div/rem + transformation legality audited and
+       now gated; exact flag unmodeled); P0A overall NOT YET CLOSED.
+  Digest authority model (advisor directive 1, commit 5d826fb):
+       the FNV binding digest is a DIAGNOSTIC (cache key, accidental
+       mutation detection) — never authorization. Authority is the
+       immutable AuthorizationDatabase: candidates carry
+       AuthorizationId; optimizer AND rewrite engine retrieve the
+       original by id and compare carried copies exactly (region,
+       fingerprint, concrete facts, region provenance, concept
+       coverage); unknown id = forged/stale = rejected. Adversarial
+       test: self-consistent candidate citing an unissued id is
+       rejected; a fresh database rejects candidates it did not issue.
+       Known limitation: definition/strategy are covered by the
+       mint-time digest only (compute_binding_digest is crate-private,
+       cannot be reforged outside the crate) until ProposalBinding
+       records the full minted binding in the database record.
+  Signed div/rem audit (advisor directive 2, commit b0e3527): found
+       LIVE unsound rewrites — the symbolic ModuloToAnd rule rewrote
+       signed x % 8 -> x & 7 (wrong for negatives: -1 % 8 = -1 vs
+       -1 & 7 = 7) behind stub proof obligations (hardcoded constants,
+       never referencing actual nodes). Fixed under the two-
+       certificate model: (a) definedness — udiv/sdiv/urem/srem
+       distinguished by operand-type signedness; unsigned needs a
+       constant nonzero divisor; SIGNED div/rem of any kind refuses
+       (INT_MIN/-1 trap unmodeled); (b) transformation legality at
+       recognizer level — modulo->mask, divide->shift, shift-mask
+       recognized ONLY for unsigned operands (signed truncation/
+       sign-extension semantics make the identities false for
+       negative x); multiply->shift stays legal for both signednesses
+       (two's-complement wrapping). Rotate shift-pair: variable k
+       abstains; k==0 -> shr-by-width refused by the range check;
+       LLVM 'exact' flag still unmodeled (not parsed).
+  Remaining P0A queue (advisor order): (1) ProposalBinding + exact
+       proposal binding (step 2: per-proposal declaration of source
+       nodes, live-ins/outs, memory accesses, iteration domain,
+       predicate, accumulator + recurrence, result, effects, definition,
+       strategy family, assumptions, guards — compared against the
+       database at authorization and pre-rewrite); (2) role-map plumbing
+       so recipes consume the authorized binding instead of
+       rediscovering it (certificate binding vs recipe binding must not
+       be two implementations); (3) rotate/shift-pair definedness
+       restriction audit; then map-then-sum recall, two-loop lowering,
+       accumulator width, C3 freeze, fresh H3; before fusion: seal
+       Gate 6B or independent post-freeze corpus creation.
   ScalarExpression definedness gate (advisor: fail closed NOW, commit
        e62db09): Div/Rem refuse unless the divisor is a constant
        nonzero literal; shifts refuse unless the amount is a constant
