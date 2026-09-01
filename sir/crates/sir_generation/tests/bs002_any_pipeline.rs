@@ -143,7 +143,7 @@ fn bs002_trace_pipeline() {
         analysis.database(),
         semantics.database(),
     );
-    generator.generate(inference.context_database(), semantics.database(), &authorizations);
+    generator.generate(inference.context_database(), semantics.database(), &authorizations, &func);
     let db = generator.database();
     let candidate_count = db.all_candidates().count();
     println!("[BS002] Generation: {} candidates", candidate_count);

@@ -6,7 +6,7 @@ use sir_types::CostProfile;
 use std::collections::HashSet;
 
 use crate::candidate::{
-    Candidate, CandidateEffect, CandidateExplanation, CandidateId, ImplementationStrategy,
+    CandidateEffect, CandidateExplanation, ImplementationStrategy, UntrustedProposal,
 };
 
 struct StrategyDef {
@@ -19,24 +19,24 @@ struct StrategyDef {
 }
 
 impl StrategyDef {
-    fn build(&self, context: &TransformationContext) -> Candidate {
-        Candidate {
-            id: CandidateId::new(0),
-            region: context.region,
-            context_id: context.context_id,
-            strategy: self.strategy,
-            definition_id: self.definition_id,
-            explanation: CandidateExplanation {
+    fn build(&self, context: &TransformationContext) -> UntrustedProposal {
+        UntrustedProposal::new(
+            context.region,
+            context.context_id,
+            self.definition_id,
+            self.strategy,
+            CandidateExplanation {
                 source_concepts: self.source_concepts.to_vec(),
                 rationale: self.rationale,
             },
-            effects: self.effects.to_vec(),
-            expected_cost: (self.compute_cost)(),
-            representation: context.representation,
-            source_structure: context.source_structure.clone(),
-            constraints: context.constraints.clone(),
-            assumptions: context.assumptions.clone(),
-        }
+            self.effects.to_vec(),
+            (self.compute_cost)(),
+            context.representation,
+            context.source_structure.clone(),
+            context.constraints.clone(),
+            context.assumptions.clone(),
+            self.source_concepts.to_vec(),
+        )
     }
 }
 
@@ -96,10 +96,10 @@ static STRATEGIES: &[StrategyDef] = &[
     },
 ];
 
-pub fn all_arithmetic_plans(
+pub(crate) fn all_arithmetic_plans(
     context: &TransformationContext,
     concepts: &HashSet<SemanticConcept>,
-) -> Vec<Candidate> {
+) -> Vec<UntrustedProposal> {
     if context.representation != Representation::BitwiseArithmetic {
         return vec![];
     }

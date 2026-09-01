@@ -9,6 +9,7 @@ authors.workspace = true
 sir_types = { path = "../sir_types" }
 sir_transform = { path = "../sir_transform" }
 sir_semantics = { path = "../sir_semantics" }
+sir_nodes = { path = "../sir_nodes" }
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
@@ -41,3 +42,7 @@ path = "tests/bs003_all_pipeline.rs"
 [[test]]
 name = "bs004_parity_pipeline"
 path = "tests/bs004_parity_pipeline.rs"
+
+[[test]]
+name = "authorization_binding"
+path = "tests/authorization_binding.rs"

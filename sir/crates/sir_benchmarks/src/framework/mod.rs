@@ -105,7 +105,7 @@ fn knowledge_pass(func: &Function) -> KnowledgePass {
         semantics.database(),
     );
     let mut generator = CandidateGenerator::new();
-    generator.generate(inference.context_database(), semantics.database(), &authorizations);
+    generator.generate(inference.context_database(), semantics.database(), &authorizations, func);
     let candidates: Vec<Candidate> = generator.database().all_candidates().cloned().collect();
     let candidates_generated = candidates.len();
 

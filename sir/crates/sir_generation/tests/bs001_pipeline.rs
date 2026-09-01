@@ -129,7 +129,7 @@ fn bs001_full_pipeline_produces_four_distinct_candidates() {
         analysis.database(),
         semantics.database(),
     );
-    generator.generate(inference.context_database(), semantics.database(), &authorizations);
+    generator.generate(inference.context_database(), semantics.database(), &authorizations, &func);
 
     let db = generator.database();
     assert!(
@@ -205,7 +205,7 @@ fn bs001_candidates_are_deterministic() {
         analysis.database(),
         semantics.database(),
     );
-    generator.generate(inference.context_database(), semantics.database(), &authorizations);
+    generator.generate(inference.context_database(), semantics.database(), &authorizations, &func);
         generator
             .database()
             .all_candidates()

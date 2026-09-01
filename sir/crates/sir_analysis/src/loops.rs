@@ -162,7 +162,7 @@ fn detect_reductions(
                         None
                     }
                 }
-                NodeKind::Sub { lhs, rhs } => {
+                NodeKind::Sub { lhs, .. } => {
                     // Decrementing induction (reverse scan, PS002-style):
                     // i_next = i - step. Only a unit decrement counts as a
                     // contiguous-traversal counter.

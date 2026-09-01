@@ -153,4 +153,132 @@ pub struct Candidate {
     pub source_structure: SourceStructure,
     pub constraints: HashSet<Constraint>,
     pub assumptions: HashSet<Assumption>,
+    /// Authorization provenance (P0A hardening): every authorized
+    /// candidate carries the certificates that admitted it. The
+    /// selector/verifier/rewrite chain can therefore reject stale or
+    /// mismatched authorizations instead of trusting the generator's
+    /// filter alone.
+    pub authorization: AuthorizationRef,
+}
+
+/// Authorization provenance that travels with a candidate: which
+/// certificate(s), for which region, derived from which function
+/// version. Downstream stages (selector, verifier, rewrite engine)
+/// check this before trusting a candidate.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuthorizationRef {
+    /// Fingerprint of the exact function the authorization was derived
+    /// from. Hash mismatch ⇒ definitely stale (reject). Hash match ⇒
+    /// proceed to exact structural checks — a finite hash is a version
+    /// key, never a collision-free equivalence proof.
+    pub function_fingerprint: u64,
+    /// The region the authorization was issued for.
+    pub region: RegionId,
+    /// Domains whose certificates cover this candidate's cited concepts.
+    pub domains: Vec<sir_semantics::authorization::DomainKind>,
+}
+
+impl AuthorizationRef {
+    /// Unit-test support: a provenance-less ref for tests that
+    /// construct candidates for selection/cost-model testing without a
+    /// pipeline. Production candidates always get gate-minted refs.
+    pub fn for_unit_test() -> Self {
+        Self {
+            function_fingerprint: 0,
+            region: RegionId::new(u64::MAX),
+            domains: Vec::new(),
+        }
+    }
+
+    /// Stale-authorization rejection (advisor item 4). A finite hash is
+    /// only ever a version key: mismatch ⇒ definitely reject; match ⇒
+    /// downstream proof obligations still apply.
+    pub fn matches_function(&self, func: &sir_nodes::Function) -> bool {
+        sir_semantics::authorization::function_fingerprint(func)
+            == self.function_fingerprint
+            && self.region != RegionId::new(u64::MAX)
+    }
+}
+
+/// An UNTRUSTED proposal: whatever a generator produced from raw
+/// truths/beliefs and context structure, before any authorization
+/// check. It cannot enter the candidate database, selection, or
+/// rewriting — the ONLY way to obtain a `Candidate` from a proposal is
+/// `authorize` (crate-private), and generators outside sir_generation
+/// cannot construct proposals at all (private fields).
+///
+/// Pipeline shape (advisor hardening items 2+3):
+///
+/// ```text
+/// truths/beliefs → untrusted proposals → match against authorization
+///                → Candidate constructed only after the match
+/// ```
+#[derive(Clone, Debug)]
+pub struct UntrustedProposal {
+    pub(crate) region: RegionId,
+    pub(crate) context_id: ContextId,
+    pub(crate) definition_id: DefinitionId,
+    pub(crate) strategy: ImplementationStrategy,
+    pub(crate) explanation: CandidateExplanation,
+    pub(crate) effects: Vec<CandidateEffect>,
+    pub(crate) expected_cost: sir_types::CostProfile,
+    pub(crate) representation: Representation,
+    pub(crate) source_structure: SourceStructure,
+    pub(crate) constraints: HashSet<Constraint>,
+    pub(crate) assumptions: HashSet<Assumption>,
+    pub(crate) source_concepts: Vec<SemanticConcept>,
+}
+
+impl UntrustedProposal {
+    /// Construct a proposal from generator data. In-crate only:
+    /// generators propose, the authorization gate disposes.
+    pub(crate) fn new(
+        region: RegionId,
+        context_id: ContextId,
+        definition_id: DefinitionId,
+        strategy: ImplementationStrategy,
+        explanation: CandidateExplanation,
+        effects: Vec<CandidateEffect>,
+        expected_cost: sir_types::CostProfile,
+        representation: Representation,
+        source_structure: SourceStructure,
+        constraints: HashSet<Constraint>,
+        assumptions: HashSet<Assumption>,
+        source_concepts: Vec<SemanticConcept>,
+    ) -> Self {
+        Self {
+            region,
+            context_id,
+            definition_id,
+            strategy,
+            explanation,
+            effects,
+            expected_cost,
+            representation,
+            source_structure,
+            constraints,
+            assumptions,
+            source_concepts,
+        }
+    }
+
+    /// Mint an authorized candidate. Crate-private by design: nothing
+    /// outside sir_generation can turn a proposal into a candidate.
+    pub(crate) fn authorize(self, id: CandidateId, auth: AuthorizationRef) -> Candidate {
+        Candidate {
+            id,
+            region: self.region,
+            context_id: self.context_id,
+            definition_id: self.definition_id,
+            strategy: self.strategy,
+            explanation: self.explanation,
+            effects: self.effects,
+            expected_cost: self.expected_cost,
+            representation: self.representation,
+            source_structure: self.source_structure,
+            constraints: self.constraints,
+            assumptions: self.assumptions,
+            authorization: auth,
+        }
+    }
 }

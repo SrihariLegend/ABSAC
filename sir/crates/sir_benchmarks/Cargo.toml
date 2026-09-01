@@ -22,3 +22,7 @@ sir_selection = { path = "../sir_selection" }
 sir_optimizer = { path = "../sir_optimizer" }
 libc = "0.2"
 sir_lower = { path = "../sir_lower" }
+
+[[test]]
+name = "pipeline_determinism"
+path = "tests/pipeline_determinism.rs"

@@ -193,7 +193,17 @@ impl RegionInterfaceCertificate {
 /// region IS and which transformations that semantics supports.
 #[derive(Clone, Debug)]
 pub enum DomainCertificate {
-    /// Reduction over an iteration domain.
+    /// Authorization derived from another certificate: a scalar
+    /// transformation used INSIDE a certified reduction region.
+    /// Explicit provenance — the blanket "reduction cert grants every
+    /// scalar op" capability escalation is not permitted (P0A
+    /// hardening, advisor item 5).
+    Composition {
+        /// The base certificate whose closed world hosts the rewrite.
+        base: Box<DomainCertificate>,
+        /// The derived scalar subdomain (always ScalarExpression).
+        derived: Box<DomainCertificate>,
+    },
     Reduction {
         operator: ReductionOperator,
         /// Overflow semantics of the accumulator recurrence (X02).
@@ -209,6 +219,31 @@ pub enum DomainCertificate {
     /// Closed-world pure scalar region — no memory, no calls, no
     /// hidden state. Authorizes scalar bit-manipulation families.
     ScalarExpression,
+}
+
+/// Serializable tag of a domain certificate — travels with the
+/// candidate as authorization provenance.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum DomainKind {
+    Reduction,
+    PositionSearch,
+    ScalarExpression,
+    /// Scalar transformation derived from (and hosted by) a
+    /// reduction certificate's closed world.
+    CompositionScalarWithinReduction,
+}
+
+impl DomainCertificate {
+    pub fn kind(&self) -> DomainKind {
+        match self {
+            DomainCertificate::Composition { .. } => {
+                DomainKind::CompositionScalarWithinReduction
+            }
+            DomainCertificate::Reduction { .. } => DomainKind::Reduction,
+            DomainCertificate::PositionSearch { .. } => DomainKind::PositionSearch,
+            DomainCertificate::ScalarExpression => DomainKind::ScalarExpression,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -404,6 +439,14 @@ impl AuthorizationDatabase {
         self.map.entry(auth.region).or_default().push(auth);
     }
 
+    /// Test-support: insert a fully-formed authorization (used by
+    /// adversarial binding tests). Production code must use
+    /// `derive_authorizations` — which is the only issuer of
+    /// certificate-backed authorizations.
+    pub fn grant_raw(&mut self, auth: TransformationAuthorization) {
+        self.add(auth);
+    }
+
     pub fn for_region(&self, region: RegionId) -> &[TransformationAuthorization] {
         self.map.get(&region).map(|v| v.as_slice()).unwrap_or(&[])
     }
@@ -486,7 +529,7 @@ fn is_memory_access(func: &Function, id: NodeId) -> bool {
 /// Does any node reachable transitively from `id` read memory directly
 /// (Load / ArrayAccess)? Used by the X06 invariant: a position result
 /// must not be a memory-derived value.
-fn derives_from_memory(func: &Function, id: NodeId) -> bool {
+pub(crate) fn derives_from_memory(func: &Function, id: NodeId) -> bool {
     if is_memory_access(func, id) {
         return true;
     }
@@ -606,7 +649,11 @@ pub fn derive_authorizations(
                 .unwrap_or(false)
         });
 
-        let mut authorized: Vec<SemanticConcept> = Vec::new();
+        // Concept lists, one per domain — issued as SEPARATE
+        // authorizations below (never a blended list).
+        let mut reduction_concepts: Vec<SemanticConcept> = Vec::new();
+        let mut position_concepts: Vec<SemanticConcept> = Vec::new();
+        let mut scalar_concepts: Vec<SemanticConcept> = Vec::new();
 
         // ── Domain 1: Reduction (requires accumulator semantics) ──
         if let Some(loop_id) = loop_node {
@@ -631,17 +678,8 @@ pub fn derive_authorizations(
                     };
                     if loop_ok {
                         for c in region.concepts() {
-                            if is_reduction_concept(c) && !authorized.contains(c) {
-                                authorized.push(*c);
-                            }
-                        }
-                        // A certified closed-world reduction region also
-                        // hosts scalar node rewrites (e.g. blsr inside a
-                        // counting loop); these are equivalence-proved
-                        // downstream. PositionSearch is NOT granted here.
-                        for c in scalar_bit_ops() {
-                            if !authorized.contains(c) {
-                                authorized.push(*c);
+                            if is_reduction_concept(c) && !reduction_concepts.contains(c) {
+                                reduction_concepts.push(*c);
                             }
                         }
                     }
@@ -658,8 +696,8 @@ pub fn derive_authorizations(
                 .contains(&SemanticConcept::LastOccurrence);
         if wants_position && position_selects_bind_index(func, &region_nodes) {
             for c in position_search_concepts() {
-                if !authorized.contains(c) {
-                    authorized.push(*c);
+                if !position_concepts.contains(c) {
+                    position_concepts.push(*c);
                 }
             }
         }
@@ -672,31 +710,63 @@ pub fn derive_authorizations(
         // visible in the carried values.
         if !has_memory_reads {
             for c in scalar_op_concepts() {
-                if !authorized.contains(c) {
-                    authorized.push(*c);
+                if !scalar_concepts.contains(c) {
+                    scalar_concepts.push(*c);
                 }
             }
         }
 
-        if !authorized.is_empty() {
-            // Domain certificate: memory-touching regions carry the
-            // specific memory domain; pure-scalar regions are
-            // ScalarExpression.
-            let domain = if has_memory_reads {
-                DomainCertificate::Reduction {
-                    operator: ReductionOperator::Sum,
-                    integer_semantics: IntegerSemantics::Modular,
-                    stride_is_unit: true,
-                }
-            } else {
-                DomainCertificate::ScalarExpression
+        // ── Issue authorizations: one per domain, never a blended list ──
+        // Each entry is independently auditable: a consumer can see
+        // exactly which certificate authorizes which concepts.
+        if !reduction_concepts.is_empty() {
+            let reduction_domain = DomainCertificate::Reduction {
+                operator: ReductionOperator::Sum,
+                integer_semantics: IntegerSemantics::Modular,
+                stride_is_unit: true,
             };
-
             db.add(TransformationAuthorization {
                 region: region_id,
                 function_fingerprint: fingerprint,
-                domain,
-                authorized_concepts: authorized,
+                domain: reduction_domain.clone(),
+                authorized_concepts: reduction_concepts,
+                provenance: region_nodes.clone(),
+            });
+
+            // Composition authorization (derived, explicit): scalar
+            // node rewrites hosted INSIDE the certified reduction's
+            // closed world (e.g. blsr inside a counting loop); they
+            // are equivalence-proved downstream. Issued only when the
+            // reduction certificate itself was granted — never as a
+            // capability escalation from it (P0A hardening item 5).
+            db.add(TransformationAuthorization {
+                region: region_id,
+                function_fingerprint: fingerprint,
+                domain: DomainCertificate::Composition {
+                    base: Box::new(reduction_domain),
+                    derived: Box::new(DomainCertificate::ScalarExpression),
+                },
+                authorized_concepts: scalar_bit_ops().to_vec(),
+                provenance: region_nodes.clone(),
+            });
+        }
+
+        if !position_concepts.is_empty() {
+            db.add(TransformationAuthorization {
+                region: region_id,
+                function_fingerprint: fingerprint,
+                domain: DomainCertificate::PositionSearch { result_binds_index: true },
+                authorized_concepts: position_concepts,
+                provenance: region_nodes.clone(),
+            });
+        }
+
+        if !scalar_concepts.is_empty() {
+            db.add(TransformationAuthorization {
+                region: region_id,
+                function_fingerprint: fingerprint,
+                domain: DomainCertificate::ScalarExpression,
+                authorized_concepts: scalar_concepts,
                 provenance: region_nodes.clone(),
             });
         }

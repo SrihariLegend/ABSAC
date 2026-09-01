@@ -108,16 +108,24 @@ impl SemanticDatabase {
     ///
     /// Uses a reverse-index + union-find approach: O(total_nodes) instead
     /// of the naive O(n^3) nested pairwise comparison.
+    /// Merge regions that share SIR nodes into connected components.
+    ///
+    /// The overlapping-region relation is: two regions are related iff
+    /// they share a non-parameter, non-constant node. The merged layout
+    /// must be the connected components of that relation — computed
+    /// with union-find, which is both order-independent by construction
+    /// and transitively complete (a plain sorted-iteration merge can
+    /// lose overlap edges when a region was already claimed as a source
+    /// by an earlier shared node).
     pub(crate) fn merge_overlapping_regions(&mut self, func: &Function) {
         if self.regions.len() <= 1 {
             return;
         }
 
-        // Build reverse index: node -> Vec<RegionId>.
-        // BTreeMap, not HashMap: merge resolution must be deterministic
-        // (HashMap iteration order varies per process, which made the
-        // merged-region layout — and hence candidate generation —
-        // nondeterministic run-to-run).
+        // ── 1. Reverse index: node -> regions sharing it ──
+        // BTreeMap for deterministic traversal (not correctness — the
+        // union-find below is order-independent by construction — but
+        // cheap to keep deterministic).
         let mut node_to_regions: std::collections::BTreeMap<NodeId, Vec<RegionId>> =
             std::collections::BTreeMap::new();
         for (&rid, region) in &self.regions {
@@ -135,39 +143,51 @@ impl SemanticDatabase {
             }
         }
 
-        // Build a graph of overlapping regions using a simple approach:
-        // collect all pairs of regions that share a node, then merge.
-        let mut merged: HashSet<RegionId> = HashSet::new();
-        let mut merge_map: HashMap<RegionId, RegionId> = HashMap::new(); // source -> target
-
+        // ── 2. Union-find over the overlap relation ────────────
+        // Every pair of regions sharing a node is unioned; the root of
+        // each component is its minimum RegionId. This is exactly the
+        // connected-components of the overlap relation: insertion and
+        // iteration order cannot change the partition.
+        let mut parent: HashMap<RegionId, RegionId> =
+            self.regions.keys().map(|&r| (r, r)).collect();
+        fn find(parent: &mut HashMap<RegionId, RegionId>, mut r: RegionId) -> RegionId {
+            while parent[&r] != r {
+                // path compression
+                let next = parent[&r];
+                parent.insert(r, parent[&next]);
+                r = next;
+            }
+            r
+        }
         for (_, rids) in &node_to_regions {
             if rids.len() <= 1 {
                 continue;
             }
-            // Choose the smallest as target, merge the rest into it
-            let target = *rids.iter().min().unwrap();
-            for &rid in rids.iter() {
-                if rid != target && !merged.contains(&rid) {
-                    merge_map.insert(rid, target);
-                    merged.insert(rid);
+            let mut sorted = rids.clone();
+            sorted.sort();
+            let first = sorted[0];
+            for &rid in &sorted[1..] {
+                let a = find(&mut parent, first);
+                let b = find(&mut parent, rid);
+                if a != b {
+                    // Union by minimum id: the smallest region id of the
+                    // component survives as its root.
+                    let (lo, hi) = if a.0 <= b.0 { (a, b) } else { (b, a) };
+                    parent.insert(hi, lo);
                 }
             }
         }
 
-        // Resolve transitive chains in merge_map:
-        // if A -> B and B -> C (B is also a source), resolve to A -> C.
+        // ── 3. Merge each component into its root ─────────────
+        // Sources (non-root regions) are merged in ascending id order;
+        // each component's content flows into its minimum-id region.
         let mut resolved_map: HashMap<RegionId, RegionId> = HashMap::new();
-        for (&src, &tgt) in &merge_map {
-            let mut ultimate = tgt;
-            while let Some(&next) = merge_map.get(&ultimate) {
-                ultimate = next;
+        for &rid in self.regions.keys() {
+            let root = find(&mut parent, rid);
+            if root != rid {
+                resolved_map.insert(rid, root);
             }
-            resolved_map.insert(src, ultimate);
         }
-
-        // Merge regions according to the resolved merge map,
-        // processing sources in ascending RegionId order for
-        // determinism (resolved_map itself is a HashMap).
         let mut resolved_sorted: Vec<(RegionId, RegionId)> =
             resolved_map.iter().map(|(k, v)| (*k, *v)).collect();
         resolved_sorted.sort();

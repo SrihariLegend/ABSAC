@@ -3,6 +3,8 @@
 //! Generates candidate transformation plans from transformation contexts.
 //! Pure — no SIR access, no ranking, no verification.
 
+use sir_semantics::authorization::function_fingerprint;
+use sir_nodes::Function;
 use sir_semantics::semantics::SemanticDatabase;
 use sir_transform::context::TransformationContextDatabase;
 use sir_types::RegionId;
@@ -92,6 +94,7 @@ impl CandidateGenerator {
         context_db: &TransformationContextDatabase,
         semantic_db: &SemanticDatabase,
         auth_db: &sir_semantics::authorization::AuthorizationDatabase,
+        func: &Function,
     ) {
         let empty_concepts = std::collections::HashSet::new();
 
@@ -102,7 +105,9 @@ impl CandidateGenerator {
                 .unwrap_or(&empty_concepts);
 
             for ctx in contexts {
-                let candidates = crate::generators::all_plans(ctx, concepts, auth_db);
+                let fingerprint = function_fingerprint(func);
+                let candidates =
+                    crate::generators::all_plans(ctx, concepts, auth_db, fingerprint);
                 for mut candidate in candidates {
                     candidate.id = self.db.next_id();
                     self.db.add(region_id, candidate);

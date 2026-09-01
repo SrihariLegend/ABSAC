@@ -27,3 +27,7 @@ path = "tests/bs001_optimizer.rs"
 [[test]]
 name = "optimizer_tests"
 path = "tests/optimizer_tests.rs"
+
+[[test]]
+name = "x06_running_max_regression"
+path = "tests/x06_running_max_regression.rs"

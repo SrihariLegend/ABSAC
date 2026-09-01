@@ -22,6 +22,7 @@ fn database_validate_rejects_duplicate_ids() {
     let id = CandidateId::new(0);
 
     let c = Candidate {
+        authorization: sir_generation::candidate::AuthorizationRef::for_unit_test(),
         id,
         region: rid,
         context_id: cid,
@@ -50,6 +51,7 @@ fn database_validate_rejects_duplicate_ids() {
 fn database_validate_rejects_empty_effects() {
     let mut db = CandidateDatabase::new();
     let c = Candidate {
+        authorization: sir_generation::candidate::AuthorizationRef::for_unit_test(),
         id: CandidateId::new(0),
         region: RegionId::new(0),
         context_id: ContextId::new(0),

@@ -190,7 +190,7 @@ impl Optimizer {
             semantics.database(),
         );
         let mut generator = CandidateGenerator::new();
-        generator.generate(inference.context_database(), semantics.database(), &authorizations);
+        generator.generate(inference.context_database(), semantics.database(), &authorizations, &function);
 
         let candidate_count = generator.database().all_candidates().count();
 
@@ -277,6 +277,22 @@ impl Optimizer {
                 "Iteration {}: Branching on candidate {} with strategy {:?}",
                 iteration_number, best.candidate.id, best.candidate.strategy
             );
+
+            // ── Authorization still valid? (advisor hardening item 4) ──
+            // The authorization travels with the candidate. Before any
+            // mutation, confirm it still describes THIS function version
+            // (stale-certificate rejection) — a hash mismatch means the
+            // function changed since derivation; the hash itself is only
+            // a version key, the proof below remains the equivalence
+            // authority.
+            if !best.candidate.authorization.matches_function(function) {
+                println!(
+                    "Iteration {}: candidate {} has stale authorization \
+                     (function changed since derivation) — skipped",
+                    iteration_number, best.candidate.id
+                );
+                continue;
+            }
 
             let (next_function, rewrites_applied) = match self.rewrite_engine.rewrite(
                 function,

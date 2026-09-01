@@ -133,7 +133,7 @@ fn run_full_pipeline() -> (Verifier, Vec<(ProofObligation, VerificationResult)>)
         analysis.database(),
         semantics.database(),
     );
-    generator.generate(inference.context_database(), semantics.database(), &authorizations);
+    generator.generate(inference.context_database(), semantics.database(), &authorizations, &func);
 
     // Build the Verifier and create obligations
     let verifier = Verifier::new();

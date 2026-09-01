@@ -84,7 +84,7 @@ fn bs004_trace_pipeline() {
         analysis.database(),
         semantics.database(),
     );
-    generator.generate(inference.context_database(), semantics.database(), &authorizations);
+    generator.generate(inference.context_database(), semantics.database(), &authorizations, &func);
 
     for c in generator.database().all_candidates() {
         println!("  {}: {:?}", c.id, c.strategy);

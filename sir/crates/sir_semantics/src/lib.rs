@@ -12,6 +12,8 @@ pub mod closure;
 pub mod concepts;
 pub mod cost;
 pub mod cost_deriver;
+#[cfg(test)]
+mod merge_oracle_tests;
 pub mod recognizers;
 pub mod region;
 pub mod semantics;

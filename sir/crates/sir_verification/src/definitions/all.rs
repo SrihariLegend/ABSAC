@@ -101,7 +101,8 @@ impl TransformationDefinition for AllDefinition {
 mod tests {
     use super::*;
     use sir_generation::candidate::{
-        CandidateEffect, CandidateExplanation, CandidateId, ImplementationStrategy,
+        AuthorizationRef, CandidateEffect, CandidateExplanation, CandidateId,
+        ImplementationStrategy,
     };
     use sir_transform::constraints::Constraint;
     use sir_transform::context::ContextId;
@@ -119,6 +120,7 @@ mod tests {
         assumptions.insert(Assumption::EquivalentCardinality);
 
         Candidate {
+            authorization: AuthorizationRef::for_unit_test(),
             id: CandidateId::new(0),
             region: RegionId::new(0),
             context_id: ContextId::new(0),

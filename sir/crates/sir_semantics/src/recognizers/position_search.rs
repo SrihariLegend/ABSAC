@@ -151,7 +151,20 @@ pub fn recognize_position_search(
                                     let t_is_const = matches!(func.get_node(*true_val).map(|x| &x.kind), Some(sir_nodes::NodeKind::Constant(_)));
                                     let f_is_const = matches!(func.get_node(*false_val).map(|x| &x.kind), Some(sir_nodes::NodeKind::Constant(_)));
                                     if !t_is_const || !f_is_const {
-                                        has_position_select = true;
+                                        // Semantic precision (advisor, X06): a
+                                        // select whose arm derives from memory
+                                        // binds a VALUE (running max/min),
+                                        // never a position. Such a select is
+                                        // NOT a position select — recognizing
+                                        // it would emit a false
+                                        // FirstOccurrence/LastOccurrence truth
+                                        // (the X06 finding).
+                                        let arm_is_memory = |v: sir_types::NodeId| {
+                                            crate::authorization::derives_from_memory(func, v)
+                                        };
+                                        if !arm_is_memory(*true_val) && !arm_is_memory(*false_val) {
+                                            has_position_select = true;
+                                        }
                                     }
                                 }
                             }
