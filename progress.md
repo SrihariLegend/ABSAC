@@ -244,10 +244,66 @@ Executed the C3 freeze/tag + fresh independent H3 run per the updated immediate 
 - Tagged the exact C3 commit: `c3-freeze-any` → `49999a4` (annotated). Freeze record carries the lockfile sha256, rustc 1.96.0 / clang 19.1.7 / x86_64, verifier policy (SchemaChecked minimum, symbolic→exhaustive, max_states 1_048_576), registry (any_only_registry, DefinitionId 4), authorization config (immutable db, no unit-test auths), optimizer config, build flags, corpus hashes, and the freeze discipline (any implementation change = C4).
 - Workspace green at freeze (99 test blocks). No frozen crate modified by this run; harness `sir/crates/sir_benchmarks/src/bin/h3_run.rs` is evaluation apparatus.
 
-### H3 (fresh held-out, sealed)
+### H3 (sealed post-freeze adversarial evaluation — STATUS CORRECTED, see below)
+>
+> Status correction (advisor review): H3 is a FAILED SAFETY GATE, not a pass and
+> not fresh held-out evidence. Corrected status: C3 reproducible freeze PASSED;
+> SIR synthetic capability 12/12; LLVM-source capability FAILED (0 commits);
+> Safety FAILED (2 corrupt rewrite classes committed, S1/S2); Robustness FAILED
+> (R1 reverse-scan panic); Blindness NOT OBTAINED (corpus authoring required
+> stage-level probing of the frozen commit — disclosed). H3 is a *sealed,
+> post-freeze, white-box adversarial evaluation*, promoted to **regression
+> corpus D4**; a genuinely independent H4 is required before Gate 6B sealing.
+> Reframed report: `docs/H3_RESULTS.md`.
 - Tier A (26 SIR-source rows: 12 P, 12 N, 2 S1) + Tier B (12 clang -O1 kernels). Expected outcomes + expected safety frozen in `h3/expected.csv`; artifact hashes sealed in `h3/manifest.sha256`; both before the one-shot run. Raw run + execution archives committed to git BEFORE inspection.
 - Capability: 12/12 eligible-positive SIR sources rewrote; every committed rewrite executed differentially equivalent (enumerated/boundary/pseudo-random inputs; zero-trip extent 0 through wide extent 256). LLVM-source frontier: 5/5 positive-shaped kernels generated the Any candidate then blocked at application binding (eq-next termination) — the rewrite-capable dialect is unreachable from clang-sourced loops under the frozen C3 (binder requires lt(carry,bound)); lowering also always emits a second dead index TupleExtract → 2 loop users. 0 LLVM-source commits.
 - Safety FAILS (committed corrupt rewrites on near-misses that must abstain): S1a/S1b identity=true OR-reductions → pack/mask != 0 corrupts all-false (bool 1/256 patterns, pred 9/24); S2 index-derived predicate scalar (`values[i] > i`) rewritten vs fixed scalar (witness 2/4000). Root cause hypotheses recorded for D4: accumulator identity not bound as application precondition; predicate-scalar stability not verified.
 - Robustness FAIL: reverse scan (h3b09) panics the constants analysis (`attempt to add with overflow`) instead of abstaining — D4 item.
 - Boundaries honestly not obtained: LLVM/native execution (F6–F8 emitter defects at HEAD), performance measurement, and blind evaluation (authoring required stage-level probing of the frozen commit — disclosed; blind re-run recommended before sealing Gate 6B).
 - D4 promotions listed in `docs/H3_RESULTS.md` (binder/lowerer loop-syntax normalization; Any identity + scalar-stability conditions; constants overflow; TupleExtract live-out). Remediation deliberately NOT attempted under the freeze.
+
+## Implementation status (d4-remediation) — done
+
+Executed the advisory D4 remediation (H3 review directives) against the promoted
+H3 regression corpus. Run record: `d4/README.md`; corpus + expectations +
+manifest + raw archives: `d4/`; commit `67d3fc5` (evaluation apparatus tag
+`h3-eval-1` marks the sealed H3 harness).
+
+### Corrections delivered
+- **Quarantine** — Any removed from `default_registry()` (trusted/legacy modes);
+  reachable only through the explicit experimental `any_only_registry()`. Zoo +
+  liveout tests made quarantine-aware.
+- **R1 totality + containment** — constants folding total (wrapping/checked;
+  overflow/div-zero/min-/-1/neg/shift-width → Bottom/Unknown); optimizer runs
+  every pass under `catch_unwind` (PanicContained, baseline preserved,
+  `containment_failures`). 5 new unit tests.
+- **S1 identity contract** — binding refuses accumulators whose identity is not
+  the recurrence's monoid identity (`monoid_identity_ok`); identity stays bound
+  in the role-map digest (artifact mutation invalidates the digest).
+- **S2 transitive invariance** — `certify_invariant_scalar` walks the scalar's
+  full dataflow closure; any loop-carried input/output, memory/shape/call-derived
+  or unknown node refuses; `PredicateScalarClass` bound into role map + digest.
+- **F9 loop-domain normalization (lowerer)** — clang rotated counted exits
+  (`icmp eq next, bound` + back-edge on false) lower to `Lt(carry, bound)`;
+  other rotated shapes refuse loudly instead of silently inverting to dead SIR
+  (H3 tier B previously lowered eq-next loops to ZERO-iteration SIR — semantic
+  inversion now impossible).
+- **Dead projections + duplicate body** — provably-dead pure users no longer
+  count as consumers; element-access scan treats the body as a set.
+
+### D4 regression run (exactly once, raw archives committed before inspection)
+- Tier A: 15/26 rewrote (incl. corrected rows h3a13/a25/a26 — their H3
+  abstention was a dead-projection fixture artifact); all 15 differentially
+  clean at enumerated/boundary/random patterns. The 3 corrupt-rewrite rows now
+  abstain with the intended gate messages (S1: identity-not-monoid; S2:
+  scalar-depends-on-loop-carried). 0 corrupt commits, 0 panics.
+- Tier B: h3b09 reverse scan no longer panics (clean rotated-exit refusal);
+  h3b01-04/12 advanced from binding refusal to recipe structural verification —
+  remaining frontier blocker is the bitwise-INTEGER Any instantiation
+  (`Pack`/`Ne` typed as Boolean over u8 collections → TypeMismatch), recorded as
+  the next-phase item. h3b05–08/10/11 unchanged refusals/abstentions.
+- Workspace suite after remediation: **546 passed, 0 failed**.
+- Not in this run (next phase, C4-marked): u8-any Pack/Ne typing fix,
+  generalize to All/Parity/Popcount, solver-backed application equivalence,
+  Gate 6B sealing with an independent H4 corpus (evaluator that has not
+  inspected the implementation).
