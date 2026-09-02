@@ -235,3 +235,19 @@ These three make the emit_c → compile → run path unsound for lowered corpus 
 - Corpus OK-set stability re-verified after the cosmetic fix: v1 11/16, v2 8/16, heldout 11/16; 0 rewrites (freeze intact); no previously-OK kernel regressed.
 - Working tree: no probe/scratch files from this run remain (w07_probe.rs, classify_lower.rs removed; builder.rs trace reverted; /tmp scratch cleaned). `git status` shows only the C3 freeze change set + this run's sir_lower edits + new test file + progress.md.
 - Out-of-scope findings recorded in progress.md (F4 store-typing, F5 floats, F6–F8 emit.rs ordering/element-width/loop-control) with empirical evidence, for a future consumer-layer run.
+
+## Implementation status (h3-c3-freeze) — done
+
+Executed the C3 freeze/tag + fresh independent H3 run per the updated immediate sequence. Full report: `docs/H3_RESULTS.md`. Freeze record: `docs/C3_FREEZE_RECORD.md`. Corpus + sealed archives: `h3/`.
+
+### Freeze
+- Tagged the exact C3 commit: `c3-freeze-any` → `49999a4` (annotated). Freeze record carries the lockfile sha256, rustc 1.96.0 / clang 19.1.7 / x86_64, verifier policy (SchemaChecked minimum, symbolic→exhaustive, max_states 1_048_576), registry (any_only_registry, DefinitionId 4), authorization config (immutable db, no unit-test auths), optimizer config, build flags, corpus hashes, and the freeze discipline (any implementation change = C4).
+- Workspace green at freeze (99 test blocks). No frozen crate modified by this run; harness `sir/crates/sir_benchmarks/src/bin/h3_run.rs` is evaluation apparatus.
+
+### H3 (fresh held-out, sealed)
+- Tier A (26 SIR-source rows: 12 P, 12 N, 2 S1) + Tier B (12 clang -O1 kernels). Expected outcomes + expected safety frozen in `h3/expected.csv`; artifact hashes sealed in `h3/manifest.sha256`; both before the one-shot run. Raw run + execution archives committed to git BEFORE inspection.
+- Capability: 12/12 eligible-positive SIR sources rewrote; every committed rewrite executed differentially equivalent (enumerated/boundary/pseudo-random inputs; zero-trip extent 0 through wide extent 256). LLVM-source frontier: 5/5 positive-shaped kernels generated the Any candidate then blocked at application binding (eq-next termination) — the rewrite-capable dialect is unreachable from clang-sourced loops under the frozen C3 (binder requires lt(carry,bound)); lowering also always emits a second dead index TupleExtract → 2 loop users. 0 LLVM-source commits.
+- Safety FAILS (committed corrupt rewrites on near-misses that must abstain): S1a/S1b identity=true OR-reductions → pack/mask != 0 corrupts all-false (bool 1/256 patterns, pred 9/24); S2 index-derived predicate scalar (`values[i] > i`) rewritten vs fixed scalar (witness 2/4000). Root cause hypotheses recorded for D4: accumulator identity not bound as application precondition; predicate-scalar stability not verified.
+- Robustness FAIL: reverse scan (h3b09) panics the constants analysis (`attempt to add with overflow`) instead of abstaining — D4 item.
+- Boundaries honestly not obtained: LLVM/native execution (F6–F8 emitter defects at HEAD), performance measurement, and blind evaluation (authoring required stage-level probing of the frozen commit — disclosed; blind re-run recommended before sealing Gate 6B).
+- D4 promotions listed in `docs/H3_RESULTS.md` (binder/lowerer loop-syntax normalization; Any identity + scalar-stability conditions; constants overflow; TupleExtract live-out). Remediation deliberately NOT attempted under the freeze.
