@@ -119,7 +119,8 @@ impl TransformationDefinition for PopcountDefinition {
 mod tests {
     use super::*;
     use sir_generation::candidate::{
-        AuthorizationRef,         CandidateEffect, CandidateExplanation, CandidateId, ImplementationStrategy,
+        AuthorizationRef, CandidateEffect, CandidateExplanation, CandidateId,
+        ImplementationStrategy,
     };
     use sir_transform::constraints::Constraint;
     use sir_transform::context::ContextId;

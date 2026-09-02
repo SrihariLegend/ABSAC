@@ -3,7 +3,7 @@
 //! For each function: lower to SIR, run pipeline, report recognition results.
 //! This is the scale tool — processes all 50 kernels in one run.
 //!
-//! Usage: cargo run -p sir_benchmarks --bin batch_run -- <file.ll>
+//! Usage: cargo run -p sir_benchmarks --bin batch_run -- [--any-only] <file.ll>
 
 use sir_analysis::manager::AnalysisManager;
 use sir_generation::candidate::Candidate;
@@ -12,7 +12,7 @@ use sir_inference::engine::InferenceEngine;
 use sir_lower::{list_functions, lower_function};
 use sir_optimizer::{Optimizer, OptimizerConfig};
 use sir_printer::text::TextPrinter;
-use sir_rewrite::registry::default_registry;
+use sir_rewrite::registry::{any_only_registry, default_registry};
 use sir_semantics::semantics::SemanticEngine;
 use std::env;
 use std::fs;
@@ -35,10 +35,18 @@ struct KernelResult {
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("usage: batch_run <file.ll>");
+        eprintln!("usage: batch_run [--any-only] <file.ll>");
         std::process::exit(1);
     }
-    let ll_path = &args[1];
+    let any_only = args.iter().any(|arg| arg == "--any-only");
+    let ll_path = args
+        .iter()
+        .skip(1)
+        .find(|arg| arg.as_str() != "--any-only")
+        .unwrap_or_else(|| {
+            eprintln!("usage: batch_run [--any-only] <file.ll>");
+            std::process::exit(1);
+        });
     let ll_text = match fs::read_to_string(ll_path) {
         Ok(t) => t,
         Err(e) => {
@@ -48,9 +56,30 @@ fn main() {
     };
 
     let functions = list_functions(&ll_text);
-    println!("ABSAC Batch Run: {} functions found in {}\n", functions.len(), ll_path);
-    println!("{:<30} {:<8} {:<8} {:<6} {:<6} {:<6} {:<6} {:<6} {:<8} {:<8} {:<8}",
-        "Kernel", "Lowered", "Verify", "Facts", "Truths", "Belief", "Cands", "Rewrt", "iNodes", "fNodes", "Error");
+    println!(
+        "ABSAC Batch Run: {} functions found in {} (registry: {})\n",
+        functions.len(),
+        ll_path,
+        if any_only {
+            "Any-only C3 freeze"
+        } else {
+            "default"
+        }
+    );
+    println!(
+        "{:<30} {:<8} {:<8} {:<6} {:<6} {:<6} {:<6} {:<6} {:<8} {:<8} {:<8}",
+        "Kernel",
+        "Lowered",
+        "Verify",
+        "Facts",
+        "Truths",
+        "Belief",
+        "Cands",
+        "Rewrt",
+        "iNodes",
+        "fNodes",
+        "Error"
+    );
     println!("{}", "-".repeat(120));
 
     let mut results: Vec<KernelResult> = Vec::new();
@@ -94,7 +123,9 @@ fn main() {
         let mut verifier = sir_verify::Verifier::new(&func);
         result.verified = verifier.verify();
         if !result.verified {
-            result.error = Some("verify: SIR failed structural verification — analysis/semantics gated".to_string());
+            result.error = Some(
+                "verify: SIR failed structural verification — analysis/semantics gated".to_string(),
+            );
             print_result(&result);
             results.push(result);
             continue;
@@ -130,13 +161,22 @@ fn main() {
             semantics.database(),
         );
         let mut generator = CandidateGenerator::new();
-        generator.generate(inference.context_database(), semantics.database(), &authorizations, &func);
+        generator.generate(
+            inference.context_database(),
+            semantics.database(),
+            &authorizations,
+            &func,
+        );
         let candidates: Vec<Candidate> = generator.database().all_candidates().cloned().collect();
         result.candidates = candidates.len();
 
         // Optimizer
         let config = OptimizerConfig::default();
-        let registry = default_registry();
+        let registry = if any_only {
+            any_only_registry()
+        } else {
+            default_registry()
+        };
         let optimizer = Optimizer::new(config, registry);
         let opt_result = optimizer.optimize(&func);
         result.rewrites = opt_result.rewrites_applied;
@@ -154,13 +194,13 @@ fn main() {
     let recognized = results.iter().filter(|r| r.truths > 0).count();
     let rewrote = results.iter().filter(|r| r.rewrites > 0).count();
     let total = results.len();
-    println!("Summary: {}/{} lowered, {}/{} verified, {}/{} recognized, {}/{} rewrote",
-        lowered, total, verified, total, recognized, total, rewrote, total);
+    println!(
+        "Summary: {}/{} lowered, {}/{} verified, {}/{} recognized, {}/{} rewrote",
+        lowered, total, verified, total, recognized, total, rewrote, total
+    );
 
     // List all concepts discovered
-    let mut all_concepts: Vec<String> = results.iter()
-        .flat_map(|r| r.concepts.clone())
-        .collect();
+    let mut all_concepts: Vec<String> = results.iter().flat_map(|r| r.concepts.clone()).collect();
     all_concepts.sort();
     all_concepts.dedup();
     println!("\nConcepts discovered across all kernels:");
@@ -183,19 +223,32 @@ fn main() {
     if !rewrote_list.is_empty() {
         println!("\nKernels with rewrites applied:");
         for r in rewrote_list {
-            println!("  {:<30} {} rewrite(s), {} -> {} nodes",
-                r.name, r.rewrites, r.initial_nodes, r.final_nodes);
+            println!(
+                "  {:<30} {} rewrite(s), {} -> {} nodes",
+                r.name, r.rewrites, r.initial_nodes, r.final_nodes
+            );
         }
     }
 }
 
 fn print_result(r: &KernelResult) {
     let error = r.error.as_deref().unwrap_or("");
-    let error_short = if error.is_empty() { "" } else { &error[..error.len().min(30)] };
-    println!("{:<30} {:<8} {:<8} {:<6} {:<6} {:<6} {:<6} {:<6} {:<8} {:<8} {:<8}",
+    let error_short = if error.is_empty() {
+        ""
+    } else {
+        &error[..error.len().min(30)]
+    };
+    println!(
+        "{:<30} {:<8} {:<8} {:<6} {:<6} {:<6} {:<6} {:<6} {:<8} {:<8} {:<8}",
         r.name,
         if r.lowered { "YES" } else { "NO" },
-        if r.verified { "PASS" } else if r.lowered { "FAIL" } else { "-" },
+        if r.verified {
+            "PASS"
+        } else if r.lowered {
+            "FAIL"
+        } else {
+            "-"
+        },
         r.facts,
         r.truths,
         r.beliefs,

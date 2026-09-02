@@ -18,10 +18,7 @@ impl NormalizationRule for LowestSetBitToBitwiseAnd {
             let zero = SemanticExpression::Constant(ConstantData::u64(0));
             return Some(SemanticExpression::BitwiseAnd(
                 inner.clone(),
-                Box::new(SemanticExpression::Subtract(
-                    Box::new(zero),
-                    inner.clone(),
-                )),
+                Box::new(SemanticExpression::Subtract(Box::new(zero), inner.clone())),
             ));
         }
         None

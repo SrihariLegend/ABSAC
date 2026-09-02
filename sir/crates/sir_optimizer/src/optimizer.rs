@@ -121,7 +121,12 @@ impl Optimizer {
         };
 
         let initial_nodes = function.arena.len();
-        let max_truths = best_state.iterations_detail.iter().map(|r| r.truths_discovered).max().unwrap_or(0);
+        let max_truths = best_state
+            .iterations_detail
+            .iter()
+            .map(|r| r.truths_discovered)
+            .max()
+            .unwrap_or(0);
         let final_nodes = best_state.function.arena.len();
 
         OptimizationResult {
@@ -162,7 +167,8 @@ impl Optimizer {
         for truth in semantics.database().truths() {
             concepts_discovered.push(format!("{:?}", truth.concept));
         }
-        let truths_discovered = semantics.database().region_count() + semantics.database().truths().count();
+        let truths_discovered =
+            semantics.database().region_count() + semantics.database().truths().count();
 
         // ── 3. Inference ──────────────────────────────────────
         let mut inference = InferenceEngine::new();
@@ -190,7 +196,12 @@ impl Optimizer {
             semantics.database(),
         );
         let mut generator = CandidateGenerator::new();
-        generator.generate(inference.context_database(), semantics.database(), &authorizations, &function);
+        generator.generate(
+            inference.context_database(),
+            semantics.database(),
+            &authorizations,
+            &function,
+        );
 
         let candidate_count = generator.database().all_candidates().count();
 
@@ -222,11 +233,22 @@ impl Optimizer {
         let verifier = Verifier::new();
         let obligations_db =
             verifier.build_obligations(generator.database(), inference.context_database());
-        let proofs_attempted = obligations_db.len();
+        // Candidate generation is intentionally exploratory, but the
+        // configured recipe registry is the execution/freeze boundary.
+        // Do not verify or select definitions that cannot be rewritten by
+        // this optimizer instance.
+        let enabled_obligations: Vec<_> = obligations_db
+            .all()
+            .filter(|obligation| {
+                self.rewrite_engine
+                    .supports_definition(obligation.definition)
+            })
+            .collect();
+        let proofs_attempted = enabled_obligations.len();
         pass_record.proofs_attempted = proofs_attempted;
         let mut proven: Vec<VerifiedCandidate> = Vec::new();
 
-        for obligation in obligations_db.all() {
+        for obligation in enabled_obligations {
             let contexts = inference.context_database().for_region(obligation.region);
             if let Some(context) = contexts.first() {
                 let verification_result = verifier.verify(obligation, context);

@@ -28,10 +28,10 @@ use crate::backends::exhaustive::ExhaustiveVerifier;
 use crate::backends::symbolic::SymbolicVerifier;
 use crate::definitions::all::AllDefinition;
 use crate::definitions::any::AnyDefinition;
-use crate::definitions::bitscan_forward::BitScanForwardDefinition;
-use crate::definitions::byte_swap::ByteSwapDefinition;
 use crate::definitions::bit_reverse::BitReverseDefinition;
+use crate::definitions::bitscan_forward::BitScanForwardDefinition;
 use crate::definitions::bitscan_reverse::BitScanReverseDefinition;
+use crate::definitions::byte_swap::ByteSwapDefinition;
 use crate::definitions::divide_shift::DivideShiftDefinition;
 use crate::definitions::leading_zero_count::LeadingZeroCountDefinition;
 use crate::definitions::multiply_shift::MultiplyShiftDefinition;
@@ -196,18 +196,26 @@ impl Verifier {
         registry.register(Box::new(LeadingZeroCountDefinition::new(
             sir_transform::ids::DefinitionId::new(203),
         )));
-        registry.register(Box::new(definitions::clear_lowest_set_bit::ClearLowestSetBitDefinition::new(
-            sir_transform::ids::DefinitionId::new(300),
-        )));
-        registry.register(Box::new(definitions::isolate_lowest_set_bit::IsolateLowestSetBitDefinition::new(
-            sir_transform::ids::DefinitionId::new(301),
-        )));
-        registry.register(Box::new(definitions::isolate_lowest_clear_bit::IsolateLowestClearBitDefinition::new(
-            sir_transform::ids::DefinitionId::new(302),
-        )));
-        registry.register(Box::new(definitions::set_lowest_clear_bit::SetLowestClearBitDefinition::new(
-            sir_transform::ids::DefinitionId::new(303),
-        )));
+        registry.register(Box::new(
+            definitions::clear_lowest_set_bit::ClearLowestSetBitDefinition::new(
+                sir_transform::ids::DefinitionId::new(300),
+            ),
+        ));
+        registry.register(Box::new(
+            definitions::isolate_lowest_set_bit::IsolateLowestSetBitDefinition::new(
+                sir_transform::ids::DefinitionId::new(301),
+            ),
+        ));
+        registry.register(Box::new(
+            definitions::isolate_lowest_clear_bit::IsolateLowestClearBitDefinition::new(
+                sir_transform::ids::DefinitionId::new(302),
+            ),
+        ));
+        registry.register(Box::new(
+            definitions::set_lowest_clear_bit::SetLowestClearBitDefinition::new(
+                sir_transform::ids::DefinitionId::new(303),
+            ),
+        ));
         registry.register(Box::new(RotateLeftDefinition::new(
             sir_transform::ids::DefinitionId::new(310),
         )));
@@ -293,6 +301,40 @@ impl Verifier {
         }
 
         db
+    }
+
+    /// Bind a checker-issued proof to the complete concrete identity
+    /// held by the application checker. The constructor of
+    /// `CheckedTheorem` is crate-private; callers must cross this
+    /// verifier issuance boundary before an end-to-end artifact can
+    /// be constructed.
+    pub fn bind_checked_theorem(
+        &self,
+        proof: Proof,
+        authorization_id: u64,
+        source_fingerprint: u64,
+        source_region: u64,
+        candidate_id: u64,
+        definition_id: u64,
+        role_map_digest: u64,
+        live_out_digest: u64,
+        source_frame_digest: u64,
+        candidate_frame_digest: u64,
+        assumptions_digest: u64,
+    ) -> application_artifact::CheckedTheorem {
+        application_artifact::CheckedTheorem::new(
+            proof,
+            authorization_id,
+            source_fingerprint,
+            source_region,
+            candidate_id,
+            definition_id,
+            role_map_digest,
+            live_out_digest,
+            source_frame_digest,
+            candidate_frame_digest,
+            assumptions_digest,
+        )
     }
 
     /// Verify a single obligation using the configured policy.

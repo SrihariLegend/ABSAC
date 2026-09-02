@@ -149,7 +149,10 @@ impl DomainIterator {
                     let w = *width;
                     let mask = if w >= 64 { u64::MAX } else { (1 << w) - 1 };
                     let bits = ((index >> bit_offset) & mask) as u128;
-                    env.bind(var.id, Value::BitVector(crate::semantic::value::BitVectorValue { bits, width: w }));
+                    env.bind(
+                        var.id,
+                        Value::BitVector(crate::semantic::value::BitVectorValue { bits, width: w }),
+                    );
                     bit_offset += w as u32;
                 }
             }

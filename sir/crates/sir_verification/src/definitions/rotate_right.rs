@@ -55,10 +55,16 @@ impl TransformationDefinition for RotateRightDefinition {
         let width = SemanticExpression::Constant(ConstantData::u64(64));
 
         let candidate_expr = SemanticExpression::BitwiseOr(
-            Box::new(SemanticExpression::ShiftRight(Box::new(x.clone()), Box::new(k.clone()))),
+            Box::new(SemanticExpression::ShiftRight(
+                Box::new(x.clone()),
+                Box::new(k.clone()),
+            )),
             Box::new(SemanticExpression::ShiftLeft(
                 Box::new(x.clone()),
-                Box::new(SemanticExpression::Subtract(Box::new(width), Box::new(k.clone()))),
+                Box::new(SemanticExpression::Subtract(
+                    Box::new(width),
+                    Box::new(k.clone()),
+                )),
             )),
         );
 

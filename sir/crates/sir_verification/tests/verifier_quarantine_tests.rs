@@ -93,7 +93,10 @@ fn stub_definition_cannot_prove_a_tautology() {
         VerificationResult::Proven(_) => {
             panic!("SOUNDNESS: stub-backed definition returned Proven for a tautology obligation");
         }
-        other => panic!("Expected quarantine Unknown(InsufficientAssurance), got {:?}", other),
+        other => panic!(
+            "Expected quarantine Unknown(InsufficientAssurance), got {:?}",
+            other
+        ),
     }
 }
 
@@ -131,12 +134,18 @@ fn schema_checked_definitions_are_not_quarantined() {
         let obligation = tautology_obligation(id);
         let context = make_context();
         let result = verifier.verify(&obligation, &context);
-        assert!(matches!(result, VerificationResult::Proven(_)),
-            "{} is SchemaChecked and a tautological obligation must be Proven", name);
+        assert!(
+            matches!(result, VerificationResult::Proven(_)),
+            "{} is SchemaChecked and a tautological obligation must be Proven",
+            name
+        );
     }
 }
 
-fn verifier_registry_status(_verifier: &Verifier, _id: DefinitionId) -> sir_verification::registry::VerificationStatus {
+fn verifier_registry_status(
+    _verifier: &Verifier,
+    _id: DefinitionId,
+) -> sir_verification::registry::VerificationStatus {
     // The registry is private; exercise the status through verify()
     // behavior instead (the quarantine test covers Stub; the
     // SchemaChecked definitions are exercised by the mutation tests
@@ -175,7 +184,9 @@ fn minimum_level_can_be_raised_to_concrete_solver_checked() {
 
     let research = Verifier::with_policy(VerificationPolicy::SymbolicOnly);
     let strict = Verifier::with_policy(VerificationPolicy::SymbolicOnly)
-        .with_min_verification_level(sir_verification::registry::VerificationStatus::ConcreteSolverChecked);
+        .with_min_verification_level(
+            sir_verification::registry::VerificationStatus::ConcreteSolverChecked,
+        );
 
     let relaxed = research.verify(&obligation, &context);
     let strict_result = strict.verify(&obligation, &context);
@@ -187,7 +198,8 @@ fn minimum_level_can_be_raised_to_concrete_solver_checked() {
         panic!("SOUNDNESS: ConcreteSolverChecked policy must not return Proven for a SchemaChecked definition");
     }
     // The quarantine reason is visible in the unknown result.
-    if let VerificationResult::Unknown(UnknownReason::InsufficientAssurance { .. }) = strict_result {
+    if let VerificationResult::Unknown(UnknownReason::InsufficientAssurance { .. }) = strict_result
+    {
         // Expected quarantine path.
     }
 
@@ -197,7 +209,10 @@ fn minimum_level_can_be_raised_to_concrete_solver_checked() {
     match research.verify(&obligation, &context) {
         VerificationResult::Proven(_) => {}
         VerificationResult::Unknown(_) => {}
-        other => panic!("SchemaChecked definition must not be Rejected by policy: {:?}", other),
+        other => panic!(
+            "SchemaChecked definition must not be Rejected by policy: {:?}",
+            other
+        ),
     }
     let _ = strict; // silence unused in the degenerate case
     let _ = strict_result;
@@ -301,7 +316,11 @@ fn quarantine_blocks_stub_even_when_obligation_would_trivially_normalize() {
 
     let result = verifier.verify(&obligation, &context);
     match result {
-        VerificationResult::Unknown(UnknownReason::InsufficientAssurance { definition, status, .. }) => {
+        VerificationResult::Unknown(UnknownReason::InsufficientAssurance {
+            definition,
+            status,
+            ..
+        }) => {
             assert_eq!(status, sir_verification::registry::VerificationStatus::Stub);
             assert_eq!(definition, "Modulo Power of Two to Bitwise AND");
         }
@@ -342,8 +361,6 @@ fn exhaustive_backend_cannot_prove_for_stub_definition() {
         "MUTATION ACCEPTED: Constant(0)==Constant(0) 'proved' through exhaustive backend for a quarantined definition"
     );
 }
-
-
 
 // ────────────────────────────────────────────────────────────
 // 3. Checker-issued assurance (advisor item 3)
@@ -433,7 +450,11 @@ fn self_certified_machine_checked_fails_strict_policy() {
              ConcreteSolverChecked policy — the checker, not the definition, \
              issues assurance"
         ),
-        VerificationResult::Unknown(UnknownReason::InsufficientAssurance { status, minimum, .. }) => {
+        VerificationResult::Unknown(UnknownReason::InsufficientAssurance {
+            status,
+            minimum,
+            ..
+        }) => {
             assert_eq!(status, VerificationStatus::SchemaChecked);
             assert_eq!(minimum, VerificationStatus::ConcreteSolverChecked);
         }
@@ -460,7 +481,8 @@ fn issued_assurance_from_symbolic_backend_is_schema_checked() {
 // ── EndToEndVerificationArtifact (advisor: matched artifacts) ──
 
 use sir_verification::application_artifact::{
-    CheckedApplication, EndToEndMismatch, EndToEndVerificationArtifact,
+    ApplicationChecker, CheckedApplication, CheckedTheorem, EndToEndMismatch,
+    EndToEndVerificationArtifact,
 };
 
 fn fixture_proof(obligation: u64, assurance: VerificationStatus) -> sir_verification::Proof {
@@ -480,38 +502,57 @@ fn fixture_proof(obligation: u64, assurance: VerificationStatus) -> sir_verifica
     }
 }
 
-fn fixture_application(theorem_obligation: u64) -> CheckedApplication {
-    CheckedApplication::new(
-        7,      // authorization
-        42,     // source fingerprint
-        0,      // region
-        3,      // candidate
-        0xabc,  // role map digest
-        0xdef,  // live-out digest
-        true,   // source frame supported
-        true,   // candidate frame compatible
-        0,      // assumptions
+fn fixture_theorem(obligation: u64, assurance: VerificationStatus) -> CheckedTheorem {
+    Verifier::new().bind_checked_theorem(
+        fixture_proof(obligation, assurance),
+        7,     // authorization
+        42,    // source fingerprint
+        0,     // region
+        3,     // candidate
+        4,     // definition
+        0xabc, // role map digest
+        0xdef, // live-out digest
+        0x111, // source-frame digest
+        0x222, // candidate-frame digest
+        0,     // assumptions
+    )
+}
+
+fn fixture_application(theorem: &CheckedTheorem) -> CheckedApplication {
+    ApplicationChecker::issue(
+        theorem.authorization_id,
+        theorem.source_fingerprint,
+        theorem.source_region,
+        theorem.candidate_id,
+        theorem.definition_id,
+        theorem.role_map_digest,
+        theorem.live_out_digest,
+        theorem.source_frame_digest,
+        theorem.candidate_frame_digest,
+        true, // source frame supported
+        true, // candidate frame compatible
+        theorem.assumptions_digest,
         VerificationStatus::SchemaChecked,
-        theorem_obligation,
+        theorem.theorem_digest,
+        theorem.proof.obligation_digest,
     )
 }
 
 #[test]
 fn matched_artifacts_construct_end_to_end() {
-    let theorem = fixture_proof(0x1234, VerificationStatus::SchemaChecked);
-    let application = fixture_application(0x1234);
+    let theorem = fixture_theorem(0x1234, VerificationStatus::SchemaChecked);
+    let application = fixture_application(&theorem);
     let e2e = EndToEndVerificationArtifact::new(theorem, application)
         .expect("matching artifacts must construct");
     assert_eq!(e2e.assurance, VerificationStatus::SchemaChecked);
-    // The end-to-end digest is the identity of the pair.
     assert!(e2e.end_to_end_digest != 0);
 }
 
 #[test]
 fn mismatched_artifacts_refuse_construction() {
-    // Application issued for a DIFFERENT theorem obligation.
-    let theorem = fixture_proof(0x1111, VerificationStatus::SchemaChecked);
-    let application = fixture_application(0x2222);
+    let theorem = fixture_theorem(0x1111, VerificationStatus::SchemaChecked);
+    let other_theorem = fixture_theorem(0x2222, VerificationStatus::SchemaChecked);
+    let application = fixture_application(&other_theorem);
     match EndToEndVerificationArtifact::new(theorem, application) {
         Err(EndToEndMismatch::TheoremObligationMismatch {
             theorem: 0x1111,
@@ -523,9 +564,8 @@ fn mismatched_artifacts_refuse_construction() {
 
 #[test]
 fn end_to_end_assurance_is_the_weaker_of_the_two() {
-    let theorem = fixture_proof(0x1234, VerificationStatus::ConcreteSolverChecked);
-    let application = fixture_application(0x1234);
-    // application issued SchemaChecked (application checker capability)
+    let theorem = fixture_theorem(0x1234, VerificationStatus::ConcreteSolverChecked);
+    let application = fixture_application(&theorem);
     let e2e = EndToEndVerificationArtifact::new(theorem, application)
         .expect("matching artifacts must construct");
     assert_eq!(
@@ -537,12 +577,238 @@ fn end_to_end_assurance_is_the_weaker_of_the_two() {
 
 #[test]
 fn tampered_application_artifact_refuses_construction() {
-    let theorem = fixture_proof(0x1234, VerificationStatus::SchemaChecked);
-    let mut application = fixture_application(0x1234);
-    // Mutation after issuance: the digest no longer matches the fields.
+    let theorem = fixture_theorem(0x1234, VerificationStatus::SchemaChecked);
+    let mut application = fixture_application(&theorem);
     application.candidate_id = 999;
     match EndToEndVerificationArtifact::new(theorem, application) {
         Err(EndToEndMismatch::ApplicationDigestInconsistent) => {}
         other => panic!("expected ApplicationDigestInconsistent, got {:?}", other),
     }
+}
+
+fn assert_tampered_application_refuses(theorem: &CheckedTheorem, application: CheckedApplication) {
+    assert!(matches!(
+        EndToEndVerificationArtifact::new(theorem.clone(), application),
+        Err(EndToEndMismatch::ApplicationDigestInconsistent)
+    ));
+}
+
+#[test]
+fn self_consistent_unsupported_application_frame_refuses_construction() {
+    let theorem = fixture_theorem(0x1234, VerificationStatus::SchemaChecked);
+    let mut application = fixture_application(&theorem);
+    application.source_frame_supported = false;
+    application.application_digest = application.digest();
+    assert!(matches!(
+        EndToEndVerificationArtifact::new(theorem, application),
+        Err(EndToEndMismatch::ApplicationFrameUnsupported)
+    ));
+
+    let theorem = fixture_theorem(0x1234, VerificationStatus::SchemaChecked);
+    let mut application = fixture_application(&theorem);
+    application.candidate_frame_compatible = false;
+    application.application_digest = application.digest();
+    assert!(matches!(
+        EndToEndVerificationArtifact::new(theorem, application),
+        Err(EndToEndMismatch::ApplicationFrameUnsupported)
+    ));
+}
+
+#[test]
+fn every_application_field_is_digest_bound() {
+    let theorem = fixture_theorem(0x1234, VerificationStatus::SchemaChecked);
+    let baseline = fixture_application(&theorem);
+
+    let mut authorization = baseline.clone();
+    authorization.authorization_id ^= 1;
+    assert_tampered_application_refuses(&theorem, authorization);
+    let mut source = baseline.clone();
+    source.source_fingerprint ^= 1;
+    assert_tampered_application_refuses(&theorem, source);
+    let mut region = baseline.clone();
+    region.source_region ^= 1;
+    assert_tampered_application_refuses(&theorem, region);
+    let mut candidate = baseline.clone();
+    candidate.candidate_id ^= 1;
+    assert_tampered_application_refuses(&theorem, candidate);
+    let mut definition = baseline.clone();
+    definition.definition_id ^= 1;
+    assert_tampered_application_refuses(&theorem, definition);
+    let mut roles = baseline.clone();
+    roles.role_map_digest ^= 1;
+    assert_tampered_application_refuses(&theorem, roles);
+    let mut live_out = baseline.clone();
+    live_out.live_out_digest ^= 1;
+    assert_tampered_application_refuses(&theorem, live_out);
+    let mut source_frame_digest = baseline.clone();
+    source_frame_digest.source_frame_digest ^= 1;
+    assert_tampered_application_refuses(&theorem, source_frame_digest);
+    let mut candidate_frame_digest = baseline.clone();
+    candidate_frame_digest.candidate_frame_digest ^= 1;
+    assert_tampered_application_refuses(&theorem, candidate_frame_digest);
+    let mut source_frame = baseline.clone();
+    source_frame.source_frame_supported = false;
+    assert_tampered_application_refuses(&theorem, source_frame);
+    let mut candidate_frame = baseline.clone();
+    candidate_frame.candidate_frame_compatible = false;
+    assert_tampered_application_refuses(&theorem, candidate_frame);
+    let mut assumptions = baseline.clone();
+    assumptions.assumptions_digest ^= 1;
+    assert_tampered_application_refuses(&theorem, assumptions);
+    let mut assurance = baseline.clone();
+    assurance.assurance = VerificationStatus::ConcreteSolverChecked;
+    assert_tampered_application_refuses(&theorem, assurance);
+    let mut theorem_digest = baseline.clone();
+    theorem_digest.theorem_digest ^= 1;
+    assert_tampered_application_refuses(&theorem, theorem_digest);
+    let mut obligation = baseline;
+    obligation.theorem_obligation_digest ^= 1;
+    assert_tampered_application_refuses(&theorem, obligation);
+}
+
+fn assert_tampered_theorem_refuses(theorem: CheckedTheorem, application: CheckedApplication) {
+    assert!(matches!(
+        EndToEndVerificationArtifact::new(theorem, application),
+        Err(EndToEndMismatch::TheoremDigestInconsistent)
+    ));
+}
+
+#[test]
+fn every_theorem_field_is_digest_bound() {
+    let baseline = fixture_theorem(0x1234, VerificationStatus::SchemaChecked);
+
+    let mut proof_assurance = baseline.clone();
+    proof_assurance.proof.assurance = VerificationStatus::ConcreteSolverChecked;
+    assert_tampered_theorem_refuses(proof_assurance, fixture_application(&baseline));
+    let mut expression = baseline.clone();
+    expression.proof.theorem.lhs = SemanticExpression::Constant(ConstantData::u64(1));
+    assert_tampered_theorem_refuses(expression, fixture_application(&baseline));
+    let mut obligation = baseline.clone();
+    obligation.proof.obligation_digest ^= 1;
+    assert_tampered_theorem_refuses(obligation, fixture_application(&baseline));
+    let mut authorization = baseline.clone();
+    authorization.authorization_id ^= 1;
+    assert_tampered_theorem_refuses(authorization, fixture_application(&baseline));
+    let mut source = baseline.clone();
+    source.source_fingerprint ^= 1;
+    assert_tampered_theorem_refuses(source, fixture_application(&baseline));
+    let mut region = baseline.clone();
+    region.source_region ^= 1;
+    assert_tampered_theorem_refuses(region, fixture_application(&baseline));
+    let mut candidate = baseline.clone();
+    candidate.candidate_id ^= 1;
+    assert_tampered_theorem_refuses(candidate, fixture_application(&baseline));
+    let mut definition = baseline.clone();
+    definition.definition_id ^= 1;
+    assert_tampered_theorem_refuses(definition, fixture_application(&baseline));
+    let mut roles = baseline.clone();
+    roles.role_map_digest ^= 1;
+    assert_tampered_theorem_refuses(roles, fixture_application(&baseline));
+    let mut live_out = baseline.clone();
+    live_out.live_out_digest ^= 1;
+    assert_tampered_theorem_refuses(live_out, fixture_application(&baseline));
+    let mut source_frame_digest = baseline.clone();
+    source_frame_digest.source_frame_digest ^= 1;
+    assert_tampered_theorem_refuses(source_frame_digest, fixture_application(&baseline));
+    let mut candidate_frame_digest = baseline.clone();
+    candidate_frame_digest.candidate_frame_digest ^= 1;
+    assert_tampered_theorem_refuses(candidate_frame_digest, fixture_application(&baseline));
+    let mut assumptions = baseline;
+    assumptions.assumptions_digest ^= 1;
+    assert_tampered_theorem_refuses(
+        assumptions,
+        fixture_application(&fixture_theorem(0x1234, VerificationStatus::SchemaChecked)),
+    );
+}
+
+#[test]
+fn self_consistent_identity_mutations_refuse_pairing() {
+    // A forged artifact can recompute its own digest, but it still
+    // cannot be paired with a theorem issued for another identity.
+    let theorem = fixture_theorem(0x1234, VerificationStatus::SchemaChecked);
+
+    let mut candidate_mutation = fixture_application(&theorem);
+    candidate_mutation.candidate_id = 99;
+    candidate_mutation.application_digest = candidate_mutation.digest();
+    assert!(matches!(
+        EndToEndVerificationArtifact::new(theorem.clone(), candidate_mutation),
+        Err(EndToEndMismatch::IdentityMismatch {
+            field: "candidate",
+            ..
+        })
+    ));
+
+    let mut role_mutation = fixture_application(&theorem);
+    role_mutation.role_map_digest ^= 1;
+    role_mutation.application_digest = role_mutation.digest();
+    assert!(matches!(
+        EndToEndVerificationArtifact::new(theorem.clone(), role_mutation),
+        Err(EndToEndMismatch::IdentityMismatch {
+            field: "role_map",
+            ..
+        })
+    ));
+
+    let mut definition_mutation = fixture_application(&theorem);
+    definition_mutation.definition_id = 5;
+    definition_mutation.application_digest = definition_mutation.digest();
+    assert!(matches!(
+        EndToEndVerificationArtifact::new(theorem.clone(), definition_mutation),
+        Err(EndToEndMismatch::IdentityMismatch {
+            field: "definition",
+            ..
+        })
+    ));
+
+    let mut authorization_mutation = fixture_application(&theorem);
+    authorization_mutation.authorization_id = 8;
+    authorization_mutation.application_digest = authorization_mutation.digest();
+    assert!(matches!(
+        EndToEndVerificationArtifact::new(theorem.clone(), authorization_mutation),
+        Err(EndToEndMismatch::IdentityMismatch {
+            field: "authorization",
+            ..
+        })
+    ));
+
+    let mut source_mutation = fixture_application(&theorem);
+    source_mutation.source_fingerprint = 43;
+    source_mutation.application_digest = source_mutation.digest();
+    assert!(matches!(
+        EndToEndVerificationArtifact::new(theorem.clone(), source_mutation),
+        Err(EndToEndMismatch::IdentityMismatch {
+            field: "source_fingerprint",
+            ..
+        })
+    ));
+
+    let mut region_mutation = fixture_application(&theorem);
+    region_mutation.source_region = 1;
+    region_mutation.application_digest = region_mutation.digest();
+    assert!(matches!(
+        EndToEndVerificationArtifact::new(theorem.clone(), region_mutation),
+        Err(EndToEndMismatch::IdentityMismatch {
+            field: "source_region",
+            ..
+        })
+    ));
+
+    let mut assumptions_mutation = fixture_application(&theorem);
+    assumptions_mutation.assumptions_digest = 1;
+    assumptions_mutation.application_digest = assumptions_mutation.digest();
+    assert!(matches!(
+        EndToEndVerificationArtifact::new(theorem.clone(), assumptions_mutation),
+        Err(EndToEndMismatch::IdentityMismatch {
+            field: "assumptions",
+            ..
+        })
+    ));
+
+    let mut theorem_mutation = fixture_theorem(0x1234, VerificationStatus::SchemaChecked);
+    theorem_mutation.candidate_id = 99;
+    theorem_mutation.theorem_digest = theorem_mutation.digest();
+    assert!(matches!(
+        EndToEndVerificationArtifact::new(theorem_mutation, fixture_application(&theorem)),
+        Err(EndToEndMismatch::TheoremDigestMismatch { .. })
+    ));
 }

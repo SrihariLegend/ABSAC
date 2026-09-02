@@ -7,7 +7,7 @@ use sir_transform::context::ContextId;
 use sir_transform::ids::DefinitionId;
 use sir_transform::roles::RegionRoles;
 use sir_transform::structures::SourceStructure;
-use sir_types::{CostProfile, RegionId, Span, Type};
+use sir_types::{ConstantData, CostProfile, NodeId, RegionId, Span, Type};
 
 use sir_rewrite::engine::RewriteEngine;
 use sir_rewrite::error::RewriteError;
@@ -25,9 +25,14 @@ fn uint64_type() -> Type {
     }
 }
 
+/// A REAL reduction loop over a 64-element bool array:
+/// `for i in 0..64 { any |= board[i] }`, returning the accumulator
+/// slot. This is the exact shape the binding layer certifies
+/// (`build_any_loop(Some(0))` in proposal_binding.rs), so the engine's
+/// legacy entry point must be able to rewrite it end-to-end.
 fn make_board_function() -> sir_nodes::Function {
     let mut b = Builder::new(
-        "count_bits",
+        "any_scan",
         &[(
             "board",
             Type::Array {
@@ -35,17 +40,62 @@ fn make_board_function() -> sir_nodes::Function {
                 length: 64,
             },
         )],
-        uint64_type(),
+        Type::Bool,
     );
-    let _board = b.parameter_index(0).unwrap();
-    let zero = b.constant(
-        sir_types::ConstantData::u64(0),
-        uint64_type(),
-        Span::unknown(),
-    );
-    // Simple return of constant (stands in for the loop body in a real BS001 SIR)
-    b.return_value(zero, Span::unknown()).unwrap();
+    let board = b.parameter_index(0).unwrap();
+    let i_initial = b.constant(ConstantData::u64(0), uint64_type(), Span::unknown());
+    let one = b.constant(ConstantData::u64(1), uint64_type(), Span::unknown());
+    let limit = b.constant(ConstantData::u64(64), uint64_type(), Span::unknown());
+    let any_init = b.constant(ConstantData::boolean(false), Type::Bool, Span::unknown());
+
+    // board[i]
+    let element = b
+        .array_access(board, i_initial, Type::Bool, Span::unknown())
+        .unwrap();
+    // any_next = any || board[i]
+    let any_next = b.bool_or(any_init, element, Span::unknown()).unwrap();
+    // i = i + 1
+    let i_next = b.add(i_initial, one, Span::unknown()).unwrap();
+    // i < 64 — termination uses the carried input (current value).
+    let condition = b.lt(i_initial, limit, Span::unknown()).unwrap();
+
+    let loop_node = b
+        .r#loop(
+            &[element, any_next, i_next, condition],
+            condition,
+            &[any_next, i_next],
+            &[any_init, i_initial],
+            Type::Tuple {
+                elements: vec![Type::Bool, uint64_type()],
+            },
+            Span::unknown(),
+        )
+        .unwrap();
+    let accumulator_slot = b
+        .field_access(loop_node, "0", Type::Bool, Span::unknown())
+        .unwrap();
+    b.return_value(accumulator_slot, Span::unknown()).unwrap();
     b.build()
+}
+
+fn board_parameter_id(function: &sir_nodes::Function) -> NodeId {
+    function
+        .arena
+        .nodes()
+        .iter()
+        .find(|(_, n)| matches!(n.kind, sir_nodes::NodeKind::Parameter { .. }))
+        .map(|(id, _)| *id)
+        .expect("board parameter")
+}
+
+fn loop_node_id(function: &sir_nodes::Function) -> NodeId {
+    function
+        .arena
+        .nodes()
+        .iter()
+        .find(|(_, n)| matches!(n.kind, sir_nodes::NodeKind::Loop { .. }))
+        .map(|(id, _)| *id)
+        .expect("reduction loop")
 }
 
 fn make_candidate() -> Candidate {
@@ -88,7 +138,7 @@ fn make_proof() -> Proof {
     }
 }
 
-fn make_structural_db() -> StructuralDatabase {
+fn make_structural_db(collection: NodeId, result: NodeId) -> StructuralDatabase {
     use sir_semantics::structure::StructuralDescription;
     let mut db = StructuralDatabase::new();
     let desc = StructuralDescription::new(
@@ -96,9 +146,9 @@ fn make_structural_db() -> StructuralDatabase {
         SourceStructure::LogicalSequence { length: 64 },
     )
     .with_roles(RegionRoles::BooleanCollectionReduction {
-        collection: sir_types::NodeId::new(0), // board parameter
+        collection,
         accumulator: None,
-        result: sir_types::NodeId::new(2), // return value
+        result,
     });
     db.add_description(desc);
     db
@@ -117,31 +167,29 @@ fn bs001_end_to_end_rewrite_produces_valid_sir() {
     let function = make_board_function();
     let candidate = make_candidate();
     let proof = make_proof();
-    let structural_db = make_structural_db();
+    let structural_db = make_structural_db(board_parameter_id(&function), loop_node_id(&function));
     let engine = make_engine();
 
-    let result = engine.rewrite(&function, &candidate, &proof, &structural_db);
-    // For v0.1, the rewrite may fail because the test function doesn't
-    // actually contain a loop — but the engine pipeline should execute
-    // without panicking and produce a meaningful result.
-    match result {
-        Ok(rewrite_result) => {
-            // Verify the rewritten function passes structural verification
-            let mut verifier = sir_verify::Verifier::new(&rewrite_result.rewritten);
-            assert!(verifier.verify(), "rewritten function must pass sir_verify");
-        }
-        Err(e) => {
-            // Acceptable: stub function doesn't have a real loop structure.
-            // But the error must be one we understand.
-            assert!(
-                matches!(e, RewriteError::RecipeFailed(_))
-                    || matches!(e, RewriteError::MissingRole { .. })
-                    || matches!(e, RewriteError::StructuralVerificationFailed(_)),
-                "unexpected error type: {:?}",
-                e
-            );
-        }
-    }
+    // The legacy entry point must genuinely rewrite the loop — not
+    // refuse on a stale-authorization error (regression: the P0A gate
+    // made `for_unit_test` candidates fail `matches_function`).
+    let rewrite_result = engine
+        .rewrite(&function, &candidate, &proof, &structural_db)
+        .expect("legacy rewrite() must execute a real rewrite");
+
+    let mut verifier = sir_verify::Verifier::new(&rewrite_result.rewritten);
+    assert!(verifier.verify(), "rewritten function must pass sir_verify");
+
+    // The loop must be gone: replaced by a Pack + Popcount expression.
+    assert!(
+        !rewrite_result
+            .rewritten
+            .arena
+            .nodes()
+            .values()
+            .any(|n| matches!(n.kind, sir_nodes::NodeKind::Loop { .. })),
+        "the reduction loop must be eliminated"
+    );
 }
 
 // ── Tier 6: Definition mismatch ─────────────────────────────
@@ -152,7 +200,7 @@ fn definition_mismatch_rejected() {
     let mut candidate = make_candidate();
     candidate.definition_id = DefinitionId::new(999); // no recipe registered
     let proof = make_proof();
-    let structural_db = make_structural_db();
+    let structural_db = make_structural_db(board_parameter_id(&function), loop_node_id(&function));
     let engine = make_engine();
 
     let result = engine.rewrite(&function, &candidate, &proof, &structural_db);
@@ -167,9 +215,8 @@ fn definition_mismatch_rejected() {
 
 #[test]
 fn rewritten_function_passes_sir_verify() {
-    // Build a minimal function where the rewrite should produce valid SIR.
-    // Node ids: 0 = board parameter, 1 = dead constant, 2 = returned value,
-    // 3 = Return. The region (make_structural_db) references nodes 0 and 2.
+    // A non-bindable function (no loop) must fail cleanly at the
+    // binding stage — not with an authorization refusal.
     let mut b = Builder::new(
         "test",
         &[(
@@ -195,10 +242,9 @@ fn rewritten_function_passes_sir_verify() {
     b.return_value(val, Span::unknown()).unwrap();
     let func = b.build();
 
-    // The test verifies that if a rewrite succeeds, the output passes sir_verify.
     let candidate = make_candidate();
     let proof = make_proof();
-    let structural_db = make_structural_db();
+    let structural_db = make_structural_db(NodeId::new(0), NodeId::new(2)); // loop does not exist in func
     let engine = make_engine();
 
     let result = engine.rewrite(&func, &candidate, &proof, &structural_db);
@@ -208,8 +254,7 @@ fn rewritten_function_passes_sir_verify() {
             assert!(verifier.verify(), "rewritten function must pass sir_verify");
         }
         Err(e) => {
-            // Acceptable: stub function doesn't have a real loop structure.
-            // But the error must be one we understand.
+            // No loop in the function: the binding must refuse.
             assert!(
                 matches!(e, RewriteError::RecipeFailed(_))
                     || matches!(e, RewriteError::MissingRole { .. })
@@ -228,23 +273,21 @@ fn provenance_tracks_recipe_id() {
     let function = make_board_function();
     let candidate = make_candidate();
     let proof = make_proof();
-    let structural_db = make_structural_db();
+    let structural_db = make_structural_db(board_parameter_id(&function), loop_node_id(&function));
     let engine = make_engine();
 
-    let result = engine.rewrite(&function, &candidate, &proof, &structural_db);
-    if let Ok(rewrite_result) = result {
-        // For now, provenance is v0.1 minimal.
-        // The important thing is that the field exists and is populated.
-        let _ = rewrite_result.provenance;
-        let _ = rewrite_result.diff;
-        assert_eq!(rewrite_result.proof, proof);
-    } else if let Err(ref e) = result {
-        assert!(
-            !matches!(e, RewriteError::InternalInvariantViolation(_)),
-            "internal invariant violation indicates a bug: {:?}",
-            e
-        );
-    }
+    let rewrite_result = engine
+        .rewrite(&function, &candidate, &proof, &structural_db)
+        .expect("legacy rewrite() must execute a real rewrite");
+
+    assert_eq!(rewrite_result.proof, proof);
+    assert!(
+        !rewrite_result.diff.removed_nodes.is_empty() || !rewrite_result.diff.added_nodes.is_empty(),
+        "rewrite result must report a node diff"
+    );
+    // provenance is a documented v0.1 stub (compute_provenance returns
+    // empty until the full mapping lands) — it must not panic on use.
+    let _ = &rewrite_result.provenance;
 }
 
 // ── Tier 7: Negative — malformed patch causes error ─────────

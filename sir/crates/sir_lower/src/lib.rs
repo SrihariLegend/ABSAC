@@ -21,16 +21,16 @@
 use std::collections::HashMap;
 
 use sir_builder::Builder;
-use sir_nodes::{Function, NodeKind};
-use sir_types::{ConstantData, Effects, NodeId, Span, Type, IntegerWidth};
+use sir_nodes::Function;
+use sir_types::{ConstantData, Effects, IntegerWidth, NodeId, Span, Type};
 
 /// A single LLVM IR instruction.
 #[derive(Clone, Debug)]
 struct Instruction {
-    result: Option<String>,   // %N or %name
-    opcode: String,            // add, load, icmp, phi, br, ret, etc.
-    operands: Vec<String>,     // raw operand strings
-    raw: String,               // full line for debugging
+    result: Option<String>, // %N or %name
+    opcode: String,         // add, load, icmp, phi, br, ret, etc.
+    operands: Vec<String>,  // raw operand strings
+    raw: String,            // full line for debugging
 }
 
 /// A basic block.
@@ -45,7 +45,7 @@ struct Block {
 struct IrFunction {
     name: String,
     ret_type: String,
-    params: Vec<(String, String)>,  // (name, type)
+    params: Vec<(String, String)>, // (name, type)
     blocks: Vec<Block>,
     block_map: HashMap<String, usize>,
 }
@@ -59,8 +59,15 @@ fn parse_type(s: &str) -> Option<Type> {
         "i16" => Some(Type::u16()),
         "i32" => Some(Type::u32()),
         "i64" => Some(Type::u64()),
-        "i128" => Some(Type::Integer { width: IntegerWidth::I128, signed: false, overflow: sir_types::OverflowBehavior::Wrapping }),
-        "ptr" | "ptr noundef" | "ptr nocapture" => Some(Type::Pointer { pointee: Box::new(Type::u8()), mutable: false }),
+        "i128" => Some(Type::Integer {
+            width: IntegerWidth::I128,
+            signed: false,
+            overflow: sir_types::OverflowBehavior::Wrapping,
+        }),
+        "ptr" | "ptr noundef" | "ptr nocapture" => Some(Type::Pointer {
+            pointee: Box::new(Type::u8()),
+            mutable: false,
+        }),
         _ => None,
     }
 }
@@ -102,7 +109,11 @@ fn parse_function(text: &str) -> Result<IrFunction, String> {
     if let Some(at_pos) = sig_line.find('@') {
         let before_at = &sig_line[..at_pos];
         // The return type is the last token before @
-        ret_type = before_at.split_whitespace().last().unwrap_or("void").to_string();
+        ret_type = before_at
+            .split_whitespace()
+            .last()
+            .unwrap_or("void")
+            .to_string();
         // Extract function name
         let after_at = &sig_line[at_pos + 1..];
         if let Some(open_paren) = after_at.find('(') {
@@ -113,11 +124,16 @@ fn parse_function(text: &str) -> Result<IrFunction, String> {
                 let params_inner = &params_str[..close_paren];
                 for param in params_inner.split(',') {
                     let param = param.trim();
-                    if param.is_empty() { continue; }
+                    if param.is_empty() {
+                        continue;
+                    }
                     // e.g. "ptr nocapture noundef readonly %0" or "i64 noundef %1"
                     // The param name is the last %N token
                     let parts: Vec<&str> = param.split_whitespace().collect();
-                    let name = parts.iter().rev().find(|p| p.starts_with('%'))
+                    let name = parts
+                        .iter()
+                        .rev()
+                        .find(|p| p.starts_with('%'))
                         .map(|s| s.to_string())
                         .unwrap_or_default();
                     // The type is the first token
@@ -141,7 +157,11 @@ fn parse_function(text: &str) -> Result<IrFunction, String> {
         }
 
         // Skip empty lines, metadata, attributes
-        if line.is_empty() || line.starts_with(';') || line.starts_with('!') || line.starts_with("attributes") {
+        if line.is_empty()
+            || line.starts_with(';')
+            || line.starts_with('!')
+            || line.starts_with("attributes")
+        {
             i += 1;
             continue;
         }
@@ -151,12 +171,19 @@ fn parse_function(text: &str) -> Result<IrFunction, String> {
         if !line.starts_with('%') && !line.starts_with("define") {
             // Check if the line starts with a label: "<label>:" possibly followed by comments
             let before_comment = line.split(';').next().unwrap_or(line).trim();
-            if before_comment.ends_with(':') && !before_comment.contains(' ') && !before_comment.is_empty() {
+            if before_comment.ends_with(':')
+                && !before_comment.contains(' ')
+                && !before_comment.is_empty()
+            {
                 let label = before_comment.trim_end_matches(':').to_string();
-                if let Some(mut b) = current_block.take() {
+                if let Some(b) = current_block.take() {
                     blocks.push(b);
                 }
-                current_block = Some(Block { label: label.clone(), instructions: Vec::new(), preds: Vec::new() });
+                current_block = Some(Block {
+                    label: label.clone(),
+                    instructions: Vec::new(),
+                    preds: Vec::new(),
+                });
                 block_map.insert(label, blocks.len());
                 i += 1;
                 continue;
@@ -175,7 +202,9 @@ fn parse_function(text: &str) -> Result<IrFunction, String> {
         while inst_text.ends_with(',') && !inst_text.contains('=') && i + 1 < lines.len() {
             i += 1;
             let next = lines[i].trim();
-            if next.is_empty() || next.starts_with(';') { break; }
+            if next.is_empty() || next.starts_with(';') {
+                break;
+            }
             inst_text = format!("{} {}", inst_text, next);
         }
 
@@ -188,12 +217,21 @@ fn parse_function(text: &str) -> Result<IrFunction, String> {
                         // conditional br: br i1 %cond, label %true, label %false
                         let true_label = inst.operands[1].trim_start_matches("label ");
                         let false_label = inst.operands[2].trim_start_matches("label ");
-                        pred_map.entry(true_label.to_string()).or_default().push(String::new()); // will fix later
-                        pred_map.entry(false_label.to_string()).or_default().push(String::new());
+                        pred_map
+                            .entry(true_label.to_string())
+                            .or_default()
+                            .push(String::new()); // will fix later
+                        pred_map
+                            .entry(false_label.to_string())
+                            .or_default()
+                            .push(String::new());
                     } else if inst.operands.len() == 1 {
                         // unconditional br: br label %target
                         let target = inst.operands[0].trim_start_matches("label ");
-                        pred_map.entry(target.to_string()).or_default().push(String::new());
+                        pred_map
+                            .entry(target.to_string())
+                            .or_default()
+                            .push(String::new());
                     }
                 }
                 _ => {}
@@ -203,7 +241,11 @@ fn parse_function(text: &str) -> Result<IrFunction, String> {
                 b.instructions.push(inst);
             } else {
                 // No block yet — create an implicit entry block
-                current_block = Some(Block { label: "entry".to_string(), instructions: vec![], preds: vec![] });
+                current_block = Some(Block {
+                    label: "entry".to_string(),
+                    instructions: vec![],
+                    preds: vec![],
+                });
                 block_map.insert("entry".to_string(), 0);
                 if let Some(ref mut b) = current_block {
                     b.instructions.push(parse_instruction(&inst_text).unwrap());
@@ -376,6 +418,25 @@ fn strip_type(operand: &str) -> String {
     operand.to_string()
 }
 
+/// Extract the LLVM type from a typed operand ("i8 0", "i1 false",
+/// "nuw nsw i64 %10", "nneg i8 %11"). Qualifiers may appear before the
+/// type, so scan every token for the first representable type. Returns
+/// None for bare references ("%7") — those resolve via the value map.
+fn operand_type(operand: &str) -> Option<Type> {
+    let cleaned = operand
+        .replace("nneg ", "")
+        .replace("noundef ", "")
+        .replace("nocapture ", "")
+        .replace("readonly ", "")
+        .replace("zeroext ", "")
+        .replace("signext ", "")
+        .replace("inbounds ", "")
+        .replace("nuw ", "")
+        .replace("nsw ", "")
+        .replace("tail ", "");
+    cleaned.split_whitespace().find_map(parse_type)
+}
+
 /// Get the NodeId for a value reference (either an SSA value, a parameter, or a constant).
 /// `type_hint` is used when creating constant nodes — it determines the constant's type.
 fn get_node_id(
@@ -402,18 +463,62 @@ fn get_node_id(
         let span = Span::unknown();
         let ty = type_hint.unwrap_or(Type::u64());
         let const_val = match &ty {
-            Type::Integer { width: IntegerWidth::I8, signed: false, .. } => ConstantData::u8(val as u8),
-            Type::Integer { width: IntegerWidth::I8, signed: true, .. } => ConstantData::i8(val as i8),
-            Type::Integer { width: IntegerWidth::I16, signed: false, .. } => ConstantData::u16(val as u16),
-            Type::Integer { width: IntegerWidth::I16, signed: true, .. } => ConstantData::i16(val as i16),
-            Type::Integer { width: IntegerWidth::I32, signed: false, .. } => ConstantData::u32(val as u32),
-            Type::Integer { width: IntegerWidth::I32, signed: true, .. } => ConstantData::i32(val as i32),
-            Type::Integer { width: IntegerWidth::I64, signed: false, .. } => ConstantData::u64(val as u64),
-            Type::Integer { width: IntegerWidth::I64, signed: true, .. } => ConstantData::i64(val),
+            Type::Integer {
+                width: IntegerWidth::I8,
+                signed: false,
+                ..
+            } => ConstantData::u8(val as u8),
+            Type::Integer {
+                width: IntegerWidth::I8,
+                signed: true,
+                ..
+            } => ConstantData::i8(val as i8),
+            Type::Integer {
+                width: IntegerWidth::I16,
+                signed: false,
+                ..
+            } => ConstantData::u16(val as u16),
+            Type::Integer {
+                width: IntegerWidth::I16,
+                signed: true,
+                ..
+            } => ConstantData::i16(val as i16),
+            Type::Integer {
+                width: IntegerWidth::I32,
+                signed: false,
+                ..
+            } => ConstantData::u32(val as u32),
+            Type::Integer {
+                width: IntegerWidth::I32,
+                signed: true,
+                ..
+            } => ConstantData::i32(val as i32),
+            Type::Integer {
+                width: IntegerWidth::I64,
+                signed: false,
+                ..
+            } => ConstantData::u64(val as u64),
+            Type::Integer {
+                width: IntegerWidth::I64,
+                signed: true,
+                ..
+            } => ConstantData::i64(val),
             Type::Bool => ConstantData::boolean(val != 0),
             _ => ConstantData::u64(val as u64),
         };
         return Some(builder.constant(const_val, ty, span));
+    }
+    // Boolean literals ("true"/"false"): LLVM spells i1 constants this way
+    // (e.g. `select i1 %c, i1 %x, i1 false`). The integer parser above only
+    // handles numeric spellings, so without this branch the literal could
+    // never resolve (n14_saturating_count).
+    if ref_str == "true" || ref_str == "false" {
+        let span = Span::unknown();
+        return Some(builder.constant(
+            ConstantData::boolean(ref_str == "true"),
+            Type::Bool,
+            span,
+        ));
     }
     None
 }
@@ -518,22 +623,29 @@ pub fn list_functions(text: &str) -> Vec<String> {
 /// Lower an LLVM IR function to SIR.
 pub fn lower(text: &str) -> Result<Function, String> {
     let text = extract_first_function(text);
-    let ir = parse_function(&text)?;;
+    let ir = parse_function(&text)?;
 
     // Map return type
     let ret_ty = parse_type(&ir.ret_type).unwrap_or(Type::Unit);
 
     // Build parameter list for SIR
-    let mut sir_params: Vec<(&str, Type)> = ir.params.iter().map(|(name, ty)| {
-        let sir_ty = parse_type(ty).unwrap_or(Type::u64());
-        // For pointer params, model as pointer to u8
-        let sir_ty = if ty.starts_with("ptr") {
-            Type::Pointer { pointee: Box::new(Type::u8()), mutable: false }
-        } else {
-            sir_ty
-        };
-        (name.as_str(), sir_ty)
-    }).collect();
+    let mut sir_params: Vec<(&str, Type)> = ir
+        .params
+        .iter()
+        .map(|(name, ty)| {
+            let sir_ty = parse_type(ty).unwrap_or(Type::u64());
+            // For pointer params, model as pointer to u8
+            let sir_ty = if ty.starts_with("ptr") {
+                Type::Pointer {
+                    pointee: Box::new(Type::u8()),
+                    mutable: false,
+                }
+            } else {
+                sir_ty
+            };
+            (name.as_str(), sir_ty)
+        })
+        .collect();
 
     // Scan for global array references (e.g., @popcount_table) in the function body.
     // These are added as extra implicit parameters so the SIR function can access them.
@@ -560,7 +672,10 @@ pub fn lower(text: &str) -> Result<Function, String> {
     for pname in &global_param_names {
         sir_params.push((
             pname.as_str(),
-            Type::Array { element: Box::new(Type::u8()), length: 256 },
+            Type::Array {
+                element: Box::new(Type::u8()),
+                length: 256,
+            },
         ));
     }
 
@@ -593,31 +708,76 @@ pub fn lower(text: &str) -> Result<Function, String> {
     // Block 2 (exit): phi for result + ret
 
     if ir.blocks.len() < 2 {
-        for (i, b) in ir.blocks.iter().enumerate() {
-        }
         return Err("function has too few blocks for the lowerer".to_string());
     }
 
-    // Find the loop block: the one with phi nodes AND a self-referencing back-edge.
-    // In LLVM IR, the loop block's phi nodes have an incoming value from the same block.
-    // The exit block also has phi nodes, but its incomings are from the entry and the loop block.
-    for (i, b) in ir.blocks.iter().enumerate() {
-        let has_phi = b.instructions.iter().any(|i| i.opcode == "phi");
+    // Find the loop blocks: blocks with phi nodes AND a self-referencing
+    // back-edge (an incoming value from the block itself). This recognizes
+    // single-block loops where the header is its own latch — the only loop
+    // shape this lowerer emits.
+    let self_loop_blocks: Vec<usize> = ir
+        .blocks
+        .iter()
+        .enumerate()
+        .filter(|(_, b)| {
+            b.instructions.iter().any(|i| {
+                if i.opcode == "phi" {
+                    // Check if any incoming label matches this block's label
+                    let combined = i.operands.join(", ");
+                    combined.contains(&format!("%{}]", b.label))
+                        || combined.contains(&format!(", %{} ]", b.label))
+                        || combined.contains(&format!("%{}", b.label))
+                } else {
+                    false
+                }
+            })
+        })
+        .map(|(idx, _)| idx)
+        .collect();
+
+    // ── Fail-closed control-flow gates (Gate 6A corpus findings) ──
+    // The emitted SIR model is exactly ONE loop whose header is its own
+    // latch. Shapes outside that model are refused EXPLICITLY here instead
+    // of half-lowered into invalid SIR. Before these gates:
+    //   - two loops sharing an exit CFG (w08_two_reductions,
+    //     v07_count_then_sum) were lowered as far as the first loop and the
+    //     function came out without a Return — caught only downstream by
+    //     the sir_verify soundness gate (MissingReturn).
+    //   - a loop whose latch is a separate block (x08_early_exit_write,
+    //     n03_early_terminate, n08_find_first_mismatch) went undetected;
+    //     its header phis were never mapped and lowering died mid-
+    //     instruction on "cannot resolve gep index '%N'".
+    if self_loop_blocks.len() > 1 {
+        return Err(format!(
+            "unsupported: multiple loops sharing an exit CFG (nested/sequential loops) not modeled: {}",
+            ir.name
+        ));
     }
-    let loop_block_idx = ir.blocks.iter().position(|b| {
-        // The loop block has a phi that references itself as an incoming block
+    // A back-edge is any branch whose target block precedes its own block.
+    let back_edge_exists = ir.blocks.iter().enumerate().any(|(idx, b)| {
         b.instructions.iter().any(|i| {
-            if i.opcode == "phi" {
-                // Check if any incoming label matches this block's label
-                let combined = i.operands.join(", ");
-                combined.contains(&format!("%{}]", b.label)) ||
-                combined.contains(&format!(", %{} ]", b.label)) ||
-                combined.contains(&format!("%{}", b.label))
-            } else {
-                false
+            if i.opcode != "br" {
+                return false;
             }
+            i.operands.iter().any(|op| {
+                let Some(target) = op.trim().strip_prefix("label ") else {
+                    return false; // the condition operand, not a target
+                };
+                ir.block_map
+                    .get(target.trim().trim_start_matches('%'))
+                    .map(|&target_idx| target_idx < idx)
+                    .unwrap_or(false)
+            })
         })
     });
+    if self_loop_blocks.is_empty() && back_edge_exists {
+        return Err(format!(
+            "unsupported: loop with a separate latch block (multi-block back-edge) not modeled: {}",
+            ir.name
+        ));
+    }
+
+    let loop_block_idx = self_loop_blocks.first().copied();
 
     let result = match loop_block_idx {
         Some(lbi) => lower_loop_function(&ir, lbi, &mut builder, &mut value_map),
@@ -655,16 +815,27 @@ fn lower_loop_function(
     // branch (the target that is not the loop itself).
     if loop_idx > 0 {
         // Find the loop's exit label from its conditional branch
-        let loop_exit_label: Option<String> = ir.blocks[loop_idx].instructions.iter().find_map(|inst| {
-            if inst.opcode == "br" && inst.operands.len() >= 3 {
-                let true_label = inst.operands[1].trim_start_matches("label ").trim_start_matches('%').to_string();
-                let false_label = inst.operands[2].trim_start_matches("label ").trim_start_matches('%').to_string();
-                let loop_label = &ir.blocks[loop_idx].label;
-                Some(if true_label == *loop_label { false_label } else { true_label })
-            } else {
-                None
-            }
-        });
+        let loop_exit_label: Option<String> =
+            ir.blocks[loop_idx].instructions.iter().find_map(|inst| {
+                if inst.opcode == "br" && inst.operands.len() >= 3 {
+                    let true_label = inst.operands[1]
+                        .trim_start_matches("label ")
+                        .trim_start_matches('%')
+                        .to_string();
+                    let false_label = inst.operands[2]
+                        .trim_start_matches("label ")
+                        .trim_start_matches('%')
+                        .to_string();
+                    let loop_label = &ir.blocks[loop_idx].label;
+                    Some(if true_label == *loop_label {
+                        false_label
+                    } else {
+                        true_label
+                    })
+                } else {
+                    None
+                }
+            });
 
         for (bi, b) in ir.blocks.iter().enumerate() {
             if bi >= loop_idx {
@@ -725,7 +896,11 @@ fn lower_loop_function(
 
             while let Some(c) = chars.next() {
                 match c {
-                    '[' => { in_bracket = true; current.clear(); pair_parts.clear(); }
+                    '[' => {
+                        in_bracket = true;
+                        current.clear();
+                        pair_parts.clear();
+                    }
                     ']' if in_bracket => {
                         in_bracket = false;
                         if !current.trim().is_empty() {
@@ -746,7 +921,9 @@ fn lower_loop_function(
                         }
                         current.clear();
                     }
-                    _ if in_bracket => { current.push(c); }
+                    _ if in_bracket => {
+                        current.push(c);
+                    }
                     _ => {}
                 }
             }
@@ -765,8 +942,8 @@ fn lower_loop_function(
     let loop_label = &loop_block.label;
 
     // For each phi, find the initial value and the carried (next) value
-    let mut carried_initials: Vec<(String, String)> = Vec::new();  // (phi_result, initial_value_str)
-    let mut carried_nexts: Vec<(String, String)> = Vec::new();     // (phi_result, next_value_str)
+    let mut carried_initials: Vec<(String, String)> = Vec::new(); // (phi_result, initial_value_str)
+    let mut carried_nexts: Vec<(String, String)> = Vec::new(); // (phi_result, next_value_str)
 
     for phi in &phis {
         let mut initial = None;
@@ -793,21 +970,63 @@ fn lower_loop_function(
 
     for (phi_result, init_str) in &carried_initials {
         let init_str = strip_type(init_str);
-        let phi_ty = phis.iter().find(|p| &p.result == phi_result).map(|p| p.ty.as_str()).unwrap_or("i64");
+        let phi_ty = phis
+            .iter()
+            .find(|p| &p.result == phi_result)
+            .map(|p| p.ty.as_str())
+            .unwrap_or("i64");
         let sir_ty = parse_type(phi_ty).unwrap_or(Type::u64());
-        let node_id = if let Some(id) = get_node_id(&init_str, value_map, &ir.params, builder, Some(sir_ty.clone())) {
+        let node_id = if let Some(id) = get_node_id(
+            &init_str,
+            value_map,
+            &ir.params,
+            builder,
+            Some(sir_ty.clone()),
+        ) {
             id
         } else if let Some(val) = parse_int_constant(&init_str) {
             // Create a constant node with the PHI's declared type
             let const_val = match &sir_ty {
-                Type::Integer { width: IntegerWidth::I8, signed: false, .. } => ConstantData::u8(val as u8),
-                Type::Integer { width: IntegerWidth::I8, signed: true, .. } => ConstantData::i8(val as i8),
-                Type::Integer { width: IntegerWidth::I16, signed: false, .. } => ConstantData::u16(val as u16),
-                Type::Integer { width: IntegerWidth::I16, signed: true, .. } => ConstantData::i16(val as i16),
-                Type::Integer { width: IntegerWidth::I32, signed: false, .. } => ConstantData::u32(val as u32),
-                Type::Integer { width: IntegerWidth::I32, signed: true, .. } => ConstantData::i32(val as i32),
-                Type::Integer { width: IntegerWidth::I64, signed: false, .. } => ConstantData::u64(val as u64),
-                Type::Integer { width: IntegerWidth::I64, signed: true, .. } => ConstantData::i64(val),
+                Type::Integer {
+                    width: IntegerWidth::I8,
+                    signed: false,
+                    ..
+                } => ConstantData::u8(val as u8),
+                Type::Integer {
+                    width: IntegerWidth::I8,
+                    signed: true,
+                    ..
+                } => ConstantData::i8(val as i8),
+                Type::Integer {
+                    width: IntegerWidth::I16,
+                    signed: false,
+                    ..
+                } => ConstantData::u16(val as u16),
+                Type::Integer {
+                    width: IntegerWidth::I16,
+                    signed: true,
+                    ..
+                } => ConstantData::i16(val as i16),
+                Type::Integer {
+                    width: IntegerWidth::I32,
+                    signed: false,
+                    ..
+                } => ConstantData::u32(val as u32),
+                Type::Integer {
+                    width: IntegerWidth::I32,
+                    signed: true,
+                    ..
+                } => ConstantData::i32(val as i32),
+                Type::Integer {
+                    width: IntegerWidth::I64,
+                    signed: false,
+                    ..
+                } => ConstantData::u64(val as u64),
+                Type::Integer {
+                    width: IntegerWidth::I64,
+                    signed: true,
+                    ..
+                } => ConstantData::i64(val),
                 Type::Bool => ConstantData::boolean(val != 0),
                 _ => ConstantData::u64(val as u64),
             };
@@ -815,7 +1034,10 @@ fn lower_loop_function(
         } else {
             // The initial value might be defined in the entry block (e.g., a load).
             // Try to emit entry block instructions to resolve it.
-            return Err(format!("cannot resolve initial value '{}' for phi {}", init_str, phi_result));
+            return Err(format!(
+                "cannot resolve initial value '{}' for phi {}",
+                init_str, phi_result
+            ));
         };
         carried_init_nodes.push(node_id);
         carried_names.push(phi_result.clone());
@@ -843,9 +1065,6 @@ fn lower_loop_function(
         }
     }
 
-    for inst in &loop_block.instructions {
-    }
-
     // Find the termination condition: the conditional br at the end of the loop block
     // br i1 %cond, label %exit, label %loop
     // The condition is the first operand
@@ -858,8 +1077,14 @@ fn lower_loop_function(
             let cond_str = strip_type(&inst.operands[0]);
             termination_node = get_node_id(&cond_str, value_map, &ir.params, builder, None);
             // The exit label is the one that's NOT the loop label
-            let true_label = inst.operands[1].trim_start_matches("label ").trim_start_matches('%').to_string();
-            let false_label = inst.operands[2].trim_start_matches("label ").trim_start_matches('%').to_string();
+            let true_label = inst.operands[1]
+                .trim_start_matches("label ")
+                .trim_start_matches('%')
+                .to_string();
+            let false_label = inst.operands[2]
+                .trim_start_matches("label ")
+                .trim_start_matches('%')
+                .to_string();
             exit_label = if true_label == *loop_label {
                 Some(false_label)
             } else {
@@ -880,27 +1105,42 @@ fn lower_loop_function(
     }
 
     // Build the Loop node
-    let output_types: Vec<Type> = output_nodes.iter().map(|id| {
-        builder.function().get_node(*id).map(|n| n.ty.clone()).unwrap_or(Type::u64())
-    }).collect();
+    let output_types: Vec<Type> = output_nodes
+        .iter()
+        .map(|id| {
+            builder
+                .function()
+                .get_node(*id)
+                .map(|n| n.ty.clone())
+                .unwrap_or(Type::u64())
+        })
+        .collect();
 
-    let loop_ty = Type::Tuple { elements: output_types };
-    let loop_node = builder.r#loop(
-        &body_nodes,
-        termination,
-        &output_nodes,
-        &carried_init_nodes,
-        loop_ty,
-        span,
-    ).map_err(|e| format!("loop build error: {:?}", e))?;
+    let loop_ty = Type::Tuple {
+        elements: output_types,
+    };
+    let loop_node = builder
+        .r#loop(
+            &body_nodes,
+            termination,
+            &output_nodes,
+            &carried_init_nodes,
+            loop_ty,
+            span,
+        )
+        .map_err(|e| format!("loop build error: {:?}", e))?;
 
     // Map phi results to the loop outputs (via TupleExtract)
     let mut extract_for_output: Vec<NodeId> = Vec::new();
     for (i, phi_result) in carried_names.iter().enumerate() {
-        let output_ty = builder.function().get_node(output_nodes[i])
+        let output_ty = builder
+            .function()
+            .get_node(output_nodes[i])
             .map(|n| n.ty.clone())
             .unwrap_or(Type::u64());
-        let extract = builder.tuple_extract(loop_node, i, output_ty, span).unwrap();
+        let extract = builder
+            .tuple_extract(loop_node, i, output_ty, span)
+            .unwrap();
         value_map.insert(phi_result.clone(), extract);
         extract_for_output.push(extract);
     }
@@ -949,7 +1189,11 @@ fn lower_loop_function(
 
                     while let Some(c) = chars.next() {
                         match c {
-                            '[' => { in_bracket = true; current.clear(); pair_parts.clear(); }
+                            '[' => {
+                                in_bracket = true;
+                                current.clear();
+                                pair_parts.clear();
+                            }
                             ']' if in_bracket => {
                                 in_bracket = false;
                                 if !current.trim().is_empty() {
@@ -977,7 +1221,9 @@ fn lower_loop_function(
                                 }
                                 current.clear();
                             }
-                            _ if in_bracket => { current.push(c); }
+                            _ if in_bracket => {
+                                current.push(c);
+                            }
                             _ => {}
                         }
                     }
@@ -991,7 +1237,9 @@ fn lower_loop_function(
                             if let Some(result) = &inst.result {
                                 value_map.insert(result.clone(), id.clone());
                             }
-                        } else if let Some(id) = get_node_id(&val, value_map, &ir.params, builder, None) {
+                        } else if let Some(id) =
+                            get_node_id(&val, value_map, &ir.params, builder, None)
+                        {
                             if let Some(result) = &inst.result {
                                 value_map.insert(result.clone(), id);
                             }
@@ -1003,16 +1251,25 @@ fn lower_loop_function(
                         let ret_str = strip_type(&inst.operands[0]);
                         let ret_node = get_node_id(&ret_str, value_map, &ir.params, builder, None)
                             .ok_or(format!("cannot resolve return value '{}'", ret_str))?;
-                        builder.return_value(ret_node, span).map_err(|e| format!("return error: {:?}", e))?;
+                        builder
+                            .return_value(ret_node, span)
+                            .map_err(|e| format!("return error: {:?}", e))?;
                     } else {
                         // ret void — emit a Unit return
                         let unit = builder.constant(ConstantData::Unit, Type::Unit, span);
-                        builder.return_value(unit, span).map_err(|e| format!("return error: {:?}", e))?;
+                        builder
+                            .return_value(unit, span)
+                            .map_err(|e| format!("return error: {:?}", e))?;
                     }
                 } else if inst.opcode == "br" {
                     // Unconditional br: follow to the next block
                     if inst.operands.len() == 1 {
-                        next_label = Some(inst.operands[0].trim_start_matches("label ").trim_start_matches('%').to_string());
+                        next_label = Some(
+                            inst.operands[0]
+                                .trim_start_matches("label ")
+                                .trim_start_matches('%')
+                                .to_string(),
+                        );
                     }
                 } else {
                     // Other instructions in exit block
@@ -1045,11 +1302,15 @@ fn lower_straight_line(
                     let ret_str = strip_type(&inst.operands[0]);
                     let ret_node = get_node_id(&ret_str, value_map, &ir.params, builder, None)
                         .ok_or(format!("cannot resolve return value '{}'", ret_str))?;
-                    builder.return_value(ret_node, span).map_err(|e| format!("return error: {:?}", e))?;
+                    builder
+                        .return_value(ret_node, span)
+                        .map_err(|e| format!("return error: {:?}", e))?;
                 } else {
                     // ret void
                     let unit = builder.constant(ConstantData::Unit, Type::Unit, span);
-                    builder.return_value(unit, span).map_err(|e| format!("return error: {:?}", e))?;
+                    builder
+                        .return_value(unit, span)
+                        .map_err(|e| format!("return error: {:?}", e))?;
                 }
             } else {
                 emit_instruction(inst, builder, value_map, &ir.params, span)?;
@@ -1072,7 +1333,8 @@ fn emit_instruction(
     let result_name = inst.result.clone();
 
     match inst.opcode.as_str() {
-        "add" | "sub" | "mul" | "and" | "or" | "xor" | "shl" | "lshr" | "ashr" | "udiv" | "sdiv" | "urem" | "srem" => {
+        "add" | "sub" | "mul" | "and" | "or" | "xor" | "shl" | "lshr" | "ashr" | "udiv"
+        | "sdiv" | "urem" | "srem" => {
             if inst.operands.len() < 2 {
                 return Err(format!("{} needs 2 operands: {}", inst.opcode, inst.raw));
             }
@@ -1093,7 +1355,10 @@ fn emit_instruction(
             // poison semantics are unmodeled; fail closed (advisor
             // arithmetic-flags directive).
             if inst.raw.contains(" exact ")
-                && matches!(inst.opcode.as_str(), "udiv" | "sdiv" | "lshr" | "ashr" | "shl")
+                && matches!(
+                    inst.opcode.as_str(),
+                    "udiv" | "sdiv" | "lshr" | "ashr" | "shl"
+                )
             {
                 return Err(format!(
                     "unsupported: 'exact' division/shift flag (poison-on-inexact semantics not modeled): {}",
@@ -1101,7 +1366,9 @@ fn emit_instruction(
                 ));
             }
             // Extract the type from the first operand (e.g., "i8 %10" → i8)
-            let op_type = inst.operands[0].split_whitespace().next()
+            let op_type = inst.operands[0]
+                .split_whitespace()
+                .next()
                 .and_then(|t| parse_type(t));
             let lhs_str = strip_type(&inst.operands[0]);
             let rhs_str = strip_type(&inst.operands[1]);
@@ -1110,30 +1377,60 @@ fn emit_instruction(
             let rhs = get_node_id(&rhs_str, value_map, params, builder, op_type)
                 .ok_or(format!("cannot resolve rhs '{}' in {}", rhs_str, inst.raw))?;
 
-            let is_bool = inst.operands[0].split_whitespace().next()
+            let is_bool = inst.operands[0]
+                .split_whitespace()
+                .next()
                 .map(|t| t == "i1")
                 .unwrap_or(false);
             let node_id = match inst.opcode.as_str() {
-                "add" => builder.add(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
-                "sub" => builder.sub(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
-                "mul" => builder.mul(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
-                "and" if is_bool => builder.bool_and(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
-                "and" => builder.bit_and(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
-                "or" if is_bool => builder.bool_or(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
-                "or" => builder.bit_or(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
+                "add" => builder
+                    .add(lhs, rhs, span)
+                    .map_err(|e| format!("{:?}", e))?,
+                "sub" => builder
+                    .sub(lhs, rhs, span)
+                    .map_err(|e| format!("{:?}", e))?,
+                "mul" => builder
+                    .mul(lhs, rhs, span)
+                    .map_err(|e| format!("{:?}", e))?,
+                "and" if is_bool => builder
+                    .bool_and(lhs, rhs, span)
+                    .map_err(|e| format!("{:?}", e))?,
+                "and" => builder
+                    .bit_and(lhs, rhs, span)
+                    .map_err(|e| format!("{:?}", e))?,
+                "or" if is_bool => builder
+                    .bool_or(lhs, rhs, span)
+                    .map_err(|e| format!("{:?}", e))?,
+                "or" => builder
+                    .bit_or(lhs, rhs, span)
+                    .map_err(|e| format!("{:?}", e))?,
                 "xor" if is_bool => {
                     // SIR has no BoolXor. Convert bools to i8, bit_xor, return i8.
-                    let lhs_i8 = builder.convert(lhs, Type::u8(), sir_nodes::ConvertKind::ZeroExtend, span)
+                    let lhs_i8 = builder
+                        .convert(lhs, Type::u8(), sir_nodes::ConvertKind::ZeroExtend, span)
                         .map_err(|e| format!("{:?}", e))?;
-                    let rhs_i8 = builder.convert(rhs, Type::u8(), sir_nodes::ConvertKind::ZeroExtend, span)
+                    let rhs_i8 = builder
+                        .convert(rhs, Type::u8(), sir_nodes::ConvertKind::ZeroExtend, span)
                         .map_err(|e| format!("{:?}", e))?;
-                    builder.bit_xor(lhs_i8, rhs_i8, span).map_err(|e| format!("{:?}", e))?
+                    builder
+                        .bit_xor(lhs_i8, rhs_i8, span)
+                        .map_err(|e| format!("{:?}", e))?
                 }
-                "xor" => builder.bit_xor(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
-                "shl" => builder.shl(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
-                "lshr" | "ashr" => builder.shr(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
-                "udiv" | "sdiv" => builder.div(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
-                "urem" | "srem" => builder.rem(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
+                "xor" => builder
+                    .bit_xor(lhs, rhs, span)
+                    .map_err(|e| format!("{:?}", e))?,
+                "shl" => builder
+                    .shl(lhs, rhs, span)
+                    .map_err(|e| format!("{:?}", e))?,
+                "lshr" | "ashr" => builder
+                    .shr(lhs, rhs, span)
+                    .map_err(|e| format!("{:?}", e))?,
+                "udiv" | "sdiv" => builder
+                    .div(lhs, rhs, span)
+                    .map_err(|e| format!("{:?}", e))?,
+                "urem" | "srem" => builder
+                    .rem(lhs, rhs, span)
+                    .map_err(|e| format!("{:?}", e))?,
                 _ => unreachable!(),
             };
 
@@ -1170,7 +1467,10 @@ fn emit_instruction(
             let raw_operands = inst.operands.join(", ");
             let parts: Vec<&str> = raw_operands.splitn(3, ' ').collect();
             if parts.len() < 3 {
-                return Err(format!("icmp needs cmp_type + type + lhs + rhs: {}", inst.raw));
+                return Err(format!(
+                    "icmp needs cmp_type + type + lhs + rhs: {}",
+                    inst.raw
+                ));
             }
             let cmp_type = parts[0].trim();
             // parts[1] is the type (e.g., "i8", "i64", "i1")
@@ -1227,13 +1527,18 @@ fn emit_instruction(
             // Format: "i8 %11 to i64"
             // Split on " to " to separate source and target type
             let (src_part, to_part) = if let Some(pos) = raw.find(" to ") {
-                (raw[..pos].trim().to_string(), raw[pos + 4..].trim().to_string())
+                (
+                    raw[..pos].trim().to_string(),
+                    raw[pos + 4..].trim().to_string(),
+                )
             } else {
                 (raw.clone(), String::new())
             };
             let src_str = strip_type(&src_part);
-            let src = get_node_id(&src_str, value_map, params, builder, None)
-                .ok_or(format!("cannot resolve {} source '{}'", inst.opcode, src_str))?;
+            let src = get_node_id(&src_str, value_map, params, builder, None).ok_or(format!(
+                "cannot resolve {} source '{}'",
+                inst.opcode, src_str
+            ))?;
 
             let to_type = parse_type(&to_part).unwrap_or(Type::u64());
 
@@ -1244,7 +1549,8 @@ fn emit_instruction(
                 _ => unreachable!(),
             };
 
-            let node_id = builder.convert(src, to_type, kind, span)
+            let node_id = builder
+                .convert(src, to_type, kind, span)
                 .map_err(|e| format!("{:?}", e))?;
 
             if let Some(name) = result_name {
@@ -1258,17 +1564,27 @@ fn emit_instruction(
             if inst.operands.len() < 3 {
                 return Err(format!("select needs 3 operands: {}", inst.raw));
             }
+            // ── Select arm typing (Gate 6A corpus finding) ──
+            // Each operand declares its own type ("i8 0", "i1 false",
+            // "i64 %x"). Literal arms MUST be built at that width, not
+            // the u64 default: `select i1 %c, i8 %acc, i8 0` previously
+            // typed the `0` as u64 and the builder refused the width
+            // mismatch (w07_all_min, h02_all_match, n14_saturating_count).
+            let cond_ty = operand_type(&inst.operands[0]);
+            let true_ty = operand_type(&inst.operands[1]);
+            let false_ty = operand_type(&inst.operands[2]);
             let cond_str = strip_type(&inst.operands[0]);
             let true_str = strip_type(&inst.operands[1]);
             let false_str = strip_type(&inst.operands[2]);
-            let cond = get_node_id(&cond_str, value_map, params, builder, None)
+            let cond = get_node_id(&cond_str, value_map, params, builder, cond_ty)
                 .ok_or(format!("cannot resolve select cond '{}'", cond_str))?;
-            let true_val = get_node_id(&true_str, value_map, params, builder, None)
+            let true_val = get_node_id(&true_str, value_map, params, builder, true_ty)
                 .ok_or(format!("cannot resolve select true '{}'", true_str))?;
-            let false_val = get_node_id(&false_str, value_map, params, builder, None)
+            let false_val = get_node_id(&false_str, value_map, params, builder, false_ty)
                 .ok_or(format!("cannot resolve select false '{}'", false_str))?;
 
-            let node_id = builder.select(cond, true_val, false_val, span)
+            let node_id = builder
+                .select(cond, true_val, false_val, span)
                 .map_err(|e| format!("{:?}", e))?;
 
             if let Some(name) = result_name {
@@ -1327,7 +1643,10 @@ fn emit_instruction(
             // getelementptr inbounds [256 x i8], ptr @table, i64 0, i64 %11
             //   → table[%11] — multi-index GEP, skip index 0
             if inst.operands.len() < 3 {
-                return Err(format!("getelementptr needs type + ptr + index: {}", inst.raw));
+                return Err(format!(
+                    "getelementptr needs type + ptr + index: {}",
+                    inst.raw
+                ));
             }
             // operand 0: "inbounds i8" or "inbounds [256 x i8]" — the element type
             let elem_type_str = inst.operands[0].trim_start_matches("inbounds").trim();
@@ -1349,7 +1668,8 @@ fn emit_instruction(
             let index = get_node_id(&index_str, value_map, params, builder, None)
                 .ok_or(format!("cannot resolve gep index '{}'", index_str))?;
 
-            let node_id = builder.array_access(base, index, elem_ty, span)
+            let node_id = builder
+                .array_access(base, index, elem_ty, span)
                 .map_err(|e| format!("{:?}", e))?;
 
             if let Some(name) = result_name {
@@ -1389,7 +1709,8 @@ fn emit_instruction(
                 .ok_or(format!("cannot resolve store value '{}'", val_str))?;
             let ptr = get_node_id(&ptr_str, value_map, params, builder, None)
                 .ok_or(format!("cannot resolve store ptr '{}'", ptr_str))?;
-            let _node_id = builder.store(ptr, val, span)
+            let _node_id = builder
+                .store(ptr, val, span)
                 .map_err(|e| format!("{:?}", e))?;
             // Store produces no value (Unit) — don't insert into value_map
             Ok(None)
@@ -1403,11 +1724,12 @@ fn emit_instruction(
         "call" => {
             // Handle a few known intrinsics
             // tail call i8 @llvm.umax.i8(i8 %10, i8 %8)
-            let callee = inst.operands.first()
-                .map(|s| s.trim())
-                .unwrap_or("");
-            if callee.contains("llvm.umax") || callee.contains("llvm.umin")
-                || callee.contains("llvm.smax") || callee.contains("llvm.smin") {
+            let callee = inst.operands.first().map(|s| s.trim()).unwrap_or("");
+            if callee.contains("llvm.umax")
+                || callee.contains("llvm.umin")
+                || callee.contains("llvm.smax")
+                || callee.contains("llvm.smin")
+            {
                 // Model as select(gt(a,b), a, b) for umax, or select(lt(a,b), a, b) for umin
                 // operands: "@llvm.umax.i8(i8 %10, i8 %8"  (with closing paren possibly)
                 // Actually the operands were split by commas, so:
@@ -1431,15 +1753,20 @@ fn emit_instruction(
                         let b = get_node_id(&b_str, value_map, params, builder, op_ty)
                             .ok_or(format!("cannot resolve umax operand '{}'", b_str))?;
 
-                        let node_id = if callee.contains("llvm.umax") || callee.contains("llvm.smax") {
-                            // umax/smax(a, b) = select(a > b, a, b)
-                            let cmp = builder.gt(a, b, span).map_err(|e| format!("{:?}", e))?;
-                            builder.select(cmp, a, b, span).map_err(|e| format!("{:?}", e))?
-                        } else {
-                            // umin/smin(a, b) = select(a < b, a, b)
-                            let cmp = builder.lt(a, b, span).map_err(|e| format!("{:?}", e))?;
-                            builder.select(cmp, a, b, span).map_err(|e| format!("{:?}", e))?
-                        };
+                        let node_id =
+                            if callee.contains("llvm.umax") || callee.contains("llvm.smax") {
+                                // umax/smax(a, b) = select(a > b, a, b)
+                                let cmp = builder.gt(a, b, span).map_err(|e| format!("{:?}", e))?;
+                                builder
+                                    .select(cmp, a, b, span)
+                                    .map_err(|e| format!("{:?}", e))?
+                            } else {
+                                // umin/smin(a, b) = select(a < b, a, b)
+                                let cmp = builder.lt(a, b, span).map_err(|e| format!("{:?}", e))?;
+                                builder
+                                    .select(cmp, a, b, span)
+                                    .map_err(|e| format!("{:?}", e))?
+                            };
 
                         if let Some(name) = result_name {
                             value_map.insert(name, node_id);
@@ -1451,9 +1778,10 @@ fn emit_instruction(
             Err(format!("unsupported call: {}", inst.raw))
         }
 
-        _ => {
-            Err(format!("unsupported instruction: {} (raw: {})", inst.opcode, inst.raw))
-        }
+        _ => Err(format!(
+            "unsupported instruction: {} (raw: {})",
+            inst.opcode, inst.raw
+        )),
     }
 }
 
@@ -1468,20 +1796,30 @@ fn phi_info_debug(inst: &Instruction) -> Vec<(String, String)> {
     let mut pair_parts: Vec<String> = Vec::new();
     while let Some(c) = chars.next() {
         match c {
-            '[' => { in_bracket = true; current.clear(); pair_parts.clear(); }
+            '[' => {
+                in_bracket = true;
+                current.clear();
+                pair_parts.clear();
+            }
             ']' if in_bracket => {
                 in_bracket = false;
-                if !current.trim().is_empty() { pair_parts.push(current.trim().to_string()); }
+                if !current.trim().is_empty() {
+                    pair_parts.push(current.trim().to_string());
+                }
                 incoming.push((
                     pair_parts.get(0).cloned().unwrap_or_default(),
                     pair_parts.get(1).cloned().unwrap_or_default(),
                 ));
             }
             ',' if in_bracket => {
-                if !current.trim().is_empty() { pair_parts.push(current.trim().to_string()); }
+                if !current.trim().is_empty() {
+                    pair_parts.push(current.trim().to_string());
+                }
                 current.clear();
             }
-            _ if in_bracket => { current.push(c); }
+            _ if in_bracket => {
+                current.push(c);
+            }
             _ => {}
         }
     }

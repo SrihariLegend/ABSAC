@@ -1,11 +1,12 @@
 use sir_analysis::facts::FactDatabase;
 use sir_generation::candidate::Candidate;
 use sir_nodes::{Function, NodeKind};
-use sir_semantics::binding::LiveOutSlot;
-use sir_semantics::binding::{derive_proposal_binding, ProposalBinding};
+use sir_semantics::binding::{
+    derive_proposal_binding, LiveOutBinding, LiveOutKind, LiveOutSlot, ProposalBinding,
+};
 use sir_semantics::structure::StructuralDatabase;
 use sir_types::NodeId;
-use sir_verification::application_artifact::{CheckedApplication, EndToEndVerificationArtifact};
+use sir_verification::application_artifact::{ApplicationChecker, EndToEndVerificationArtifact};
 use sir_verification::registry::VerificationStatus;
 use sir_verification::Proof;
 
@@ -32,6 +33,14 @@ impl RewriteEngine {
         Self { recipe_registry }
     }
 
+    /// Whether the configured registry enables a definition for execution.
+    /// Candidate generation remains exploratory, but the optimizer uses this
+    /// gate before theorem verification/selection so a freeze registry cannot
+    /// silently execute another family.
+    pub fn supports_definition(&self, definition: sir_transform::ids::DefinitionId) -> bool {
+        self.recipe_registry.lookup(definition).is_some()
+    }
+
     /// Execute a verified rewrite.
     ///
     /// Pipeline:
@@ -51,13 +60,19 @@ impl RewriteEngine {
         proof: &Proof,
         structural_db: &StructuralDatabase,
     ) -> Result<RewriteResult, RewriteError> {
+        // Derive the analysis facts this function's region needs for
+        // proposal binding (loop reductions, trip counts, live-outs).
+        // The production path passes its own facts via rewrite_checked;
+        // the legacy convenience entry derives them here.
+        let mut analysis = sir_analysis::manager::AnalysisManager::new();
+        analysis.run_all(function);
         self.rewrite_checked(
             function,
             candidate,
             proof,
             structural_db,
             &sir_semantics::authorization::AuthorizationDatabase::new(),
-            &FactDatabase::new(),
+            analysis.database(),
         )
     }
 
@@ -83,9 +98,15 @@ impl RewriteEngine {
         // digest before trusting the candidate), then the exact
         // database comparison (advisor directive 1: the FNV digest is
         // a diagnostic; the immutable database is the authority).
-        if !candidate.authorization.matches_function(function)
-            || !candidate.binding_digest_valid()
-            || !sir_generation::candidate::exact_binding_matches(candidate, authorization_db)
+        // Unit-test AuthorizationRefs have no issuer (documented
+        // escape in `for_unit_test`/`exact_binding_matches`); only
+        // production candidates (real AuthorizationIds) are gated.
+        let is_unit_test = candidate.authorization.authorization_id
+            == sir_semantics::authorization::AuthorizationId::UNIT_TEST;
+        if !is_unit_test
+            && (!candidate.authorization.matches_function(function)
+                || !candidate.binding_digest_valid()
+                || !sir_generation::candidate::exact_binding_matches(candidate, authorization_db))
         {
             return Err(RewriteError::RecipeFailed(
                 "candidate authorization is stale, forged, or binding digest invalid".to_string(),
@@ -107,16 +128,21 @@ impl RewriteEngine {
         //    ONE legitimate role scan) and assemble RewriteRegion.
         //    Reduction recipes refuse to rewrite without a binding;
         //    scalar recipes proceed without one.
-        let rewrite_region =
-            match binding_for_region(function, facts, &structural, authorization_db) {
-                Ok(Some(binding)) => RewriteRegion::new(structural).with_binding(binding),
-                Ok(None) => RewriteRegion::new(structural),
-                Err(binding_error) => {
-                    return Err(RewriteError::RecipeFailed(format!(
-                        "application binding refused: {binding_error}"
-                    )));
-                }
-            };
+        let rewrite_region = match binding_for_region(
+            function,
+            facts,
+            &structural,
+            authorization_db,
+            candidate.authorization.authorization_id,
+        ) {
+            Ok(Some(binding)) => RewriteRegion::new(structural).with_binding(binding),
+            Ok(None) => RewriteRegion::new(structural),
+            Err(binding_error) => {
+                return Err(RewriteError::RecipeFailed(format!(
+                    "application binding refused: {binding_error}"
+                )));
+            }
+        };
 
         // 4. Look up recipe
         let recipe = self
@@ -138,7 +164,8 @@ impl RewriteEngine {
         // recipe binds must be one of them. A recipe reaching a
         // different array (the "authorize A, rewrite B" confusion) is
         // denied here. Regions without bound bases (pure scalar) skip.
-        if let Ok(collection) = rewrite_region.collection() {
+        if let Some(binding) = &rewrite_region.binding {
+            let collection = binding.map.collection;
             let bases = &candidate.authorization.concrete.memory_bases;
             if !bases.is_empty() && !bases.contains(&collection) {
                 return Err(RewriteError::RecipeFailed(format!(
@@ -156,22 +183,50 @@ impl RewriteEngine {
         //      beyond the authorized collection.
         let application = match &rewrite_region.binding {
             Some(binding) => {
-                check_candidate_frame(function, &patch, binding, candidate)?;
+                check_candidate_frame(function, &patch, binding, candidate.strategy)?;
                 let live_out_digest = live_out_digest(&binding.live_outs);
-                let app = CheckedApplication::new(
-                    candidate.authorization.authorization_id.0,
-                    sir_semantics::authorization::function_fingerprint(function),
-                    candidate.region.0,
-                    candidate.id.0,
-                    binding.map.digest(),
+                let authorization_id = candidate.authorization.authorization_id.0;
+                let source_fingerprint =
+                    sir_semantics::authorization::function_fingerprint(function);
+                let source_region = candidate.region.0;
+                let candidate_id = candidate.id.0;
+                let definition_id = candidate.definition_id.0;
+                let role_map_digest = binding.map.digest();
+                let source_frame_digest = binding.frame.digest();
+                let candidate_frame_digest = candidate_frame_digest(&patch);
+                let assumptions_digest = assumptions_digest(candidate);
+                let theorem_issuer = sir_verification::Verifier::new();
+                let checked_theorem = theorem_issuer.bind_checked_theorem(
+                    proof.clone(),
+                    authorization_id,
+                    source_fingerprint,
+                    source_region,
+                    candidate_id,
+                    definition_id,
+                    role_map_digest,
                     live_out_digest,
+                    source_frame_digest,
+                    candidate_frame_digest,
+                    assumptions_digest,
+                );
+                let app = ApplicationChecker::issue(
+                    authorization_id,
+                    source_fingerprint,
+                    source_region,
+                    candidate_id,
+                    definition_id,
+                    role_map_digest,
+                    live_out_digest,
+                    source_frame_digest,
+                    candidate_frame_digest,
                     binding.frame.supported_conservative(),
                     true,
-                    0,
+                    assumptions_digest,
                     proof.assurance.min(VerificationStatus::SchemaChecked),
+                    checked_theorem.theorem_digest,
                     proof.obligation_digest,
                 );
-                match EndToEndVerificationArtifact::new(proof.clone(), app) {
+                match EndToEndVerificationArtifact::new(checked_theorem, app) {
                     Ok(e2e) => Some(e2e),
                     Err(mismatch) => {
                         return Err(RewriteError::RecipeFailed(format!(
@@ -279,15 +334,33 @@ fn binding_for_region(
     facts: &FactDatabase,
     structural: &sir_semantics::structure::StructuralDescription,
     authorization_db: &sir_semantics::authorization::AuthorizationDatabase,
+    authorization_id: sir_semantics::authorization::AuthorizationId,
 ) -> Result<Option<ProposalBinding>, sir_semantics::binding::BindingError> {
     if !has_reduction_roles(structural) {
         return Ok(None);
     }
-    let concrete = authorization_db
-        .for_region(structural.region)
-        .first()
-        .map(|auth| auth.concrete.clone())
-        .unwrap_or_default();
+    let concrete = if authorization_id == sir_semantics::authorization::AuthorizationId::UNIT_TEST {
+        // Legacy/unit-test entry points have no issuing database. Keep
+        // their existing default-deny behavior without weakening the
+        // production exact-id path below.
+        authorization_db
+            .for_region(structural.region)
+            .first()
+            .map(|auth| auth.concrete.clone())
+            .unwrap_or_default()
+    } else {
+        let authorization = authorization_db.authorization(authorization_id).ok_or(
+            sir_semantics::binding::BindingError::AuthorizationMismatch(
+                "authorization id was not issued by this database",
+            ),
+        )?;
+        if authorization.region != structural.region {
+            return Err(sir_semantics::binding::BindingError::AuthorizationMismatch(
+                "authorization region differs from structural region",
+            ));
+        }
+        authorization.concrete.clone()
+    };
     match derive_proposal_binding(function, facts, structural, &concrete) {
         Ok(binding) => Ok(Some(binding)),
         Err(e) => Err(e),
@@ -309,16 +382,52 @@ fn has_reduction_roles(structural: &sir_semantics::structure::StructuralDescript
 /// loops, standalone loads, or division traps, and every external
 /// input it references must be a certified live-in of the binding
 /// (reads never go beyond the authorized collection).
-fn check_candidate_frame(
+/// Check the abstract candidate frame against the source binding.
+///
+/// This is intentionally public so adversarial tests and later
+/// application-checking stages can exercise the same gate as the
+/// rewrite engine. It checks the abstract SIR candidate only; a later
+/// LLVM/vector lowering artifact must separately prove concrete load
+/// bounds and tail behavior.
+pub fn check_candidate_frame(
     function: &Function,
     patch: &ReplacementPatch,
     binding: &ProposalBinding,
-    _candidate: &Candidate,
+    strategy: sir_generation::candidate::ImplementationStrategy,
 ) -> Result<(), RewriteError> {
     use std::collections::BTreeSet;
 
     let original_ids: BTreeSet<NodeId> = function.arena.nodes().keys().copied().collect();
-    let allowed_inputs: BTreeSet<NodeId> = binding.map.live_ins.iter().copied().collect();
+    let local_ids: BTreeSet<NodeId> = patch.arena.nodes().map(|node| node.id).collect();
+    let is_any = strategy == sir_generation::candidate::ImplementationStrategy::Any;
+    let allowed_candidate_inputs: BTreeSet<NodeId> = if is_any {
+        let mut inputs = BTreeSet::from([binding.map.collection]);
+        if let Some(scalar) = binding.map.predicate_scalar {
+            inputs.insert(scalar);
+        }
+        inputs
+    } else {
+        binding.map.live_ins.iter().copied().collect()
+    };
+    let collection_width = if is_any {
+        match function
+            .get_node(binding.map.collection)
+            .map(|node| &node.ty)
+        {
+            Some(sir_types::Type::Array { length, .. }) => Some(*length),
+            _ => {
+                return Err(RewriteError::RecipeFailed(
+                    "bound collection has no fixed array extent".to_string(),
+                ));
+            }
+        }
+    } else {
+        None
+    };
+
+    if is_any {
+        check_any_patch_shape(patch, binding, collection_width.unwrap())?
+    }
 
     for node in patch.arena.nodes() {
         // Forbidden kinds: the conservative frame admits NO writes,
@@ -335,7 +444,11 @@ fn check_candidate_frame(
                 | NodeKind::Allocate { .. }
                 | NodeKind::Deallocate { .. }
                 | NodeKind::Loop { .. }
+                | NodeKind::Parameter { .. }
+                | NodeKind::Return { .. }
                 | NodeKind::Load { .. }
+                | NodeKind::ArrayAccess { .. }
+                | NodeKind::Iterator { .. }
                 | NodeKind::Div { .. }
                 | NodeKind::Rem { .. }
         );
@@ -345,17 +458,188 @@ fn check_candidate_frame(
                 node.kind
             )));
         }
+        if !node.effects.is_pure() {
+            return Err(RewriteError::RecipeFailed(
+                "candidate introduces a non-pure effect outside the abstract frame".to_string(),
+            ));
+        }
+        if is_any {
+            match &node.kind {
+                NodeKind::Pack { array } => {
+                    if binding.map.predicate_op.is_some() {
+                        return Err(RewriteError::RecipeFailed(
+                            "predicate binding requires ArrayCmpMask, not Pack".to_string(),
+                        ));
+                    }
+                    if *array != binding.map.collection {
+                        return Err(RewriteError::RecipeFailed(
+                            "candidate reads a collection other than the bound collection"
+                                .to_string(),
+                        ));
+                    }
+                    if node.ty
+                        != (sir_types::Type::BitVector {
+                            width: collection_width.unwrap(),
+                        })
+                    {
+                        return Err(RewriteError::RecipeFailed(
+                            "candidate pack extent differs from the bound collection".to_string(),
+                        ));
+                    }
+                }
+                NodeKind::ArrayCmpMask { array, scalar, op } => {
+                    if *array != binding.map.collection {
+                        return Err(RewriteError::RecipeFailed(
+                            "candidate reads a collection other than the bound collection"
+                                .to_string(),
+                        ));
+                    }
+                    if binding.map.predicate_op != Some(*op)
+                        || binding.map.predicate_scalar != Some(*scalar)
+                    {
+                        return Err(RewriteError::RecipeFailed(
+                            "candidate predicate does not match the bound operator and scalar"
+                                .to_string(),
+                        ));
+                    }
+                    if node.ty
+                        != (sir_types::Type::BitVector {
+                            width: collection_width.unwrap(),
+                        })
+                    {
+                        return Err(RewriteError::RecipeFailed(
+                            "candidate mask extent differs from the bound collection".to_string(),
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        }
         // Every external input of every candidate node must be a
         // certified live-in (collection, constants, scalar — all
         // bound by the role map). An uncertified input is an
         // over-read/over-reach and refuses the rewrite.
         for input in node.kind.input_nodes() {
-            if original_ids.contains(&input) && !allowed_inputs.contains(&input) {
+            if original_ids.contains(&input) {
+                if !allowed_candidate_inputs.contains(&input) {
+                    return Err(RewriteError::RecipeFailed(format!(
+                        "candidate references uncertified input %{}",
+                        input.0
+                    )));
+                }
+            } else if !local_ids.contains(&input) {
                 return Err(RewriteError::RecipeFailed(format!(
-                    "candidate references uncertified input %{}",
+                    "candidate contains a dangling input %{}",
                     input.0
                 )));
             }
+        }
+    }
+    Ok(())
+}
+
+/// Check the complete Any patch grammar, not merely its effects and
+/// external operands. The theorem definition describes `pack/mask != 0`;
+/// accepting an arbitrary pure detached graph would let a mutated recipe
+/// replace the source with a constant while still passing the frame gate.
+fn check_any_patch_shape(
+    patch: &ReplacementPatch,
+    binding: &ProposalBinding,
+    width: usize,
+) -> Result<(), RewriteError> {
+    if patch.arena.len() != 3 || patch.replacements.len() != 1 || patch.roots.len() != 3 {
+        return Err(RewriteError::RecipeFailed(
+            "Any candidate graph is not exactly pack/mask, zero, and nonzero".to_string(),
+        ));
+    }
+
+    let target = binding
+        .live_outs
+        .iter()
+        .filter_map(|observable| match &observable.binding {
+            LiveOutBinding::Reconstructed { .. } => {
+                let site = observable.use_site?;
+                Some(match observable.kind {
+                    LiveOutKind::WholeValue => binding.map.loop_node,
+                    LiveOutKind::Slot(_) => site,
+                })
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let [target] = target.as_slice() else {
+        return Err(RewriteError::RecipeFailed(
+            "Any binding does not expose exactly one reconstructed target".to_string(),
+        ));
+    };
+    let replacement = &patch.replacements[0];
+    if replacement.old != *target || !patch.roots.contains(&replacement.new) {
+        return Err(RewriteError::RecipeFailed(
+            "Any patch target is not the bound live-out site".to_string(),
+        ));
+    }
+
+    let root = patch.arena.get(replacement.new).ok_or_else(|| {
+        RewriteError::RecipeFailed("Any patch root is missing from its detached arena".to_string())
+    })?;
+    let NodeKind::Ne { lhs, rhs } = &root.kind else {
+        return Err(RewriteError::RecipeFailed(
+            "Any patch root is not a nonzero comparison".to_string(),
+        ));
+    };
+    if root.ty != sir_types::Type::Bool {
+        return Err(RewriteError::RecipeFailed(
+            "Any patch root is not Bool".to_string(),
+        ));
+    }
+
+    let packed_id = crate::local_id::LocalNodeId::new(lhs.as_u64());
+    let zero_id = crate::local_id::LocalNodeId::new(rhs.as_u64());
+    let packed = patch.arena.get(packed_id).ok_or_else(|| {
+        RewriteError::RecipeFailed("Any nonzero comparison has no packed operand".to_string())
+    })?;
+    let zero = patch.arena.get(zero_id).ok_or_else(|| {
+        RewriteError::RecipeFailed("Any nonzero comparison has no zero operand".to_string())
+    })?;
+    let expected_nodes: std::collections::BTreeSet<_> = patch.roots.iter().copied().collect();
+    let actual_nodes: std::collections::BTreeSet<_> = patch.arena.inner().keys().copied().collect();
+    if actual_nodes != expected_nodes
+        || !expected_nodes.contains(&packed_id)
+        || !expected_nodes.contains(&zero_id)
+    {
+        return Err(RewriteError::RecipeFailed(
+            "Any patch contains an unreachable or duplicate-shape node".to_string(),
+        ));
+    }
+    if zero.ty != (sir_types::Type::BitVector { width })
+        || !matches!(&zero.kind, NodeKind::Constant(data) if data.as_u64() == Some(0))
+    {
+        return Err(RewriteError::RecipeFailed(
+            "Any comparison operand is not a zero bit-vector of the bound extent".to_string(),
+        ));
+    }
+    if packed.ty != (sir_types::Type::BitVector { width }) {
+        return Err(RewriteError::RecipeFailed(
+            "Any packed operand has the wrong extent".to_string(),
+        ));
+    }
+    match (
+        &packed.kind,
+        binding.map.predicate_op,
+        binding.map.predicate_scalar,
+    ) {
+        (NodeKind::Pack { array }, None, None) if *array == binding.map.collection => {}
+        (
+            NodeKind::ArrayCmpMask { array, scalar, op },
+            Some(expected_op),
+            Some(expected_scalar),
+        ) if *array == binding.map.collection
+            && *scalar == expected_scalar
+            && *op == expected_op => {}
+        _ => {
+            return Err(RewriteError::RecipeFailed(
+                "Any packed operand does not match the bound collection predicate".to_string(),
+            ));
         }
     }
     Ok(())
@@ -370,11 +654,30 @@ fn live_out_digest(live_outs: &[LiveOutSlot]) -> u64 {
         .iter()
         .map(|slot| {
             format!(
-                "kind={:?}|binding={:?}|site={:?}",
-                slot.kind, slot.binding, slot.use_site
+                "kind={:?}|binding={:?}|closure={:?}|site={:?}",
+                slot.kind, slot.binding, slot.closure, slot.use_site
             )
         })
         .collect();
     parts.sort();
     sir_verification::artifact::fnv1a64(parts.join(";").as_bytes())
+}
+
+/// Digest the exact detached candidate graph after the candidate-frame
+/// checker has discharged it. This binds application artifacts to the
+/// graph that was actually checked, not merely to a candidate ID.
+fn candidate_frame_digest(patch: &ReplacementPatch) -> u64 {
+    sir_verification::artifact::fnv1a64(format!("{:?}", patch).as_bytes())
+}
+
+/// Assumptions are set-valued; sort their debug forms before digesting
+/// so artifact identity is deterministic across HashSet iteration order.
+fn assumptions_digest(candidate: &Candidate) -> u64 {
+    let mut assumptions: Vec<String> = candidate
+        .assumptions
+        .iter()
+        .map(|assumption| format!("{:?}", assumption))
+        .collect();
+    assumptions.sort();
+    sir_verification::artifact::fnv1a64(assumptions.join("|").as_bytes())
 }

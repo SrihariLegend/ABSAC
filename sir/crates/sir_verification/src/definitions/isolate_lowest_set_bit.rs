@@ -54,7 +54,10 @@ impl TransformationDefinition for IsolateLowestSetBitDefinition {
         // The candidate expression: `x & (0 - x)` == `x & -x`.
         let candidate_expr = SemanticExpression::BitwiseAnd(
             Box::new(x.clone()),
-            Box::new(SemanticExpression::Subtract(Box::new(zero), Box::new(x.clone()))),
+            Box::new(SemanticExpression::Subtract(
+                Box::new(zero),
+                Box::new(x.clone()),
+            )),
         );
 
         ProofObligation {

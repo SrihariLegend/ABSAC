@@ -23,13 +23,13 @@
 //! scanned; it is fail-closed — any role that cannot be bound
 //! concretely is a `BindingError`, never a guessed value.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use sir_analysis::facts::FactDatabase;
 use sir_analysis::graph;
 use sir_nodes::{Function, NodeKind};
 use sir_transform::roles::RegionRoles;
-use sir_types::{ConstantData, Effects, NodeId, RegionId};
+use sir_types::{ConstantData, Effects, IntegerWidth, NodeId, OverflowBehavior, RegionId, Type};
 
 use crate::authorization::{ConcreteFacts, IntegerSemantics};
 use crate::structure::StructuralDescription;
@@ -73,6 +73,13 @@ pub enum BindingError {
     /// accumulators in one loop) and the concept does not trace to
     /// exactly one recurrence. No heuristic selection permitted.
     AmbiguousRole(&'static str),
+    /// A supplied binding differs from a fresh canonical derivation.
+    /// Validation must replay the binder instead of trusting a copied
+    /// role map or digest.
+    BindingMismatch { expected: u64, supplied: u64 },
+    /// The concrete authorization requested by the application is not
+    /// the issuer for this structural region.
+    AuthorizationMismatch(&'static str),
 }
 
 impl std::fmt::Display for BindingError {
@@ -96,6 +103,13 @@ impl std::fmt::Display for BindingError {
                     f,
                     "role '{role}' is ambiguous: no unique concept-to-recurrence identity"
                 )
+            }
+            BindingError::BindingMismatch { expected, supplied } => write!(
+                f,
+                "proposal binding differs from canonical derivation: expected {expected:#x}, supplied {supplied:#x}"
+            ),
+            BindingError::AuthorizationMismatch(reason) => {
+                write!(f, "authorization does not bind this region: {reason}")
             }
         }
     }
@@ -137,6 +151,14 @@ pub struct UseClosureEvidence {
     /// Direct dataflow users of the loop node found in this function
     /// version (the complete observable boundary).
     pub direct_users: usize,
+    /// Every transparent downstream node reached from the classified
+    /// projection, including that projection. This records the closure
+    /// grammar actually inspected rather than only its first edge.
+    pub closure_nodes: Vec<NodeId>,
+    /// Tuple slots observed by the closure. A dead slot is dead relative
+    /// to this explicit observed-slot set, not merely because no first
+    /// consumer was recognized.
+    pub observed_slots: Vec<usize>,
     /// Fingerprint of the exact function version checked.
     pub function_fingerprint: u64,
 }
@@ -159,13 +181,19 @@ pub enum LiveOutBinding {
 /// One classified observable of the loop result. `use_site` is the
 /// node whose value the candidate replaces (the recognized projection
 /// or the `Return`) — the ONLY node a recipe may target for this
-/// live-out. Downstream users need no further analysis: the
-/// replacement is value-identical (`replace_all_uses`), so every
-/// downstream consumer observes an equal value.
+/// live-out. Downstream users are recorded in `UseClosureEvidence`
+/// for dead sibling slots; the replacement is value-identical
+/// (`replace_all_uses`), so every transparent downstream consumer
+/// observes an equal value.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LiveOutSlot {
     pub kind: LiveOutKind,
     pub binding: LiveOutBinding,
+    /// Complete transparent downstream closure checked from the
+    /// recognized observable boundary. This is present for both live
+    /// and dead slots; `Dead` additionally embeds the same evidence in
+    /// its binding state for version-specific replay.
+    pub closure: Option<UseClosureEvidence>,
     /// The recognized use site the rewrite replaces. `None` for Dead
     /// slots (nothing to replace).
     pub use_site: Option<NodeId>,
@@ -174,6 +202,26 @@ pub struct LiveOutSlot {
 // ─────────────────────────────────────────────────────────────────
 // Frame condition
 // ─────────────────────────────────────────────────────────────────
+
+/// Provenance for the exact counted-loop contract consumed by the
+/// first forward reduction candidate. This is stronger than a generic
+/// `is_finite` loop fact: it binds the start, comparison direction,
+/// bound, stride, integer semantics, and collection extent together.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TripCountEvidence {
+    pub start: NodeId,
+    pub start_value: u64,
+    pub bound: NodeId,
+    pub bound_value: usize,
+    pub comparison: sir_nodes::CmpOperator,
+    pub stride: i64,
+    pub extent: usize,
+    pub integer_width: IntegerWidth,
+    pub signed: bool,
+    pub overflow: OverflowBehavior,
+    pub zero_trip_possible: bool,
+    pub normal_termination: bool,
+}
 
 /// The application frame: everything a rewrite must preserve beyond
 /// the theorem's subject. A theorem proves value equality; the frame
@@ -196,6 +244,9 @@ pub struct FrameCondition {
     pub single_normal_exit: bool,
     /// Number of observable outputs of the loop.
     pub output_count: usize,
+    /// Exact counted-loop evidence used to establish `terminates` and
+    /// prevent partial scans, reverse scans, wraparound, or over-read.
+    pub trip_count: Option<TripCountEvidence>,
 }
 
 impl FrameCondition {
@@ -203,6 +254,13 @@ impl FrameCondition {
     /// (advisor directive): pure loop, read-only nonvolatile memory,
     /// no atomics, no stores, no calls, no unmodeled traps, single
     /// normal exit, known finite iteration domain.
+    /// Digest of every source-frame field, including counted-loop
+    /// provenance. This is an identity key for application artifacts,
+    /// never a substitute for deriving the frame from the current SIR.
+    pub fn digest(&self) -> u64 {
+        crate::binding::fnv1a64(format!("{:?}", self).as_bytes())
+    }
+
     pub fn supported_conservative(&self) -> bool {
         !self.source_writes
             && !self.has_volatile_or_atomic
@@ -210,6 +268,11 @@ impl FrameCondition {
             && !self.possible_traps
             && self.terminates
             && self.single_normal_exit
+            && self
+                .trip_count
+                .as_ref()
+                .map(|evidence| evidence.normal_termination)
+                .unwrap_or(false)
     }
 }
 
@@ -236,7 +299,8 @@ pub struct ReductionRoleMap {
     pub start: Option<NodeId>,
     /// The loop bound (the termination comparison's non-induction side).
     pub bound: Option<NodeId>,
-    /// Iteration stride (only ±1 supported; anything else refuses).
+    /// Iteration stride (only forward +1 is supported by the first
+    /// candidate; reverse traversal refuses).
     pub stride: i64,
     /// The element predicate / map input combined into the accumulator.
     pub predicate: Option<NodeId>,
@@ -269,14 +333,24 @@ impl ReductionRoleMap {
     /// from the map before replay.
     pub fn digest(&self) -> u64 {
         let mut parts: Vec<String> = vec![
+            format!("region={}", self.region.0),
             format!("loop={}", self.loop_node.0),
             format!("collection={}", self.collection.0),
             format!("element_access={}", self.element_access.0),
-            format!("reduction_position={}", self.reduction_position),
-            format!("recurrence={}", self.recurrence),
-            format!("effects={:?}", self.effects),
+            format!("induction={:?}", self.induction),
+            format!("start={:?}", self.start),
+            format!("bound={:?}", self.bound),
+            format!("stride={}", self.stride),
+            format!("predicate={:?}", self.predicate),
             format!("predicate_op={:?}", self.predicate_op),
             format!("predicate_scalar={:?}", self.predicate_scalar),
+            format!("accumulator={}", self.accumulator.0),
+            format!("identity={:?}", self.identity),
+            format!("reduction_position={}", self.reduction_position),
+            format!("live_ins={:?}", self.live_ins),
+            format!("recurrence={}", self.recurrence),
+            format!("effects={:?}", self.effects),
+            format!("integer_semantics={:?}", self.integer_semantics),
         ];
         parts.sort();
         fnv1a64(parts.join("|").as_bytes())
@@ -301,43 +375,48 @@ struct RegionReductionRoles {
     predicate_scalar: Option<NodeId>,
 }
 
-fn extract_reduction_roles(structural: &StructuralDescription) -> Option<RegionReductionRoles> {
+fn extract_reduction_roles(
+    structural: &StructuralDescription,
+) -> Result<Option<RegionReductionRoles>, BindingError> {
+    let mut found = None;
     for role in &structural.roles {
-        match role {
+        let candidate = match role {
             RegionRoles::BooleanCollectionReduction {
                 collection,
                 accumulator,
                 result,
-            } => {
-                return Some(RegionReductionRoles {
-                    region: structural.region,
-                    collection: *collection,
-                    accumulator: *accumulator,
-                    loop_node: *result,
-                    predicate_operator: None,
-                    predicate_scalar: None,
-                });
-            }
+            } => Some(RegionReductionRoles {
+                region: structural.region,
+                collection: *collection,
+                accumulator: *accumulator,
+                loop_node: *result,
+                predicate_operator: None,
+                predicate_scalar: None,
+            }),
             RegionRoles::PredicateCollectionReduction {
                 collection,
                 scalar,
                 operator,
                 accumulator,
                 result,
-            } => {
-                return Some(RegionReductionRoles {
-                    region: structural.region,
-                    collection: *collection,
-                    accumulator: *accumulator,
-                    loop_node: *result,
-                    predicate_operator: Some(*operator),
-                    predicate_scalar: Some(*scalar),
-                });
+            } => Some(RegionReductionRoles {
+                region: structural.region,
+                collection: *collection,
+                accumulator: *accumulator,
+                loop_node: *result,
+                predicate_operator: Some(*operator),
+                predicate_scalar: Some(*scalar),
+            }),
+            _ => None,
+        };
+        if let Some(candidate) = candidate {
+            if found.is_some() {
+                return Err(BindingError::AmbiguousRole("reduction role"));
             }
-            _ => continue,
+            found = Some(candidate);
         }
     }
-    None
+    Ok(found)
 }
 
 /// The integer value of an integer constant node, if any.
@@ -350,9 +429,9 @@ fn constant_i64(function: &Function, id: NodeId) -> Option<i64> {
 
 /// Locate the loop's induction counter. FORWARD-ONLY for the first
 /// vertical slice: a carried variable whose paired output is
-/// `carry + 1`. A `-1` role map is representable, but every current
-/// candidate implements forward reduction — a reverse traversal must
-/// refuse here rather than trust the candidate to match.
+/// `carry + 1`. Every current candidate implements forward reduction;
+/// a reverse traversal must refuse here rather than trust the candidate
+/// to match.
 struct Induction {
     carry: NodeId,
     stride: i64,
@@ -362,23 +441,156 @@ fn find_induction(
     function: &Function,
     outputs: &[NodeId],
     carried_inputs: &[NodeId],
-) -> Option<Induction> {
+) -> Result<Induction, BindingError> {
+    let mut candidates = Vec::new();
     for (&carry, &output) in carried_inputs.iter().zip(outputs.iter()) {
-        let node = function.get_node(output)?;
+        let Some(node) = function.get_node(output) else {
+            continue;
+        };
         let step: Option<i64> = match &node.kind {
             NodeKind::Add { lhs, rhs } if *lhs == carry => constant_i64(function, *rhs),
             _ => None,
         };
         if let Some(step) = step {
-            if step.abs() == 1 {
-                return Some(Induction {
+            if step == 1 {
+                candidates.push(Induction {
                     carry,
                     stride: step,
                 });
             }
         }
     }
-    None
+    match candidates.as_slice() {
+        [] => Err(BindingError::UnsupportedShape(
+            "no unit-stride induction counter (stride contract)",
+        )),
+        [induction] => Ok(Induction {
+            carry: induction.carry,
+            stride: induction.stride,
+        }),
+        _ => Err(BindingError::AmbiguousRole("induction")),
+    }
+}
+
+/// Prove the exact forward counted-loop contract required by the
+/// first reduction candidate. The generic loop analysis is deliberately
+/// not authoritative here: it does not prove comparison direction,
+/// zero-based start, full collection extent, or wraparound safety.
+fn derive_trip_count(
+    function: &Function,
+    facts: &FactDatabase,
+    loop_node: NodeId,
+    termination: NodeId,
+    induction: &Induction,
+    bound: NodeId,
+    collection: NodeId,
+) -> Result<TripCountEvidence, BindingError> {
+    let loop_fact = facts
+        .loops
+        .get(&loop_node)
+        .ok_or(BindingError::UnsupportedShape(
+            "region loop has no loop facts",
+        ))?;
+    if !loop_fact.is_finite {
+        return Err(BindingError::UnsupportedShape(
+            "counted loop is not proven finite",
+        ));
+    }
+
+    let term = function
+        .get_node(termination)
+        .ok_or(BindingError::UnsupportedShape("termination node missing"))?;
+    match &term.kind {
+        NodeKind::Lt { lhs, rhs } if *lhs == induction.carry && *rhs == bound => {}
+        _ => {
+            return Err(BindingError::UnsupportedShape(
+                "forward reduction requires induction < bound termination",
+            ));
+        }
+    }
+
+    let collection_length = match function.get_node(collection).map(|node| &node.ty) {
+        Some(Type::Array { length, .. }) => *length,
+        _ => {
+            return Err(BindingError::UnsupportedShape(
+                "collection has no fixed extent for counted-loop proof",
+            ));
+        }
+    };
+    let start_value = constant_i64(function, induction.carry)
+        .filter(|value| *value >= 0)
+        .map(|value| value as u64)
+        .ok_or(BindingError::UnsupportedShape(
+            "induction start is not a non-negative constant",
+        ))?;
+    if start_value != 0 {
+        return Err(BindingError::UnsupportedShape(
+            "forward reduction requires zero-based induction start",
+        ));
+    }
+    let bound_value = constant_i64(function, bound)
+        .filter(|value| *value >= 0)
+        .and_then(|value| usize::try_from(value).ok())
+        .ok_or(BindingError::UnsupportedShape(
+            "induction bound is not a non-negative constant",
+        ))?;
+    if bound_value != collection_length {
+        return Err(BindingError::UnsupportedShape(
+            "counted loop does not cover the complete collection extent",
+        ));
+    }
+
+    let induction_node =
+        function
+            .get_node(induction.carry)
+            .ok_or(BindingError::UnsupportedShape(
+                "induction start node missing",
+            ))?;
+    let bound_node = function
+        .get_node(bound)
+        .ok_or(BindingError::UnsupportedShape(
+            "induction bound node missing",
+        ))?;
+    let (integer_width, signed, overflow) = match (&induction_node.ty, &bound_node.ty) {
+        (
+            Type::Integer {
+                width,
+                signed,
+                overflow,
+            },
+            Type::Integer {
+                width: bound_width,
+                signed: bound_signed,
+                overflow: bound_overflow,
+            },
+        ) if width == bound_width && signed == bound_signed && overflow == bound_overflow => {
+            (*width, *signed, *overflow)
+        }
+        _ => {
+            return Err(BindingError::UnsupportedShape(
+                "induction and bound integer semantics differ",
+            ));
+        }
+    };
+    if signed {
+        return Err(BindingError::UnsupportedShape(
+            "forward reduction requires unsigned induction semantics",
+        ));
+    }
+    Ok(TripCountEvidence {
+        start: induction.carry,
+        start_value,
+        bound,
+        bound_value,
+        comparison: sir_nodes::CmpOperator::Lt,
+        stride: induction.stride,
+        extent: collection_length,
+        integer_width,
+        signed,
+        overflow,
+        zero_trip_possible: collection_length == 0,
+        normal_termination: true,
+    })
 }
 
 /// Build the frame condition by scanning the loop subgraph for every
@@ -392,6 +604,7 @@ fn build_frame(
     effects: Effects,
     output_count: usize,
     concrete: &ConcreteFacts,
+    trip_count: Option<TripCountEvidence>,
 ) -> FrameCondition {
     let mut has_calls = false;
     let mut possible_traps = false;
@@ -408,8 +621,9 @@ fn build_frame(
         }
     }
 
-    let has_volatile_or_atomic =
-        effects.contains(sir_types::Effects::ATOMIC) || effects.contains(sir_types::Effects::IO);
+    let has_volatile_or_atomic = effects.contains(sir_types::Effects::ATOMIC)
+        || effects.contains(sir_types::Effects::VOLATILE)
+        || effects.contains(sir_types::Effects::IO);
 
     FrameCondition {
         source_reads: concrete.memory_bases.clone(),
@@ -421,15 +635,33 @@ fn build_frame(
             .loops
             .get(&loop_node)
             .map(|f| f.is_finite)
-            .unwrap_or(false),
+            .unwrap_or(false)
+            && trip_count.is_some(),
         single_normal_exit: true,
         output_count,
+        trip_count,
     }
 }
 
 // ─────────────────────────────────────────────────────────────────
 // Complete use-closure live-out classification
 // ─────────────────────────────────────────────────────────────────
+
+/// Walk every transparent downstream consumer of a recognized projection.
+/// Equality replacement is valid for these consumers because the recipe
+/// replaces the projection value itself; an unknown direct loop use still
+/// refuses before this walk is entered.
+fn transitive_use_closure(function: &Function, root: NodeId) -> Vec<NodeId> {
+    let mut visited = BTreeSet::new();
+    let mut worklist = vec![root];
+    while let Some(node) = worklist.pop() {
+        if !visited.insert(node) {
+            continue;
+        }
+        worklist.extend(graph::users(node, &function.arena));
+    }
+    visited.into_iter().collect()
+}
 
 fn classified_slots(
     output_count: usize,
@@ -444,6 +676,7 @@ fn classified_slots(
             binding: LiveOutBinding::Dead {
                 evidence: evidence.clone(),
             },
+            closure: Some(evidence.clone()),
             use_site: None,
         })
         .collect();
@@ -452,6 +685,7 @@ fn classified_slots(
         binding: LiveOutBinding::Reconstructed {
             slot: reduction_slot,
         },
+        closure: Some(evidence),
         use_site: Some(projection),
     });
     slots.sort_by_key(|s| match s.kind {
@@ -498,12 +732,17 @@ pub fn classify_live_outs(
         // exact function version.
         let evidence = UseClosureEvidence {
             direct_users: 0,
+            closure_nodes: Vec::new(),
+            observed_slots: Vec::new(),
             function_fingerprint: crate::authorization::function_fingerprint(function),
         };
         if outputs.len() == 1 {
             return Ok(vec![LiveOutSlot {
                 kind: LiveOutKind::WholeValue,
-                binding: LiveOutBinding::Dead { evidence },
+                binding: LiveOutBinding::Dead {
+                    evidence: evidence.clone(),
+                },
+                closure: Some(evidence),
                 use_site: None,
             }]);
         }
@@ -513,6 +752,7 @@ pub fn classify_live_outs(
                 binding: LiveOutBinding::Dead {
                     evidence: evidence.clone(),
                 },
+                closure: Some(evidence.clone()),
                 use_site: None,
             })
             .collect());
@@ -544,6 +784,12 @@ pub fn classify_live_outs(
                     binding: LiveOutBinding::Reconstructed {
                         slot: map.reduction_position,
                     },
+                    closure: Some(UseClosureEvidence {
+                        direct_users: users.len(),
+                        closure_nodes: transitive_use_closure(function, map.loop_node),
+                        observed_slots: vec![map.reduction_position],
+                        function_fingerprint: crate::authorization::function_fingerprint(function),
+                    }),
                     use_site: Some(use_site),
                 }])
             } else {
@@ -565,6 +811,8 @@ pub fn classify_live_outs(
             if slot == map.reduction_position {
                 let evidence = UseClosureEvidence {
                     direct_users: users.len(),
+                    closure_nodes: transitive_use_closure(function, use_site),
+                    observed_slots: vec![slot],
                     function_fingerprint: crate::authorization::function_fingerprint(function),
                 };
                 Ok(classified_slots(outputs.len(), slot, evidence, use_site))
@@ -582,6 +830,8 @@ pub fn classify_live_outs(
             if *index == map.reduction_position {
                 let evidence = UseClosureEvidence {
                     direct_users: users.len(),
+                    closure_nodes: transitive_use_closure(function, use_site),
+                    observed_slots: vec![*index],
                     function_fingerprint: crate::authorization::function_fingerprint(function),
                 };
                 Ok(classified_slots(outputs.len(), *index, evidence, use_site))
@@ -630,6 +880,27 @@ impl ProposalBinding {
     }
 }
 
+/// Validate a supplied binding by re-running the canonical binder on
+/// the current function and comparing the complete artifact. A digest
+/// is diagnostic only; equality is checked after reconstruction.
+pub fn validate_proposal_binding(
+    function: &Function,
+    facts: &FactDatabase,
+    structural: &StructuralDescription,
+    concrete: &ConcreteFacts,
+    supplied: &ProposalBinding,
+) -> Result<(), BindingError> {
+    let expected = derive_proposal_binding(function, facts, structural, concrete)?;
+    if expected == *supplied {
+        Ok(())
+    } else {
+        Err(BindingError::BindingMismatch {
+            expected: expected.digest(),
+            supplied: supplied.digest(),
+        })
+    }
+}
+
 /// Derive the full proposal binding for a reduction region:
 /// role map + complete live-out classification + frame condition.
 ///
@@ -643,7 +914,7 @@ pub fn derive_proposal_binding(
     concrete: &ConcreteFacts,
 ) -> Result<ProposalBinding, BindingError> {
     // 1. Roles.
-    let roles = extract_reduction_roles(structural).ok_or(BindingError::NoRoles)?;
+    let roles = extract_reduction_roles(structural)?.ok_or(BindingError::NoRoles)?;
 
     // 2. Loop shape.
     let loop_node_kind = function
@@ -682,11 +953,18 @@ pub fn derive_proposal_binding(
         .filter(|r| !crate::authorization::is_unit_counter(function, r))
         .collect();
     let reduction = match roles.accumulator {
-        Some(acc) => non_counter
-            .iter()
-            .copied()
-            .find(|r| r.variable == acc)
-            .ok_or(BindingError::NoReduction)?,
+        Some(acc) => {
+            let matches: Vec<_> = non_counter
+                .iter()
+                .copied()
+                .filter(|r| r.variable == acc)
+                .collect();
+            match matches.as_slice() {
+                [reduction] => *reduction,
+                [] => return Err(BindingError::NoReduction),
+                _ => return Err(BindingError::AmbiguousRole("accumulator")),
+            }
+        }
         None => {
             if non_counter.len() != 1 {
                 return Err(BindingError::AmbiguousRole("accumulator"));
@@ -707,16 +985,22 @@ pub fn derive_proposal_binding(
     }
 
     // 4. Reduction position (the recurrence's output in the tuple).
-    let reduction_position = carried_inputs
+    let reduction_positions: Vec<usize> = carried_inputs
         .iter()
-        .position(|c| *c == reduction.variable)
-        .ok_or(BindingError::UnsupportedShape(
-            "reduction carry not among loop carried inputs",
-        ))?;
+        .enumerate()
+        .filter_map(|(position, carry)| (*carry == reduction.variable).then_some(position))
+        .collect();
+    let reduction_position = match reduction_positions.as_slice() {
+        [position] => *position,
+        [] => {
+            return Err(BindingError::UnsupportedShape(
+                "reduction carry not among loop carried inputs",
+            ));
+        }
+        _ => return Err(BindingError::AmbiguousRole("reduction position")),
+    };
     // 5. Induction counter (unit stride contract).
-    let induction = find_induction(function, &outputs, &carried_inputs).ok_or(
-        BindingError::UnsupportedShape("no unit-stride induction counter (stride contract)"),
-    )?;
+    let induction = find_induction(function, &outputs, &carried_inputs)?;
 
     // 6. Bound: the termination comparison must test the induction
     //    counter (its carried value is the current index) against
@@ -731,30 +1015,44 @@ pub fn derive_proposal_binding(
         ));
     }
     let bound = if term_inputs[0] == induction.carry {
-        Some(term_inputs[1])
+        term_inputs[1]
     } else if term_inputs[1] == induction.carry {
-        Some(term_inputs[0])
+        term_inputs[0]
     } else {
         return Err(BindingError::UnsupportedShape(
             "termination does not compare the induction counter",
         ));
     };
+    if bound == induction.carry {
+        return Err(BindingError::AmbiguousRole("bound"));
+    }
+    let trip_count = derive_trip_count(
+        function,
+        facts,
+        roles.loop_node,
+        termination,
+        &induction,
+        bound,
+        roles.collection,
+    )?;
 
     // 7. Element access bound to the collection.
-    let mut element_access: Option<NodeId> = None;
+    let mut element_accesses = Vec::new();
     for node_id in body.iter().copied() {
         let Some(node) = function.get_node(node_id) else {
             continue;
         };
         match &node.kind {
-            NodeKind::ArrayAccess { base, .. } if *base == roles.collection => {
-                element_access = Some(node.id);
+            NodeKind::ArrayAccess { base, index }
+                if *base == roles.collection && *index == induction.carry =>
+            {
+                element_accesses.push(node.id);
             }
             NodeKind::Load { ptr } => {
                 if let Some(ptr_node) = function.get_node(*ptr) {
-                    if let NodeKind::ArrayAccess { base, .. } = ptr_node.kind {
-                        if base == roles.collection {
-                            element_access = Some(node.id);
+                    if let NodeKind::ArrayAccess { base, index } = ptr_node.kind {
+                        if base == roles.collection && index == induction.carry {
+                            element_accesses.push(node.id);
                         }
                     }
                 }
@@ -762,9 +1060,15 @@ pub fn derive_proposal_binding(
             _ => {}
         }
     }
-    let element_access = element_access.ok_or(BindingError::UnsupportedShape(
-        "no element access bound to the collection",
-    ))?;
+    let element_access = match element_accesses.as_slice() {
+        [element_access] => *element_access,
+        [] => {
+            return Err(BindingError::UnsupportedShape(
+                "no element access bound to the collection",
+            ));
+        }
+        _ => return Err(BindingError::AmbiguousRole("element access")),
+    };
 
     // 8. Identity: the accumulator's carried input must be a constant.
     let identity_carry = carried_inputs
@@ -818,19 +1122,44 @@ pub fn derive_proposal_binding(
     let (predicate_op, predicate_scalar) = match (roles.predicate_operator, roles.predicate_scalar)
     {
         (Some(op_node), Some(scalar)) => {
-            let op = match function.get_node(op_node).map(|n| &n.kind) {
-                Some(sir_nodes::NodeKind::Eq { .. }) => sir_nodes::CmpOperator::Eq,
-                Some(sir_nodes::NodeKind::Ne { .. }) => sir_nodes::CmpOperator::Ne,
-                Some(sir_nodes::NodeKind::Lt { .. }) => sir_nodes::CmpOperator::Lt,
-                Some(sir_nodes::NodeKind::Le { .. }) => sir_nodes::CmpOperator::Le,
-                Some(sir_nodes::NodeKind::Gt { .. }) => sir_nodes::CmpOperator::Gt,
-                Some(sir_nodes::NodeKind::Ge { .. }) => sir_nodes::CmpOperator::Ge,
+            let op_node_ref = function
+                .get_node(op_node)
+                .ok_or(BindingError::UnsupportedShape(
+                    "predicate operator node missing",
+                ))?;
+            let op = match &op_node_ref.kind {
+                sir_nodes::NodeKind::Eq { .. } => sir_nodes::CmpOperator::Eq,
+                sir_nodes::NodeKind::Ne { .. } => sir_nodes::CmpOperator::Ne,
+                sir_nodes::NodeKind::Lt { .. } => sir_nodes::CmpOperator::Lt,
+                sir_nodes::NodeKind::Le { .. } => sir_nodes::CmpOperator::Le,
+                sir_nodes::NodeKind::Gt { .. } => sir_nodes::CmpOperator::Gt,
+                sir_nodes::NodeKind::Ge { .. } => sir_nodes::CmpOperator::Ge,
                 _ => {
                     return Err(BindingError::UnsupportedShape(
                         "predicate operator node is not a comparison",
                     ));
                 }
             };
+            let predicate_inputs = op_node_ref.kind.input_nodes();
+            if predicate_inputs.len() != 2
+                || predicate_inputs[0] != element_access
+                || predicate_inputs[1] != scalar
+            {
+                return Err(BindingError::UnsupportedShape(
+                    "predicate operator is not bound to the element access and scalar",
+                ));
+            }
+            if scalar == roles.collection
+                || scalar == roles.loop_node
+                || scalar == induction.carry
+                || body.contains(&scalar)
+                || outputs.contains(&scalar)
+                || !live_ins.contains(&scalar)
+            {
+                return Err(BindingError::UnsupportedShape(
+                    "predicate scalar is not a stable live-in",
+                ));
+            }
             (Some(op), Some(scalar))
         }
         _ => (None, None),
@@ -844,7 +1173,7 @@ pub fn derive_proposal_binding(
         element_access,
         induction: Some(induction.carry),
         start: Some(induction.carry),
-        bound,
+        bound: Some(bound),
         stride: induction.stride,
         predicate: Some(reduction.invariant_value),
         predicate_op,
@@ -868,6 +1197,7 @@ pub fn derive_proposal_binding(
         map.effects,
         outputs.len(),
         concrete,
+        Some(trip_count),
     );
     if !frame.supported_conservative() {
         return Err(BindingError::FrameUnsupported("conservative contract"));

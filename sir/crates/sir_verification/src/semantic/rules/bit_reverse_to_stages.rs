@@ -51,11 +51,17 @@ fn swap_stage(x: SemanticExpression, m: u64, s: u64) -> SemanticExpression {
     let shift_e = mask(s);
     SemanticExpression::BitwiseOr(
         Box::new(SemanticExpression::ShiftLeft(
-            Box::new(SemanticExpression::BitwiseAnd(Box::new(x.clone()), Box::new(mask_e.clone()))),
+            Box::new(SemanticExpression::BitwiseAnd(
+                Box::new(x.clone()),
+                Box::new(mask_e.clone()),
+            )),
             Box::new(shift_e.clone()),
         )),
         Box::new(SemanticExpression::BitwiseAnd(
-            Box::new(SemanticExpression::ShiftRight(Box::new(x), Box::new(shift_e))),
+            Box::new(SemanticExpression::ShiftRight(
+                Box::new(x),
+                Box::new(shift_e),
+            )),
             Box::new(mask_e),
         )),
     )

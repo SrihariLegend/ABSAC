@@ -53,11 +53,17 @@ impl TransformationDefinition for ByteSwapDefinition {
 
         let candidate_expr = SemanticExpression::BitwiseOr(
             Box::new(SemanticExpression::ShiftLeft(
-                Box::new(SemanticExpression::BitwiseAnd(Box::new(x.clone()), Box::new(mask.clone()))),
+                Box::new(SemanticExpression::BitwiseAnd(
+                    Box::new(x.clone()),
+                    Box::new(mask.clone()),
+                )),
                 Box::new(eight.clone()),
             )),
             Box::new(SemanticExpression::BitwiseAnd(
-                Box::new(SemanticExpression::ShiftRight(Box::new(x.clone()), Box::new(eight))),
+                Box::new(SemanticExpression::ShiftRight(
+                    Box::new(x.clone()),
+                    Box::new(eight),
+                )),
                 Box::new(mask),
             )),
         );

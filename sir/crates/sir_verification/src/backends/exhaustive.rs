@@ -10,9 +10,9 @@
 
 use crate::errors::{RejectReason, UnknownReason};
 use crate::obligation::ProofObligation;
+use crate::registry::VerificationStatus;
 use crate::semantic::interpreter::Interpreter;
 use crate::{Proof, ProofStep, VerificationBackend, VerificationLimits, VerificationResult};
-use crate::registry::VerificationStatus;
 
 /// Exhaustive verification via concrete enumeration.
 ///

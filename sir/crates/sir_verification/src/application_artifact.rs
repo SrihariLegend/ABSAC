@@ -1,184 +1,360 @@
-//! CheckedApplication and EndToEndVerificationArtifact (advisor:
-//! application-assurance dimension).
+//! Checked theorem/application artifacts for the narrow SIR-level
+//! end-to-end rewrite path.
 //!
-//! Two-dimensional assurance:
-//!   TheoremAssurance    — what the local semantic theorem proved
-//!                         (`Proof`; checker-issued `assurance` +
-//!                         `obligation_digest`).
-//!   ApplicationAssurance — that the theorem was bound to the COMPLETE
-//!                         concrete rewrite: same source function
-//!                         version, same authorization, same role map,
-//!                         every live-out classified, source and
-//!                         candidate frames compatible.
+//! The theorem and application dimensions are deliberately separate:
 //!
-//! EndToEndVerificationArtifact is the ONLY artifact that may
-//! authorize mutation. Its constructor requires TWO real artifacts — a
-//! `Proof` and a `CheckedApplication` — and verifies the application
-//! was issued for exactly this theorem obligation. If the identities
-//! do not match, construction fails.
+//! - `CheckedTheorem` records what the semantic verifier discharged and
+//!   the concrete source/candidate identity the theorem was issued for.
+//! - `CheckedApplication` records that the candidate was bound to the
+//!   complete source interface and compatible frame.
+//! - `EndToEndVerificationArtifact` is constructed only from those two
+//!   artifacts and checks every shared identity before mutation.
 //!
-//! Identity model (first vertical slice): the engine is the single
-//! place holding the theorem, the binding, the authorization, and the
-//! candidate. It issues the `CheckedApplication` with fields taken
-//! from the SAME objects, and stamps `theorem_obligation_digest` from
-//! the very proof being matched. `EndToEndVerificationArtifact::new`
-//! then verifies (a) the linkage equals the proof's obligation digest,
-//! and (b) the application artifact's own digest is consistent with
-//! its fields (it was not mutated after issuance). The proof remains
-//! authoritative for semantics; the application artifact is
-//! authoritative for the concrete application identity.
+//! This is SIR-level assurance. It does not prove the later LLVM/vector
+//! lowering memory behavior; that requires a separate lowering artifact.
 
 use crate::artifact::fnv1a64;
 use crate::Proof;
 use crate::VerificationStatus;
 
-/// An application-level artifact issued by the application checker
-/// (the rewrite engine) AFTER checking the complete application
-/// conditions. Not a semantic theorem: it records that the theorem's
-/// subject was correctly bound to one concrete region, candidate, and
-/// observable interface.
+/// A theorem artifact with the concrete identity of the theorem's
+/// source/candidate application.
+///
+/// The semantic verifier issues the embedded `Proof`; the application
+/// checker supplies the identity fields when it binds that proof to a
+/// concrete proposal. Keeping the identity on the theorem artifact is
+/// necessary: an obligation digest alone does not identify a source
+/// region, candidate, authorization, or role map.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CheckedApplication {
-    /// The authorization that authorized this transformation.
+pub struct CheckedTheorem {
+    pub proof: Proof,
     pub authorization_id: u64,
-    /// Fingerprint of the exact source function version checked
-    /// (fnv1a64 over the function arena).
     pub source_fingerprint: u64,
-    /// Source region the transformation applies to.
     pub source_region: u64,
-    /// Identity of the candidate applied.
     pub candidate_id: u64,
-    /// Digest of the role map the theorem was bound to.
+    pub definition_id: u64,
     pub role_map_digest: u64,
-    /// Digest of the complete live-out classification (every slot +
-    /// binding state + use-closure evidence).
     pub live_out_digest: u64,
-    /// The conservative frame contract held on the source.
-    pub source_frame_supported: bool,
-    /// The candidate's frame was verified compatible with the source
-    /// frame (no new writes/calls/traps/over-reads/nontermination).
-    pub candidate_frame_compatible: bool,
-    /// Digest of the recorded assumptions.
+    pub source_frame_digest: u64,
+    pub candidate_frame_digest: u64,
     pub assumptions_digest: u64,
-    /// CHECKER-ISSUED assurance. Only the issuing application checker
-    /// sets this; a recipe/candidate must never self-declare it.
-    pub assurance: VerificationStatus,
-    /// The obligation digest of the EXACT proof this application was
-    /// matched against. This is the linkage that lets
-    /// `EndToEndVerificationArtifact::new` verify the two artifacts
-    /// refer to the same theorem obligation.
-    pub theorem_obligation_digest: u64,
-    /// Digest binding this artifact to its own application identity.
-    pub application_digest: u64,
+    /// Digest over the theorem proof and all identity fields.
+    pub theorem_digest: u64,
 }
 
-impl CheckedApplication {
-    /// Construct and stamp the application digest. `assurance` is the
-    /// ISSUED level (caller = the application checker, never the
-    /// candidate/recipe).
-    pub fn new(
+impl CheckedTheorem {
+    /// Bind a checker-issued proof to the concrete identity held by the
+    /// application checker. This constructor does not upgrade theorem
+    /// assurance; it only records identity for the pair-matching gate.
+    pub(crate) fn new(
+        proof: Proof,
         authorization_id: u64,
         source_fingerprint: u64,
         source_region: u64,
         candidate_id: u64,
+        definition_id: u64,
         role_map_digest: u64,
         live_out_digest: u64,
-        source_frame_supported: bool,
-        candidate_frame_compatible: bool,
+        source_frame_digest: u64,
+        candidate_frame_digest: u64,
         assumptions_digest: u64,
-        assurance: VerificationStatus,
-        theorem_obligation_digest: u64,
     ) -> Self {
-        let mut app = Self {
+        let mut theorem = Self {
+            proof,
             authorization_id,
             source_fingerprint,
             source_region,
             candidate_id,
+            definition_id,
             role_map_digest,
             live_out_digest,
-            source_frame_supported,
-            candidate_frame_compatible,
+            source_frame_digest,
+            candidate_frame_digest,
             assumptions_digest,
-            assurance,
-            theorem_obligation_digest,
-            application_digest: 0,
+            theorem_digest: 0,
         };
-        app.application_digest = app.digest();
-        app
+        theorem.theorem_digest = theorem.digest();
+        theorem
     }
 
-    /// FNV-1a over the application identity fields.
+    /// Digest of the exact theorem identity.
     pub fn digest(&self) -> u64 {
-        let mut parts: Vec<String> = vec![
+        let parts = [
+            format!("proof={}", self.proof_digest()),
+            format!("obligation={}", self.proof.obligation_digest),
             format!("auth={}", self.authorization_id),
             format!("src={}", self.source_fingerprint),
             format!("region={}", self.source_region),
             format!("cand={}", self.candidate_id),
+            format!("definition={}", self.definition_id),
             format!("roles={}", self.role_map_digest),
             format!("liveouts={}", self.live_out_digest),
+            format!("source_frame={}", self.source_frame_digest),
+            format!("candidate_frame={}", self.candidate_frame_digest),
+            format!("assumptions={}", self.assumptions_digest),
+            format!("assurance={:?}", self.proof.assurance),
+        ];
+        fnv1a64(parts.join("|").as_bytes())
+    }
+
+    /// Identity digest of the complete checker-issued proof, not just
+    /// its obligation number. This detects post-issuance edits to the
+    /// theorem expressions or proof trace.
+    fn proof_digest(&self) -> u64 {
+        fnv1a64(format!("{:?}", self.proof).as_bytes())
+    }
+
+    pub fn assurance(&self) -> VerificationStatus {
+        self.proof.assurance
+    }
+}
+
+/// An application-level artifact issued after checking the complete
+/// concrete application: live-outs, source frame, candidate frame, and
+/// authorized inputs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CheckedApplication {
+    pub authorization_id: u64,
+    pub source_fingerprint: u64,
+    pub source_region: u64,
+    pub candidate_id: u64,
+    pub definition_id: u64,
+    pub role_map_digest: u64,
+    pub live_out_digest: u64,
+    pub source_frame_digest: u64,
+    pub candidate_frame_digest: u64,
+    pub source_frame_supported: bool,
+    pub candidate_frame_compatible: bool,
+    pub assumptions_digest: u64,
+    /// Application-checker assurance. This does not upgrade the
+    /// theorem's assurance and is combined with it only at EndToEnd.
+    pub assurance: VerificationStatus,
+    /// Digest of the exact checked theorem this application checked.
+    pub theorem_digest: u64,
+    /// Obligation digest retained for readable linkage diagnostics.
+    pub theorem_obligation_digest: u64,
+    pub application_digest: u64,
+}
+
+/// Application-assurance issuance boundary. The rewrite/application
+/// checker calls `issue`; recipes and candidates do not construct
+/// `CheckedApplication` directly.
+pub struct ApplicationChecker;
+
+impl ApplicationChecker {
+    pub fn issue(
+        authorization_id: u64,
+        source_fingerprint: u64,
+        source_region: u64,
+        candidate_id: u64,
+        definition_id: u64,
+        role_map_digest: u64,
+        live_out_digest: u64,
+        source_frame_digest: u64,
+        candidate_frame_digest: u64,
+        source_frame_supported: bool,
+        candidate_frame_compatible: bool,
+        assumptions_digest: u64,
+        assurance: VerificationStatus,
+        theorem_digest: u64,
+        theorem_obligation_digest: u64,
+    ) -> CheckedApplication {
+        // This application checker has no trusted machine-equivalence
+        // backend. It may only issue at the SIR SchemaChecked cap.
+        let assurance = assurance.min(VerificationStatus::SchemaChecked);
+        CheckedApplication::new(
+            authorization_id,
+            source_fingerprint,
+            source_region,
+            candidate_id,
+            definition_id,
+            role_map_digest,
+            live_out_digest,
+            source_frame_digest,
+            candidate_frame_digest,
+            source_frame_supported,
+            candidate_frame_compatible,
+            assumptions_digest,
+            assurance,
+            theorem_digest,
+            theorem_obligation_digest,
+        )
+    }
+}
+
+impl CheckedApplication {
+    pub(crate) fn new(
+        authorization_id: u64,
+        source_fingerprint: u64,
+        source_region: u64,
+        candidate_id: u64,
+        definition_id: u64,
+        role_map_digest: u64,
+        live_out_digest: u64,
+        source_frame_digest: u64,
+        candidate_frame_digest: u64,
+        source_frame_supported: bool,
+        candidate_frame_compatible: bool,
+        assumptions_digest: u64,
+        assurance: VerificationStatus,
+        theorem_digest: u64,
+        theorem_obligation_digest: u64,
+    ) -> Self {
+        let mut application = Self {
+            authorization_id,
+            source_fingerprint,
+            source_region,
+            candidate_id,
+            definition_id,
+            role_map_digest,
+            live_out_digest,
+            source_frame_digest,
+            candidate_frame_digest,
+            source_frame_supported,
+            candidate_frame_compatible,
+            assumptions_digest,
+            assurance,
+            theorem_digest,
+            theorem_obligation_digest,
+            application_digest: 0,
+        };
+        application.application_digest = application.digest();
+        application
+    }
+
+    pub fn digest(&self) -> u64 {
+        let parts = [
+            format!("auth={}", self.authorization_id),
+            format!("src={}", self.source_fingerprint),
+            format!("region={}", self.source_region),
+            format!("cand={}", self.candidate_id),
+            format!("definition={}", self.definition_id),
+            format!("roles={}", self.role_map_digest),
+            format!("liveouts={}", self.live_out_digest),
+            format!("source_frame={}", self.source_frame_digest),
+            format!("candidate_frame={}", self.candidate_frame_digest),
             format!("srcframe={}", self.source_frame_supported),
             format!("candframe={}", self.candidate_frame_compatible),
             format!("assumptions={}", self.assumptions_digest),
+            format!("assurance={:?}", self.assurance),
+            format!("theorem={}", self.theorem_digest),
             format!("theorem_obligation={}", self.theorem_obligation_digest),
         ];
         fnv1a64(parts.join("|").as_bytes())
     }
 }
 
-/// The only artifact that may authorize mutation. Constructed from TWO
-/// matched artifacts: a checker-issued theorem `Proof` and a
-/// checker-issued `CheckedApplication`.
+/// The only artifact that may authorize mutation for this path.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EndToEndVerificationArtifact {
-    pub theorem: Proof,
+    pub theorem: CheckedTheorem,
     pub application: CheckedApplication,
-    /// End-to-end assurance = min(theorem assurance, application
-    /// assurance).
     pub assurance: VerificationStatus,
-    /// Digest binding the pair to the exact end-to-end obligation.
     pub end_to_end_digest: u64,
 }
 
 impl EndToEndVerificationArtifact {
-    /// Attempt to construct a matched end-to-end artifact.
-    ///
-    /// Identity checks:
-    ///   (1) the application artifact must have been issued for THIS
-    ///       proof's obligation (`theorem_obligation_digest` linkage);
-    ///   (2) the application artifact's digest must be internally
-    ///       consistent (fields were not mutated after issuance);
-    ///   (3) the end-to-end obligation digest is computed from BOTH
-    ///       artifacts.
-    ///
-    /// If any identity differs, construction fails. The theorem's
-    /// assurance and the application's assurance are combined with
-    /// `min` — the end-to-end level is the weaker of the two.
-    pub fn new(theorem: Proof, application: CheckedApplication) -> Result<Self, EndToEndMismatch> {
-        if application.theorem_obligation_digest != theorem.obligation_digest {
-            return Err(EndToEndMismatch::TheoremObligationMismatch {
-                theorem: theorem.obligation_digest,
-                application: application.theorem_obligation_digest,
-            });
+    /// Construct a matched theorem/application pair. Every shared
+    /// identity is compared; a digest match alone is never sufficient.
+    pub fn new(
+        theorem: CheckedTheorem,
+        application: CheckedApplication,
+    ) -> Result<Self, EndToEndMismatch> {
+        if theorem.theorem_digest != theorem.digest() {
+            return Err(EndToEndMismatch::TheoremDigestInconsistent);
         }
         if application.application_digest != application.digest() {
             return Err(EndToEndMismatch::ApplicationDigestInconsistent);
         }
+        if !application.source_frame_supported || !application.candidate_frame_compatible {
+            return Err(EndToEndMismatch::ApplicationFrameUnsupported);
+        }
+        if application.theorem_obligation_digest != theorem.proof.obligation_digest {
+            return Err(EndToEndMismatch::TheoremObligationMismatch {
+                theorem: theorem.proof.obligation_digest,
+                application: application.theorem_obligation_digest,
+            });
+        }
+        if application.theorem_digest != theorem.theorem_digest {
+            return Err(EndToEndMismatch::TheoremDigestMismatch {
+                theorem: theorem.theorem_digest,
+                application: application.theorem_digest,
+            });
+        }
 
-        let assurance = theorem.assurance.min(application.assurance);
-        let mut e2e = Self {
+        let identities = [
+            (
+                "authorization",
+                theorem.authorization_id,
+                application.authorization_id,
+            ),
+            (
+                "source_fingerprint",
+                theorem.source_fingerprint,
+                application.source_fingerprint,
+            ),
+            (
+                "source_region",
+                theorem.source_region,
+                application.source_region,
+            ),
+            ("candidate", theorem.candidate_id, application.candidate_id),
+            (
+                "definition",
+                theorem.definition_id,
+                application.definition_id,
+            ),
+            (
+                "role_map",
+                theorem.role_map_digest,
+                application.role_map_digest,
+            ),
+            (
+                "live_out",
+                theorem.live_out_digest,
+                application.live_out_digest,
+            ),
+            (
+                "source_frame",
+                theorem.source_frame_digest,
+                application.source_frame_digest,
+            ),
+            (
+                "candidate_frame",
+                theorem.candidate_frame_digest,
+                application.candidate_frame_digest,
+            ),
+            (
+                "assumptions",
+                theorem.assumptions_digest,
+                application.assumptions_digest,
+            ),
+        ];
+        if let Some((field, theorem_value, application_value)) = identities
+            .into_iter()
+            .find(|(_, left, right)| left != right)
+        {
+            return Err(EndToEndMismatch::IdentityMismatch {
+                field,
+                theorem: theorem_value,
+                application: application_value,
+            });
+        }
+
+        let assurance = theorem.assurance().min(application.assurance);
+        let mut artifact = Self {
             theorem,
             application,
             assurance,
             end_to_end_digest: 0,
         };
-        e2e.end_to_end_digest = e2e.digest();
-        Ok(e2e)
+        artifact.end_to_end_digest = artifact.digest();
+        Ok(artifact)
     }
 
-    /// FNV-1a over both artifact identities.
     pub fn digest(&self) -> u64 {
-        let mut parts: Vec<String> = vec![
-            format!("obligation={}", self.theorem.obligation_digest),
+        let parts = [
+            format!("theorem={}", self.theorem.theorem_digest),
             format!("application={}", self.application.application_digest),
             format!("assurance={:?}", self.assurance),
         ];
@@ -186,13 +362,22 @@ impl EndToEndVerificationArtifact {
     }
 }
 
-/// Identity mismatch between the theorem artifact and the application
-/// artifact — construction of an end-to-end artifact is impossible.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EndToEndMismatch {
-    /// The application was not issued for this theorem obligation.
-    TheoremObligationMismatch { theorem: u64, application: u64 },
-    /// The application artifact's digest is inconsistent with its
-    /// fields (mutated after issuance).
+    TheoremObligationMismatch {
+        theorem: u64,
+        application: u64,
+    },
+    TheoremDigestMismatch {
+        theorem: u64,
+        application: u64,
+    },
+    TheoremDigestInconsistent,
     ApplicationDigestInconsistent,
+    ApplicationFrameUnsupported,
+    IdentityMismatch {
+        field: &'static str,
+        theorem: u64,
+        application: u64,
+    },
 }

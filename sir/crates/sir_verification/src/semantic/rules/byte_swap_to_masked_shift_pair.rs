@@ -23,7 +23,10 @@ impl NormalizationRule for ByteSwapToMaskedShiftPair {
                 let eight = SemanticExpression::Constant(ConstantData::u64(8));
                 Some(SemanticExpression::BitwiseOr(
                     Box::new(SemanticExpression::ShiftLeft(
-                        Box::new(SemanticExpression::BitwiseAnd(x.clone(), Box::new(mask.clone()))),
+                        Box::new(SemanticExpression::BitwiseAnd(
+                            x.clone(),
+                            Box::new(mask.clone()),
+                        )),
                         Box::new(eight.clone()),
                     )),
                     Box::new(SemanticExpression::BitwiseAnd(

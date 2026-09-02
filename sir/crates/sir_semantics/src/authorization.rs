@@ -722,7 +722,11 @@ impl AuthorizationDatabase {
 /// Is this reduction the unit counter (stride-1 induction variable)?
 /// The counter is exempt from overflow-flag checks: it is the index,
 /// not an accumulated value. Same definition as the recognizers' stride
-/// check: kind "sum" with a constant-1 invariant.
+/// check: kind "sum" with a constant-1 invariant — plus the index-use
+/// test: the carried variable must actually serve as the traversal
+/// index (element-access index or termination operand). A bare
+/// `count += 1` accumulator that never indexes the collection is a
+/// real reduction, NOT the induction counter.
 pub(crate) fn is_unit_counter(func: &Function, r: &sir_analysis::facts::ReductionVar) -> bool {
     // A unit counter is a contiguous-traversal index: forward (+1, kind
     // "sum") or reverse (-1, kind "sub" from a reverse scan).
@@ -732,10 +736,49 @@ pub(crate) fn is_unit_counter(func: &Function, r: &sir_analysis::facts::Reductio
     let Some(node) = func.get_node(r.invariant_value) else {
         return false;
     };
-    if let NodeKind::Constant(data) = &node.kind {
-        return data.as_u64() == Some(1);
+    if !matches!(&node.kind, NodeKind::Constant(data) if data.as_u64() == Some(1)) {
+        return false;
     }
-    false
+    // The carried variable must be used as an element-access index or
+    // as the loop-termination operand WITHIN the loop that carries it
+    // (a cross-loop usage is not a traversal counter for this loop).
+    let mut used_as_index = false;
+    let mut used_in_termination = false;
+    for n in func.arena.iter() {
+        let NodeKind::Loop {
+            body,
+            termination,
+            carried_inputs,
+            ..
+        } = &n.kind
+        else {
+            continue;
+        };
+        if !carried_inputs.contains(&r.variable) {
+            continue; // not this reduction's loop
+        }
+        for &body_id in body {
+            if let Some(body_node) = func.get_node(body_id) {
+                if let NodeKind::ArrayAccess { index, .. } = &body_node.kind {
+                    if *index == r.variable {
+                        used_as_index = true;
+                    }
+                }
+            }
+        }
+        if let Some(term) = func.get_node(*termination) {
+            if let NodeKind::Lt { lhs, rhs }
+            | NodeKind::Le { lhs, rhs }
+            | NodeKind::Gt { lhs, rhs }
+            | NodeKind::Ge { lhs, rhs } = &term.kind
+            {
+                if *lhs == r.variable || *rhs == r.variable {
+                    used_in_termination = true;
+                }
+            }
+        }
+    }
+    used_as_index || used_in_termination
 }
 
 /// Is the node a memory access (direct value read)?
@@ -788,26 +831,28 @@ fn accumulators_are_reassociable(
         return None;
     }
 
-    let mut accumulator = None;
-    for r in &lf.reductions {
-        if is_unit_counter(func, r) {
-            continue; // induction variable, not an accumulated value
-        }
-        let Some(slot) = carried_inputs.iter().position(|&c| c == r.variable) else {
-            continue;
-        };
-        let Some(&out) = outputs.get(slot) else {
-            continue;
-        };
-        let sem = overflow_semantics_of(func, out);
-        if !sem.allows_reassociation() {
-            return None; // poison semantics + no range proof → abstain
-        }
-        if accumulator.is_none() {
-            accumulator = Some(r.variable);
-        }
+    // Exactly ONE non-counter recurrence is certifiable. A loop with
+    // two legitimate accumulators (e.g. `sum += board[i]; count += 1`)
+    // has no unique accumulator — selecting by scan order is forbidden
+    // (mirrors the binding layer's AmbiguousRole rule).
+    let mut non_counter: Vec<&sir_analysis::facts::ReductionVar> = lf
+        .reductions
+        .iter()
+        .filter(|r| !is_unit_counter(func, r))
+        .collect();
+    if non_counter.len() != 1 {
+        return None;
     }
-    accumulator
+    let r = non_counter.pop().expect("length checked");
+    let slot = carried_inputs
+        .iter()
+        .position(|&c| c == r.variable)?;
+    let out = outputs.get(slot)?;
+    let sem = overflow_semantics_of(func, *out);
+    if !sem.allows_reassociation() {
+        return None; // poison semantics + no range proof → abstain
+    }
+    Some(r.variable)
 }
 
 /// The X06 invariant: a PositionSearch's result select must bind the

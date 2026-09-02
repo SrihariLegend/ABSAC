@@ -5,8 +5,8 @@
 //! it never enumerates inputs.
 
 use crate::errors::UnknownReason;
-use crate::registry::VerificationStatus;
 use crate::obligation::ProofObligation;
+use crate::registry::VerificationStatus;
 use crate::semantic::normalizer::Normalizer;
 use crate::semantic::rules::all_to_equal_full_mask::AllToEqualFullMask;
 use crate::semantic::rules::bit_reverse_to_stages::BitReverseToStages;

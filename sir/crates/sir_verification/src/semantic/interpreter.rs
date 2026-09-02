@@ -353,12 +353,12 @@ impl Interpreter {
                 let r = self.evaluate(rhs, env)?;
                 match (l, r) {
                     (Value::Integer(lv), Value::Integer(rv)) => Ok(Value::Integer(lv + rv)),
-                    (Value::BitVector(lv), Value::BitVector(rv)) => Ok(Value::BitVector(
-                        crate::semantic::value::BitVectorValue {
+                    (Value::BitVector(lv), Value::BitVector(rv)) => {
+                        Ok(Value::BitVector(crate::semantic::value::BitVectorValue {
                             bits: lv.bits.wrapping_add(rv.bits),
                             width: lv.width,
-                        },
-                    )),
+                        }))
+                    }
                     _ => Err(InterpreterError::TypeMismatch {
                         expected: "Integer or BitVector",
                         found: Value::Integer(0),
@@ -369,12 +369,12 @@ impl Interpreter {
                 let val = self.evaluate(inner, env)?;
                 match val {
                     Value::Integer(i) => Ok(Value::Integer(!i)),
-                    Value::BitVector(bv) => Ok(Value::BitVector(
-                        crate::semantic::value::BitVectorValue {
+                    Value::BitVector(bv) => {
+                        Ok(Value::BitVector(crate::semantic::value::BitVectorValue {
                             bits: !bv.bits,
                             width: bv.width,
-                        },
-                    )),
+                        }))
+                    }
                     other => Err(InterpreterError::TypeMismatch {
                         expected: "Integer or BitVector",
                         found: other,
@@ -389,7 +389,10 @@ impl Interpreter {
                     Value::BitVector(bv) => {
                         let i = bv.bits;
                         let new_bits = i & (i.wrapping_sub(1));
-                        Ok(Value::BitVector(crate::semantic::value::BitVectorValue { bits: new_bits, width: bv.width }))
+                        Ok(Value::BitVector(crate::semantic::value::BitVectorValue {
+                            bits: new_bits,
+                            width: bv.width,
+                        }))
                     }
                     other => Err(InterpreterError::TypeMismatch {
                         expected: "Integer or BitVector",
@@ -404,7 +407,10 @@ impl Interpreter {
                     Value::BitVector(bv) => {
                         let i = bv.bits;
                         let new_bits = i & i.wrapping_neg();
-                        Ok(Value::BitVector(crate::semantic::value::BitVectorValue { bits: new_bits, width: bv.width }))
+                        Ok(Value::BitVector(crate::semantic::value::BitVectorValue {
+                            bits: new_bits,
+                            width: bv.width,
+                        }))
                     }
                     other => Err(InterpreterError::TypeMismatch {
                         expected: "Integer or BitVector",
@@ -419,7 +425,10 @@ impl Interpreter {
                     Value::BitVector(bv) => {
                         let i = bv.bits;
                         let new_bits = !i & (i.wrapping_add(1));
-                        Ok(Value::BitVector(crate::semantic::value::BitVectorValue { bits: new_bits, width: bv.width }))
+                        Ok(Value::BitVector(crate::semantic::value::BitVectorValue {
+                            bits: new_bits,
+                            width: bv.width,
+                        }))
                     }
                     other => Err(InterpreterError::TypeMismatch {
                         expected: "Integer or BitVector",
@@ -434,7 +443,10 @@ impl Interpreter {
                     Value::BitVector(bv) => {
                         let i = bv.bits;
                         let new_bits = i | (i.wrapping_add(1));
-                        Ok(Value::BitVector(crate::semantic::value::BitVectorValue { bits: new_bits, width: bv.width }))
+                        Ok(Value::BitVector(crate::semantic::value::BitVectorValue {
+                            bits: new_bits,
+                            width: bv.width,
+                        }))
                     }
                     other => Err(InterpreterError::TypeMismatch {
                         expected: "Integer or BitVector",
@@ -467,7 +479,9 @@ impl Interpreter {
                 };
                 let width = 64u64;
                 let kk = kv % width;
-                Ok(Value::Integer(((xv << kk) | (xv >> (width - kk))) & (u64::MAX >> (64 - width))))
+                Ok(Value::Integer(
+                    ((xv << kk) | (xv >> (width - kk))) & (u64::MAX >> (64 - width)),
+                ))
             }
             SemanticExpression::RotateRight(x, k) => {
                 let xv = self.evaluate(x, env)?;
@@ -494,7 +508,9 @@ impl Interpreter {
                 };
                 let width = 64u64;
                 let kk = kv % width;
-                Ok(Value::Integer(((xv >> kk) | (xv << (width - kk))) & (u64::MAX >> (64 - width))))
+                Ok(Value::Integer(
+                    ((xv >> kk) | (xv << (width - kk))) & (u64::MAX >> (64 - width)),
+                ))
             }
             SemanticExpression::ByteSwap(x) => {
                 let xv = self.evaluate(x, env)?;

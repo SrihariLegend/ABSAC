@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use sir_analysis::facts::FactDatabase;
 use sir_nodes::Function;
@@ -230,7 +230,12 @@ impl SemanticDatabase {
     }
 }
 
-use crate::closure::{bitset_iteration::ClearLowestToBitsetIteration, bitset_iteration_parity::BitsetIterationParity, combine_permutations::CombinePermutations, rules::ClearLowestIsZeroToAtMostOneBit, predicate_map_to_seq::PredicateMapToLogicalSequence, shift_pair_to_circular::ShiftPairToCircularPermutation, ClosureEngine};
+use crate::closure::{
+    bitset_iteration::ClearLowestToBitsetIteration, bitset_iteration_parity::BitsetIterationParity,
+    combine_permutations::CombinePermutations, predicate_map_to_seq::PredicateMapToLogicalSequence,
+    rules::ClearLowestIsZeroToAtMostOneBit, shift_pair_to_circular::ShiftPairToCircularPermutation,
+    ClosureEngine,
+};
 
 /// The semantic derivation engine.
 ///
@@ -253,7 +258,7 @@ impl SemanticEngine {
         closure_engine.add_rule(Box::new(BitsetIterationParity));
         closure_engine.add_rule(Box::new(CombinePermutations));
         closure_engine.add_rule(Box::new(ShiftPairToCircularPermutation));
-        
+
         Self {
             db: SemanticDatabase::new(),
             structural_db: StructuralDatabase::new(),
@@ -294,8 +299,8 @@ impl SemanticEngine {
         use crate::recognizers::{
             boolean_collection, cardinality_reduction, conjunctive_reduction,
             disjunctive_reduction, divide_power_of_two, exclusive_reduction, finite_collection,
-            is_zero, membership_traversal, modulo_power_of_two, multiply_power_of_two, predicate_collection,
-            shift_mask, set_algebra, mask_algebra, sum_reduction,
+            is_zero, mask_algebra, membership_traversal, modulo_power_of_two,
+            multiply_power_of_two, predicate_collection, set_algebra, shift_mask, sum_reduction,
         };
 
         let is_zero_recs = is_zero::recognize_is_zero(func, analysis);
@@ -307,18 +312,23 @@ impl SemanticEngine {
             }
             region.add_concept(explanation.concept, explanation.clone());
             self.db.add_region(region);
-            
+
             let truth = SemanticTruth {
                 parameters: vec![],
                 concept: explanation.concept,
                 inputs,
                 outputs,
-                origin: rid, id: crate::truth::TruthId::new(0), provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+                origin: rid,
+                id: crate::truth::TruthId::new(0),
+                provenance: crate::truth::Provenance::Physical {
+                    nodes: node_ids.clone(),
+                },
             };
             self.db.add_truth(truth);
         }
 
-        let loop_until_zero_recs = crate::recognizers::loop_until_zero::recognize_loop_until_zero(func, analysis);
+        let loop_until_zero_recs =
+            crate::recognizers::loop_until_zero::recognize_loop_until_zero(func, analysis);
         for (_concept, explanation, node_ids, inputs, outputs) in loop_until_zero_recs {
             let rid = self.db.next_region_id();
             let mut region = Region::new(rid);
@@ -327,13 +337,17 @@ impl SemanticEngine {
             }
             region.add_concept(explanation.concept, explanation.clone());
             self.db.add_region(region);
-            
+
             let truth = SemanticTruth {
                 parameters: vec![],
                 concept: explanation.concept,
                 inputs,
                 outputs,
-                origin: rid, id: crate::truth::TruthId::new(0), provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+                origin: rid,
+                id: crate::truth::TruthId::new(0),
+                provenance: crate::truth::Provenance::Physical {
+                    nodes: node_ids.clone(),
+                },
             };
             self.db.add_truth(truth);
         }
@@ -347,13 +361,17 @@ impl SemanticEngine {
             }
             region.add_concept(explanation.concept, explanation.clone());
             self.db.add_region(region);
-            
+
             let truth = SemanticTruth {
                 parameters: vec![],
                 concept: explanation.concept,
                 inputs,
                 outputs,
-                origin: rid, id: crate::truth::TruthId::new(0), provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+                origin: rid,
+                id: crate::truth::TruthId::new(0),
+                provenance: crate::truth::Provenance::Physical {
+                    nodes: node_ids.clone(),
+                },
             };
             self.db.add_truth(truth);
         }
@@ -367,7 +385,7 @@ impl SemanticEngine {
             }
             region.add_concept(explanation.concept, explanation.clone());
             self.db.add_region(region);
-            
+
             let truth = SemanticTruth {
                 parameters: vec![],
                 id: crate::truth::TruthId::new(0),
@@ -375,7 +393,9 @@ impl SemanticEngine {
                 inputs: vec![],
                 outputs: vec![],
                 origin: rid,
-                provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+                provenance: crate::truth::Provenance::Physical {
+                    nodes: node_ids.clone(),
+                },
             };
             self.db.add_truth(truth);
         }
@@ -423,19 +443,22 @@ impl SemanticEngine {
             }
             region.add_concept(explanation.concept, explanation.clone());
             self.db.add_region(region);
-            
+
             let truth = SemanticTruth {
                 parameters: vec![],
                 concept: explanation.concept,
                 inputs,
                 outputs,
-                origin: rid, id: crate::truth::TruthId::new(0), provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+                origin: rid,
+                id: crate::truth::TruthId::new(0),
+                provenance: crate::truth::Provenance::Physical {
+                    nodes: node_ids.clone(),
+                },
             };
             self.db.add_truth(truth);
         }
 
-        let sum_recs =
-            sum_reduction::recognize_sum_reduction(func, analysis);
+        let sum_recs = sum_reduction::recognize_sum_reduction(func, analysis);
         for (_concept, explanation, node_ids, inputs, outputs) in sum_recs {
             let rid = self.db.next_region_id();
             let mut region = Region::new(rid);
@@ -450,7 +473,11 @@ impl SemanticEngine {
                 concept: explanation.concept,
                 inputs,
                 outputs,
-                origin: rid, id: crate::truth::TruthId::new(0), provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+                origin: rid,
+                id: crate::truth::TruthId::new(0),
+                provenance: crate::truth::Provenance::Physical {
+                    nodes: node_ids.clone(),
+                },
             };
             self.db.add_truth(truth);
         }
@@ -471,7 +498,11 @@ impl SemanticEngine {
                 concept: explanation.concept,
                 inputs,
                 outputs,
-                origin: rid, id: crate::truth::TruthId::new(0), provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+                origin: rid,
+                id: crate::truth::TruthId::new(0),
+                provenance: crate::truth::Provenance::Physical {
+                    nodes: node_ids.clone(),
+                },
             };
             self.db.add_truth(truth);
         }
@@ -492,7 +523,11 @@ impl SemanticEngine {
                 concept: explanation.concept,
                 inputs,
                 outputs,
-                origin: rid, id: crate::truth::TruthId::new(0), provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+                origin: rid,
+                id: crate::truth::TruthId::new(0),
+                provenance: crate::truth::Provenance::Physical {
+                    nodes: node_ids.clone(),
+                },
             };
             self.db.add_truth(truth);
         }
@@ -527,7 +562,9 @@ impl SemanticEngine {
                 outputs,
                 origin: rid,
                 id: crate::truth::TruthId::new(0),
-                provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+                provenance: crate::truth::Provenance::Physical {
+                    nodes: node_ids.clone(),
+                },
             };
             self.db.add_truth(truth);
         }
@@ -550,7 +587,11 @@ impl SemanticEngine {
                 id: crate::truth::TruthId::new(0),
                 concept: explanation.concept,
                 inputs: vec![],
-                outputs: node_ids.first().map(|n| crate::truth::ValueId::new(n.0)).into_iter().collect(),
+                outputs: node_ids
+                    .first()
+                    .map(|n| crate::truth::ValueId::new(n.0))
+                    .into_iter()
+                    .collect(),
                 origin: rid,
                 provenance: crate::truth::Provenance::Physical {
                     nodes: node_ids.clone(),
@@ -568,7 +609,7 @@ impl SemanticEngine {
             }
             region.add_concept(explanation.concept, explanation.clone());
             self.db.add_region(region);
-            
+
             let truth = SemanticTruth {
                 parameters: vec![],
                 id: crate::truth::TruthId::new(0),
@@ -576,7 +617,9 @@ impl SemanticEngine {
                 inputs: vec![],
                 outputs: vec![],
                 origin: rid,
-                provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+                provenance: crate::truth::Provenance::Physical {
+                    nodes: node_ids.clone(),
+                },
             };
             self.db.add_truth(truth);
         }
@@ -634,7 +677,9 @@ impl SemanticEngine {
                 inputs,
                 outputs,
                 origin: rid,
-                provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+                provenance: crate::truth::Provenance::Physical {
+                    nodes: node_ids.clone(),
+                },
             };
             self.db.add_truth(truth);
         }
@@ -642,7 +687,8 @@ impl SemanticEngine {
         // Masked swap stages: `(x & m) << s | (x >> s) & m`. Chains of these
         // stages are composed into BytePermutation/BitPermutation by the
         // CombinePermutations closure rule.
-        let swap_recs = crate::recognizers::permutation::recognize_masked_shift_swaps(func, analysis);
+        let swap_recs =
+            crate::recognizers::permutation::recognize_masked_shift_swaps(func, analysis);
         for (_concept, explanation, node_ids, inputs, outputs, parameter) in swap_recs {
             let rid = self.db.next_region_id();
             let mut region = Region::new(rid);
@@ -659,7 +705,9 @@ impl SemanticEngine {
                 inputs,
                 outputs,
                 origin: rid,
-                provenance: crate::truth::Provenance::Physical { nodes: node_ids.clone() },
+                provenance: crate::truth::Provenance::Physical {
+                    nodes: node_ids.clone(),
+                },
             };
             self.db.add_truth(truth);
         }
@@ -713,7 +761,11 @@ impl SemanticEngine {
 
         // For mask algebra, we just set the structural description to MaskAlgebraExpression
         for (rid, region) in self.db.regions() {
-            if region.contains(SemanticConcept::ClearLowestSetBit) || region.contains(SemanticConcept::LowestSetBit) || region.contains(SemanticConcept::LowestClearBitMask) || region.contains(SemanticConcept::SetLowestClearBit) {
+            if region.contains(SemanticConcept::ClearLowestSetBit)
+                || region.contains(SemanticConcept::LowestSetBit)
+                || region.contains(SemanticConcept::LowestClearBitMask)
+                || region.contains(SemanticConcept::SetLowestClearBit)
+            {
                 use sir_transform::structures::SourceStructure;
                 // First description wins: a region overlapping another domain
                 // (e.g. a count loop over a logical sequence) may already have
@@ -727,46 +779,46 @@ impl SemanticEngine {
                 }
             }
 
-        // Bit permutations: give every rotate/swap/reversal region the
-        // BitPermutation structure. The rotation direction rides along as a
-        // constraint so the generator can select the correct recipe without
-        // consulting the physical graph.
-        for (rid, region) in self.db.regions() {
-            if region.contains(SemanticConcept::ShiftPairLeft)
-                || region.contains(SemanticConcept::ShiftPairRight)
-                || region.contains(SemanticConcept::CircularPermutation)
-                || region.contains(SemanticConcept::BytePermutation)
-                || region.contains(SemanticConcept::BitPermutation)
-            {
-                use sir_transform::structures::SourceStructure;
-                if self.structural_db.region(rid).is_none() {
-                    let mut desc = crate::structure::StructuralDescription::new(
-                        rid,
-                        SourceStructure::BitPermutation { width: 64 },
-                    );
-                    if let Some(dir) = self.db.truths().find_map(|t| {
-                        if (t.concept == SemanticConcept::ShiftPairLeft
-                            || t.concept == SemanticConcept::ShiftPairRight)
-                            && t.origin == rid
-                        {
-                            t.parameters.iter().find_map(|p| match p {
-                                crate::truth::TruthParameter::ShiftPair { direction, .. } => {
-                                    Some(*direction)
-                                }
-                                _ => None,
-                            })
-                        } else {
-                            None
-                        }
-                    }) {
-                        desc = desc.with_constraint(
-                            sir_transform::constraints::Constraint::RotationDirection(dir),
+            // Bit permutations: give every rotate/swap/reversal region the
+            // BitPermutation structure. The rotation direction rides along as a
+            // constraint so the generator can select the correct recipe without
+            // consulting the physical graph.
+            for (rid, region) in self.db.regions() {
+                if region.contains(SemanticConcept::ShiftPairLeft)
+                    || region.contains(SemanticConcept::ShiftPairRight)
+                    || region.contains(SemanticConcept::CircularPermutation)
+                    || region.contains(SemanticConcept::BytePermutation)
+                    || region.contains(SemanticConcept::BitPermutation)
+                {
+                    use sir_transform::structures::SourceStructure;
+                    if self.structural_db.region(rid).is_none() {
+                        let mut desc = crate::structure::StructuralDescription::new(
+                            rid,
+                            SourceStructure::BitPermutation { width: 64 },
                         );
+                        if let Some(dir) = self.db.truths().find_map(|t| {
+                            if (t.concept == SemanticConcept::ShiftPairLeft
+                                || t.concept == SemanticConcept::ShiftPairRight)
+                                && t.origin == rid
+                            {
+                                t.parameters.iter().find_map(|p| match p {
+                                    crate::truth::TruthParameter::ShiftPair {
+                                        direction, ..
+                                    } => Some(*direction),
+                                    _ => None,
+                                })
+                            } else {
+                                None
+                            }
+                        }) {
+                            desc = desc.with_constraint(
+                                sir_transform::constraints::Constraint::RotationDirection(dir),
+                            );
+                        }
+                        self.structural_db.add_description(desc);
                     }
-                    self.structural_db.add_description(desc);
                 }
             }
-        }
         }
 
         let bool_array_recs = boolean_array::recognize_boolean_array(func, analysis);
@@ -942,27 +994,31 @@ impl SemanticEngine {
                 || region.contains(SemanticConcept::ExclusiveReduction);
 
             if is_reduction {
-                // Identify collection: function parameter with Array<Bool> type
-                let mut collection: Option<NodeId> = None;
-                let mut accumulator: Option<NodeId> = None;
-                let mut result_node: Option<NodeId> = None;
-
-                let mut predicate_scalar: Option<NodeId> = None;
-                let mut predicate_op_node: Option<NodeId> = None;
+                // Identify roles only when each concept has one structural
+                // identity. Multiple candidates are retained as ambiguity
+                // evidence; no last-node selection is legal.
+                let mut collection_candidates: Vec<NodeId> = Vec::new();
+                let mut accumulator_candidates: Vec<NodeId> = Vec::new();
+                let mut result_candidates: Vec<NodeId> = Vec::new();
+                let mut predicate_candidates: Vec<(NodeId, NodeId)> = Vec::new();
 
                 for node in func.arena.iter() {
-                    // Collection: Parameter node
+                    // Collection: boolean array parameters are candidates;
+                    // distinct parameters remain ambiguous.
                     if let NodeKind::Parameter { .. } = &node.kind {
                         if let Type::Array { element, .. } = &node.ty {
-                            // Only capture boolean array here. Dynamically generated will override.
-                            if matches!(element.as_ref(), &Type::Bool) {
-                                collection = Some(node.id);
+                            if matches!(element.as_ref(), &Type::Bool)
+                                && !collection_candidates.contains(&node.id)
+                            {
+                                collection_candidates.push(node.id);
                             }
                         }
                     }
-                    // Comparison nodes inside the region indicating a dynamic predicate
-                    if region.nodes.contains(&node.id) {
-                        if matches!(
+                    // Comparison nodes inside the region indicate a
+                    // predicate collection and bind operator + scalar as a
+                    // pair. Distinct pairs are ambiguous.
+                    if region.nodes.contains(&node.id)
+                        && matches!(
                             node.kind,
                             NodeKind::Eq { .. }
                                 | NodeKind::Ne { .. }
@@ -970,57 +1026,59 @@ impl SemanticEngine {
                                 | NodeKind::Le { .. }
                                 | NodeKind::Gt { .. }
                                 | NodeKind::Ge { .. }
-                        ) {
-                            let inputs = node.kind.input_nodes();
-                            if inputs.len() == 2 {
-                                // Assume input 0 is array access, input 1 is scalar
-                                if let Some(lhs) = func.get_node(inputs[0]) {
-                                    if matches!(
-                                        lhs.kind,
-                                        NodeKind::ArrayAccess { .. } | NodeKind::Load { .. }
-                                    ) {
-                                        // Retrieve the base array from the access
-                                        let mut base_array = None;
-                                        if let NodeKind::ArrayAccess { base, .. } = lhs.kind {
-                                            base_array = Some(base);
-                                        } else if let NodeKind::Load { ptr } = lhs.kind {
-                                            if let Some(ptr_node) = func.get_node(ptr) {
-                                                if let NodeKind::ArrayAccess { base, .. } =
-                                                    ptr_node.kind
-                                                {
-                                                    base_array = Some(base);
-                                                }
+                        )
+                    {
+                        let inputs = node.kind.input_nodes();
+                        if inputs.len() == 2 {
+                            if let Some(lhs) = func.get_node(inputs[0]) {
+                                if matches!(
+                                    lhs.kind,
+                                    NodeKind::ArrayAccess { .. } | NodeKind::Load { .. }
+                                ) {
+                                    let mut base_array = None;
+                                    if let NodeKind::ArrayAccess { base, .. } = lhs.kind {
+                                        base_array = Some(base);
+                                    } else if let NodeKind::Load { ptr } = lhs.kind {
+                                        if let Some(ptr_node) = func.get_node(ptr) {
+                                            if let NodeKind::ArrayAccess { base, .. } =
+                                                ptr_node.kind
+                                            {
+                                                base_array = Some(base);
                                             }
                                         }
-                                        if let Some(b) = base_array {
-                                            collection = Some(b);
-                                            predicate_scalar = Some(inputs[1]);
-                                            predicate_op_node = Some(node.id);
+                                    }
+                                    if let Some(base) = base_array {
+                                        if !collection_candidates.contains(&base) {
+                                            collection_candidates.push(base);
+                                        }
+                                        let predicate = (node.id, inputs[1]);
+                                        if !predicate_candidates.contains(&predicate) {
+                                            predicate_candidates.push(predicate);
                                         }
                                     }
                                 }
                             }
                         }
                     }
-                    // Accumulator: loop carried variable with a supported reduction
-                    // Result node is the Loop node itself, as it produces the final reduction value.
+                    // Accumulator: every supported non-counter recurrence
+                    // is retained; multiple recurrences are not selected by
+                    // node order.
                     if let NodeKind::Loop { .. } = &node.kind {
                         if region.nodes.contains(&node.id) {
-                            result_node = Some(node.id);
+                            if !result_candidates.contains(&node.id) {
+                                result_candidates.push(node.id);
+                            }
                             if let Some(loop_fact) = analysis.loops.get(&node.id) {
                                 for reduction in &loop_fact.reductions {
-                                    // The unit-stride induction counter is also
-                                    // detected as a "sum"/"sub" recurrence — it is
-                                    // the traversal index, never the accumulated
-                                    // value (matches accumulators_are_reassociable).
                                     if crate::authorization::is_unit_counter(func, reduction) {
                                         continue;
                                     }
                                     if matches!(
                                         reduction.reduction_kind.as_str(),
                                         "sum" | "bitwise_or" | "bitwise_and" | "bitwise_xor"
-                                    ) {
-                                        accumulator = Some(reduction.variable);
+                                    ) && !accumulator_candidates.contains(&reduction.variable)
+                                    {
+                                        accumulator_candidates.push(reduction.variable);
                                     }
                                 }
                             }
@@ -1028,11 +1086,9 @@ impl SemanticEngine {
                     }
                 }
 
-                // Fallback: if no Array<Bool> collection was found, look for a
-                // non-boolean array indexed by a loop carried input (e.g., a byte
-                // buffer being iterated: buf[i] where i is a loop counter). This
-                // generalizes recognition to real-world byte/integer buffers.
-                if collection.is_none() {
+                // Fallback: if no boolean collection was found, look for a
+                // non-boolean parameter indexed by a carried loop input.
+                if collection_candidates.is_empty() {
                     for node in func.arena.iter() {
                         if region.nodes.contains(&node.id) {
                             if let NodeKind::Loop { carried_inputs, .. } = &node.kind {
@@ -1041,8 +1097,13 @@ impl SemanticEngine {
                                         if let NodeKind::ArrayAccess { base, index } = &inner.kind {
                                             if carried_inputs.contains(index) {
                                                 if let Some(base_node) = func.get_node(*base) {
-                                                    if matches!(base_node.kind, NodeKind::Parameter { .. }) {
-                                                        collection = Some(*base);
+                                                    if matches!(
+                                                        base_node.kind,
+                                                        NodeKind::Parameter { .. }
+                                                    ) {
+                                                        if !collection_candidates.contains(base) {
+                                                            collection_candidates.push(*base);
+                                                        }
                                                         break;
                                                     }
                                                 }
@@ -1052,17 +1113,35 @@ impl SemanticEngine {
                                 }
                             }
                         }
-                        if collection.is_some() {
-                            break;
-                        }
                     }
                 }
 
-                if let (Some(collection), Some(result)) = (collection, result_node) {
+                let unique_node = |candidates: &[NodeId]| -> Option<NodeId> {
+                    let mut unique = candidates.to_vec();
+                    unique.sort();
+                    unique.dedup();
+                    if unique.len() == 1 {
+                        Some(unique[0])
+                    } else {
+                        None
+                    }
+                };
+                let collection = unique_node(&collection_candidates);
+                let result = unique_node(&result_candidates);
+                let accumulator = unique_node(&accumulator_candidates);
+                let predicate = if predicate_candidates.len() == 1 {
+                    Some(predicate_candidates[0])
+                } else {
+                    None
+                };
+
+                if let (Some(collection), Some(result)) = (collection, result) {
                     if let Some(desc) = self.structural_db.region_mut(region_id) {
-                        if let (Some(scalar), Some(operator)) =
-                            (predicate_scalar, predicate_op_node)
-                        {
+                        if predicate_candidates.len() > 1 {
+                            // Multiple predicates have no unique operator /
+                            // scalar identity; do not erase the boundary by
+                            // falling back to a boolean role.
+                        } else if let Some((operator, scalar)) = predicate {
                             desc.roles.push(RegionRoles::PredicateCollectionReduction {
                                 collection,
                                 scalar,
@@ -1147,7 +1226,7 @@ impl SemanticEngine {
                 }
                 if let Some(and_node) = op_info {
                     if let Some(desc) = self.structural_db.region_mut(region_id) {
-                        let mut operand = and_node; 
+                        let mut operand = and_node;
                         if let NodeKind::And { lhs, rhs } = func.get_node(and_node).unwrap().kind {
                             if let Some(lhs_node) = func.get_node(lhs) {
                                 if matches!(lhs_node.kind, NodeKind::Sub { .. }) {
@@ -1176,7 +1255,7 @@ impl SemanticEngine {
                 }
                 if let Some(and_node) = op_info {
                     if let Some(desc) = self.structural_db.region_mut(region_id) {
-                        let mut operand = and_node; 
+                        let mut operand = and_node;
                         if let NodeKind::And { lhs, rhs } = func.get_node(and_node).unwrap().kind {
                             if let Some(lhs_node) = func.get_node(lhs) {
                                 if matches!(lhs_node.kind, NodeKind::Sub { .. }) {
@@ -1239,12 +1318,18 @@ impl SemanticEngine {
                         let mut operand = and_node;
                         if let NodeKind::And { lhs, rhs } = func.get_node(and_node).unwrap().kind {
                             if let Some(n) = func.get_node(lhs) {
-                                if let NodeKind::Not { operand: not_operand } = &n.kind {
+                                if let NodeKind::Not {
+                                    operand: not_operand,
+                                } = &n.kind
+                                {
                                     operand = *not_operand;
                                 }
                             }
                             if let Some(n) = func.get_node(rhs) {
-                                if let NodeKind::Not { operand: not_operand } = &n.kind {
+                                if let NodeKind::Not {
+                                    operand: not_operand,
+                                } = &n.kind
+                                {
                                     operand = *not_operand;
                                 }
                             }
@@ -1409,7 +1494,9 @@ impl SemanticEngine {
                         result = t.outputs.first().map(|v| NodeId::new(v.0));
                         for p in &t.parameters {
                             match p {
-                                crate::truth::TruthParameter::ShiftPair { direction: d, .. } => {
+                                crate::truth::TruthParameter::ShiftPair {
+                                    direction: d, ..
+                                } => {
                                     direction = Some(*d);
                                 }
                                 crate::truth::TruthParameter::BitPermutation { width, .. } => {
@@ -1481,7 +1568,6 @@ impl Default for SemanticEngine {
         Self::new()
     }
 }
-
 
 /// Bit width of an integer or bitvector type.
 fn type_bits(ty: &sir_types::Type) -> Option<usize> {
