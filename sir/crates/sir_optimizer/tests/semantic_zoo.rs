@@ -65,6 +65,13 @@ fn build_bool_reduction(name: &str, len: usize, reduction: &str) -> ZooProgram {
     let i_step = b.constant(ConstantData::u64(1), u64_type(), unknown());
     let limit = b.constant(ConstantData::u64(len as u64), u64_type(), unknown());
 
+    // Any is QUARANTINED from the default registry (D4, H3 findings
+    // S1/S2 — see docs/H3_RESULTS.md); the Any rows of this zoo run
+    // against the default multi-family registry therefore abstain by
+    // design until the remediation is re-certified. All/Parity/Count
+    // remain in the default registry and keep their expectations.
+    let any_quarantined = reduction == "any";
+
     let acc_init = match reduction {
         "count" => b.constant(ConstantData::i32(0), i32_type(), unknown()),
         "any" | "all" => {
@@ -114,7 +121,7 @@ fn build_bool_reduction(name: &str, len: usize, reduction: &str) -> ZooProgram {
         name: name.to_string(),
         family: Family::BooleanReduction,
         function: b.build(),
-        expected_rewrites: 1,
+        expected_rewrites: if any_quarantined { 0 } else { 1 },
     }
 }
 
@@ -677,10 +684,12 @@ fn build_predicate_reduction(
     let res = b.field_access(loop_node, "0", ret_ty, unknown()).unwrap();
     b.return_value(res, unknown()).unwrap();
 
+    // Any rows: quarantine (D4) — the default registry no longer
+    // contains the Any recipe; expectations reflect the trusted mode.
     ZooProgram {
         name: name.to_string(),
         family: Family::PredicateReduction,
         function: b.build(),
-        expected_rewrites: 1,
+        expected_rewrites: if reduction == "any" { 0 } else { 1 },
     }
 }

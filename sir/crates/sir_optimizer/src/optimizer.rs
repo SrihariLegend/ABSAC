@@ -10,6 +10,7 @@ use sir_semantics::semantics::SemanticEngine;
 use sir_verification::{VerificationResult, Verifier};
 
 use crate::config::OptimizerConfig;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use crate::result::{IterationOutcome, IterationRecord, OptimizationResult, TerminationReason};
 
 /// Fixed-point optimization driver.
@@ -50,6 +51,14 @@ impl Optimizer {
     /// Idempotent: if optimize(f) = g, then optimize(g) = g.
     /// Accepts `&Function` — the optimizer does not consume its input.
     /// Every iteration constructs fresh pipeline stages from scratch.
+    ///
+    /// CONTAINMENT BOUNDARY (D4/R1, advisor directive): every pipeline
+    /// pass runs inside a panic boundary. An analysis/internal failure
+    /// inside a capsule rejects that capsule and preserves the baseline
+    /// function (no partial state ever escapes); the failure is recorded
+    /// in `containment_failures`. This is a backstop for total analyses,
+    /// never a substitute for them — a valid program must not reach the
+    /// boundary.
     pub fn optimize(&self, function: &Function) -> OptimizationResult {
         let initial_state = SearchState {
             function: function.clone(),
@@ -59,6 +68,7 @@ impl Optimizer {
 
         let mut current_beam = vec![initial_state];
         let mut fixed_points = Vec::new();
+        let mut containment_failures = Vec::new();
         let beam_width = self.config.beam_width.unwrap_or(3); // Add beam_width to config or hardcode to 3
 
         for iteration in 1..=self.config.max_iterations {
@@ -66,7 +76,33 @@ impl Optimizer {
             let mut any_advanced = false;
 
             for state in std::mem::take(&mut current_beam) {
-                let (branches, pass_record) = self.expand_state(&state.function, iteration);
+                let pass = catch_unwind(AssertUnwindSafe(|| {
+                    self.expand_state(&state.function, iteration)
+                }));
+                let (branches, pass_record) = match pass {
+                    Ok(pass) => pass,
+                    Err(payload) => {
+                        // Containment boundary: the capsule failed; its
+                        // baseline (unmodified) function is preserved and
+                        // becomes a fixed point. No candidate from the
+                        // failed pass is ever applied.
+                        let message = panic_message(&payload);
+                        containment_failures.push(message.clone());
+                        println!(
+                            "Iteration {}: containment boundary — analysis/internal panic caught ({}); baseline preserved",
+                            iteration, message
+                        );
+                        let mut terminal = state;
+                        let record = IterationRecord {
+                            iteration,
+                            outcome: IterationOutcome::PanicContained(message),
+                            ..Default::default()
+                        };
+                        terminal.iterations_detail.push(record);
+                        fixed_points.push(terminal);
+                        continue;
+                    }
+                };
 
                 if branches.is_empty() {
                     // This state has reached a fixed point; record the final
@@ -135,6 +171,7 @@ impl Optimizer {
             rewrites_applied: best_state.total_rewrites,
             iterations_detail: best_state.iterations_detail,
             termination,
+            containment_failures,
             initial_nodes,
             max_truths,
             final_nodes,
@@ -384,5 +421,15 @@ impl Optimizer {
             return (vec![], Some(pass_record));
         }
         (branches, None)
+    }}
+
+/// Extract a readable message from a caught panic payload.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        (*message).to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "non-string panic payload".to_string()
     }
 }

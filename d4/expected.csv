@@ -1,0 +1,27 @@
+id	class	expected_outcome	expected_safety	rationale
+h3a01	P	rewrite	OK	boolean any OR-reduce, identity=false, extent 0 (zero-trip), field consumer
+h3a02	P	rewrite	OK	boolean any, extent 1
+h3a03	P	rewrite	OK	boolean any, extent 8
+h3a04	P	rewrite	OK	boolean any, extent 64, acc slot 1
+h3a05	P	rewrite	OK	boolean any, extent 128, select consumer downstream
+h3a06	P	rewrite	OK	boolean any, extent 256
+h3a07	P	rewrite	OK	predicate gt param u8, extent 8
+h3a08	P	rewrite	OK	predicate ge param u64, extent 8, acc slot 1
+h3a09	P	rewrite	OK	predicate eq const:0 i32, extent 16
+h3a10	P	rewrite	OK	predicate lt const:0 i8, extent 8
+h3a11	P	rewrite	OK	predicate ne const:0 u16, extent 8, acc slot 1
+h3a12	P	rewrite	OK	predicate le const:100 u32, extent 8
+h3a13	P	rewrite	OK	dead index projection (fixture artifact) — now classified Dead; single observable consumer rewrites (D4 correction N->P)
+h3a14	N	abstain	OK	two observable consumers of the acc slot — genuinely unclassifiable; must abstain
+h3a15	N	abstain	OK	whole multi-output tuple returned — unbound index slot; must abstain
+h3a16	N	abstain	OK	non-zero induction start (5) — forward reduction requires zero-based start
+h3a17	N	abstain	OK	partial bound (bound 4 != extent 8) — pack covers the full extent; not equivalent
+h3a18	N	abstain	OK	reverse traversal — stride -1 unsupported
+h3a19	N	abstain	OK	unstable bound (param bound) — no finite proof of the rewrite
+h3a20	N	abstain	OK	two simultaneous reductions — ambiguous role
+h3a21	N	abstain	OK	predicate scalar depends on induction counter (index-derived) — S2 transitive invariant gate MUST refuse (previously committed corrupt rewrite)
+h3a22	N	abstain	OK	non-zero induction start (5), acc slot 1
+h3a23	S1	abstain	OK	identity = true for OR — S1 monoid-identity gate MUST refuse (previously committed corrupt rewrite)
+h3a24	S1	abstain	OK	predicate identity = true for OR — S1 gate MUST refuse (previously committed corrupt rewrite)
+h3a25	P	rewrite	OK	TupleExtract consumer (acc slot 0) with dead field-access artifact — now classifies (D4 correction N->P)
+h3a26	P	rewrite	OK	TupleExtract consumer (predicate row) with dead field-access artifact — now classifies (D4 correction N->P)

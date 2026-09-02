@@ -169,17 +169,32 @@ fn evaluate_node(
 }
 
 /// Fold a node kind with all-constant inputs.
+///
+/// TOTALITY CONTRACT (D4/R1, advisor directive): the constants analysis
+/// must never panic on a structurally valid program. All arithmetic
+/// below is wrapping or checked: SIR integer semantics are modular
+/// (`OverflowBehavior::Wrapping`), so wrapping folds are the honest
+/// semantic choice in the fold domain, and a domain overflow that the
+/// fold cannot represent soundly (division by zero, i64::MIN / -1,
+/// out-of-range shifts, negation overflow) folds to `Bottom` — the
+/// analysis's overdefined/Unknown carrier (the same level division by
+/// zero already folds to). `Bottom` propagates conservatively to
+/// consumers; a panic is never reachable from constant data.
 fn fold_operation(kind: &NodeKind, inputs: &[&ConstantData]) -> ConstantLattice {
     match kind {
-        // ── Arithmetic ──
-        NodeKind::Add { .. } => fold_binary_arith(inputs, |a, b| a + b, |a, b| a + b),
-        NodeKind::Sub { .. } => fold_binary_arith(inputs, |a, b| a - b, |a, b| a - b),
-        NodeKind::Mul { .. } => fold_binary_arith(inputs, |a, b| a * b, |a, b| a * b),
+        // ── Arithmetic (wrapping: SIR integer semantics are modular) ──
+        NodeKind::Add { .. } => fold_binary_arith(inputs, |a, b| a.wrapping_add(b), |a, b| a.wrapping_add(b)),
+        NodeKind::Sub { .. } => fold_binary_arith(inputs, |a, b| a.wrapping_sub(b), |a, b| a.wrapping_sub(b)),
+        NodeKind::Mul { .. } => fold_binary_arith(inputs, |a, b| a.wrapping_mul(b), |a, b| a.wrapping_mul(b)),
         NodeKind::Div { .. } => {
             if inputs.len() == 2 {
                 let rhs = inputs[1];
                 if rhs.as_i64() == Some(0) || rhs.as_u64() == Some(0) {
                     return ConstantLattice::Bottom; // division by zero
+                }
+                // i64::MIN / -1 overflows in two's complement; fold to Unknown.
+                if rhs.as_i64() == Some(-1) && inputs[0].as_i64() == Some(i64::MIN) {
+                    return ConstantLattice::Bottom;
                 }
             }
             fold_binary_arith(inputs, |a, b| a / b, |a, b| a / b)
@@ -190,18 +205,21 @@ fn fold_operation(kind: &NodeKind, inputs: &[&ConstantData]) -> ConstantLattice 
                 if rhs.as_i64() == Some(0) || rhs.as_u64() == Some(0) {
                     return ConstantLattice::Bottom;
                 }
+                if rhs.as_i64() == Some(-1) && inputs[0].as_i64() == Some(i64::MIN) {
+                    return ConstantLattice::Bottom; // i64::MIN % -1 is not representable
+                }
             }
             fold_binary_arith(inputs, |a, b| a % b, |a, b| a % b)
         }
-        NodeKind::Neg { .. } => fold_unary_int(inputs, |a| -a),
+        NodeKind::Neg { .. } => fold_unary_int(inputs, |a| a.checked_neg().map(ConstantData::i64)),
 
         // ── Bitwise (integers only) ──
         NodeKind::And { .. } => fold_binary_int(inputs, |a, b| a & b),
         NodeKind::Or { .. } => fold_binary_int(inputs, |a, b| a | b),
         NodeKind::Xor { .. } => fold_binary_int(inputs, |a, b| a ^ b),
-        NodeKind::Shl { .. } => fold_binary_int(inputs, |a, b| a << b),
-        NodeKind::Shr { .. } => fold_binary_int(inputs, |a, b| a >> b),
-        NodeKind::Not { .. } => fold_unary_int(inputs, |a| !a),
+        NodeKind::Shl { .. } => fold_binary_checked_shift(inputs, |a, b| a.checked_shl(b)),
+        NodeKind::Shr { .. } => fold_binary_checked_shift(inputs, |a, b| a.checked_shr(b)),
+        NodeKind::Not { .. } => fold_unary_int(inputs, |a| Some(ConstantData::i64(!a))),
 
         // ── Unary bitwise that changes width ──
         NodeKind::Popcount { .. } => {
@@ -280,9 +298,39 @@ fn fold_binary_int(inputs: &[&ConstantData], f: fn(u64, u64) -> u64) -> Constant
     ConstantLattice::Bottom
 }
 
-fn fold_unary_int(inputs: &[&ConstantData], f: fn(i64) -> i64) -> ConstantLattice {
+fn fold_unary_int(
+    inputs: &[&ConstantData],
+    f: fn(i64) -> Option<ConstantData>,
+) -> ConstantLattice {
     if let Some(v) = inputs.first().and_then(|c| c.as_i64()) {
-        return ConstantLattice::Constant(ConstantData::i64(f(v)));
+        if let Some(data) = f(v) {
+            return ConstantLattice::Constant(data);
+        }
+        return ConstantLattice::Bottom; // unrepresentable result (e.g. negate overflow)
+    }
+    ConstantLattice::Bottom
+}
+
+/// Fold a two-operand shift with an explicit out-of-range check.
+/// A shift amount at or beyond the operand width is not soundly
+/// representable by this width-insensitive fold domain; it folds to
+/// Bottom (Unknown) instead of panicking or silently masking.
+fn fold_binary_checked_shift(
+    inputs: &[&ConstantData],
+    f: fn(u64, u32) -> Option<u64>,
+) -> ConstantLattice {
+    if inputs.len() != 2 {
+        return ConstantLattice::Bottom;
+    }
+    if let (Some(a), Some(b)) = (inputs[0].as_u64(), inputs[1].as_u64()) {
+        let b: u32 = match u32::try_from(b) {
+            Ok(amount) => amount,
+            Err(_) => return ConstantLattice::Bottom,
+        };
+        if let Some(result) = f(a, b) {
+            return ConstantLattice::Constant(ConstantData::u64(result));
+        }
+        return ConstantLattice::Bottom; // shift amount >= operand width
     }
     ConstantLattice::Bottom
 }
@@ -433,5 +481,80 @@ mod tests {
             and_fact.value,
             ConstantLattice::Constant(ConstantData::u64(0x0F))
         );
+    }
+
+    // ── D4/R1 totality regression tests ──────────────────────────────
+    // The R1 reverse-scan crash was a debug-build arithmetic-overflow
+    // panic inside constant folding. The folds below are now wrapping /
+    // checked and must never panic on structurally valid programs.
+
+    #[test]
+    fn signed_add_overflow_wraps_without_panic() {
+        let mut b = Builder::new("add_ovf", &[], i32_type());
+        let max = b.constant(ConstantData::i64(i64::MAX), i32_type(), unknown_span());
+        let one = b.constant(ConstantData::i64(1), i32_type(), unknown_span());
+        let sum = b.add(max, one, unknown_span()).unwrap();
+        b.return_value(sum, unknown_span()).unwrap();
+        let func = b.build();
+        let facts = run_constants(&func, None);
+        // Wrapping: i64::MAX + 1 folds to i64::MIN (constant), no panic.
+        assert_eq!(
+            facts.get(&sum).unwrap().value,
+            ConstantLattice::Constant(ConstantData::i64(i64::MIN))
+        );
+    }
+
+    #[test]
+    fn signed_sub_overflow_wraps_without_panic() {
+        let mut b = Builder::new("sub_ovf", &[], i32_type());
+        let min = b.constant(ConstantData::i64(i64::MIN), i32_type(), unknown_span());
+        let one = b.constant(ConstantData::i64(1), i32_type(), unknown_span());
+        let diff = b.sub(min, one, unknown_span()).unwrap();
+        b.return_value(diff, unknown_span()).unwrap();
+        let func = b.build();
+        let facts = run_constants(&func, None);
+        // Wrapping: i64::MIN - 1 = i64::MAX, no panic.
+        assert_eq!(
+            facts.get(&diff).unwrap().value,
+            ConstantLattice::Constant(ConstantData::i64(i64::MAX))
+        );
+    }
+
+    #[test]
+    fn neg_min_is_bottom_not_panic() {
+        let mut b = Builder::new("neg_ovf", &[], i32_type());
+        let min = b.constant(ConstantData::i64(i64::MIN), i32_type(), unknown_span());
+        let neg = b.neg(min, unknown_span()).unwrap();
+        b.return_value(neg, unknown_span()).unwrap();
+        let func = b.build();
+        let facts = run_constants(&func, None);
+        // -i64::MIN is not representable: folds to Bottom (Unknown).
+        assert!(facts.get(&neg).unwrap().value.is_bottom());
+    }
+
+    #[test]
+    fn shift_beyond_width_is_bottom_not_panic() {
+        let mut b = Builder::new("shl_ovf", &[], u64_type());
+        let a = b.constant(ConstantData::u64(1), u64_type(), unknown_span());
+        let amount = b.constant(ConstantData::u64(64), u64_type(), unknown_span());
+        let shifted = b.shl(a, amount, unknown_span()).unwrap();
+        b.return_value(shifted, unknown_span()).unwrap();
+        let func = b.build();
+        let facts = run_constants(&func, None);
+        // Shift amount == width is out of the fold domain: Bottom, no panic.
+        assert!(facts.get(&shifted).unwrap().value.is_bottom());
+    }
+
+    #[test]
+    fn min_div_neg_one_is_bottom_not_panic() {
+        let mut b = Builder::new("div_ovf", &[], i32_type());
+        let min = b.constant(ConstantData::i64(i64::MIN), i32_type(), unknown_span());
+        let neg_one = b.constant(ConstantData::i64(-1), i32_type(), unknown_span());
+        let q = b.div(min, neg_one, unknown_span()).unwrap();
+        b.return_value(q, unknown_span()).unwrap();
+        let func = b.build();
+        let facts = run_constants(&func, None);
+        // i64::MIN / -1 overflows in two's complement: Bottom, no panic.
+        assert!(facts.get(&q).unwrap().value.is_bottom());
     }
 }

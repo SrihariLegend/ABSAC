@@ -723,7 +723,7 @@ fn int_arg_width(elem: &str) -> u32 {
 }
 
 fn mode_run() {
-    let rows = parse_rows("/home/tom/dev/experiments/ABSAC/h3/tier_a.tsv");
+    let rows = parse_rows(&corpus_dir("tier_a.tsv"));
     println!("H3 RUN — tier A (SIR fixtures), frozen C3 registry");
     println!("id\tclass\tkind\toutcome\tcands\trewrites\tnotes");
     let mut rewrote = 0usize;
@@ -749,7 +749,7 @@ fn mode_run() {
     println!("TIER_A_REWRITES={rewrote}/{}", rows.len());
 
     // Tier B: LLVM sources
-    let ll_text = std::fs::read_to_string("/home/tom/dev/experiments/ABSAC/h3/tier_b.ll").expect("tier_b.ll");
+    let ll_text = std::fs::read_to_string(corpus_dir("tier_b.ll")).expect("tier_b.ll");
     println!("\nH3 RUN — tier B (LLVM sources)");
     println!("kernel\tlowered\tverify\tf_cands\trewrites\toutcome");
     for name in list_functions(&ll_text) {
@@ -786,7 +786,7 @@ fn mode_run() {
 }
 
 fn mode_exec() {
-    let rows = parse_rows("/home/tom/dev/experiments/ABSAC/h3/tier_a.tsv");
+    let rows = parse_rows(&corpus_dir("tier_a.tsv"));
     println!("H3 EXEC — differential SIR execution (original vs rewritten)");
     println!("id\tclass\tpatterns\tmismatches\tfirst_mismatch");
     for row in &rows {
@@ -868,7 +868,7 @@ fn mode_s1() {
     // S1 reproduction (frozen behavior; documented defect):
     // identity=true OR-reductions rewrite to pack/mask != 0 and corrupt
     // the all-false input (original: constant true; rewritten: false).
-    let rows = parse_rows("/home/tom/dev/experiments/ABSAC/h3/tier_a.tsv");
+    let rows = parse_rows(&corpus_dir("tier_a.tsv"));
     println!("H3 S1 — identity=true reduction reproduction");
     for row in rows.iter().filter(|r| r.identity == 1) {
         let f = build_fixture(row);
@@ -909,6 +909,15 @@ fn mode_s1() {
         }
         println!("  patterns={} mismatches={mismatches} first={:?}", inputs.len(), first);
     }
+}
+
+
+/// Corpus directory override (D4: the promoted-H3 regression corpus
+/// lives in d4/; the sealed H3 corpus defaults when unset).
+fn corpus_dir(file: &str) -> String {
+    let dir = std::env::var("ABSAC_CORPUS_DIR")
+        .unwrap_or_else(|_| "/home/tom/dev/experiments/ABSAC/h3".to_string());
+    format!("{dir}/{file}")
 }
 
 fn main() {

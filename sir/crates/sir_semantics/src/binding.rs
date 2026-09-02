@@ -280,6 +280,25 @@ impl FrameCondition {
 // ReductionRoleMap
 // ─────────────────────────────────────────────────────────────────
 
+/// D4/S2: classification of the predicate scalar's dependency, bound
+/// into the role map and its digest. A broadcast scalar is only
+/// rewritable when it is loop-invariant; an index-dependent predicate
+/// (e.g. `values[i] > i`) is a SEPARATE future candidate family and
+/// must never pass under the invariant binding.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PredicateScalarClass {
+    /// No predicate scalar (identity-only boolean accumulation).
+    None,
+    /// A constant literal (e.g. `> 0`).
+    Constant,
+    /// A function parameter or constant used directly.
+    LiveInParameter,
+    /// A pure derivation over invariants (e.g. a widening convert of a
+    /// parameter) whose transitive inputs are all certified
+    /// loop-invariant and non-memory-derived.
+    DerivedInvariant,
+}
+
 /// The complete role map of a reduction region — the ONLY source of
 /// operands for authorization, candidate generation, theorem
 /// construction, application checking, and rewrite (advisor invariant:
@@ -311,6 +330,11 @@ pub struct ReductionRoleMap {
     /// Predicate collection: the scalar operand elements are compared
     /// against.
     pub predicate_scalar: Option<NodeId>,
+    /// D4/S2: certified dependency class of the predicate scalar
+    /// (transitively loop-invariant, non-memory-derived). Part of the
+    /// artifact digest — mutating the scalar changes the class and
+    /// the digest together.
+    pub predicate_scalar_class: PredicateScalarClass,
     /// The accumulator's carried variable.
     pub accumulator: NodeId,
     /// Reduction kind ("bitwise_or", "bitwise_and", "sum", ...).
@@ -344,6 +368,7 @@ impl ReductionRoleMap {
             format!("predicate={:?}", self.predicate),
             format!("predicate_op={:?}", self.predicate_op),
             format!("predicate_scalar={:?}", self.predicate_scalar),
+            format!("predicate_scalar_class={:?}", self.predicate_scalar_class),
             format!("accumulator={}", self.accumulator.0),
             format!("identity={:?}", self.identity),
             format!("reduction_position={}", self.reduction_position),
@@ -663,6 +688,155 @@ fn transitive_use_closure(function: &Function, root: NodeId) -> Vec<NodeId> {
     visited.into_iter().collect()
 }
 
+/// D4/S1: is this constant the monoid identity of the recurrence that
+/// the reduction theorem actually proves?
+///
+/// The Any theorem proves `acc = ∨ predicate`, whose identity is
+/// `false` (Boolean) or `0` (integer/bitwise). An OR seeded with
+/// `true` computes an always-true value — it is NOT Any, and rewriting
+/// it as `Pack(...) != 0` corrupts the program (H3 h3a23/h3a24).
+/// Bitwise-And seeding (future All family) requires `true` / all-ones
+/// (for the declared width). Sum/Xor require `0`; Product requires `1`.
+pub fn monoid_identity_ok(recurrence: &str, identity: &sir_types::ConstantData) -> bool {
+    use sir_types::{ConstantData, IntegerWidth};
+    let is_zero = match identity {
+        ConstantData::Bool(b) => !*b,
+        ConstantData::Integer { value, .. } => value == "0",
+        _ => false,
+    };
+    let is_one = match identity {
+        ConstantData::Bool(b) => *b,
+        ConstantData::Integer { value, .. } => value == "1",
+        _ => false,
+    };
+    let is_all_ones = match identity {
+        ConstantData::Bool(b) => *b,
+        ConstantData::Integer {
+            value,
+            width,
+            signed,
+        } => {
+            // All-ones for the declared width: 2^w - 1, or -1 as a
+            // signed constant of that width.
+            let width_bits: u32 = match width {
+                IntegerWidth::I8 => 8,
+                IntegerWidth::I16 => 16,
+                IntegerWidth::I32 => 32,
+                IntegerWidth::I64 => 64,
+                IntegerWidth::I128 => 128,
+                _ => return false,
+            };
+            let all_ones = (1u128 << width_bits) - 1;
+            if *signed {
+                value.parse::<i128>() == Ok(-1)
+            } else {
+                value.parse::<u128>().map(|v| v == all_ones).unwrap_or(false)
+            }
+        }
+        _ => false,
+    };
+    match recurrence {
+        "bitwise_or" => is_zero,
+        "bitwise_xor" => is_zero,
+        "sum" => is_zero,
+        "bitwise_and" => is_all_ones,
+        "product" => is_one,
+        _ => false, // unknown recurrence: never assume an identity
+    }
+}
+
+/// D4/S2: certify that `scalar` is loop-invariant by walking its full
+/// transitive dataflow closure. Refuses (returns `UnsupportedShape`)
+/// when the closure reaches any loop-carried input, any loop output,
+/// any memory/shape/call-derived operation, or any unknown kind.
+/// The only permitted closure members are pure invariants: constants,
+/// parameters, and widening/narrowing converts over invariants.
+///
+/// Index-dependent predicates (`values[i] > i` where `i` is the
+/// induction counter) are a separate future candidate family; they are
+/// refused here, never misclassified.
+pub fn certify_invariant_scalar(
+    function: &Function,
+    body: &[NodeId],
+    outputs: &[NodeId],
+    carried_inputs: &[NodeId],
+    scalar: NodeId,
+    collection: NodeId,
+    loop_node: NodeId,
+) -> Result<PredicateScalarClass, BindingError> {
+    if scalar == collection || scalar == loop_node {
+        return Err(BindingError::UnsupportedShape(
+            "predicate scalar is the collection or loop node",
+        ));
+    }
+    if body.contains(&scalar) || outputs.contains(&scalar) {
+        return Err(BindingError::UnsupportedShape(
+            "predicate scalar is defined inside the loop (not invariant)",
+        ));
+    }
+
+    // Transitive dataflow closure of the scalar.
+    let mut closure: Vec<NodeId> = Vec::new();
+    let mut seen = HashSet::new();
+    let mut worklist = vec![scalar];
+    while let Some(node_id) = worklist.pop() {
+        if !seen.insert(node_id) {
+            continue;
+        }
+        closure.push(node_id);
+        if let Some(node) = function.get_node(node_id) {
+            worklist.extend(node.kind.input_nodes());
+        }
+    }
+
+    // Any loop-carried value or loop output in the closure means the
+    // scalar varies across iterations (H3 h3a21 poison: the carried
+    // index-start constant is per-iteration in loop semantics).
+    let forbidden: HashSet<NodeId> =
+        carried_inputs.iter().chain(outputs.iter()).copied().collect();
+    for node_id in &closure {
+        if forbidden.contains(node_id) {
+            return Err(BindingError::UnsupportedShape(
+                "predicate scalar depends on a loop-carried value (not invariant)",
+            ));
+        }
+    }
+
+    // Permitted pure invariant kinds only; anything memory-derived,
+    // shape-derived, call-derived, or a nested loop is unknown state.
+    let mut kind: Option<PredicateScalarClass> = None;
+    for node_id in &closure {
+        let Some(node) = function.get_node(*node_id) else {
+            return Err(BindingError::UnsupportedShape(
+                "predicate scalar closure reaches a missing node",
+            ));
+        };
+        match &node.kind {
+            NodeKind::Constant(_) | NodeKind::Parameter { .. } => {
+                if kind.is_none() {
+                    kind = Some(if *node_id == scalar {
+                        match &node.kind {
+                            NodeKind::Constant(_) => PredicateScalarClass::Constant,
+                            _ => PredicateScalarClass::LiveInParameter,
+                        }
+                    } else {
+                        PredicateScalarClass::LiveInParameter
+                    });
+                }
+            }
+            NodeKind::Convert { .. } => {
+                kind.get_or_insert(PredicateScalarClass::DerivedInvariant);
+            }
+            _ => {
+                return Err(BindingError::UnsupportedShape(
+                    "predicate scalar depends on memory/shape/call-derived or unknown state",
+                ));
+            }
+        }
+    }
+    Ok(kind.unwrap_or(PredicateScalarClass::DerivedInvariant))
+}
+
 fn classified_slots(
     output_count: usize,
     reduction_slot: usize,
@@ -726,12 +900,38 @@ pub fn classify_live_outs(
 
     let users = graph::users(map.loop_node, &function.arena);
 
-    if users.is_empty() {
+    // D4 refinement: a direct user that is BOTH pure and has zero
+    // downstream users cannot be observed by any execution of this
+    // exact function version. Counting such provably-dead projections
+    // as "consumers" manufactured a second consumer that blocked
+    // otherwise sound rewrites (lowered loops materialize a dead index
+    // TupleExtract; debug/tracing projections are equivalent).
+    // Soundness: the rewrite replaces the loop node; the dead
+    // projection then references nothing reachable from Return and is
+    // removed by RewriteBuilder's mark-and-sweep DCE. `Return` always
+    // counts as observable (it IS the function's result).
+    let observable: Vec<NodeId> = users
+        .iter()
+        .copied()
+        .filter(|user_id| {
+            let Some(node) = function.get_node(*user_id) else {
+                return true; // cannot classify a missing node — keep it observable
+            };
+            if matches!(node.kind, NodeKind::Return { .. }) {
+                return true;
+            }
+            !(node.effects.is_pure() && graph::users(*user_id, &function.arena).is_empty())
+        })
+        .collect();
+    let raw_user_count = users.len();
+
+    if observable.is_empty() {
         // Zero observable uses: every output is dead. Complete
         // use-closure evidence — no use site exists anywhere in this
-        // exact function version.
+        // exact function version. (Any provably-dead projections are
+        // included in the count for evidence fidelity.)
         let evidence = UseClosureEvidence {
-            direct_users: 0,
+            direct_users: raw_user_count,
             closure_nodes: Vec::new(),
             observed_slots: Vec::new(),
             function_fingerprint: crate::authorization::function_fingerprint(function),
@@ -758,16 +958,16 @@ pub fn classify_live_outs(
             .collect());
     }
 
-    if users.len() > 1 {
+    if observable.len() > 1 {
         // Recipes replace exactly one consumer; multiple observable
         // uses are not classified (unknown means not dead).
         return Err(BindingError::UnclassifiedUse {
-            use_site: users[0],
+            use_site: observable[0],
             of_value: map.loop_node,
         });
     }
 
-    let use_site = users[0];
+    let use_site = observable[0];
     let use_node = function
         .get_node(use_site)
         .ok_or(BindingError::UnclassifiedUse {
@@ -1036,9 +1236,16 @@ pub fn derive_proposal_binding(
         roles.collection,
     )?;
 
-    // 7. Element access bound to the collection.
+    // 7. Element access bound to the collection. The loop body is
+    //    treated as a SET: compiler lowering may list one access node
+    //    twice (D4/F9 body normalization artifact) and a duplicate must
+    //    not fabricate an "ambiguous element access" role.
     let mut element_accesses = Vec::new();
+    let mut seen_body = HashSet::new();
     for node_id in body.iter().copied() {
+        if !seen_body.insert(node_id) {
+            continue;
+        }
         let Some(node) = function.get_node(node_id) else {
             continue;
         };
@@ -1070,7 +1277,13 @@ pub fn derive_proposal_binding(
         _ => return Err(BindingError::AmbiguousRole("element access")),
     };
 
-    // 8. Identity: the accumulator's carried input must be a constant.
+    // 8. Identity: the accumulator's carried input must be a constant
+    //    AND the monoid identity of the recurrence (D4/S1). The Any
+    //    law is `acc' = acc ∨ predicate` with identity `false` (Or).
+    //    An identity `true` computes an always-true reduction that is
+    //    NOT Any: rewriting it corrupts the program (H3 h3a23/h3a24).
+    //    The validated identity remains part of the role-map digest,
+    //    so mutating it changes the concrete artifact.
     let identity_carry = carried_inputs
         .get(reduction_position)
         .copied()
@@ -1085,6 +1298,11 @@ pub fn derive_proposal_binding(
     .ok_or(BindingError::UnsupportedShape(
         "accumulator identity is not a constant",
     ))?;
+    if !monoid_identity_ok(&reduction.reduction_kind, &identity) {
+        return Err(BindingError::UnsupportedShape(
+            "accumulator identity is not the recurrence's monoid identity",
+        ));
+    }
 
     // 9. Live-ins: transitive dataflow inputs of the loop node
     //    (termination + carried inputs) UNION the transitive inputs of
@@ -1119,14 +1337,14 @@ pub fn derive_proposal_binding(
     // 8b. Predicate roles: the comparison operator node and scalar
     //     operand bound from the structural role (the binder resolves
     //     the op; a recipe must never hardcode or rediscover it).
-    let (predicate_op, predicate_scalar) = match (roles.predicate_operator, roles.predicate_scalar)
-    {
-        (Some(op_node), Some(scalar)) => {
-            let op_node_ref = function
-                .get_node(op_node)
-                .ok_or(BindingError::UnsupportedShape(
-                    "predicate operator node missing",
-                ))?;
+    let (predicate_op, predicate_scalar, predicate_scalar_class) =
+        match (roles.predicate_operator, roles.predicate_scalar) {
+            (Some(op_node), Some(scalar)) => {
+                let op_node_ref = function
+                    .get_node(op_node)
+                    .ok_or(BindingError::UnsupportedShape(
+                        "predicate operator node missing",
+                    ))?;
             let op = match &op_node_ref.kind {
                 sir_nodes::NodeKind::Eq { .. } => sir_nodes::CmpOperator::Eq,
                 sir_nodes::NodeKind::Ne { .. } => sir_nodes::CmpOperator::Ne,
@@ -1149,21 +1367,28 @@ pub fn derive_proposal_binding(
                     "predicate operator is not bound to the element access and scalar",
                 ));
             }
-            if scalar == roles.collection
-                || scalar == roles.loop_node
-                || scalar == induction.carry
-                || body.contains(&scalar)
-                || outputs.contains(&scalar)
-                || !live_ins.contains(&scalar)
-            {
-                return Err(BindingError::UnsupportedShape(
-                    "predicate scalar is not a stable live-in",
-                ));
-            }
-            (Some(op), Some(scalar))
+            // D4/S2: the broadcast scalar must be certified LOOP-INVARIANT
+            // by transitive dependency analysis — it must not depend on the
+            // induction counter, the accumulator, any other loop-carried
+            // value, loop outputs, mutable memory, or unknown state. The
+            // former membership test passed the poison case
+            // `values[i] > Convert(carried-const)` because the Convert node
+            // wrapping the per-iteration carried value was itself neither in
+            // the body nor equal to the induction carry (H3 h3a21). The
+            // certification below walks the scalar's full dataflow closure.
+            let scalar_class = certify_invariant_scalar(
+                function,
+                &body,
+                &outputs,
+                &carried_inputs,
+                scalar,
+                roles.collection,
+                roles.loop_node,
+            )?;
+            (Some(op), Some(scalar), scalar_class)
         }
-        _ => (None, None),
-    };
+            _ => (None, None, PredicateScalarClass::None),
+        };
 
     let loop_node = roles.loop_node;
     let map = ReductionRoleMap {
@@ -1178,6 +1403,7 @@ pub fn derive_proposal_binding(
         predicate: Some(reduction.invariant_value),
         predicate_op,
         predicate_scalar,
+        predicate_scalar_class,
         accumulator: reduction.variable,
         recurrence: reduction.reduction_kind.clone(),
         identity: Some(identity),

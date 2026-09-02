@@ -787,6 +787,65 @@ pub fn lower(text: &str) -> Result<Function, String> {
     result.map(|_| builder.build())
 }
 
+/// D4/F9: recognize clang's counted loop rotation and reconstruct the
+/// canonical pre-checked iteration domain.
+///
+/// The clang rotation inside one loop block is:
+///
+/// ```text
+///   %next = add %c, 1            ; next = carry + 1
+///   %t    = icmp eq %next, %K    ; exit test on the SUCCESSOR
+///   br i1 %t, label %exit, label %loop   ; back-edge on false
+/// ```
+///
+/// Under SIR continue-while-TRUE semantics this is faithfully expressed
+/// as `Lt(c, K)`: `c` runs `0..K-1`, and the runtime entry guard
+/// `K == 0 → skip` that clang emits for non-constant bounds folds into
+/// `Lt(0, 0) == false`. Returns `(carry, bound)` when exactly one side
+/// of the eq test is `Add(carry, 1)` with `carry` one of the loop's
+/// carried inputs and the step exactly one. Anything else returns
+/// `None` (the caller refuses rather than mis-lower).
+fn rotated_counted_domain(
+    builder: &Builder,
+    termination: NodeId,
+    carried_init_nodes: &[NodeId],
+) -> Option<(NodeId, NodeId)> {
+    use sir_nodes::NodeKind;
+    let function = builder.function();
+    let term = function.get_node(termination)?;
+    let NodeKind::Eq { lhs, rhs } = &term.kind else {
+        return None;
+    };
+    for (candidate, bound) in [(*lhs, *rhs), (*rhs, *lhs)] {
+        let add_node = function.get_node(candidate)?;
+        let NodeKind::Add {
+            lhs: augend,
+            rhs: addend,
+        } = &add_node.kind
+        else {
+            continue;
+        };
+        // One side of the add must be the loop-carried counter, the
+        // other the literal step +1.
+        let (carry, step) = if carried_init_nodes.contains(augend) {
+            (*augend, *addend)
+        } else if carried_init_nodes.contains(addend) {
+            (*addend, *augend)
+        } else {
+            continue;
+        };
+        let step_node = function.get_node(step)?;
+        let NodeKind::Constant(data) = &step_node.kind else {
+            continue;
+        };
+        let is_one = data.as_u64() == Some(1) || data.as_i64() == Some(1);
+        if is_one {
+            return Some((carry, bound));
+        }
+    }
+    None
+}
+
 /// Lower a function with a detected loop.
 fn lower_loop_function(
     ir: &IrFunction,
@@ -1070,6 +1129,8 @@ fn lower_loop_function(
     // The condition is the first operand
     let mut termination_node: Option<NodeId> = None;
     let mut exit_label: Option<String> = None;
+    // True when the back-edge (loop continuation) is taken on `cond == true`.
+    let mut continue_on_true: bool = true;
 
     for inst in &loop_block.instructions {
         if inst.opcode == "br" && inst.operands.len() >= 3 {
@@ -1085,7 +1146,8 @@ fn lower_loop_function(
                 .trim_start_matches("label ")
                 .trim_start_matches('%')
                 .to_string();
-            exit_label = if true_label == *loop_label {
+            continue_on_true = true_label == *loop_label;
+            exit_label = if continue_on_true {
                 Some(false_label)
             } else {
                 Some(true_label)
@@ -1094,6 +1156,40 @@ fn lower_loop_function(
     }
 
     let termination = termination_node.ok_or("no termination condition found in loop block")?;
+
+    // ── D4/F9: rotated-exit polarity normalization ──────────────
+    // SIR semantics: a Loop continues while its termination evaluates
+    // to TRUE. clang `-O1` counts loops by ROTATION: the header tests
+    // the SUCCESSOR (`c' = c + 1`) and backs onto the header when the
+    // exit test is FALSE (`br i1 icmp eq %next, %bound, exit, loop`).
+    // Feeding that raw eq test as the SIR termination INVERTS the loop
+    // (continue-while-true on an exit condition ⇒ the loop body runs
+    // zero times — silently dead SIR, never a valid program).
+    //
+    // For the counted rotation `do { body(c); c' = c + 1 } while
+    // (c' != K)` (clang emits `icmp eq c+1, K` + back-edge-on-false),
+    // the faithful pre-checked iteration domain is `Lt(c, K)`: body runs
+    // for c = 0..K-1 and the entry guard (`K == 0 → skip`) folds into
+    // `Lt(0, 0) == false`. This normalizes compiler loop syntax onto
+    // the SAME `Lt(carry, bound)` domain the binder already derives
+    // trip counts from. Any rotated shape that is not this counted
+    // pattern is refused loudly — never silently inverted.
+    let termination = if continue_on_true {
+        termination
+    } else {
+        match rotated_counted_domain(builder, termination, &carried_init_nodes) {
+            Some((counter, bound)) => builder.lt(counter, bound, span).map_err(|e| {
+                format!("loop build error (F9 Lt reconstruction): {:?}", e)
+            })?,
+            None => {
+                return Err(format!(
+                    "unsupported: rotated loop exit (back-edge on false) that is not the \
+                     counted eq-next form (`icmp eq next, bound` with `next = carry + 1`); \
+                     lowering it as SIR would invert or shift the iteration domain"
+                ));
+            }
+        }
+    };
 
     // Find the output nodes: the carried "next" values
     let mut output_nodes: Vec<NodeId> = Vec::new();

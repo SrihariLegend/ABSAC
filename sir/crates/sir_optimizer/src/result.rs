@@ -16,6 +16,10 @@ pub struct OptimizationResult {
     pub iterations_detail: Vec<IterationRecord>,
     /// Why optimization stopped.
     pub termination: TerminationReason,
+    /// Analysis/internal panics caught by the containment boundary.
+    /// When non-empty, every affected capsule was rejected and its
+    /// baseline preserved (see `optimizer.rs`).
+    pub containment_failures: Vec<String>,
     
     // Semantic Compression metrics
     pub initial_nodes: usize,
@@ -64,6 +68,9 @@ pub enum IterationOutcome {
     NoSelection,
     /// Candidates were selected but the rewrite engine rejected every one.
     RewriteFailed,
+    /// An analysis/internal panic was caught by the containment
+    /// boundary; the capsule was rejected and its baseline preserved.
+    PanicContained(String),
     /// No iteration has run yet.
     #[default]
     NotStarted,
