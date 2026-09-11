@@ -198,7 +198,9 @@ running the promoted corpus were closed in a completion pass:
   role map (`predicate == element_access`, `bitwise_or`); projected elements
   refuse.
 
-Deterministic verification after both passes: tier A 15/26 rewrites all
+Deterministic verification after both passes: tier A 26/26 conformance —
+15/15 eligible-positive rows rewrote and 11/11 required-abstention rows (9
+near-miss negatives + 2 safety poisons) refused, all committed rewrites
 differentially clean (including the three rows whose H3 abstention was a fixture
 artifact, and with the three corrupt H3 rows now refusing via the S1/S2 gates);
 tier B h3b01–04 rewrites committed and differentially clean (10/50/50/50 patterns,

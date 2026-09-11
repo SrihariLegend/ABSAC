@@ -62,7 +62,12 @@ independent H4), plus native/LLVM-level execution (F6–F8 emitters).
 
 ## Tier A outcomes vs D4 expectations (`d4/expected.csv`)
 
-`TIER_A_REWRITES = 15/26`. Rewrote (15): h3a01–13, h3a25, h3a26 — including the
+**Conformance: 26/26.** The corpus is an expectation matrix, not a capability
+rate: 15 rows are eligible positives that must rewrite and 11 are deliberate
+abstention rows (9 near-miss negatives + 2 S1 safety poisons) that must be
+refused. `TIER_A_REWRITES = 15/26` therefore means **15/15 eligible positives
+rewrote and 11/11 required abstentions abstained** — a higher rewrite count
+would be a red flag, not an improvement. Rewrote (15): h3a01–13, h3a25, h3a26 — including the
 three rows corrected N→P (`h3a13` dead-index projection, `h3a25`/`h3a26`
 TupleExtract consumers; the H3 abstentions were caused by a provably-dead second
 projection, a fixture artifact, not by the consumer dialect). Abstained (11):
