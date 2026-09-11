@@ -426,7 +426,17 @@ pub fn check_candidate_frame(
     };
 
     if is_any {
-        check_any_patch_shape(patch, binding, collection_width.unwrap())?
+        let element_ty_for_shape = collection_element_type(function, binding);
+        let implicit_for_shape = element_ty_for_shape.as_ref().is_some_and(|ty| {
+            crate::recipes::any::implicit_element_nonzero(&binding.map, ty)
+        });
+        check_any_patch_shape(
+            patch,
+            binding,
+            collection_width.unwrap(),
+            element_ty_for_shape.as_ref(),
+            implicit_for_shape,
+        )?
     }
 
     for node in patch.arena.nodes() {
@@ -494,13 +504,53 @@ pub fn check_candidate_frame(
                                 .to_string(),
                         ));
                     }
-                    if binding.map.predicate_op != Some(*op)
-                        || binding.map.predicate_scalar != Some(*scalar)
-                    {
-                        return Err(RewriteError::RecipeFailed(
-                            "candidate predicate does not match the bound operator and scalar"
-                                .to_string(),
-                        ));
+                    if binding.map.predicate_op.is_some() {
+                        if binding.map.predicate_op != Some(*op)
+                            || binding.map.predicate_scalar != Some(*scalar)
+                        {
+                            return Err(RewriteError::RecipeFailed(
+                                "candidate predicate does not match the bound operator and scalar"
+                                    .to_string(),
+                            ));
+                        }
+                    } else {
+                        // D4: implicit element-truthiness form — the
+                        // certified raw-element OR reduction lowers to
+                        // `mask(x != 0)`, whose scalar is the canonical
+                        // zero of the element type, synthesized as a
+                        // patch-local constant.
+                        let element_ty = collection_element_type(function, binding);
+                        let scalar_is_element_zero = match (
+                            &element_ty,
+                            patch
+                                .arena
+                                .get(crate::local_id::LocalNodeId::new(scalar.as_u64())),
+                        ) {
+                            (Some(ty), Some(node)) => {
+                                node.ty == *ty
+                                    && matches!(
+                                        &node.kind,
+                                        NodeKind::Constant(data)
+                                            if data.as_u64() == Some(0)
+                                                || data.as_i64() == Some(0)
+                                    )
+                            }
+                            _ => false,
+                        };
+                        let certified = element_ty
+                            .as_ref()
+                            .is_some_and(|ty| {
+                                crate::recipes::any::implicit_element_nonzero(&binding.map, ty)
+                            });
+                        if *op != sir_nodes::CmpOperator::Ne
+                            || !scalar_is_element_zero
+                            || !certified
+                        {
+                            return Err(RewriteError::RecipeFailed(
+                                "implicit element predicate is not the certified `x[i] != 0` form"
+                                    .to_string(),
+                            ));
+                        }
                     }
                     if node.ty
                         != (sir_types::Type::BitVector {
@@ -546,8 +596,17 @@ fn check_any_patch_shape(
     patch: &ReplacementPatch,
     binding: &ProposalBinding,
     width: usize,
+    element_ty: Option<&sir_types::Type>,
+    implicit_element_nonzero: bool,
 ) -> Result<(), RewriteError> {
-    if patch.arena.len() != 3 || patch.replacements.len() != 1 || patch.roots.len() != 3 {
+    // The explicit/Pack forms have exactly three nodes (packed, zero,
+    // nonzero); the implicit element form has a fourth — the canonical
+    // element zero compared by the mask.
+    let expected_node_count = if implicit_element_nonzero { 4 } else { 3 };
+    if patch.arena.len() != expected_node_count
+        || patch.replacements.len() != 1
+        || patch.roots.len() != expected_node_count
+    {
         return Err(RewriteError::RecipeFailed(
             "Any candidate graph is not exactly pack/mask, zero, and nonzero".to_string(),
         ));
@@ -636,6 +695,39 @@ fn check_any_patch_shape(
         ) if *array == binding.map.collection
             && *scalar == expected_scalar
             && *op == expected_op => {}
+        (NodeKind::ArrayCmpMask { array, scalar, op }, None, None)
+            if implicit_element_nonzero
+                && *array == binding.map.collection
+                && *op == sir_nodes::CmpOperator::Ne =>
+        {
+            // The implicit form's scalar must be the canonical zero of
+            // the element type, synthesized inside the patch.
+            let element_ty = element_ty.ok_or_else(|| {
+                RewriteError::RecipeFailed(
+                    "implicit element predicate without a collection element type".to_string(),
+                )
+            })?;
+            let scalar_node = patch
+                .arena
+                .get(crate::local_id::LocalNodeId::new(scalar.as_u64()))
+                .ok_or_else(|| {
+                    RewriteError::RecipeFailed(
+                        "implicit element predicate scalar is not a patch node".to_string(),
+                    )
+                })?;
+            let is_element_zero = scalar_node.ty == *element_ty
+                && matches!(
+                    &scalar_node.kind,
+                    NodeKind::Constant(data)
+                        if data.as_u64() == Some(0) || data.as_i64() == Some(0)
+                );
+            if !is_element_zero {
+                return Err(RewriteError::RecipeFailed(
+                    "implicit element predicate scalar is not the element type's zero"
+                        .to_string(),
+                ));
+            }
+        }
         _ => {
             return Err(RewriteError::RecipeFailed(
                 "Any packed operand does not match the bound collection predicate".to_string(),
@@ -643,6 +735,19 @@ fn check_any_patch_shape(
         }
     }
     Ok(())
+}
+
+/// The element type of the binding's collection (None when the
+/// collection is not a fixed-length array — the frame check already
+/// refuses that case before this is used).
+fn collection_element_type(
+    function: &Function,
+    binding: &ProposalBinding,
+) -> Option<sir_types::Type> {
+    match function.get_node(binding.map.collection).map(|n| &n.ty) {
+        Some(sir_types::Type::Array { element, .. }) => Some((**element).clone()),
+        _ => None,
+    }
 }
 
 /// Digest of the complete live-out classification: every slot's kind,

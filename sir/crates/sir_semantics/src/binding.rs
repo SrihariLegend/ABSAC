@@ -1009,6 +1009,19 @@ pub fn classify_live_outs(
                 of_value: map.loop_node,
             })?;
             if slot == map.reduction_position {
+                // D4: an integer slot is only observable through a
+                // truthiness comparison (`Ne(slot, 0)`); classify the
+                // observation at that comparison so the Any theorem's
+                // Bool result has the consumer's type.
+                if let Some(truthiness) = integer_slot_truthiness_observable(
+                    function,
+                    map,
+                    slot,
+                    use_site,
+                    users.len(),
+                )? {
+                    return Ok(vec![truthiness]);
+                }
                 let evidence = UseClosureEvidence {
                     direct_users: users.len(),
                     closure_nodes: transitive_use_closure(function, use_site),
@@ -1028,6 +1041,17 @@ pub fn classify_live_outs(
         }
         NodeKind::TupleExtract { tuple, index } if *tuple == map.loop_node => {
             if *index == map.reduction_position {
+                // D4: integer slot → classify at the truthiness
+                // comparison (see the FieldAccess arm).
+                if let Some(truthiness) = integer_slot_truthiness_observable(
+                    function,
+                    map,
+                    *index,
+                    use_site,
+                    users.len(),
+                )? {
+                    return Ok(vec![truthiness]);
+                }
                 let evidence = UseClosureEvidence {
                     direct_users: users.len(),
                     closure_nodes: transitive_use_closure(function, use_site),
@@ -1047,6 +1071,102 @@ pub fn classify_live_outs(
             of_value: map.loop_node,
         }),
     }
+}
+
+/// D4: classify an INTEGER-typed reduction slot through its truthiness
+/// comparison.
+///
+/// The Any theorem's result is a Bool (`pack/mask != 0`). A lowered
+/// clang loop exposes the raw accumulator (e.g. `u8` from `acc |= x`)
+/// as the loop slot, and the source's only observation of it is
+/// `acc != 0`. Replacing the integer projection with the theorem's
+/// Bool produced ill-typed functions (D4 tier-B structural failures).
+/// When the projection's complete observable interface is exactly one
+/// truthiness comparison `Ne(projection, 0)` (zero of the projection's
+/// own type), the observable boundary is that comparison — the recipe
+/// then replaces it with the Bool theorem result and DCE removes the
+/// loop. Any other downstream shape (any other comparison, arithmetic,
+/// escaping use) refuses: unknown means not covered.
+///
+/// Returns `Ok(None)` for Bool-typed projections — the theorem's own
+/// type; callers keep the direct-projection classification there.
+fn integer_slot_truthiness_observable(
+    function: &Function,
+    map: &ReductionRoleMap,
+    slot: usize,
+    projection: sir_types::NodeId,
+    raw_user_count: usize,
+) -> Result<Option<LiveOutSlot>, BindingError> {
+    let unclassified = || BindingError::UnclassifiedUse {
+        use_site: projection,
+        of_value: map.loop_node,
+    };
+    let projection_node = function.get_node(projection).ok_or_else(unclassified)?;
+    let projection_ty = projection_node.ty.clone();
+    if projection_ty.is_bool() {
+        return Ok(None);
+    }
+    // This classification is the Any/disjunction interface. Other
+    // reductions (counts, sums, scans) legitimately observe their
+    // integer slots directly and keep the existing classification.
+    if map.recurrence != "bitwise_or" {
+        return Ok(None);
+    }
+    if !projection_ty.is_integer_or_bitvector() {
+        return Err(unclassified());
+    }
+
+    // The projection's observable interface: exactly one truthiness
+    // comparison. Provably-dead pure users (pure, no downstream users)
+    // observe nothing; `Return` always observes.
+    let observable_users: Vec<sir_types::NodeId> = graph::users(projection, &function.arena)
+        .into_iter()
+        .filter(|user| {
+            let Some(node) = function.get_node(*user) else {
+                return true; // cannot classify a missing node — keep it observable
+            };
+            if matches!(node.kind, NodeKind::Return { .. }) {
+                return true;
+            }
+            !(node.effects.is_pure() && graph::users(*user, &function.arena).is_empty())
+        })
+        .collect();
+    let [comparison] = observable_users.as_slice() else {
+        return Err(unclassified());
+    };
+    let comparison_node = function.get_node(*comparison).ok_or_else(unclassified)?;
+    let NodeKind::Ne { lhs, rhs } = &comparison_node.kind else {
+        return Err(unclassified());
+    };
+    let zero = if *lhs == projection && *rhs != projection {
+        *rhs
+    } else if *rhs == projection && *lhs != projection {
+        *lhs
+    } else {
+        return Err(unclassified());
+    };
+    let zero_node = function.get_node(zero).ok_or_else(unclassified)?;
+    let NodeKind::Constant(data) = &zero_node.kind else {
+        return Err(unclassified());
+    };
+    let is_zero = data.as_u64() == Some(0) || data.as_i64() == Some(0);
+    if !is_zero || zero_node.ty != projection_ty {
+        return Err(unclassified());
+    }
+
+    Ok(Some(LiveOutSlot {
+        kind: LiveOutKind::Slot(slot),
+        binding: LiveOutBinding::Reconstructed {
+            slot: map.reduction_position,
+        },
+        closure: Some(UseClosureEvidence {
+            direct_users: raw_user_count,
+            closure_nodes: transitive_use_closure(function, *comparison),
+            observed_slots: vec![slot],
+            function_fingerprint: crate::authorization::function_fingerprint(function),
+        }),
+        use_site: Some(*comparison),
+    }))
 }
 
 // ─────────────────────────────────────────────────────────────────

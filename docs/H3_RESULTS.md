@@ -184,6 +184,29 @@ preparing the canonical-domain work):
    from the default registry; it remains available only through the explicit
    experimental registry.
 
+### Remediation status (D4) — all registered items closed
+
+Items 1–7 above were remediated in the D4 pass; two further defects found while
+running the promoted corpus were closed in a completion pass:
+
+- **D4.1 truthful-observable classification:** a lowered loop's integer
+  accumulator slot is classified through its unique `Ne(slot, 0)` truthiness
+  comparison (the theorem result's type), never through the raw integer
+  projection.
+- **D4.2 implicit element-nonzero predicate:** raw-element OR reductions
+  (`acc |= x[i]`) lower to the vectorized `x[i] != 0` mask, certified by the
+  role map (`predicate == element_access`, `bitwise_or`); projected elements
+  refuse.
+
+Deterministic verification after both passes: tier A 15/26 rewrites all
+differentially clean (including the three rows whose H3 abstention was a fixture
+artifact, and with the three corrupt H3 rows now refusing via the S1/S2 gates);
+tier B h3b01–04 rewrites committed and differentially clean (10/50/50/50 patterns,
+0 mismatches), h3b09 no longer panics, all near-miss negatives abstain/refuse;
+workspace suite 546 passed / 0 failed. Full record: `d4/README.md`,
+`d4/raw/{run1,exec1,run2,exec2,tbexec1}.txt`, `d4/manifest.sha256`. Any remains
+quarantined from the trusted registry until an independent H4 corpus passes.
+
 ## Provenance, classification, and hashes
 
 - Corpus: `h3/tier_a.tsv` (26 SIR-source rows: 12 P / 12 N / 2 S1 — semantics column

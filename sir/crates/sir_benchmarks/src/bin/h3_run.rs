@@ -213,6 +213,27 @@ fn eval_node(
             };
             Value::Int { bits: wrap(a.0.wrapping_sub(b), a.1), signed: false, width: a.1 }
         }
+        NodeKind::Or { lhs, rhs } | NodeKind::And { lhs, rhs } | NodeKind::Xor { lhs, rhs } => {
+            let op = match &node.kind {
+                NodeKind::Or { .. } => "or",
+                NodeKind::And { .. } => "and",
+                _ => "xor",
+            };
+            let a = match eval_node(function, *lhs, args, overrides) {
+                Value::Int { bits, width, .. } => (bits, width),
+                other => panic!("{op} lhs {other:?}"),
+            };
+            let b = match eval_node(function, *rhs, args, overrides) {
+                Value::Int { bits, .. } => bits,
+                other => panic!("{op} rhs {other:?}"),
+            };
+            let bits = match op {
+                "or" => a.0 | b,
+                "and" => a.0 & b,
+                _ => a.0 ^ b,
+            };
+            Value::Int { bits: wrap(bits, a.1), signed: false, width: a.1 }
+        }
         NodeKind::Lt { .. }
         | NodeKind::Le { .. }
         | NodeKind::Gt { .. }
@@ -315,6 +336,8 @@ fn eval_node(
             let target = &node.ty;
             match eval_node(function, *operand, args, overrides) {
                 Value::Int { bits, .. } => int_of_ty(bits, target),
+                // zext/sext from i1: clang's `(a != 0) ? 1 : 0` patterns.
+                Value::Bool(b) => int_of_ty(if b { 1 } else { 0 }, target),
                 other => panic!("convert {other:?}"),
             }
         }
@@ -785,6 +808,108 @@ fn mode_run() {
     println!("TOTAL_REWRITES={rewrote}");
 }
 
+fn mode_tbexec() {
+    let ll_text = std::fs::read_to_string(corpus_dir("tier_b.ll")).expect("tier_b.ll");
+    println!("H3 TBEXEC — tier B differential SIR execution (original lowered vs rewritten)");
+    println!("kernel\tpatterns\tmismatches\tfirst_mismatch");
+    for name in list_functions(&ll_text) {
+        let Ok(func) = lower_function(&ll_text, &name) else {
+            continue;
+        };
+        let opt = Optimizer::new(OptimizerConfig::default(), any_only_registry());
+        let res = opt.optimize(&func);
+        if res.rewrites_applied == 0 {
+            println!("{name}\t0\t0\t(no rewrite; nothing to execute)");
+            continue;
+        }
+        let patterns = tierb_patterns(&func);
+        let mut mismatches = 0usize;
+        let mut first: Option<String> = None;
+        for args in &patterns {
+            let expected = eval_function(&func, args);
+            let actual = eval_function(&res.function, args);
+            if expected != actual {
+                mismatches += 1;
+                if first.is_none() {
+                    first = Some(format!("orig={expected:?} rewritten={actual:?} args={args:?}"));
+                }
+            }
+        }
+        println!(
+            "{name}\t{}\t{mismatches}\t{}",
+            patterns.len(),
+            first.unwrap_or_default()
+        );
+    }
+}
+
+/// Differential input patterns for a lowered tier-B kernel: array
+/// content patterns crossed with candidate scalar keys (for kernels
+/// with an integer parameter). Element values are raw bits.
+fn tierb_patterns(function: &sir_nodes::Function) -> Vec<Vec<Value>> {
+    let n = function
+        .params
+        .iter()
+        .find_map(|p| match &p.ty {
+            Type::Array { length, .. } => Some(*length),
+            _ => None,
+        })
+        .unwrap_or(256);
+    let mut seed = 0x7B_5EED_0000u64 ^ (n as u64);
+    let mut arrays: Vec<Vec<u128>> = vec![
+        vec![0u128; n],
+        vec![0xFFu128; n],
+        (0..n).map(|i| if i == 0 { 1 } else { 0 }).collect(),
+        (0..n).map(|i| if i == 1 { 0x80 } else { 0 }).collect(),
+        (0..n).map(|i| if i == 127 { 0x7F } else { 0 }).collect(),
+        (0..n).map(|i| if i == n - 1 { 0xFF } else { 0 }).collect(),
+    ];
+    for _ in 0..4 {
+        arrays.push(
+            (0..n)
+                .map(|_| (xorshift64(&mut seed) & 0xFF) as u128)
+                .collect(),
+        );
+    }
+    let has_int_param = function
+        .params
+        .iter()
+        .any(|p| matches!(p.ty, Type::Integer { .. }));
+    let keys: Vec<u128> = if has_int_param {
+        vec![0, 1, 127, 128, 255]
+    } else {
+        vec![0]
+    };
+    let mut out = Vec::new();
+    for arr in &arrays {
+        for key in &keys {
+            out.push(
+                function
+                    .params
+                    .iter()
+                    .map(|p| match &p.ty {
+                        Type::Array { element, .. } if **element == Type::Bool => {
+                            Value::BoolArray(arr.iter().map(|v| *v != 0).collect())
+                        }
+                        Type::Array { .. } => Value::IntArray(arr.clone()),
+                        Type::Integer {
+                            width,
+                            signed,
+                            ..
+                        } => Value::Int {
+                            bits: wrap(*key, width.bits() as u32),
+                            signed: *signed,
+                            width: width.bits() as u32,
+                        },
+                        other => panic!("unsupported tier-B parameter type {other:?}"),
+                    })
+                    .collect(),
+            );
+        }
+    }
+    out
+}
+
 fn mode_exec() {
     let rows = parse_rows(&corpus_dir("tier_a.tsv"));
     println!("H3 EXEC — differential SIR execution (original vs rewritten)");
@@ -925,9 +1050,10 @@ fn main() {
     match mode.as_str() {
         "run" => mode_run(),
         "exec" => mode_exec(),
+        "tbexec" => mode_tbexec(),
         "s1" => mode_s1(),
         other => {
-            eprintln!("usage: h3_run <run|exec|s1> (got '{other}')");
+            eprintln!("usage: h3_run <run|exec|tbexec|s1> (got '{other}')");
             std::process::exit(2);
         }
     }

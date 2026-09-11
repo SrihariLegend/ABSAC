@@ -3,7 +3,8 @@
 Run: `d4-remediation` (post-H3, pre-C4). Date: 2026-09-02 (same session as the H3
 advisory review). Binary: `sir/crates/sir_benchmarks/src/bin/h3_run.rs` (sha256 in
 `d4/manifest.sha256`) run with `ABSAC_CORPUS_DIR=d4/`. Raw archives committed
-before inspection: `d4/raw/run1.txt`, `d4/raw/exec1.txt` (rc=0 both).
+before inspection: `d4/raw/run1.txt`, `d4/raw/exec1.txt` (pass 1) and
+`d4/raw/run2.txt`, `d4/raw/exec2.txt`, `d4/raw/tbexec1.txt` (final pass).
 
 ## What changed (advisory directives → code)
 
@@ -18,11 +19,46 @@ before inspection: `d4/raw/run1.txt`, `d4/raw/exec1.txt` (rc=0 both).
 | Duplicate body entries | element-access role scan treats the body as a set | lowered loops no longer report spurious "ambiguous element access" |
 | Status reframing | `docs/H3_RESULTS.md` corrected: H3 = failed safety gate, white-box adversarial, promoted to regression corpus | this file |
 
-Not remediated this run (recorded for the next phase): the bitwise-**integer** Any
-instantiation (`Pack`/`Ne` type mismatch on u8 collections — tier B rows now stop
-at recipe structural verification with `TypeMismatch`, a narrower and honest
-frontier), plus H3-register items 2–4 (generalize to All/Parity/Popcount,
-solver-backed application equivalence, Gate 6B sealing with an independent H4).
+### D4.1/D4.2 — tier-B rewrite completion (second remediation pass)
+
+Two further defects were fixed after the first D4 run, closing the tier-B
+frontier:
+
+1. **Truthiness-observable classification (binding).** A lowered clang loop
+   exposes the raw accumulator (`u8` from `acc |= x`) as the loop slot; the
+   source's only observation is `acc != 0`. The recipe replaced the *integer
+   projection* with the theorem's Bool, producing ill-typed functions
+   (`TypeMismatch`, Bool vs I8). `classify_live_outs` now classifies an
+   integer-typed disjunction slot through its unique truthiness comparison
+   `Ne(slot, 0)`: the observable boundary is that comparison (replaced by the
+   Bool result; the loop and projection die by DCE). Any other downstream
+   shape — other comparisons, arithmetic, escaping uses, multiple observers —
+   refuses. Other recurrences (counts/sums/scans) keep their direct
+   classification (regression-checked by the semantic zoo).
+2. **Implicit element-nonzero predicate (recipe + frame).** `acc |= x[i]` is
+   `any(x[i] != 0)`. For a collection with no explicit predicate role the
+   candidate is the vectorized `x[i] != 0` mask (`ArrayCmpMask(collection,
+   zero-of-element-type, Ne)`) nonzero-checked. The certification is
+   fail-closed: only when the role map proves the recurrence reduces the RAW
+   element (`predicate == element_access`) for `bitwise_or`; a projected
+   element (`x[i] >> 7` in h3b12) refuses with "integer collection without a
+   certified element predicate". The frame checker validates the exact
+   4-node grammar (mask, element zero, bit-vector zero, nonzero).
+
+Tier-B results after this pass (`d4/raw/run2.txt`, `tbexec1.txt`):
+
+| Row | D4 pass 1 | D4 final |
+|-----|-----------|----------|
+| h3b01 any-or (raw u8) | structural failure (Pack over u8) | **rewrite**; 10 differential patterns, 0 mismatches |
+| h3b02/03/04 predicate gt/eq/lt | structural failure (Bool vs I8) | **rewrite**; 50 patterns each, 0 mismatches |
+| h3b12 signed-lt-zero | structural failure (Pack over u8) | **refused** (projected element — not a raw-or reduction) |
+| h3b05/06/07–11 | abstain/refuse | unchanged abstain/refuse |
+
+Full workspace suite after the completion pass: **546 passed, 0 failed**.
+
+Still open (next phase): H3-register items 2–4 (generalize to All/Parity/
+Popcount, solver-backed application equivalence, Gate 6B sealing with an
+independent H4), plus native/LLVM-level execution (F6–F8 emitters).
 
 ## Tier A outcomes vs D4 expectations (`d4/expected.csv`)
 
@@ -47,7 +83,8 @@ patterns). Zero corrupt commits, zero panics in tier A.
 
 | Row | Sealed H3 (frozen) | D4 (remediated) |
 |-----|--------------------|-----------------|
-| h3b01–04, h3b12 (eq-next counted loops) | lowered, 1 candidate, **blocked at termination binding** | lowered, PASS, 2 candidates, **binding passes**; blocked at recipe structural verification — Any patch over a u8 collection types `Pack`/`Ne` as Boolean (`TypeMismatch`, Bool vs I8) |
+| h3b01–04 (eq-next counted loops) | lowered, 1 candidate, blocked at termination binding | lowered, PASS, 2 candidates, **committed rewrite** (pass 1: structural failure; fixed in pass 2 — see below) |
+| h3b12 (signed-lt-zero) | not lowered (signed icmp) | lowered (clang sign-mask), PASS, 2 candidates, **refused** — projected element (`x>>7`), not a raw-or reduction |
 | h3b05 (runtime-bound ptr scan) | 0 candidates | 0 candidates |
 | h3b06 (volatile load scan) | 0 candidates | 1 candidate, NoProof (fact change under corrected constants analysis) |
 | h3b07 (memset store loop) | not lowered | not lowered (unchanged refusal) |
