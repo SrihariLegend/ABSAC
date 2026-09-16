@@ -17,6 +17,7 @@ pub mod vector_emit;
 // They reported `Proven` from hardcoded strings and must not be used as
 // evidence.
 pub mod gate5a;
+pub mod gate6b;
 
 use framework::BenchmarkDef;
 

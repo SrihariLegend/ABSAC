@@ -288,3 +288,65 @@ fn global_array_extent_follows_the_gep_source_type() {
         "global array parameter must carry the GEP-declared extent 64, not the historical 256"
     );
 }
+
+/// Gate 6B fusion enabler: a sequential-loop kernel (count + sum over the
+/// same buffer) must outline into one single-loop region per reduction,
+/// each of which lowers on its own with the original parameters in their
+/// original positions.
+const TWO_LOOP_COUNT_SUM: &str = r#"
+define dso_local i64 @two(ptr nocapture noundef readonly %0, i64 noundef %1, i8 noundef zeroext %2, i8 noundef zeroext %3) local_unnamed_addr #0 {
+  %5 = icmp eq i64 %1, 0
+  br i1 %5, label %6, label %9
+
+6:                                                ; preds = %9, %4
+  %7 = phi i64 [ 0, %4 ], [ %17, %9 ]
+  %8 = icmp eq i64 %1, 0
+  br i1 %8, label %20, label %23
+
+9:                                                ; preds = %4, %9
+  %10 = phi i64 [ %18, %9 ], [ 0, %4 ]
+  %11 = phi i64 [ %17, %9 ], [ 0, %4 ]
+  %12 = getelementptr inbounds i8, ptr %0, i64 %10
+  %13 = load i8, ptr %12, align 1, !tbaa !5
+  %14 = and i8 %13, %2
+  %15 = icmp eq i8 %14, %3
+  %16 = zext i1 %15 to i64
+  %17 = add i64 %11, %16
+  %18 = add nuw i64 %10, 1
+  %19 = icmp eq i64 %18, %1
+  br i1 %19, label %6, label %9, !llvm.loop !8
+
+20:                                               ; preds = %23, %6
+  %21 = phi i64 [ 0, %6 ], [ %29, %23 ]
+  %22 = xor i64 %21, %7
+  ret i64 %22
+
+23:                                               ; preds = %6, %23
+  %24 = phi i64 [ %30, %23 ], [ 0, %6 ]
+  %25 = phi i64 [ %29, %23 ], [ 0, %6 ]
+  %26 = getelementptr inbounds i8, ptr %0, i64 %24
+  %27 = load i8, ptr %26, align 1, !tbaa !5
+  %28 = zext i8 %27 to i64
+  %29 = add i64 %25, %28
+  %30 = add nuw i64 %24, 1
+  %31 = icmp eq i64 %30, %1
+  br i1 %31, label %20, label %23, !llvm.loop !11
+}
+"#;
+
+#[test]
+fn sequential_loops_outline_and_lower_per_region() {
+    let regions = sir_lower::extract_loop_regions(TWO_LOOP_COUNT_SUM, "two")
+        .expect("two-loop function must outline");
+    assert_eq!(regions.len(), 2, "one region per self-latch loop");
+    for (k, r) in regions.iter().enumerate() {
+        let f = lower_function(&r.text, &r.name)
+            .unwrap_or_else(|e| panic!("region {k} must lower: {e}"));
+        assert_eq!(f.params.len(), r.params.len(), "region params preserved");
+        assert_eq!(r.original_params, 4, "original params keep their positions");
+        assert!(
+            r.dep_sources.is_empty(),
+            "independent loops over the same buffer must not report dependencies"
+        );
+    }
+}

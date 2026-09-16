@@ -620,6 +620,477 @@ fn extract_function_by_name(text: &str, name: &str) -> String {
     String::new()
 }
 
+/// A single-loop region outlined from a multi-loop function.
+///
+/// Gate 6B fusion support: every self-latch loop of a sequential-loop
+/// function becomes its own single-loop LLVM function, so the existing
+/// per-loop pipeline (lowering → analysis → recognition → plan
+/// derivation) sees one reduction region at a time.
+///
+/// Provenance is preserved by construction: the original parameters keep
+/// their positions in every region, so two regions that read the same
+/// buffer and length carry the *same* parameter positions. Any value
+/// produced by another loop becomes an explicit dependency parameter and
+/// is recorded in `dep_sources`; the composition stage must refuse to
+/// fuse across a dependency edge.
+#[derive(Clone, Debug)]
+pub struct LoopRegion {
+    /// Function name of the outlined region (`<fn>_region<k>`).
+    pub name: String,
+    /// Self-contained LLVM IR module text defining the region.
+    pub text: String,
+    /// SIR parameter names in order: original params first, then deps.
+    pub params: Vec<String>,
+    /// Number of original function parameters (prefix of `params`).
+    pub original_params: usize,
+    /// For each dependency parameter, the index of the region that
+    /// defines it (aligned with `params[original_params..]`); `None`
+    /// means the definition site is outside the extracted chain.
+    pub dep_sources: Vec<Option<usize>>,
+}
+
+/// True when `block` carries its own back edge (a self-latch loop header).
+fn self_latch_block(block: &Block) -> bool {
+    block.instructions.iter().any(|i| {
+        if i.opcode != "phi" {
+            return false;
+        }
+        let combined = i.operands.join(", ");
+        combined.contains(&format!("%{}]", block.label))
+            || combined.contains(&format!(", %{} ]", block.label))
+            || combined.contains(&format!("%{}", block.label))
+    })
+}
+
+/// Successor labels of a block (from its `br`), without the `%` prefix.
+fn block_successors(block: &Block) -> Vec<String> {
+    for inst in &block.instructions {
+        match inst.opcode.as_str() {
+            "br" => {
+                return inst
+                    .operands
+                    .iter()
+                    .filter_map(|op| {
+                        op.trim()
+                            .strip_prefix("label ")
+                            .map(|l| l.trim().trim_start_matches('%').to_string())
+                    })
+                    .collect();
+            }
+            "ret" => return Vec::new(),
+            _ => {}
+        }
+    }
+    Vec::new()
+}
+
+/// The non-self target of a loop header's conditional branch.
+fn loop_exit_label(block: &Block) -> Option<String> {
+    for inst in &block.instructions {
+        if inst.opcode == "br" && inst.operands.len() >= 3 {
+            let true_label = inst.operands[1]
+                .trim_start_matches("label ")
+                .trim_start_matches('%')
+                .to_string();
+            let false_label = inst.operands[2]
+                .trim_start_matches("label ")
+                .trim_start_matches('%')
+                .to_string();
+            return Some(if true_label == block.label {
+                false_label
+            } else {
+                true_label
+            });
+        }
+    }
+    None
+}
+
+/// First LLVM type token in an operand list (`i64`, `i8`, `ptr`, …).
+fn first_type_token(operands: &[String]) -> Option<String> {
+    const TYPES: [&str; 7] = ["i1", "i8", "i16", "i32", "i64", "i128", "ptr"];
+    for op in operands {
+        for token in op.split(|c: char| c.is_whitespace() || c == ',' || c == ']' || c == '[') {
+            let token = token.trim();
+            if TYPES.contains(&token) {
+                return Some(token.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Extract the first `%name` value token from an operand string.
+fn value_name(s: &str) -> Option<String> {
+    let start = s.find('%')?;
+    let rest = &s[start..];
+    let end = rest
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '%'))
+        .unwrap_or(rest.len());
+    Some(rest[..end].to_string())
+}
+
+/// Value names *used* by an instruction (phi labels and `br` targets are
+/// not values).
+fn used_value_names(inst: &Instruction) -> Vec<String> {
+    let mut out = Vec::new();
+    match inst.opcode.as_str() {
+        "br" | "ret" => {}
+        "phi" => {
+            for op in &inst.operands {
+                let op = op.trim();
+                let Some(inner) = op.strip_prefix('[') else { continue };
+                let Some(inner) = inner.strip_suffix(']') else { continue };
+                let Some((val, _label)) = inner.split_once(',') else { continue };
+                if let Some(name) = value_name(val) {
+                    out.push(name);
+                }
+            }
+        }
+        _ => {
+            for op in &inst.operands {
+                if let Some(name) = value_name(op) {
+                    out.push(name);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// True when the phi has an incoming edge from `label` (the loop back edge).
+fn phi_fed_by(inst: &Instruction, label: &str) -> bool {
+    for op in &inst.operands {
+        let op = op.trim();
+        let Some(inner) = op.strip_prefix('[') else { continue };
+        let Some(inner) = inner.strip_suffix(']') else { continue };
+        let Some((_val, lbl)) = inner.split_once(',') else { continue };
+        if lbl.trim().trim_start_matches('%') == label {
+            return true;
+        }
+    }
+    false
+}
+
+/// Rewrite `%name` tokens through `map` (exact-token replacement).
+fn rewrite_value_names(text: &str, map: &HashMap<String, String>) -> String {
+    if map.is_empty() {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len());
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '%' {
+            let mut j = i + 1;
+            while j < chars.len()
+                && (chars[j].is_ascii_alphanumeric() || chars[j] == '_' || chars[j] == '.')
+            {
+                j += 1;
+            }
+            let token: String = chars[i..j].iter().collect();
+            if let Some(replacement) = map.get(&token) {
+                out.push_str(replacement);
+            } else {
+                out.push_str(&token);
+            }
+            i = j;
+        } else {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// LLVM result type of a named value defined in the function.
+fn defined_value_type(ir: &IrFunction, name: &str) -> String {
+    for block in &ir.blocks {
+        for inst in &block.instructions {
+            if inst.result.as_deref() == Some(name) {
+                if inst.opcode == "icmp" || inst.opcode == "fcmp" {
+                    return "i1".to_string();
+                }
+                return first_type_token(&inst.operands).unwrap_or_else(|| "i64".to_string());
+            }
+        }
+    }
+    "i64".to_string()
+}
+
+/// Order self-latch headers along the function's execution chain.
+fn order_loop_chain(ir: &IrFunction, headers: &[usize]) -> Result<Vec<usize>, String> {
+    let header_of = |label: &str| -> Option<usize> {
+        headers
+            .iter()
+            .copied()
+            .find(|&i| ir.blocks[i].label == label)
+    };
+    let mut order = Vec::new();
+    let mut visited: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut cursor_label = ir.blocks[0].label.clone();
+    for _ in 0..4096 {
+        if order.len() == headers.len() {
+            break;
+        }
+        let Some(&idx) = ir.block_map.get(&cursor_label) else {
+            return Err(format!(
+                "cannot follow block '{}' while ordering loop headers",
+                cursor_label
+            ));
+        };
+        if !visited.insert(idx) {
+            return Err(format!(
+                "loop chain revisits block '{}' while ordering headers",
+                cursor_label
+            ));
+        }
+        if let Some(h) = header_of(&cursor_label) {
+            order.push(h);
+        }
+        let succs = block_successors(&ir.blocks[idx]);
+        let next = succs
+            .iter()
+            .find(|l| {
+                ir.block_map
+                    .get(*l)
+                    .map(|i| !visited.contains(i))
+                    .unwrap_or(false)
+                    && header_of(l).is_some()
+            })
+            .or_else(|| {
+                succs.iter().find(|l| {
+                    ir.block_map
+                        .get(*l)
+                        .map(|i| !visited.contains(i))
+                        .unwrap_or(false)
+                })
+            })
+            .cloned();
+        match next {
+            Some(l) => cursor_label = l,
+            None => break,
+        }
+    }
+    if order.len() != headers.len() {
+        return Err(format!(
+            "could not order all loop headers ({} of {})",
+            order.len(),
+            headers.len()
+        ));
+    }
+    Ok(order)
+}
+
+/// Outline every self-latch loop of `func_name` as its own single-loop
+/// LLVM function. See [`LoopRegion`].
+pub fn extract_loop_regions(text: &str, func_name: &str) -> Result<Vec<LoopRegion>, String> {
+    let func_text = extract_function_by_name(text, func_name);
+    if func_text.is_empty() {
+        return Err(format!("function '{}' not found", func_name));
+    }
+    let ir = parse_function(&func_text)?;
+
+    let headers: Vec<usize> = ir
+        .blocks
+        .iter()
+        .enumerate()
+        .filter(|(_, b)| self_latch_block(b))
+        .map(|(i, _)| i)
+        .collect();
+    if headers.is_empty() {
+        return Err(format!(
+            "function '{}' has no self-latch loops to extract",
+            func_name
+        ));
+    }
+    let order = order_loop_chain(&ir, &headers)?;
+
+    let mut regions: Vec<LoopRegion> = Vec::new();
+    let mut produced_by: HashMap<String, usize> = HashMap::new();
+
+    for (k, &h) in order.iter().enumerate() {
+        let header = &ir.blocks[h];
+        let exit_label = loop_exit_label(header)
+            .ok_or_else(|| format!("loop block '{}' has no conditional exit", header.label))?;
+        let exit_idx = *ir
+            .block_map
+            .get(&exit_label)
+            .ok_or_else(|| format!("loop exit block '{}' not found", exit_label))?;
+        let exit_block = &ir.blocks[exit_idx];
+
+        // Result: the exit-block phi fed by this loop's back edge, or the
+        // exit block's return operand when the loop exits to the tail.
+        let mut result: Option<(String, String)> = None;
+        for inst in &exit_block.instructions {
+            if inst.opcode == "phi" && phi_fed_by(inst, &header.label) {
+                let name = inst
+                    .result
+                    .clone()
+                    .ok_or_else(|| "loop merge phi has no result".to_string())?;
+                let ty = first_type_token(&inst.operands).unwrap_or_else(|| "i64".to_string());
+                result = Some((name, ty));
+                break;
+            }
+        }
+        let (result_name, result_ty) = match result {
+            Some(r) => r,
+            None => {
+                let ret = exit_block
+                    .instructions
+                    .iter()
+                    .find(|i| i.opcode == "ret")
+                    .ok_or_else(|| {
+                        format!(
+                            "cannot determine the result of loop block '{}'",
+                            header.label
+                        )
+                    })?;
+                let op = ret
+                    .operands
+                    .first()
+                    .ok_or_else(|| "loop exit returns void".to_string())?;
+                (
+                    strip_type(op),
+                    first_type_token(&ret.operands).unwrap_or_else(|| "i64".to_string()),
+                )
+            }
+        };
+
+        // Instruction stream of the region: pre-blocks (first region only),
+        // the loop header, and the exit block's merge phis.
+        let mut insts: Vec<Instruction> = Vec::new();
+        let mut pre_blocks: Vec<(String, Vec<Instruction>)> = Vec::new();
+        if k == 0 {
+            for (bi, b) in ir.blocks.iter().enumerate() {
+                if bi >= h {
+                    break;
+                }
+                if b.instructions.iter().any(|i| i.opcode == "ret") {
+                    continue;
+                }
+                // Do not duplicate the loop's own exit block (it is emitted
+                // again below with the merge phis) and skip any other loop
+                // header that precedes this one in block order.
+                if b.label == exit_label || self_latch_block(b) {
+                    continue;
+                }
+                let kept: Vec<Instruction> = b
+                    .instructions
+                    .iter()
+                    .filter(|i| !matches!(i.opcode.as_str(), "br" | "ret" | "phi"))
+                    .cloned()
+                    .collect();
+                insts.extend(kept.iter().cloned());
+                pre_blocks.push((b.label.clone(), kept));
+            }
+        }
+        insts.extend(header.instructions.iter().cloned());
+        for inst in &exit_block.instructions {
+            if inst.opcode == "phi" {
+                insts.push(inst.clone());
+            }
+        }
+
+        // Defined vs free names.
+        let mut defined: std::collections::HashSet<String> =
+            ir.params.iter().map(|(n, _)| n.clone()).collect();
+        for inst in &insts {
+            if let Some(r) = &inst.result {
+                defined.insert(r.clone());
+            }
+        }
+        let mut free: Vec<String> = Vec::new();
+        for inst in &insts {
+            for name in used_value_names(inst) {
+                if !defined.contains(&name) && !free.contains(&name) {
+                    free.push(name);
+                }
+            }
+        }
+
+        // Dependency parameters.
+        let mut rewrite: HashMap<String, String> = HashMap::new();
+        let mut dep_sources: Vec<Option<usize>> = Vec::new();
+        for (d, old) in free.iter().enumerate() {
+            let new_name = format!("%dep{}", d);
+            rewrite.insert(old.clone(), new_name);
+            dep_sources.push(produced_by.get(old).copied());
+        }
+
+        // Module text.
+        let mut out = String::new();
+        let mut param_decls: Vec<String> = ir
+            .params
+            .iter()
+            .map(|(name, ty)| format!("{} {}", ty, name))
+            .collect();
+        for (d, old) in free.iter().enumerate() {
+            param_decls.push(format!("{} %dep{}", defined_value_type(&ir, old), d));
+        }
+        out.push_str(&format!(
+            "define {} @{}_region{}({}) {{\n",
+            result_ty,
+            func_name,
+            k,
+            param_decls.join(", ")
+        ));
+
+        for (label, kept) in &pre_blocks {
+            out.push_str(&format!("{}:\n", label));
+            for inst in kept {
+                out.push_str(&format!(
+                    "  {}\n",
+                    rewrite_value_names(&inst.raw, &rewrite)
+                ));
+            }
+        }
+        out.push_str(&format!("{}:\n", header.label));
+        for inst in &header.instructions {
+            out.push_str(&format!(
+                "  {}\n",
+                rewrite_value_names(&inst.raw, &rewrite)
+            ));
+        }
+        out.push_str(&format!("{}:\n", exit_block.label));
+        for inst in &exit_block.instructions {
+            if inst.opcode == "phi" {
+                out.push_str(&format!(
+                    "  {}\n",
+                    rewrite_value_names(&inst.raw, &rewrite)
+                ));
+            }
+        }
+        out.push_str(&format!(
+            "  ret {} {}\n}}\n",
+            result_ty,
+            rewrite_value_names(&result_name, &rewrite)
+        ));
+
+        // Record what this region defines for later regions.
+        for inst in &insts {
+            if let Some(r) = &inst.result {
+                produced_by.entry(r.clone()).or_insert(k);
+            }
+        }
+
+        let mut params: Vec<String> = ir.params.iter().map(|(n, _)| n.clone()).collect();
+        for d in 0..free.len() {
+            params.push(format!("%dep{}", d));
+        }
+
+        regions.push(LoopRegion {
+            name: format!("{}_region{}", func_name, k),
+            text: out,
+            params,
+            original_params: ir.params.len(),
+            dep_sources,
+        });
+    }
+
+    Ok(regions)
+}
+
 /// List all function names in the LLVM IR text.
 pub fn list_functions(text: &str) -> Vec<String> {
     let mut names = Vec::new();

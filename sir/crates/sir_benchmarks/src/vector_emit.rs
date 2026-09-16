@@ -213,7 +213,7 @@ fn emit_sum(out: &mut String, plan: &VectorPlan, buf: &str, len: &str) {
     out.push_str("    return sum;\n");
 }
 
-fn sanitize_name(name: &str, idx: usize) -> String {
+pub fn sanitize_name(name: &str, idx: usize) -> String {
     if name.starts_with('%') {
         format!("p{}", idx)
     } else {
@@ -221,7 +221,7 @@ fn sanitize_name(name: &str, idx: usize) -> String {
     }
 }
 
-fn c_type(ty: &sir_types::Type) -> String {
+pub fn c_type(ty: &sir_types::Type) -> String {
     use sir_types::Type;
     match ty {
         Type::Unit => "void".to_string(),

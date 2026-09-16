@@ -87,6 +87,82 @@ pub fn derive_vector_plan(func: &Function, truths: &[SemanticTruth]) -> Option<V
     None
 }
 
+/// Resolve a value to a C expression only when it is genuinely a
+/// parameter (by node kind, not by node-id position) or a constant.
+fn resolve_traversal_value(func: &Function, nid: NodeId) -> Option<String> {
+    let node = func.arena.get(nid)?;
+    match &node.kind {
+        NodeKind::Parameter { index } => {
+            let p = func.params.get(*index)?;
+            if p.name.starts_with('%') {
+                Some(format!("p{}", index))
+            } else {
+                Some(p.name.clone())
+            }
+        }
+        NodeKind::Constant(data) => data.as_u64().map(|v| format!("{}", v)),
+        _ => None,
+    }
+}
+
+/// Resolve the loop region's traversal expressions from its own structure:
+/// the buffer is the base of the array accesses in the loop body, and the
+/// length is the bound of the normalized `Lt(carry, bound)` termination.
+///
+/// The historical derivation assumed parameter positions 0 and 1; that held
+/// for the Gate 5A kernels but not for outlined multi-loop regions, whose
+/// parameters keep the original kernel's positions (Gate 6B).
+fn region_traversal(func: &Function) -> Option<(String, String)> {
+    for node in func.arena.iter() {
+        let NodeKind::Loop {
+            body, termination, ..
+        } = &node.kind
+        else {
+            continue;
+        };
+        let len_node = match &func.get_node(*termination)?.kind {
+            NodeKind::Lt { rhs, .. } => *rhs,
+            _ => continue,
+        };
+        let mut buffer: Option<NodeId> = None;
+        for &bid in body {
+            for nid in collect_subgraph(func, bid) {
+                if let Some(n) = func.arena.get(nid) {
+                    match &n.kind {
+                        NodeKind::ArrayAccess { base, .. } => buffer = Some(*base),
+                        NodeKind::Load { ptr } => {
+                            if buffer.is_none() {
+                                buffer = Some(*ptr);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        let buffer = resolve_traversal_value(func, buffer?)?;
+        let length = resolve_traversal_value(func, len_node)?;
+        return Some((buffer, length));
+    }
+    None
+}
+
+/// Region-scoped derivation for the Gate 6B fusion composition: the same
+/// primitive plan as [`derive_vector_plan`], with the buffer and length
+/// resolved from the loop region itself rather than from parameter
+/// positions 0 and 1.
+pub fn derive_vector_plan_for_region(
+    func: &Function,
+    truths: &[SemanticTruth],
+) -> Option<VectorPlan> {
+    let mut plan = derive_vector_plan(func, truths)?;
+    if let Some((buffer, length)) = region_traversal(func) {
+        plan.buffer_name = buffer;
+        plan.length_name = length;
+    }
+    Some(plan)
+}
+
 /// Check if the loop body contains a comparison (Eq/Ne) that's NOT the loop termination check
 fn find_loop_comparison(func: &Function) -> bool {
     // Find the Loop node
