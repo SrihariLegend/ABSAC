@@ -7,11 +7,17 @@
 Gate 5B-Witness:    PASSED — hand-constructed semantic composition
                         provides 28-35% improvement.
 
-Gate 5B-Automation: OPEN   — ABSAC has not yet generated the fusion
-                        from primitive actions.
+Gate 5B-Automation: PASSED — ABSAC generated the fusion from primitive
+                        actions on a corpus sealed before the automation
+                        existed (5/5 fusion rows, differential-clean,
+                        1.70-2.07x vs the deterministic baseline).
+                        See docs/GATE6B_RESULTS.md.
 
-Gate 5B-Search:     OPEN   — search has not yet been shown to discover
-                        it when Engine 0 does not.
+Gate 5B-Search:     PASSED — the composition action space plus a
+                        memory-traffic cost model selects the fusion
+                        where Engine 0 has no fusion action; the
+                        early-exit-aware model selects a mixed plan.
+                        See docs/GATE6B_RESULTS.md.
 ```
 
 What has been confirmed: a valuable compositional transformation exists

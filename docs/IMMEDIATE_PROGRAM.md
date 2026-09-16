@@ -121,12 +121,19 @@ Gate 5B-Witness: PASSED — hand-constructed semantic composition
     Multi-reduction fusion provides 28-35% improvement over
     independent vectorization. No single recipe contains this.
 
-Gate 5B-Automation: OPEN — ABSAC has not yet generated the fusion
-    from primitive actions.
+Gate 5B-Automation: PASSED — the fused single-pass implementation is
+    generated from per-region primitive plans on a corpus sealed before
+    the automation existed (5/5 fusion rows, differential-clean,
+    1.70–2.07× vs the deterministic per-region baseline).
 
-Gate 5B-Search: OPEN — search has not yet been shown to discover
-    the fusion when Engine 0 does not.
+Gate 5B-Search: PASSED — the composition action space with a
+    memory-traffic cost model selects fusion where Engine 0 has no fusion
+    action; under early-exit-favouring assumptions it selects a mixed plan.
 ```
+
+Gate 5B closed 2026-09-17 — full record in docs/GATE6B_RESULTS.md
+(sealed corpus `gate6b/`, frozen harness manifest, raw runs committed
+before inspection).
 
 If this fails, MCTS is unjustified for the current action space.
 
@@ -383,9 +390,11 @@ Remediation D3 (P0A, commit c3ebb54):
 
 Gate 6A-v3:  OPEN     requires a fresh corpus after D3 remediation.
 
-Gate 6B:     RESERVED — blindness protocol must be established before
-             fusion automation (seal corpus now or independent post-freeze
-             construction). Must not be inspected while automating fusion.
+Gate 6B:     PASSED — the fusion corpus was sealed before automation
+             (gate6b/manifest.sha256, commit 4aedce1) and evaluated
+             one-shot with a frozen harness (7ab8edc/2594d1a): 10/10 rows
+             (5 fuse + 5 refuse), differential-clean, zero panics
+             (docs/GATE6B_RESULTS.md).
 
 Generational protocol: freeze → evaluate blindly → fail → preserve the
 failure → understand the missing semantics → remediate → evaluate on a
