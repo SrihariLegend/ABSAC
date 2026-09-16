@@ -111,6 +111,11 @@ loop.
 - The harness was frozen and hashed before the runs
   (`gate6b/manifest.harness.sha256`). Raw outputs were committed before
   inspection in both runs.
+- The harness manifest covers apparatus code only; the run-time manifest
+  (which also pinned the Gate 5B specification document) is preserved in
+  git history at `7ab8edc`/`2594d1a`. `docs/GATE5B_RESULTS.md` was
+  annotated with the closed status after the runs, so it is covered by
+  git history rather than by the code manifest.
 - Independence caveat (disclosed): the corpus author is the same agent
   that implemented the automation; the operative criteria are
   pre-registration, the seal, the frozen harness, and the one-shot runs.

@@ -1,5 +1,8 @@
-# Gate 6B evaluation harness, frozen and hashed before the one-shot run
-# (sha256sum). The corpus seal is gate6b/manifest.sha256.
+# Gate 6B evaluation harness (apparatus code), frozen and hashed before the
+# one-shot runs (sha256sum). The corpus seal is gate6b/manifest.sha256.
+# docs/GATE5B_RESULTS.md is the specification document, not apparatus; its
+# status section was annotated after the runs, so it is covered by git
+# history rather than this code manifest.
 18c7601106af867d211ea11026e7fd6bf9bf5ae6b73cac7ba5161a8c5d963906  sir/crates/sir_lower/src/lib.rs
 0f8d6d4b45be0b9b31e0152b19cbbf596b9db2cb6114251aac6c6fcbc5966166  sir/crates/sir_benchmarks/src/lib.rs
 d43fd5cc855d1145d4829d7ee846750fc4ead6e5168e8f1d0973fcf00b328fab  sir/crates/sir_benchmarks/src/gate6b.rs
@@ -7,4 +10,3 @@ d43fd5cc855d1145d4829d7ee846750fc4ead6e5168e8f1d0973fcf00b328fab  sir/crates/sir
 7a7bf39b79d76d6b3975f48840a00c522eefddbe1afa2e10498cfcb311a7fea5  sir/crates/sir_benchmarks/src/vector_emit.rs
 718839078c227c875f49a80cb3997f1009011c814a18f37ac5a0d598a482789a  sir/crates/sir_benchmarks/src/vector_plan.rs
 083f7bf933bc4a4586752db8825011d049021f904df315dcd6391855b3c46fbe  sir/crates/sir_benchmarks/src/bin/gate6b_run.rs
-eca4db94ef029e5e6b77aa931159564f1a63172b2eed8867f4d97fbef1ce050b  docs/GATE5B_RESULTS.md
