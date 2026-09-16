@@ -1,0 +1,286 @@
+warning: unreachable pattern
+   --> crates/sir_semantics/src/binding.rs:727:17
+    |
+727 |                 _ => return false,
+    |                 ^ no value can reach this
+    |
+note: multiple earlier patterns match some of the same values
+   --> crates/sir_semantics/src/binding.rs:727:17
+    |
+722 |                 IntegerWidth::I8 => 8,
+    |                 ---------------- matches some of the same values
+723 |                 IntegerWidth::I16 => 16,
+    |                 ----------------- matches some of the same values
+724 |                 IntegerWidth::I32 => 32,
+    |                 ----------------- matches some of the same values
+725 |                 IntegerWidth::I64 => 64,
+    |                 ----------------- matches some of the same values
+726 |                 IntegerWidth::I128 => 128,
+727 |                 _ => return false,
+    |                 ^ ...and 1 other patterns collectively make this unreachable
+    = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `carried_inputs`
+  --> crates/sir_semantics/src/recognizers/loop_until_zero.rs:25:13
+   |
+25 |             carried_inputs,
+   |             ^^^^^^^^^^^^^^ help: try ignoring the field: `carried_inputs: _`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `length`
+   --> crates/sir_generation/src/generators/bitset.rs:175:24
+    |
+175 |         compute_cost: |length| CostProfile {
+    |                        ^^^^^^ help: if this is intentional, prefix it with an underscore: `_length`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+  --> crates/sir_generation/src/generators/mod.rs:38:9
+   |
+38 |     let mut proposals: Vec<UntrustedProposal> = Vec::new();
+   |         ----^^^^^^^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `proposals`
+  --> crates/sir_generation/src/generators/mod.rs:38:9
+   |
+38 |     let mut proposals: Vec<UntrustedProposal> = Vec::new();
+   |         ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_proposals`
+
+warning: unreachable pattern
+   --> crates/sir_rewrite/src/recipes/any.rs:209:13
+    |
+209 |             _ => return None,
+    |             ^ no value can reach this
+    |
+note: multiple earlier patterns match some of the same values
+   --> crates/sir_rewrite/src/recipes/any.rs:209:13
+    |
+200 |             (IntegerWidth::I8, false) => ConstantData::u8(0),
+    |             ------------------------- matches some of the same values
+201 |             (IntegerWidth::I8, true) => ConstantData::i8(0),
+    |             ------------------------ matches some of the same values
+202 |             (IntegerWidth::I16, false) => ConstantData::u16(0),
+    |             -------------------------- matches some of the same values
+203 |             (IntegerWidth::I16, true) => ConstantData::i16(0),
+    |             ------------------------- matches some of the same values
+...
+209 |             _ => return None,
+    |             ^ ...and 5 other patterns collectively make this unreachable
+    = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `loaded_ty`
+    --> crates/sir_lower/src/lib.rs:2206:17
+     |
+2206 |             let loaded_ty = parse_type(&type_str).unwrap_or(Type::u8());
+     |                 ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_loaded_ty`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `phi_info_debug` is never used
+    --> crates/sir_lower/src/lib.rs:2378:4
+     |
+2378 | fn phi_info_debug(inst: &Instruction) -> Vec<(String, String)> {
+     |    ^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `sir_types::NodeId`
+ --> crates/sir_benchmarks/src/vector_plan.rs:3:5
+  |
+3 | use sir_types::NodeId;
+  |     ^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `TailPolicy`
+ --> crates/sir_benchmarks/src/vector_emit.rs:3:53
+  |
+3 | use crate::vector_plan::{VectorOp, VectorPredicate, TailPolicy, VectorPlan};
+  |                                                     ^^^^^^^^^^
+
+warning: unused imports: `TailPolicy`, `VectorOp`, `VectorPlan`, and `VectorPredicate`
+  --> crates/sir_benchmarks/src/gate5a.rs:17:26
+   |
+17 | use crate::vector_plan::{VectorOp, VectorPredicate, TailPolicy, VectorPlan};
+   |                          ^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^^  ^^^^^^^^^^
+
+warning: unused variable: `closure`
+   --> crates/sir_benchmarks/src/framework/mod.rs:255:57
+    |
+255 |         ExpectedKnowledge::MissingKnowledge { concepts, closure, representations, rewrites } => {
+    |                                                         ^^^^^^^ help: try ignoring the field: `closure: _`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `candidates`
+  --> crates/sir_benchmarks/src/graph/mod.rs:11:59
+   |
+11 | fn graph001_validate_provenance(truths: &[SemanticTruth], candidates: &[sir_generation::candidate::Candidate]) {
+   |                                                           ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_candidates`
+
+warning: unused variable: `candidates`
+  --> crates/sir_benchmarks/src/graph/mod.rs:35:59
+   |
+35 | fn graph002_validate_provenance(truths: &[SemanticTruth], candidates: &[sir_generation::candidate::Candidate]) {
+   |                                                           ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_candidates`
+
+warning: unused variable: `x_cleared`
+  --> crates/sir_benchmarks/src/graph/mod.rs:96:21
+   |
+96 |                 let x_cleared = b.bit_and(x, x_minus_one, unknown_span()).unwrap();
+   |                     ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_x_cleared`
+
+warning: unused variable: `a_and_c`
+   --> crates/sir_benchmarks/src/graph/mod.rs:104:21
+    |
+104 |                 let a_and_c = b.bool_and(a_val, c_val, unknown_span()).unwrap();
+    |                     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_a_and_c`
+
+warning: unused variable: `y_mod_16`
+   --> crates/sir_benchmarks/src/graph/mod.rs:107:21
+    |
+107 |                 let y_mod_16 = b.rem(y, sixteen, unknown_span()).unwrap();
+    |                     ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_y_mod_16`
+
+warning: unused variable: `true_val`
+   --> crates/sir_benchmarks/src/vector_derive.rs:218:53
+    |
+218 |                     if let NodeKind::Select { cond, true_val, false_val } = &bn.kind {
+    |                                                     ^^^^^^^^ help: try ignoring the field: `true_val: _`
+
+warning: unused variable: `and_lhs`
+   --> crates/sir_benchmarks/src/vector_derive.rs:294:53
+    |
+294 |                         if let NodeKind::And { lhs: and_lhs, rhs: and_rhs } = &lhs_node.kind {
+    |                                                     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_and_lhs`
+
+warning: unused variable: `vw`
+   --> crates/sir_benchmarks/src/gate5a.rs:190:9
+    |
+190 |     let vw = plan.isa.width();
+    |         ^^ help: if this is intentional, prefix it with an underscore: `_vw`
+
+warning: unused variable: `extra_params`
+   --> crates/sir_benchmarks/src/gate5a.rs:362:75
+    |
+362 | fn emit_k50(out: &mut String, plan: &CandidatePlan, buf: &str, len: &str, extra_params: &str) {
+    |                                                                           ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_extra_params`
+
+# Gate 6B fusion evaluation
+# corpus=/home/tom/dev/experiments/ABSAC/gate6b/corpus.ll
+# apparatus: gate6b_run + extract_loop_regions + plan derivation + composition + emitter
+
+KERNEL g6p05_literals class=P expected=fuse
+  rationale: literal predicates, no scalar parameters
+  region[0] g6p05_literals_region0 deps=[] concepts=["IsZero", "CardinalityReduction", "PredicateMap", "PredicateMap"] plan=Cardinality buffer=p0 length=p1 pred=masked_eq(mask=15,target=5) width=32
+  region[1] g6p05_literals_region1 deps=[] concepts=["SumReduction", "PredicateMap"] plan=Sum buffer=p0 length=p1 pred=identity width=32
+  region[2] g6p05_literals_region2 deps=[] concepts=["PredicateMap", "PredicateMap", "ConjunctiveReduction"] plan=All buffer=p0 length=p1 pred=eq(66) width=32
+  fusion_candidates=1
+  SEARCH engine0_cost=4.200 search_choice=fuse_3 members=[0, 1, 2] options=[fuse_3=2.200, fuse_2=3.200, fuse_2=3.200, fuse_2=3.200, engine0_3vec=4.200]
+  SEARCH_EARLYEXIT_SENSITIVITY choice=fuse_2 members=[0, 1] cost=2.013
+  CORRECTNESS OK checks=399 failures=0
+  BENCH kernel=g6p05_literals n=4096 dist=random engine0_ns=104.10 plan_ns=52.89 ratio=0.5081
+  BENCH kernel=g6p05_literals n=4096 dist=equal engine0_ns=108.01 plan_ns=56.08 ratio=0.5192
+  BENCH kernel=g6p05_literals n=65536 dist=random engine0_ns=1747.67 plan_ns=841.02 ratio=0.4812
+  BENCH kernel=g6p05_literals n=65536 dist=equal engine0_ns=1730.27 plan_ns=860.39 ratio=0.4973
+  EXPECTATION PASS
+
+KERNEL g6p01_triad class=P expected=fuse
+  rationale: three independent reductions share buf and n; disjoint accumulators
+  region[0] g6p01_triad_region0 deps=[] concepts=["IsZero", "CardinalityReduction", "PredicateMap", "PredicateMap"] plan=Cardinality buffer=p0 length=p1 pred=masked_eq(mask=p2,target=p3) width=32
+  region[1] g6p01_triad_region1 deps=[] concepts=["SumReduction", "PredicateMap"] plan=Sum buffer=p0 length=p1 pred=identity width=32
+  region[2] g6p01_triad_region2 deps=[] concepts=["PredicateMap", "PredicateMap", "ConjunctiveReduction"] plan=All buffer=p0 length=p1 pred=eq(p4) width=32
+  fusion_candidates=1
+  SEARCH engine0_cost=4.200 search_choice=fuse_3 members=[0, 1, 2] options=[fuse_3=2.200, fuse_2=3.200, fuse_2=3.200, fuse_2=3.200, engine0_3vec=4.200]
+  SEARCH_EARLYEXIT_SENSITIVITY choice=fuse_2 members=[0, 1] cost=2.013
+  CORRECTNESS OK checks=399 failures=0
+  BENCH kernel=g6p01_triad n=4096 dist=random engine0_ns=107.23 plan_ns=54.22 ratio=0.5056
+  BENCH kernel=g6p01_triad n=4096 dist=equal engine0_ns=104.88 plan_ns=51.94 ratio=0.4952
+  BENCH kernel=g6p01_triad n=65536 dist=random engine0_ns=1766.70 plan_ns=872.57 ratio=0.4939
+  BENCH kernel=g6p01_triad n=65536 dist=equal engine0_ns=1786.21 plan_ns=868.47 ratio=0.4862
+  EXPECTATION PASS
+
+KERNEL g6n08_store_loop class=N expected=no_fuse
+  rationale: second loop has an observable store (not a reduction)
+  ANALYSIS_FAIL region g6n08_store_loop_region0 did not lower: unsupported call: tail call void @llvm.memset.p0.i64(ptr nonnull align 16 @g6_out, i8 %2, i64 %9, i1 false), !tbaa !5
+  EXPECTATION FAIL (analysis refused)
+
+KERNEL g6n10_dependent class=N expected=no_fuse
+  rationale: second domain depends on the first reduction's result
+  region[0] g6n10_dependent_region0 deps=[] concepts=["IsZero", "CardinalityReduction", "PredicateMap", "PredicateMap"] plan=Cardinality buffer=p0 length=p1 pred=masked_eq(mask=p2,target=p3) width=32
+  region[1] g6n10_dependent_region1 deps=[Some(0)] concepts=["SumReduction", "PredicateMap"] plan=Sum buffer=p0 length=p4 pred=identity width=32
+  fusion_candidates=0
+  DECISION no_fuse (composition refused)
+  EXPECTATION PASS
+
+KERNEL g6n06_two_buffers class=N expected=no_fuse
+  rationale: distinct buffer bases: no shared traversal
+  region[0] g6n06_two_buffers_region0 deps=[] concepts=["IsZero", "CardinalityReduction", "PredicateMap", "PredicateMap"] plan=Cardinality buffer=p0 length=p2 pred=masked_eq(mask=p3,target=p4) width=32
+  region[1] g6n06_two_buffers_region1 deps=[] concepts=["SumReduction", "PredicateMap"] plan=Sum buffer=p1 length=p2 pred=identity width=32
+  fusion_candidates=0
+  DECISION no_fuse (composition refused)
+  EXPECTATION PASS
+
+KERNEL g6p04_two_predicates class=P expected=fuse
+  rationale: two predicates plus sum share one traversal; distinct accumulators
+  region[0] g6p04_two_predicates_region0 deps=[] concepts=["IsZero", "CardinalityReduction", "PredicateMap", "PredicateMap"] plan=Cardinality buffer=p0 length=p1 pred=masked_eq(mask=p2,target=p3) width=32
+  region[1] g6p04_two_predicates_region1 deps=[] concepts=["CardinalityReduction", "PredicateMap", "PredicateMap"] plan=Cardinality buffer=p0 length=p1 pred=masked_eq(mask=p2,target=p4) width=32
+  region[2] g6p04_two_predicates_region2 deps=[] concepts=["SumReduction", "PredicateMap"] plan=Sum buffer=p0 length=p1 pred=identity width=32
+  fusion_candidates=1
+  SEARCH engine0_cost=4.550 search_choice=fuse_3 members=[0, 1, 2] options=[fuse_3=2.550, fuse_2=3.550, fuse_2=3.550, fuse_2=3.550, engine0_3vec=4.550]
+  SEARCH_EARLYEXIT_SENSITIVITY choice=fuse_3 members=[0, 1, 2] cost=2.550
+  CORRECTNESS OK checks=399 failures=0
+  BENCH kernel=g6p04_two_predicates n=4096 dist=random engine0_ns=103.62 plan_ns=58.72 ratio=0.5667
+  BENCH kernel=g6p04_two_predicates n=4096 dist=equal engine0_ns=110.33 plan_ns=60.91 ratio=0.5521
+  BENCH kernel=g6p04_two_predicates n=65536 dist=random engine0_ns=1764.01 plan_ns=962.36 ratio=0.5456
+  BENCH kernel=g6p04_two_predicates n=65536 dist=equal engine0_ns=1769.89 plan_ns=982.29 ratio=0.5550
+  EXPECTATION PASS
+
+KERNEL g6p02_count_sum class=P expected=fuse
+  rationale: pair fusion over one buffer and domain
+  region[0] g6p02_count_sum_region0 deps=[] concepts=["IsZero", "CardinalityReduction", "PredicateMap", "PredicateMap"] plan=Cardinality buffer=p0 length=p1 pred=masked_eq(mask=p2,target=p3) width=32
+  region[1] g6p02_count_sum_region1 deps=[] concepts=["SumReduction", "PredicateMap"] plan=Sum buffer=p0 length=p1 pred=identity width=32
+  fusion_candidates=1
+  SEARCH engine0_cost=2.950 search_choice=fuse_2 members=[0, 1] options=[fuse_2=1.950, engine0_3vec=2.950]
+  SEARCH_EARLYEXIT_SENSITIVITY choice=fuse_2 members=[0, 1] cost=1.950
+  CORRECTNESS OK checks=266 failures=0
+  BENCH kernel=g6p02_count_sum n=4096 dist=random engine0_ns=111.19 plan_ns=63.41 ratio=0.5703
+  BENCH kernel=g6p02_count_sum n=4096 dist=equal engine0_ns=106.70 plan_ns=60.25 ratio=0.5646
+  BENCH kernel=g6p02_count_sum n=65536 dist=random engine0_ns=1830.42 plan_ns=1008.11 ratio=0.5508
+  BENCH kernel=g6p02_count_sum n=65536 dist=equal engine0_ns=1782.19 plan_ns=1036.85 ratio=0.5818
+  EXPECTATION PASS
+
+KERNEL g6n09_reverse class=N expected=no_fuse
+  rationale: descending traversal outside the recognized forward dialect
+  ANALYSIS_FAIL region g6n09_reverse_region1 did not lower: unsupported: signed icmp 'sgt' (SIR comparison semantics are unsigned-model; signed predicate would mistranslate negative operands): %31 = icmp sgt i64 %22, 1
+  EXPECTATION FAIL (analysis refused)
+
+KERNEL g6p03_sum_all class=P expected=fuse
+  rationale: pair fusion over one buffer and domain
+  region[0] g6p03_sum_all_region0 deps=[] concepts=["IsZero", "SumReduction", "PredicateMap"] plan=Sum buffer=p0 length=p1 pred=identity width=32
+  region[1] g6p03_sum_all_region1 deps=[] concepts=["PredicateMap", "PredicateMap", "ConjunctiveReduction"] plan=All buffer=p0 length=p1 pred=eq(p2) width=32
+  fusion_candidates=1
+  SEARCH engine0_cost=2.600 search_choice=fuse_2 members=[0, 1] options=[fuse_2=1.600, engine0_3vec=2.600]
+  SEARCH_EARLYEXIT_SENSITIVITY choice=engine0_3vec members=[] cost=1.413
+  CORRECTNESS OK checks=266 failures=0
+  BENCH kernel=g6p03_sum_all n=4096 dist=random engine0_ns=102.84 plan_ns=60.47 ratio=0.5880
+  BENCH kernel=g6p03_sum_all n=4096 dist=equal engine0_ns=93.53 plan_ns=56.96 ratio=0.6089
+  BENCH kernel=g6p03_sum_all n=65536 dist=random engine0_ns=1629.40 plan_ns=910.54 ratio=0.5588
+  BENCH kernel=g6p03_sum_all n=65536 dist=equal engine0_ns=1610.24 plan_ns=889.62 ratio=0.5525
+  EXPECTATION PASS
+
+KERNEL g6n07_half_domain class=N expected=no_fuse
+  rationale: same base, different iteration domains (n vs n/2)
+  region[0] g6n07_half_domain_region0 deps=[] concepts=["IsZero", "CardinalityReduction", "PredicateMap", "PredicateMap"] plan=Cardinality buffer=p0 length=p1 pred=masked_eq(mask=p2,target=p3) width=32
+  region[1] g6n07_half_domain_region1 deps=[Some(0)] concepts=["SumReduction", "PredicateMap"] plan=Sum buffer=p0 length=p4 pred=identity width=32
+  fusion_candidates=0
+  DECISION no_fuse (composition refused)
+  EXPECTATION PASS
+
+GATE6B_SUMMARY pass=8 fail=2
