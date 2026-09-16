@@ -1,0 +1,8 @@
+# H4 sealed artifact manifest (generated before the one-shot blind run; sha256sum)
+1794ab07d878a470b33fd766df43ee8dd31ad627682d1b98f3dfb76ee21795bd  h4/tier_a.tsv
+9c783e34f40928576869e2c62fffce8be0bc5da2b173a0c4f71115fecab18bcd  h4/tier_b.c
+650f65174cdf616385a8226f6d01c76055f5c5f93f069e30ea69e12b7ed787c4  h4/tier_b.ll
+bccd535fe3de1a69165791cb5aa54a74517929384b89a0327f5fbe86a6afaf07  h4/expected.csv
+9ddcfd9868121813773956123b7cbd221e24d87b91193ab3fb8e6dad8f85206f  h4/README.md
+82debfb03ceb26c543a24ecb569700d0ff0dde2d14ca0b847c2593edb108cf57  docs/C3_FREEZE_RECORD.md
+b4cef2de60b849c75b880bf83b646dd397323d65df57955cedcb0047530e848d  sir/crates/sir_benchmarks/src/bin/h3_run.rs
