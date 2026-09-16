@@ -56,9 +56,13 @@ Tier-B results after this pass (`d4/raw/run2.txt`, `tbexec1.txt`):
 
 Full workspace suite after the completion pass: **546 passed, 0 failed**.
 
-Still open (next phase): H3-register items 2–4 (generalize to All/Parity/
-Popcount, solver-backed application equivalence, Gate 6B sealing with an
-independent H4), plus native/LLVM-level execution (F6–F8 emitters).
+Still open (next phase): generalize the binding to All/Parity/Popcount,
+solver-backed application equivalence (`ConcreteSolverChecked`), and
+native/LLVM-level execution (F6–F8 emitters). The independent-H4 item was
+completed on 2026-09-16 (docs/H4_RESULTS.md): H4b found F10 (global-array
+extent hardcoded to 256 in `sir_lower`; fixed in `1da3b28`), and the fresh
+blind H4c corpus closed Gate 4B.1. D4 remains the regression corpus; its
+outcomes are unchanged by the F10 fix.
 
 ## Tier A outcomes vs D4 expectations (`d4/expected.csv`)
 

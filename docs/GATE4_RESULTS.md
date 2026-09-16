@@ -244,8 +244,10 @@ evidence is docs/GATE4B_PROOF.md and `gate4/proof/*.proof.txt`:
   "Gate 4B.1" pipeline (`CheckedApplication` /
   `EndToEndVerificationArtifact` over the rewrite engine) is a different
   mechanism; its soundness failed under adversarial evaluation, was
-  remediated through D4, and still awaits an independent H4 corpus.
-  Gate 4B does not close it.
+  remediated through D4, and was closed by the independent blind H4
+  corpus on 2026-09-16 (docs/H4_RESULTS.md). Gate 4B's machine-checked
+  evidence does not extend to that pipeline, whose assurance remains
+  SIR-level `SchemaChecked`.
 - **Trusted base.** The SDM instruction models, the byte-addressed
   memory model, the scalar-tail front-end correspondence and the
   bit-blasting/arithmetic primitives are axioms of the result, not

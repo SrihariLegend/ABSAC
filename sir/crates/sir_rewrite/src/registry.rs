@@ -16,20 +16,19 @@ use crate::recipes::shift_mask::ShiftMaskRecipe;
 use crate::recipes::trailing_zero_count::TrailingZeroCountRecipe;
 use sir_transform::ids::DefinitionId;
 
-/// Create the C3 freeze registry: ONLY the narrow role-bound Any
+/// Create the narrow Any-only registry: ONLY the role-bound Any
 /// reduction recipe is enabled. This is intentionally separate from
-/// `default_registry`.
+/// `default_registry` and is the configuration used by the C3/H3/D4/H4
+/// evaluation harnesses and by theorem-specific tests.
 ///
-/// QUARANTINE POLICY (D4 phase, advisor directive): the Any
-/// transformation is QUARANTINED from trusted/default modes while the
-/// soundness remediation is in flight. The H3 adversarial evaluation
-/// (h3-eval-1) found two committed-corruption classes (S1: reduction
-/// identity not part of the contract; S2: broadcast predicate scalar
-/// not proven loop-invariant) plus an analysis panic (R1). This
-/// registry therefore exists ONLY as the explicit EXPERIMENTAL test
-/// mode used by the evaluation harness and the remediation corpus.
-/// No caller outside that apparatus may use it, and the default
-/// registry below no longer contains Any.
+/// HISTORY (D4 phase, advisor directive): Any was quarantined from
+/// trusted/default modes while the soundness remediation was in flight.
+/// The H3 adversarial evaluation (h3-eval-1) found two
+/// committed-corruption classes (S1: reduction identity not part of the
+/// contract; S2: broadcast predicate scalar not proven loop-invariant)
+/// plus an analysis panic (R1). The quarantine was lifted on
+/// 2026-09-16 after the independent H4 corpus passed
+/// (docs/H4_RESULTS.md); the default registry below contains Any again.
 pub fn any_only_registry() -> RecipeRegistry {
     let mut registry = RecipeRegistry::new();
     registry.register(Box::new(AnyRecipe::new(DefinitionId::new(4))));
@@ -37,20 +36,23 @@ pub fn any_only_registry() -> RecipeRegistry {
 }
 
 /// Create a default recipe registry populated with all known recipes
-/// EXCEPT quarantined definitions. Any (DefinitionId 4) is quarantined
-/// here (H3 safety findings S1/S2 — see `docs/H3_RESULTS.md`); it is
-/// reachable only through the explicit experimental registry
-/// (`any_only_registry`) used by the evaluation harness.
+/// EXCEPT quarantined definitions.
+///
+/// Any (DefinitionId 4) was quarantined during the D4 remediation (H3
+/// safety findings S1/S2 — see `docs/H3_RESULTS.md`). The quarantine was
+/// lifted on 2026-09-16 after the independent blind H4 evaluation passed
+/// with zero corrupt commits and zero panics (docs/H4_RESULTS.md): the
+/// S1 monoid-identity gate, the S2 invariant-scalar gate, and the
+/// application binding/frame gates are in force, and D4 remains a
+/// regression corpus.
 pub fn default_registry() -> RecipeRegistry {
     let mut registry = RecipeRegistry::new();
 
     // ID 0: Popcount
     registry.register(Box::new(PopcountRecipe::new(DefinitionId::new(0))));
 
-    // NOTE: ID 4 (Any) is QUARANTINED from the default registry.
-    // Re-enable only after the D4 remediation lands and the regression
-    // corpus (h3 tier A/B, promoted to D4) passes with zero corrupt
-    // commits and zero panics.
+    // ID 4: Any (quarantine lifted after the H4 blind evaluation).
+    registry.register(Box::new(AnyRecipe::new(DefinitionId::new(4))));
 
     // ID 5: All
     registry.register(Box::new(AllRecipe::new(DefinitionId::new(5))));

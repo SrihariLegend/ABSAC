@@ -9,6 +9,13 @@
 > remediation, a genuinely independent H4 corpus (evaluator that does not probe
 > the fixed implementation) replaces this role; H3 is promoted to **regression
 > corpus D4** for the remediation phase.
+>
+> **POST-H4 ANNOTATION (2026-09-16):** the H4 evaluation passed
+> (docs/H4_RESULTS.md). The D4 remediation is validated by a blind,
+> pre-registered corpus (h4c), which also found and fixed F10 (global-array
+> extent hardcoded to 256 in `sir_lower`). Any's quarantine is lifted. H3's
+> own status below is unchanged: it remains a failed safety gate and is not
+> reusable as blind evidence.
 
 Run: `h3-c3-freeze` (2026-09-02). Frozen commit `49999a4`, git tag `c3-freeze-any`.
 Evaluation apparatus (harness + corpus + sealed archives) tagged `h3-eval-1`.
@@ -206,8 +213,10 @@ artifact, and with the three corrupt H3 rows now refusing via the S1/S2 gates);
 tier B h3b01–04 rewrites committed and differentially clean (10/50/50/50 patterns,
 0 mismatches), h3b09 no longer panics, all near-miss negatives abstain/refuse;
 workspace suite 546 passed / 0 failed. Full record: `d4/README.md`,
-`d4/raw/{run1,exec1,run2,exec2,tbexec1}.txt`, `d4/manifest.sha256`. Any remains
-quarantined from the trusted registry until an independent H4 corpus passes.
+`d4/raw/{run1,exec1,run2,exec2,tbexec1}.txt`, `d4/manifest.sha256`. Any remained
+quarantined from the trusted registry until an independent H4 corpus passes;
+the H4c blind corpus passed on 2026-09-16 (docs/H4_RESULTS.md) and the
+quarantine was lifted the same day.
 
 ## Provenance, classification, and hashes
 

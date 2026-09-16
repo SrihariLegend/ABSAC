@@ -130,8 +130,10 @@ mathematical accumulator equality `W32(0,0,n) = S(n,0)` for the C code.
    `EndToEndVerificationArtifact` over the rewrite engine — labelled
    "Gate 4B.1" in docs/H3_RESULTS.md. That pipeline's soundness failed
    under adversarial evaluation (S1/S2/R1), was remediated through D4,
-   and still awaits an independent H4 corpus. This Gate 4B result does
-   not close 4B.1; the two must not be conflated.
+   and was closed by the independent blind H4 corpus on 2026-09-16
+   (docs/H4_RESULTS.md; F10 lowerer fix `1da3b28`). The two mechanisms
+   remain distinct and must not be conflated: 4B.1 carries SIR-level
+   `SchemaChecked` assurance, not the machine-checked evidence above.
 3. **SIR-level semantics, not native execution.** No claim is made
    about LLVM IR or machine code. Execution evidence for the rewrite
    path is the SIR interpreter; the C emitter for loop sources has

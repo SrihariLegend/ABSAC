@@ -82,14 +82,24 @@ Gate 4B: PASSED — mechanically checked concrete end-to-end equivalence
                   loop invariant for arbitrary n, tail decomposition,
                   region binding, intrinsic models, memory/overflow,
                   replayable artifacts)
+
+Gate 4B.1: PASSED — per-rewrite application pipeline soundness closed
+                   (2026-09-16) by the independent blind H4 evaluation:
+                   h4c tier A 10/10 eligible positives + 7/7 required
+                   abstentions, tier B 3/3 positives, all committed
+                   rewrites differentially clean, zero panics. The H4b
+                   run found F10 (global-array extent hardcoded to 256 in
+                   sir_lower), fixed in 1da3b28. See docs/H4_RESULTS.md.
 ```
 
 Scope honesty: the three development kernels at SIR level, with an
 explicit trusted base (instruction/memory/front-end models). Not a
-verified compiler, not the per-rewrite application pipeline ("Gate
-4B.1" in H3/D4, still awaiting an independent H4), and not
-native-object equivalence (emitter defects F6–F8 remain open). See the
-scope-honesty section of docs/GATE4B_PROOF.md.
+verified compiler, and not native-object equivalence (emitter defects
+F6–F8 remain open). The per-rewrite application pipeline ("Gate 4B.1"
+in H3/D4) was closed separately on 2026-09-16 by the independent H4
+corpus (docs/H4_RESULTS.md); its assurance is SIR-level SchemaChecked,
+not machine-checked. See the scope-honesty section of
+docs/GATE4B_PROOF.md.
 
 The six lemmas began as human-written mathematical arguments supported
 by testing. They are no longer the evidence: Gate 4B was closed on

@@ -152,9 +152,9 @@ fn single_accumulator_slot_extract_may_rewrite() {
         b.field_access(loop_node, "0", bool_type(), Span::unknown())
     })
     .unwrap();
-    // Any is quarantined from `default_registry` (D4); this test
-    // exercises the Any theorem itself, so it runs in the explicit
-    // experimental registry.
+    // This test exercises the Any theorem itself, so it pins the
+    // explicit Any-only registry. (Any is also back in
+    // `default_registry` since the H4 closure, docs/H4_RESULTS.md.)
     let optimizer = Optimizer::new(OptimizerConfig::default(), any_only_registry());
     let result = optimizer.optimize(&func);
     assert_eq!(
