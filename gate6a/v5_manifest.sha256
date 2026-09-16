@@ -1,0 +1,7 @@
+# Gate 6A-v5 sealed corpus manifest (generated before the frozen run).
+# Frozen candidate: the HEAD commit at seal time (contains D5).
+3ead291d11f7f0bcc404a00e4838717762c7221cc99e3fe0dc279f645abae007  gate6a/v5_corpus.c
+e8cbba1dd742962f173df4465f96fdca2e602f8cc094a86f84f8fcf296658232  gate6a/v5_corpus.ll
+3fcfe417e1498c0def5da49d097535a21fcba2ff42e1d4dc1ecbc6234c0e9cfa  gate6a/v5_expected.csv
+2362840878bb2760fdeacc8bfe55c6eadfd87c7b66cdd4fff97a707bbe3bac96  gate6a/v5_README.md
+986620419dd38e11cd7f300b942a066e22eb37c51439408d8b92caad72ee033f  sir/crates/sir_benchmarks/src/bin/gate6a_run.rs
