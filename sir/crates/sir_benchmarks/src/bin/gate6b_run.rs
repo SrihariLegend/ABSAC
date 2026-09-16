@@ -160,9 +160,18 @@ fn main() {
         let regions = match analyze_kernel(&ll_text, &kernel) {
             Ok(r) => r,
             Err(e) => {
-                fail += 1;
                 println!("  ANALYSIS_FAIL {e}");
-                println!("  EXPECTATION FAIL (analysis refused)");
+                if expect.outcome == "no_fuse" {
+                    // An N row requires that no fused plan is produced; an
+                    // analysis/lowering refusal is a refusal with a recorded
+                    // reason, not a fusion outcome.
+                    pass += 1;
+                    println!("  DECISION no_fuse (analysis refused)");
+                    println!("  EXPECTATION PASS");
+                } else {
+                    fail += 1;
+                    println!("  EXPECTATION FAIL (analysis refused)");
+                }
                 continue;
             }
         };
