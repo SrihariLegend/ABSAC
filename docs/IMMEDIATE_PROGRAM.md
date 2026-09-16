@@ -77,13 +77,27 @@ If this fails, improve ontology/lowering — not search.
 Gate 4A: PASSED — compositional correctness argument
                     + extensive adversarial validation (16.8M tests, ASan + UBSan)
 
-Gate 4B: OPEN   — mechanically checked concrete end-to-end equivalence
+Gate 4B: PASSED — mechanically checked concrete end-to-end equivalence
+                  (see docs/GATE4B_PROOF.md: per-chunk identities,
+                  loop invariant for arbitrary n, tail decomposition,
+                  region binding, intrinsic models, memory/overflow,
+                  replayable artifacts)
 ```
 
-The six lemmas are human-written mathematical arguments supported by
-testing. They are NOT machine-checked proofs. Gate 4B requires solver
-verification of per-chunk identities, loop invariant, tail decomposition,
-region binding, and intrinsic semantics.
+Scope honesty: the three development kernels at SIR level, with an
+explicit trusted base (instruction/memory/front-end models). Not a
+verified compiler, not the per-rewrite application pipeline ("Gate
+4B.1" in H3/D4, still awaiting an independent H4), and not
+native-object equivalence (emitter defects F6–F8 remain open). See the
+scope-honesty section of docs/GATE4B_PROOF.md.
+
+The six lemmas began as human-written mathematical arguments supported
+by testing. They are no longer the evidence: Gate 4B was closed on
+2026-09-15 by `sir_mech`/`sir_gate4b`, which proves the per-chunk
+identities, the loop invariant (arbitrary n), the tail decomposition,
+the region binding and the intrinsic semantics, and replays the result
+from `gate4/proof/*.proof.txt`. The trusted base is stated explicitly
+in docs/GATE4B_PROOF.md.
 
 ### Gate 5: Search value
 
@@ -256,8 +270,11 @@ Remediation D3 (P0A, commit c3ebb54):
        (verifier_quarantine_tests.rs): stub + tautology never Proven,
        mutated SchemaChecked theorems rejected, strict policy
        (ConcreteSolverChecked) quarantines SchemaChecked too.
-       Gate 4B status: OPEN (necessarily). Quarantined families return
-       when obligations bind actual nodes and discharge concretely.
+       Gate 4B (three-kernel equivalence) has since been closed — see
+       docs/GATE4B_PROOF.md. This entry concerns the quarantined
+       definition obligations of the generic verifier, which remain
+       open (P0A queue item 3): families return when obligations bind
+       actual nodes and discharge concretely (ConcreteSolverChecked).
   PS002 END-TO-END AUDIT (advisor directive 2, this cycle): the
        SchemaChecked Any candidate on PS002 was NOT a safe independent
        optimization — it was a live semantic corruption caught before

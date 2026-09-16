@@ -1,0 +1,18 @@
+[package]
+name = "sir_gate4b"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Gate 4B: mechanical end-to-end equivalence proofs for ABSAC-generated kernels"
+
+[dependencies]
+sir_mech = { path = "../sir_mech" }
+sir_benchmarks = { path = "../sir_benchmarks" }
+sir_lower = { path = "../sir_lower" }
+sir_analysis = { path = "../sir_analysis" }
+sir_semantics = { path = "../sir_semantics" }
+sir_nodes = { path = "../sir_nodes" }
+sir_types = { path = "../sir_types" }
+
+[dev-dependencies]

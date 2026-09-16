@@ -9,8 +9,13 @@ pub mod non_optimizable;
 pub mod composition;
 pub mod graph;
 pub mod vector_plan;
+pub mod vector_derive;
 pub mod vector_emit;
-pub mod compositional_proof;
+// NOTE: the prose-only `compositional_proof` module and the
+// `gate4_prove` binary were retired when Gate 4B was actually closed by
+// the mechanical checker in `sir_gate4b` (see docs/GATE4B_PROOF.md).
+// They reported `Proven` from hardcoded strings and must not be used as
+// evidence.
 pub mod gate5a;
 
 use framework::BenchmarkDef;

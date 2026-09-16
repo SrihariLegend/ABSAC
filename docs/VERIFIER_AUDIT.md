@@ -93,8 +93,13 @@ Answers to the binding questions per class:
 
 ## Failure records preserved
 
-- **Gate 4B status: OPEN** — "Generic verifier soundness audit: FAILED
-  for the ModuloAnd/DivideShift class" (and 13 further definitions).
+- **Definition-level machine checking: OPEN** — "Generic verifier
+  soundness audit: FAILED for the ModuloAnd/DivideShift class" (and 13
+  further definitions). This is the quarantined-definition obligation
+  (P0A queue item 3, `ConcreteSolverChecked`), distinct from the
+  three-kernel Gate 4B, which was closed on 2026-09-15 by
+  docs/GATE4B_PROOF.md. Quarantine stays until each definition's
+  obligation is built from the actual source/candidate pair.
 - All zoo arithmetic entries, AR001–AR003, HD001/HD004/HD005/HD007/HD008,
   HD004/HD005 emission tests, PS001/PS003/PS004, and COMP001 now expect
   **abstention** with quarantine comments. The identities themselves are

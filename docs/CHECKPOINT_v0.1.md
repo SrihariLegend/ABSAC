@@ -1,5 +1,11 @@
 # ABSAC Semantic Vectorizer v0.1 — Project Checkpoint
 
+> **Historical snapshot** at commit `5ef173d` (2025-07-14). Statuses below
+> are as of that commit. Superseded since: Gate 4B PASSED 2026-09-15
+> (docs/GATE4B_PROOF.md), H3/D4 remediation completed 2026-09-03/12
+> (docs/H3_RESULTS.md, d4/README.md). Current gate table:
+> docs/IMMEDIATE_PROGRAM.md.
+
 ## Date: 2025-07-14
 ## Commit: 5ef173d
 

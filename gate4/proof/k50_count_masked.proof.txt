@@ -1,0 +1,62 @@
+gate4b-artifact v1
+source: /home/tom/dev/experiments/ABSAC/gate4/k50_absac.c
+source-digest-fnv1a64: f3aeb28cddfb282c
+function: k50_count_masked
+kernel: CardinalityMasked
+role buffer: p0
+role length: p1
+role mask: p2
+role target: p3
+sir-ir: /home/tom/dev/experiments/ABSAC/corpus/kernels.ll (fnv1a64 ed15aa154986b212)
+sir-plan: Cardinality Some(MaskedEqual { mask: "p2", target: "p3" })
+sir-role buffer: p0
+sir-role length: p1
+sir-role mask: p2
+sir-role target: p3
+sir-param 0: emitter-name p0, node-name %0
+sir-param 1: emitter-name p1, node-name %1
+sir-param 2: emitter-name p2, node-name %2
+sir-param 3: emitter-name p3, node-name %3
+sir-check ok: emitted C equals the committed artifact
+sir-check ok: plan operation matches kernel kind
+sir-check ok: plan role identifiers equal the C template roles
+sir-check ok: role identifiers are the SIR parameter bindings
+span 2: uint64_t k50_count_masked(const uint8_t * p0, uint64_t p1, uint8_t p2, uint8_t p3) {
+span 3: __m256i mask_v = _mm256_set1_epi8((char)p2);
+span 4: __m256i target_v = _mm256_set1_epi8((char)p3);
+span 5: uint64_t count = 0;
+span 6: uint64_t i = 0;
+span 7: while (i + 32 <= p1) {
+span 8: __m256i chunk = _mm256_loadu_si256((__m256i *)(p0 + i));
+span 9: __m256i masked = _mm256_and_si256(chunk, mask_v);
+span 10: __m256i cmp = _mm256_cmpeq_epi8(masked, target_v);
+span 11: int bits = _mm256_movemask_epi8(cmp);
+span 12: count += __builtin_popcount(bits);
+span 13: i += 32;
+span 14: }
+span 15: while (i + 16 <= p1) {
+span 16: __m128i chunk = _mm_loadu_si128((__m128i *)(p0 + i));
+span 17: __m128i masked = _mm_and_si128(chunk, _mm_set1_epi8((char)p2));
+span 18: __m128i cmp = _mm_cmpeq_epi8(masked, _mm_set1_epi8((char)p3));
+span 19: int bits = _mm_movemask_epi8(cmp);
+span 20: count += __builtin_popcount(bits);
+span 21: i += 16;
+span 22: }
+span 23: while (i < p1) {
+span 24: count += ((p0[i] & p2) == p3);
+span 25: i++;
+span 26: }
+span 27: return count;
+span 28: }
+lemma chunk_lemma_32 [replayed]: [] ⊢ int(popcount(ite(load(blk32 + 31) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 30) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 29) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 28) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 27) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 26) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 25) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 24) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 23) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 22) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 21) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 20) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 19) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 18) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 17) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 16) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 15) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 14) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 13) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 12) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 11) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 10) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 9) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 8) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 7) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 6) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 5) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 4) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 3) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 2) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 1) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk32 + 0) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7])) = S(blk32 + 32, blk32)
+lemma chunk_lemma_16 [replayed]: [] ⊢ int(popcount(ite(load(blk16 + 15) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk16 + 14) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk16 + 13) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk16 + 12) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk16 + 11) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk16 + 10) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk16 + 9) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk16 + 8) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk16 + 7) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk16 + 6) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk16 + 5) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk16 + 4) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk16 + 3) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk16 + 2) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk16 + 1) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7] ++ ite(load(blk16 + 0) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7])) = S(blk16 + 16, blk16)
+lemma chunk_lemma_1 [replayed]: [] ⊢ int(popcount(ite(load(blk1 + 0) & p2 ==bv p3, 0xff:bv8, 0x0:bv8)[7:7])) = S(blk1 + 1, blk1)
+lemma loop_w1 [replayed]: [l1_i <= l1_n] ⊢ W1(l1_acc, l1_i, l1_n) = l1_acc + S(l1_n, l1_i)
+lemma loop_w16 [replayed]: [l16_i <= l16_n] ⊢ W16(l16_acc, l16_i, l16_n) = l16_acc + S(l16_n, l16_i)
+lemma loop_w32 [replayed]: [l32_i <= l32_n] ⊢ W32(l32_acc, l32_i, l32_n) = l32_acc + S(l32_n, l32_i)
+lemma end_to_end [replayed]: [0 <= p1] ⊢ W32(0, 0, p1) = S(p1, 0)
+lemma memory_bounds_32 [replayed]: [mem32_i + 32 <= mem32_n] ⊢ true && mem32_i + 0 < mem32_n && mem32_i + 1 < mem32_n && mem32_i + 2 < mem32_n && mem32_i + 3 < mem32_n && mem32_i + 4 < mem32_n && mem32_i + 5 < mem32_n && mem32_i + 6 < mem32_n && mem32_i + 7 < mem32_n && mem32_i + 8 < mem32_n && mem32_i + 9 < mem32_n && mem32_i + 10 < mem32_n && mem32_i + 11 < mem32_n && mem32_i + 12 < mem32_n && mem32_i + 13 < mem32_n && mem32_i + 14 < mem32_n && mem32_i + 15 < mem32_n && mem32_i + 16 < mem32_n && mem32_i + 17 < mem32_n && mem32_i + 18 < mem32_n && mem32_i + 19 < mem32_n && mem32_i + 20 < mem32_n && mem32_i + 21 < mem32_n && mem32_i + 22 < mem32_n && mem32_i + 23 < mem32_n && mem32_i + 24 < mem32_n && mem32_i + 25 < mem32_n && mem32_i + 26 < mem32_n && mem32_i + 27 < mem32_n && mem32_i + 28 < mem32_n && mem32_i + 29 < mem32_n && mem32_i + 30 < mem32_n && mem32_i + 31 < mem32_n = true
+lemma memory_bounds_16 [replayed]: [mem16_i + 16 <= mem16_n] ⊢ true && mem16_i + 0 < mem16_n && mem16_i + 1 < mem16_n && mem16_i + 2 < mem16_n && mem16_i + 3 < mem16_n && mem16_i + 4 < mem16_n && mem16_i + 5 < mem16_n && mem16_i + 6 < mem16_n && mem16_i + 7 < mem16_n && mem16_i + 8 < mem16_n && mem16_i + 9 < mem16_n && mem16_i + 10 < mem16_n && mem16_i + 11 < mem16_n && mem16_i + 12 < mem16_n && mem16_i + 13 < mem16_n && mem16_i + 14 < mem16_n && mem16_i + 15 < mem16_n = true
+lemma memory_bound_scalar [replayed]: [mem1_i < mem1_n] ⊢ mem1_i < mem1_n = true
+lemma accumulator_bound [replayed]: [bnd_i <= bnd_m] ⊢ S(bnd_m, bnd_i) <= 1 * bnd_m - bnd_i = true
+lemma no_overflow [replayed]: [0 <= p1, 1 * p1 <= 18446744073709551615] ⊢ S(p1, 0) <= 18446744073709551615 = true

@@ -16,6 +16,8 @@ members = [
     "crates/sir_rewrite",
     "crates/sir_selection",
     "crates/sir_optimizer", "crates/sir_benchmarks", "crates/sir_lower",
+    "crates/sir_mech",
+    "crates/sir_gate4b",
 ]
 
 [workspace.package]
