@@ -245,3 +245,46 @@ fn two_loops_sharing_exit_cfg_refused_cleanly() {
 fn separate_latch_loop_refused_cleanly() {
     refuses_cleanly(SEPARATE_LATCH_LOOP, "early_exit", "separate latch block");
 }
+
+/// F10 (H4b, 2026-09-16): a global array's SIR parameter used to be
+/// hardcoded to `Array<u8, 256>`, so any global whose declared extent was
+/// not 256 made application binding refuse with "counted loop does not
+/// cover the complete collection extent". The GEP source element type
+/// (`inbounds [64 x i8]`) must be used instead.
+const GLOBAL_EXTENT_64: &str = r#"
+define i64 @global_or_64() {
+entry:
+  br label %loop
+loop:
+  %i = phi i64 [ 0, %entry ], [ %i2, %loop ]
+  %acc = phi i8 [ 0, %entry ], [ %acc2, %loop ]
+  %p = getelementptr inbounds [64 x i8], ptr @g64, i64 0, i64 %i
+  %e = load i8, ptr %p
+  %acc2 = or i8 %acc, %e
+  %i2 = add nuw nsw i64 %i, 1
+  %d = icmp eq i64 %i2, 64
+  br i1 %d, label %exit, label %loop
+exit:
+  %nz = icmp ne i8 %acc2, 0
+  %z = zext i1 %nz to i64
+  ret i64 %z
+}
+"#;
+
+#[test]
+fn global_array_extent_follows_the_gep_source_type() {
+    let f = lowers_ok(GLOBAL_EXTENT_64, "global_or_64");
+    let extents: Vec<usize> = f
+        .params
+        .iter()
+        .filter_map(|p| match &p.ty {
+            sir_types::Type::Array { length, .. } => Some(*length),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        extents,
+        vec![64],
+        "global array parameter must carry the GEP-declared extent 64, not the historical 256"
+    );
+}

@@ -72,6 +72,27 @@ fn parse_type(s: &str) -> Option<Type> {
     }
 }
 
+/// Extract the source array type from a GEP instruction
+/// (`getelementptr inbounds [64 x i8], ptr @g, ...` → `Array { u8, 64 }`).
+///
+/// The globals scan uses this to give a global-array parameter its real
+/// extent. It historically hardcoded `Array<u8, 256>`, which made every
+/// non-256-byte global unbindable at application binding ("counted loop
+/// does not cover the complete collection extent") — H4b finding F10,
+/// 2026-09-16.
+fn gep_source_array_type(line: &str) -> Option<Type> {
+    let start = line.find('[')?;
+    let rest = &line[start + 1..];
+    let end = rest.find(']')?;
+    let (length_str, element_str) = rest[..end].split_once('x')?;
+    let length = length_str.trim().parse::<usize>().ok()?;
+    let element = parse_type(element_str.trim())?;
+    Some(Type::Array {
+        element: Box::new(element),
+        length,
+    })
+}
+
 /// Parse an integer constant from an operand string.
 fn parse_int_constant(s: &str) -> Option<i64> {
     let s = s.trim();
@@ -649,34 +670,36 @@ pub fn lower(text: &str) -> Result<Function, String> {
 
     // Scan for global array references (e.g., @popcount_table) in the function body.
     // These are added as extra implicit parameters so the SIR function can access them.
-    let mut globals: Vec<String> = Vec::new();
+    let mut globals: Vec<(String, Type)> = Vec::new();
     for line in text.lines() {
         if line.contains("getelementptr") && line.contains(" ptr @") {
             if let Some(at) = line.find(" ptr @") {
                 let after = &line[at + 5..];
                 if let Some(comma) = after.find(',') {
                     let gname = after[..comma].trim().trim_start_matches('@').to_string();
-                    if !gname.starts_with("llvm.") && !globals.contains(&gname) {
-                        globals.push(gname);
+                    if !gname.starts_with("llvm.") && !globals.iter().any(|(n, _)| n == &gname) {
+                        // The GEP source element type carries the global's
+                        // declared array shape (`inbounds [N x T]`). Fall back
+                        // to the historical 256-byte extent only for flat
+                        // scalar-element pointer GEPs that carry no extent.
+                        let ty = gep_source_array_type(line).unwrap_or(Type::Array {
+                            element: Box::new(Type::u8()),
+                            length: 256,
+                        });
+                        globals.push((gname, ty));
                     }
                 }
             }
         }
     }
 
-    // Add globals as extra Array<u8, 256> parameters
+    // Add globals as extra array parameters with their declared extents.
     let mut global_param_names: Vec<String> = Vec::new();
-    for gname in &globals {
+    for (gname, _) in &globals {
         global_param_names.push(format!("__glob_{}", gname));
     }
-    for pname in &global_param_names {
-        sir_params.push((
-            pname.as_str(),
-            Type::Array {
-                element: Box::new(Type::u8()),
-                length: 256,
-            },
-        ));
+    for (pname, (_, gty)) in global_param_names.iter().zip(globals.iter()) {
+        sir_params.push((pname.as_str(), gty.clone()));
     }
 
     let mut builder = Builder::new(&ir.name, &sir_params, ret_ty);
@@ -692,7 +715,7 @@ pub fn lower(text: &str) -> Result<Function, String> {
     }
 
     // Map global names to their extra parameter NodeIds
-    for (i, gname) in globals.iter().enumerate() {
+    for (i, (gname, _)) in globals.iter().enumerate() {
         let param_idx = n_orig_params + i;
         let node_id = builder.parameter_index(param_idx).unwrap();
         value_map.insert(gname.clone(), node_id);
