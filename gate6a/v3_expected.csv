@@ -1,0 +1,25 @@
+kernel	class	expectation	expected_lower	expected_verify	expected_concepts	expected_candidates	expected_rewrites	key_property
+p01_count_ge_u16	P	recognized	yes	yes	CardinalityReduction	any	any	u16 elements, unsigned >= predicate
+p02_sum_u8_u32acc	P	recognized	yes	yes	SumReduction	any	any	u8 elements with u32 accumulator and induction
+p03_all_ne_const	P	recognized	yes	yes	ConjunctiveReduction	any	any	i8 elements, != select-reset
+p04_count_ge_const_u32	P	recognized	yes	yes	CardinalityReduction	any	any	u32 elements, constant bound 128
+p05_sum_u16_u64acc	P	recognized	yes	yes	SumReduction	any	any	u16 elements with u64 accumulator
+p06_count_ne_u8	P	recognized	yes	yes	CardinalityReduction	any	any	u8 elements, != predicate, parameter bound
+p07_all_eq_u64	P	recognized	yes	yes	ConjunctiveReduction	any	any	u64 elements, == select-reset
+p08_all_ge_u8	P	recognized	yes	yes	ConjunctiveReduction	any	any	u8 elements, >= predicate, u64 accumulator
+p09_any_or_u8	P	recognized	yes	yes	DisjunctiveReduction	any	any	raw-byte OR reduction (Any family, D4.2 shape)
+p10_count_eq_do_while	P	recognized	yes	yes	CardinalityReduction	any	any	do-while loop shape
+p11_sum_plus_one_u16	P	recall_gap_known	any	any	SumReduction	any	any	map-then-sum (open recall gap from H2 W03)
+p12_two_reductions	P	recall_gap_known	any	any	CardinalityReduction	any	any	two sequential loops (open frontend gap from H2 W08)
+n01_sum_i64_nsw	N	safe_abstain	any	any	none	0	0	signed overflow (nsw) accumulation
+n02_running_max	N	safe_abstain	any	any	none	0	0	running max: partial-truth candidate generation class
+n03_count_equal_pairs	N	safe_abstain	any	any	none	0	0	two-array relation: footprint completeness class
+n04_store_maybe_alias	N	safe_abstain	any	any	none	0	0	may-alias store inside the loop
+n05_volatile_load	N	safe_abstain	any	any	none	0	0	volatile loads (effects)
+n06_stride2	N	safe_abstain	any	any	none	0	0	fixed stride 2
+n07_dynamic_stride	N	safe_abstain	any	any	none	0	0	runtime stride parameter
+n08_conditional_sum	N	safe_abstain	any	any	none	0	0	conditional accumulator (not a monoid reduction)
+n09_self_recurrence	N	safe_abstain	any	any	none	0	0	self-referential recurrence, no memory
+n10_early_exit_write	N	safe_abstain	any	any	none	0	0	early exit with a global side effect
+n11_reverse_sum	N	safe_abstain	any	any	none	0	0	descending traversal
+n12_atomic_sum	N	safe_abstain	any	any	none	0	0	C11 atomic loads
