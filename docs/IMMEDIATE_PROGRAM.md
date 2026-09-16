@@ -388,7 +388,16 @@ Remediation D3 (P0A, commit c3ebb54):
        are now loud UNSUPPORTED refusals — intentional abstention,
        recorded as unsupported rather than unresolved.
 
-Gate 6A-v3:  OPEN     requires a fresh corpus after D3 remediation.
+Gate 6A-v3:  CLOSED   sealed v3 corpus found one false-positive class
+                     (conditional/masked accumulation accepted as a raw
+                     sum); remediation D5 (Sum requires the element
+                     itself through transparent conversions); v3 promoted
+                     to regression set; the fresh v5 corpus PASSED with
+                     0 false positives, 0 unsafe candidates, 0 unsafe
+                     rewrites and 10/12 positives recognized (2
+                     pre-registered known gaps). A v4 run failed as a
+                     corpus-classification defect (semantically vacuous
+                     guard) and is preserved. See docs/GATE6A_V3_RESULTS.md.
 
 Gate 6B:     PASSED — the fusion corpus was sealed before automation
              (gate6b/manifest.sha256, commit 4aedce1) and evaluated

@@ -1,5 +1,16 @@
 # Gate 6A-v2 — Fresh Blind Evaluation (Generation H2)
 
+> **POST-v5 ANNOTATION (2026-09-17):** the 6A line continued after this
+> report: the sealed v3 corpus found one real false-positive class (a
+> conditional/masked accumulation accepted as a raw-element sum), the D5
+> remediation fixed it (Sum requires the element itself through
+> transparent conversions), v3 was promoted to regression set D5, a v4
+> run failed as a corpus-classification defect (semantically vacuous
+> guard), and the fresh v5 corpus passed with zero false positives and
+> zero unsafe candidates/rewrites. Full record:
+> docs/GATE6A_V3_RESULTS.md. This v2 report remains the historical H2
+> record and is not overwritten.
+
 ## Date: 2026-09-01
 ## Frozen candidate C2: commit 5355778
 
