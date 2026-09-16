@@ -1,6 +1,12 @@
 use sir_analysis::facts::FactDatabase;
+use sir_analysis::manager::AnalysisManager;
+use sir_builder::Builder;
+use sir_nodes::ConvertKind;
 use sir_nodes::Function;
+use sir_semantics::concepts::SemanticConcept;
 use sir_semantics::recognizers::boolean_collection::recognize_boolean_collection;
+use sir_semantics::semantics::SemanticEngine;
+use sir_types::{ConstantData, Span, Type};
 
 /// Verify the recognizer is callable with a minimal function and returns
 /// the expected result type.
@@ -16,4 +22,88 @@ fn boolean_collection_recognizer_is_callable() {
         results.is_empty(),
         "Expected no boolean collections in empty function"
     );
+}
+
+/// Build `uint64_t f(const uint8_t buf[64])` with `s += buf[i]`, either
+/// plainly or guarded by `if (buf[i] & 1)` (lowered as
+/// `s += select(cond, zext(buf[i]), 0)`).
+fn build_sum_loop(conditional: bool) -> Function {
+    let n = 64usize;
+    let elem_ty = Type::u8();
+    let array_ty = Type::Array {
+        element: Box::new(elem_ty.clone()),
+        length: n,
+    };
+    let name = if conditional {
+        "conditional_sum"
+    } else {
+        "plain_sum"
+    };
+    let span = Span::unknown();
+    let mut b = Builder::new(name, &[("buf", array_ty)], Type::u64());
+    let buf = b.parameter_index(0).unwrap();
+    // Distinct carried-initial nodes: one accumulator, one counter.
+    let acc0 = b.constant(ConstantData::u64(0), Type::u64(), span);
+    let i0 = b.constant(ConstantData::u64(0), Type::u64(), span);
+    let one = b.constant(ConstantData::u64(1), Type::u64(), span);
+    let bound = b.constant(ConstantData::u64(n as u64), Type::u64(), span);
+    let elem = b.array_access(buf, i0, elem_ty, span).unwrap();
+    let elem64 = b
+        .convert(elem, Type::u64(), ConvertKind::ZeroExtend, span)
+        .unwrap();
+    let added = if conditional {
+        let one8 = b.constant(ConstantData::u8(1), Type::u8(), span);
+        let zero8 = b.constant(ConstantData::u8(0), Type::u8(), span);
+        let masked = b.bit_and(elem, one8, span).unwrap();
+        let cond = b.ne(masked, zero8, span).unwrap();
+        let zero64 = b.constant(ConstantData::u64(0), Type::u64(), span);
+        b.select(cond, elem64, zero64, span).unwrap()
+    } else {
+        elem64
+    };
+    let acc_next = b.add(acc0, added, span).unwrap();
+    let i_next = b.add(i0, one, span).unwrap();
+    let termination = b.lt(i0, bound, span).unwrap();
+    let loop_ty = Type::Tuple {
+        elements: vec![Type::u64(), Type::u64()],
+    };
+    let loop_node = b
+        .r#loop(
+            &[elem, added, acc_next, i_next, termination],
+            termination,
+            &[acc_next, i_next],
+            &[acc0, i0],
+            loop_ty,
+            span,
+        )
+        .unwrap();
+    let result = b.field_access(loop_node, "0", Type::u64(), span).unwrap();
+    b.return_value(result, span).unwrap();
+    b.build()
+}
+
+fn sum_truths(func: &Function) -> usize {
+    let mut mgr = AnalysisManager::new();
+    mgr.run_all(func);
+    let mut engine = SemanticEngine::new();
+    engine.derive(func, mgr.database());
+    engine
+        .database()
+        .truths()
+        .filter(|t| t.concept == SemanticConcept::SumReduction)
+        .count()
+}
+
+/// Gate 6A-v3 finding (n08_conditional_sum): a conditional accumulation
+/// was accepted as a raw-element sum. The masked value is not the element,
+/// so SumReduction must not fire for it (Gate 6A-v3 D5 remediation).
+#[test]
+fn conditional_sum_is_not_recognized_as_raw_element_sum() {
+    assert_eq!(sum_truths(&build_sum_loop(true)), 0);
+}
+
+/// Control: the plain element sum must still be recognized.
+#[test]
+fn plain_element_sum_is_still_recognized() {
+    assert!(sum_truths(&build_sum_loop(false)) > 0);
 }

@@ -86,6 +86,7 @@ pub fn recognize_sum_reduction(
                 let sum_reductions_only: Vec<_> = non_counter_reductions
                     .iter()
                     .filter(|r| !is_boolean_predicate(func, r.invariant_value))
+                    .filter(|r| is_raw_element_value(func, r.invariant_value))
                     .collect();
 
                 if sum_reductions_only.is_empty() {
@@ -177,6 +178,30 @@ fn is_constant_zero(func: &Function, id: NodeId) -> bool {
             if let ConstantData::Integer { value, .. } = data {
                 return value == "0";
             }
+        }
+    }
+    false
+}
+
+/// Gate 6A-v3 finding: a conditional accumulation
+/// (`if (buf[i] & 1) s += buf[i];` lowering to
+/// `s += select(cond, zext(buf[i]), 0)`) was accepted as a raw-element sum.
+/// The masked value is not the element; treating it as one is a false
+/// positive that a naive vector plan would mis-vectorize. The invariant
+/// must be the element itself, possibly through transparent conversion
+/// (widen/narrow) nodes.
+fn is_raw_element_value(func: &Function, id: NodeId) -> bool {
+    let mut current = id;
+    for _ in 0..8 {
+        let Some(node) = func.get_node(current) else {
+            return false;
+        };
+        match &node.kind {
+            sir_nodes::NodeKind::Convert { operand, .. } => current = *operand,
+            sir_nodes::NodeKind::ArrayAccess { .. } | sir_nodes::NodeKind::Load { .. } => {
+                return true;
+            }
+            _ => return false,
         }
     }
     false
