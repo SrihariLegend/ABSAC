@@ -660,3 +660,81 @@ fn uncovered_pointer_access_blocks_promotion() {
         "one uncovered access must keep the whole parameter a pointer"
     );
 }
+
+// ── Unguarded post-tested (do-while) carry-domain reconstruction ──
+
+/// clang's stride-4 constant-bound form (v6 `n06_stride4_const`): a
+/// self-loop with the test on the carry and a back-edge on true. The
+/// body runs FIRST and the loop continues while `i < 60`, so the
+/// executed values are 0,4,…,60 — the pre-tested SIR domain is
+/// `i < 64`, not `i < 60`. Lowering the test as-is dropped the forced
+/// final iteration (native differential: 48/48 mismatches).
+const POST_TESTED_STRIDE4: &str = r#"
+define i64 @stride4(ptr %b) {
+entry:
+  br label %3
+
+2:
+  ret i64 %9
+
+3:
+  %4 = phi i64 [ 0, %entry ], [ %10, %3 ]
+  %5 = phi i64 [ 0, %entry ], [ %9, %3 ]
+  %6 = getelementptr inbounds i8, ptr %b, i64 %4
+  %7 = load i8, ptr %6
+  %8 = zext i8 %7 to i64
+  %9 = add i64 %5, %8
+  %10 = add nuw nsw i64 %4, 4
+  %11 = icmp ult i64 %4, 60
+  br i1 %11, label %3, label %2
+}
+"#;
+
+#[test]
+fn post_tested_stride_loop_reconstructs_the_forced_iteration() {
+    let func = lower_function(POST_TESTED_STRIDE4, "stride4")
+        .expect("constant-step post-tested loop must lower");
+    let loop_node = func
+        .arena
+        .iter()
+        .find(|n| matches!(n.kind, sir_nodes::NodeKind::Loop { .. }))
+        .expect("loop node");
+    let sir_nodes::NodeKind::Loop { termination, .. } = &loop_node.kind else {
+        unreachable!()
+    };
+    let term = func.get_node(*termination).expect("termination");
+    match &term.kind {
+        sir_nodes::NodeKind::Lt { rhs, .. } => {
+            let bound = func.get_node(*rhs).expect("bound");
+            match &bound.kind {
+                sir_nodes::NodeKind::Constant(data) => assert_eq!(
+                    data.as_u64(),
+                    Some(64),
+                    "the do-while `i < 60` stride-4 domain must reconstruct as `i < 64`"
+                ),
+                other => panic!("expected a constant bound, got {other:?}"),
+            }
+        }
+        other => panic!("expected a reconstructed Lt termination, got {other:?}"),
+    }
+}
+
+/// A post-tested loop whose step is not a positive constant cannot be
+/// reconstructed; it must be refused loudly (never silently lowered as
+/// pre-tested).
+#[test]
+fn post_tested_loop_with_runtime_step_is_refused() {
+    let ir = POST_TESTED_STRIDE4.replace(
+        "%10 = add nuw nsw i64 %4, 4",
+        "%10 = add nuw nsw i64 %4, %step",
+    );
+    // Add the step parameter to the signature so the IR stays valid.
+    let ir = ir.replace("define i64 @stride4(ptr %b) {", "define i64 @stride4(ptr %b, i64 %step) {");
+    match lower_function(&ir, "stride4") {
+        Ok(_) => panic!("a runtime-step post-tested loop must be refused"),
+        Err(e) => assert!(
+            e.contains("unguarded post-tested loop") || e.contains("unsupported"),
+            "unexpected refusal: {e}"
+        ),
+    }
+}

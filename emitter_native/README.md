@@ -29,7 +29,16 @@ buffer byte-for-byte.
 | `h4b/tier_b.ll` | 7 | 0 | 6 | 24 | 4 |
 | `h4c/tier_b.ll` | 6 | 0 | 4 | 24 | 3 |
 | `d4/tier_b.ll` | 7 | 0 | 5 | 24 | 4 |
-| **Total** | **103** | **0** | **45** | — | **22** |
+| `gate6a/v6_corpus.ll` | 16 | 0 | 6 | 48 | 4 |
+| **Total** | **119** | **0** | **51** | — | **26** |
+
+The **v6 generation** was created 2026-09-17 after the F6–F8 emitter
+fixes and the multi-loop/constant-extent work, and evaluated one-shot:
+this harness caught a real lowering bug (`n06_stride4_const`, a
+post-tested do-while lowered as pre-tested: 48/48 mismatches; raw
+failure preserved in `gate6a/v6_raw/run1_native_failure.txt`). After the
+fix the v6 run is 16 clean / 0 mismatched / 6 lower-refused with 4
+native-clean rewrites. See docs/GATE6A_V6_RESULTS.md.
 
 Re-measured 2026-09-17 (final): constant-extent buffer promotion adds
 native-clean rewrites for v2 `w06_count_mismatch_const`, v3
@@ -48,8 +57,13 @@ reverted fail-closed until the emitter was fixed. The failed attempt is
 preserved in the git history and in docs/RECALL_RESULTS.md.
 
 Lower refusals are the documented fail-closed classes (signed icmp,
-atomic/volatile ordering, multi-loop CFGs, separate latch blocks,
-unsupported store forms); they are not silent miscompilations.
+atomic/volatile ordering, separate latch blocks / early exits,
+unsupported store forms, unguarded post-tested loops without a
+constant-step reconstruction); they are not silent miscompilations.
+Sequential multi-loop CFGs now LOWER and emit (a two-loop composition
+was once reverted after this harness caught it; the emitter gained
+per-loop namespacing and TupleExtract/FieldAccess resolution before it
+was re-landed).
 
 Reproduce:
 

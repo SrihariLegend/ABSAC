@@ -90,7 +90,20 @@ pub fn all_plans(
     let mut candidates = Vec::new();
     for proposal in proposals {
         let cites = proposal.source_concepts.clone();
-        let ok = cites.iter().all(|c| is_data_concept(c) || authorized.contains(c));
+        // P0A hardening (v6 finding): the region must carry at least one
+        // certificate. Allowing a proposal whose citations are entirely
+        // descriptive (LogicalSequence, ElementSequence, PredicateMap,
+        // FiniteCollection, …) let a plan mint a candidate on a region
+        // with NO authorization at all — the 2026-09-17 v6 corpus showed
+        // one candidate each on a running-max negative, a masked-sum
+        // negative and a two-array negative once constant-extent
+        // promotion gave those regions a structural description.
+        // A region that DOES carry a certificate keeps its descriptive
+        // plans (e.g. the bitset strategies on a certified count loop).
+        let ok = !region_auths.is_empty()
+            && cites
+                .iter()
+                .all(|c| is_data_concept(c) || authorized.contains(c));
         if !ok {
             continue; // proposal stays untrusted; no Candidate is minted
         }

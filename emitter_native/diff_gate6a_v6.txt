@@ -1,0 +1,23 @@
+NATIVE p01_count_ge_const_u16: clean cases=48 rewrites=1
+NATIVE p02_count_eq_const_u8: clean cases=48 rewrites=1
+NATIVE p03_count_lt_const_u32: clean cases=48 rewrites=1
+NATIVE p04_sum_u8_const_u64: clean cases=48 rewrites=0
+NATIVE p05_sum_u16_const_u32: clean cases=48 rewrites=0
+NATIVE p06_all_ne_const_u8: clean cases=48 rewrites=0
+NATIVE p07_any_or_const_u32: clean cases=48 rewrites=1
+NATIVE p08_two_loops_const: clean cases=48 rewrites=0
+NATIVE p09_first_set_const: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: p09_first_set_const)
+NATIVE p10_map_then_sum_const: clean cases=48 rewrites=0
+NATIVE n01_runtime_sum_u8: clean cases=48 rewrites=0
+NATIVE n02_runtime_count_ge_u32: clean cases=48 rewrites=0
+NATIVE n03_sum_i64_nsw: clean cases=48 rewrites=0
+NATIVE n04_running_max_const: clean cases=48 rewrites=0
+NATIVE n05_masked_sum_const: clean cases=48 rewrites=0
+NATIVE n06_stride4_const: clean cases=48 rewrites=0
+NATIVE n07_volatile_store: lower_refused (unsupported: volatile store (observable occurrence/ordering semantics): store volatile i8 %2, ptr %10, align 1, !tbaa !12)
+NATIVE n08_atomic_load: lower_refused (unsupported: atomic load (ordering semantics not modeled): %10 = load atomic i32, ptr %9 monotonic, align 4)
+NATIVE n09_may_alias_store: lower_refused (TypeMismatch { node: NodeId(8), expected: Pointer { pointee: Unit, mutable: true }, actual: Integer { width: I16, signed: false, overflow: Wrapping } })
+NATIVE n10_two_arrays_const: clean cases=48 rewrites=0
+NATIVE n11_nonterminating_reverse: lower_refused (function has too few blocks for the lowerer)
+NATIVE n12_early_exit_global: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: n12_early_exit_global)
+EMITC_SUMMARY clean=16 mismatched=0 lower_refused=6 harness_errors=0

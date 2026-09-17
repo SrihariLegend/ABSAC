@@ -1749,6 +1749,122 @@ fn rotated_successor_domain(
     None
 }
 
+/// Integer constant data of the same SIR type as `ty` (for reconstructed
+/// bounds).
+fn int_constant_data(ty: &Type, val: u64) -> ConstantData {
+    match ty {
+        Type::Integer {
+            width: IntegerWidth::I8,
+            signed: false,
+            ..
+        } => ConstantData::u8(val as u8),
+        Type::Integer {
+            width: IntegerWidth::I8,
+            signed: true,
+            ..
+        } => ConstantData::i8(val as i8),
+        Type::Integer {
+            width: IntegerWidth::I16,
+            signed: false,
+            ..
+        } => ConstantData::u16(val as u16),
+        Type::Integer {
+            width: IntegerWidth::I16,
+            signed: true,
+            ..
+        } => ConstantData::i16(val as i16),
+        Type::Integer {
+            width: IntegerWidth::I32,
+            signed: false,
+            ..
+        } => ConstantData::u32(val as u32),
+        Type::Integer {
+            width: IntegerWidth::I32,
+            signed: true,
+            ..
+        } => ConstantData::i32(val as i32),
+        Type::Integer {
+            width: IntegerWidth::I64,
+            signed: true,
+            ..
+        } => ConstantData::i64(val as i64),
+        _ => ConstantData::u64(val),
+    }
+}
+
+/// Reconstruct the pre-tested SIR domain of clang's UNGUARDED post-tested
+/// (do-while) carry-compare loop, or return None when it cannot be
+/// proven.
+///
+/// Shape (self-loop, back-edge on TRUE, unconditional entry):
+///
+/// ```text
+///   step = CONST > 0
+///   next = carry + step            (or carry - step, descending)
+///   term = carry < K / <= K        (or > / >=, descending)
+/// ```
+///
+/// LLVM executes the body FIRST and continues while the test on the
+/// pre-body carry holds, so the executed carries are exactly
+/// `carry < K + step` (ascending) or `carry > K - step` (descending) —
+/// provided the first iteration is forced (`term(c0)` true) and the
+/// shifted bound does not overflow. That is the pre-tested SIR Loop that
+/// models the do-while faithfully. Anything else returns None and the
+/// caller refuses loudly (the 2026-09-17 v6 corpus caught the silent
+/// version: a stride-4 `i < 60` do-while lowered as a pre-tested
+/// `i < 60`, dropping the forced final iteration).
+fn post_tested_carry_domain(
+    builder: &mut Builder,
+    termination: NodeId,
+    carried_init_nodes: &[NodeId],
+    carried_next_nodes: &[NodeId],
+) -> Option<NodeId> {
+    // Read phase: everything derived from the current graph.
+    let (carry, shifted, carry_ty, ascending) = {
+        let function = builder.function();
+        let term = function.get_node(termination)?;
+        let (carry, bound, ascending) = match &term.kind {
+            NodeKind::Lt { lhs, rhs } | NodeKind::Le { lhs, rhs } => (*lhs, *rhs, true),
+            NodeKind::Gt { lhs, rhs } | NodeKind::Ge { lhs, rhs } => (*lhs, *rhs, false),
+            _ => return None,
+        };
+        let carry_index = carried_init_nodes.iter().position(|c| *c == carry)?;
+        let bound_value = lower_constant_u64(function, bound)?;
+        let next = *carried_next_nodes.get(carry_index)?;
+        let step_value = match function.get_node(next).map(|n| &n.kind) {
+            Some(NodeKind::Add { lhs, rhs }) if ascending && *lhs == carry => {
+                lower_constant_u64(function, *rhs)?
+            }
+            Some(NodeKind::Sub { lhs, rhs }) if !ascending && *lhs == carry => {
+                lower_constant_u64(function, *rhs)?
+            }
+            _ => return None,
+        };
+        if step_value == 0 {
+            return None;
+        }
+        let c0 = lower_constant_u64(function, carry)?;
+        let shifted = if ascending {
+            bound_value.checked_add(step_value)?
+        } else {
+            bound_value.checked_sub(step_value)?
+        };
+        // The forced first iteration must satisfy the reconstructed pre-test.
+        if (ascending && c0 >= shifted) || (!ascending && c0 <= shifted) {
+            return None;
+        }
+        let carry_ty = function.get_node(carry)?.ty.clone();
+        (carry, shifted, carry_ty, ascending)
+    };
+    let span = Span::unknown();
+    let shifted_node = builder.constant(int_constant_data(&carry_ty, shifted), carry_ty, span);
+    if ascending {
+        builder.lt(carry, shifted_node, span).ok()
+    } else {
+        builder.gt(carry, shifted_node, span).ok()
+    }
+}
+
 /// Does the function have a pre-loop entry guard (clang's rotation
 /// pre-check: `icmp eq %n, 0` plus a conditional branch before the loop
 /// block)? Required before rebuilding a successor-tested loop as the
@@ -2148,7 +2264,35 @@ fn lower_loop_function(
                     format!("loop build error (F8 carry-domain reconstruction): {:?}", e)
                 })?
             }
-            None => termination,
+            None => {
+                // The termination compares the CARRY itself (not its
+                // successor). With a pre-loop guard the source is
+                // pre-tested and the comparison is already the SIR
+                // domain. Without a guard, clang emitted a post-tested
+                // do-while: reconstruct the shifted pre-tested domain or
+                // refuse loudly — lowering it as-is would drop the
+                // forced first/last iteration (v6 finding).
+                if has_entry_guard(ir, loop_idx) {
+                    termination
+                } else {
+                    match post_tested_carry_domain(
+                        builder,
+                        termination,
+                        &carried_init_nodes,
+                        &output_nodes,
+                    ) {
+                        Some(rebuilt) => rebuilt,
+                        None => {
+                            return Err(format!(
+                                "unsupported: unguarded post-tested loop (do-while carry test) \
+                                 that is not a constant-step counted form; SIR loops are \
+                                 pre-tested, so the forced iterations cannot be represented: {}",
+                                ir.name
+                            ));
+                        }
+                    }
+                }
+            }
         }
     } else {
         match rotated_counted_domain(builder, termination, &carried_init_nodes) {

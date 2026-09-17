@@ -467,6 +467,25 @@ Gate 6A-v3:  CLOSED   sealed v3 corpus found one false-positive class
                      corpus-classification defect (semantically vacuous
                      guard) and is preserved. See docs/GATE6A_V3_RESULTS.md.
 
+Gate 6A-v6:  FAILED one-shot (preserved) → REMEDIATED on the frozen
+             regression set. The first blind generation after the
+             F6–F8 emitter fixes + multi-loop + constant-extent work
+             found TWO real defects: (1) constant-extent promotion gave
+             non-reduction regions structural descriptions, and plans
+             citing only descriptive concepts minted candidates with no
+             certificate (3 unsafe candidates on running-max /
+             masked-sum / two-array negatives) — the generation gate now
+             requires at least one certificate for the region; (2)
+             clang's unguarded post-tested do-while carry test
+             (stride 4, `i < 60`) was lowered as pre-tested and dropped
+             the forced final iteration (native 48/48 mismatches) — the
+             lowerer now reconstructs `carry < K + step` (checked) or
+             refuses loudly. Re-run on the regression set: 0 false
+             positives / 0 unsafe candidates / 0 unsafe rewrites,
+             native 16 clean / 0 mismatched / 6 lower-refused, 4
+             native-clean rewrites. v6 is a regression set; fresh
+             held-out proof needs v7. See docs/GATE6A_V6_RESULTS.md.
+
 Gate 6B:     PASSED — the fusion corpus was sealed before automation
              (gate6b/manifest.sha256, commit 4aedce1) and evaluated
              one-shot with a frozen harness (7ab8edc/2594d1a): 10/10 rows
