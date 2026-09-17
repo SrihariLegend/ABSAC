@@ -491,6 +491,19 @@ Gate 6A-v6:  FAILED one-shot (preserved) → REMEDIATED on the frozen
              in v6; 27 total). v6 is a regression set; fresh held-out
              proof needs v7. See docs/GATE6A_V6_RESULTS.md.
 
+Gate 6A-v7:  PASSED — the first fresh generation after the v6
+             remediation (sealed 24-kernel corpus + classification +
+             manifest): 8/11 positives recognized (3 pre-registered
+             known gaps), 0 false positives / 0 unsafe candidates / 0
+             unsafe rewrites, native 18 clean / 0 mismatched / 6
+             lower-refused with 4 native-clean rewrites. The
+             do-while reconstruction holds at strides 2 and 8, the
+             runtime step refuses loudly, three-loop and
+             mixed-extent kernels compose and promote, and no v6
+             class recurred. Cumulative native sweep: 137 clean /
+             0 mismatched / 57 lower-refused, 31 rewrites.
+             See docs/GATE6A_V7_RESULTS.md.
+
 Gate 6B:     PASSED — the fusion corpus was sealed before automation
              (gate6b/manifest.sha256, commit 4aedce1) and evaluated
              one-shot with a frozen harness (7ab8edc/2594d1a): 10/10 rows

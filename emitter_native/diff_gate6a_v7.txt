@@ -1,0 +1,25 @@
+NATIVE p01_sum_u8_const_100: clean cases=48 rewrites=0
+NATIVE p02_count_le_const_u16: clean cases=48 rewrites=1
+NATIVE p03_count_ne_const_u32: clean cases=48 rewrites=1
+NATIVE p04_all_ge_const_u8: clean cases=48 rewrites=0
+NATIVE p05_any_or_const_u16: clean cases=48 rewrites=1
+NATIVE p06_do_while_stride2_sum: clean cases=48 rewrites=0
+NATIVE p07_three_loops_const: clean cases=48 rewrites=1
+NATIVE p08_two_loops_mixed_const: clean cases=48 rewrites=0
+NATIVE p09_first_set_early_return: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: p09_first_set_early_return)
+NATIVE p10_map_then_sum_const: clean cases=48 rewrites=0
+NATIVE p11_do_while_stride8_sum: clean cases=48 rewrites=0
+NATIVE n01_runtime_sum_u16: clean cases=48 rewrites=0
+NATIVE n02_runtime_count_le_u32: clean cases=48 rewrites=0
+NATIVE n03_signed_sum_const: clean cases=48 rewrites=0
+NATIVE n04_runtime_step_do_while: lower_refused (unsupported: unguarded successor-tested loop (`next` compared to the bound with a true back-edge and no pre-loop `n == 0` exit); SIR loops are pre-tested, so a do-while's first forced iteration cannot be represented: n04_runtime_step_do_while)
+NATIVE n05_masked_sum_ternary_const: clean cases=48 rewrites=0
+NATIVE n06_running_max_const: clean cases=48 rewrites=0
+NATIVE n07_masked_sum_hi_const: clean cases=48 rewrites=0
+NATIVE n08_volatile_load_const: clean cases=48 rewrites=0
+NATIVE n09_atomic_fetch_add: lower_refused (unsupported instruction: atomicrmw (raw: %9 = atomicrmw add ptr %0, i32 1 monotonic, align 4))
+NATIVE n10_may_alias_store_const: lower_refused (TypeMismatch { node: NodeId(5), expected: Pointer { pointee: Unit, mutable: true }, actual: Integer { width: I16, signed: false, overflow: Wrapping } })
+NATIVE n11_two_arrays_const: clean cases=48 rewrites=0
+NATIVE n12_nonterminating_reverse: lower_refused (function has too few blocks for the lowerer)
+NATIVE n13_early_exit_global_const: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: n13_early_exit_global_const)
+EMITC_SUMMARY clean=18 mismatched=0 lower_refused=6 harness_errors=0

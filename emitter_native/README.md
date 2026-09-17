@@ -30,7 +30,15 @@ buffer byte-for-byte.
 | `h4c/tier_b.ll` | 6 | 0 | 4 | 24 | 3 |
 | `d4/tier_b.ll` | 7 | 0 | 5 | 24 | 4 |
 | `gate6a/v6_corpus.ll` | 16 | 0 | 6 | 48 | 5 |
-| **Total** | **119** | **0** | **51** | — | **27** |
+| `gate6a/v7_corpus.ll` | 18 | 0 | 6 | 48 | 4 |
+| **Total** | **137** | **0** | **57** | — | **31** |
+
+**v7** (2026-09-17) is the first fresh generation after the v6
+remediation: post-tested do-whiles at strides 2 and 8 are natively
+faithful, a runtime step refuses loudly, a three-loop kernel composes
+and rewrites natively, and mixed constant extents promote to the max
+view — 18 clean / 0 mismatched / 6 lower-refused, 4 native-clean
+rewrites. See docs/GATE6A_V7_RESULTS.md.
 
 The **v6 generation** was created 2026-09-17 after the F6–F8 emitter
 fixes and the multi-loop/constant-extent work, and evaluated one-shot:

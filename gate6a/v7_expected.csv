@@ -1,0 +1,25 @@
+kernel	class	expectation	expected_lower	expected_verify	expected_concepts	expected_candidates	expected_rewrites	key_property
+p01_sum_u8_const_100	P	recognized	yes	yes	SumReduction	any	any	u8 sum into u64, constant bound 100
+p02_count_le_const_u16	P	recognized	yes	yes	CardinalityReduction	any	any	u16 <= predicate, constant bound 72
+p03_count_ne_const_u32	P	recognized	yes	yes	CardinalityReduction	any	any	u32 != predicate, constant bound 36
+p04_all_ge_const_u8	P	recognized	yes	yes	ConjunctiveReduction	any	any	all >= predicate, constant bound 48
+p05_any_or_const_u16	P	recognized	yes	yes	DisjunctiveReduction	any	any	raw-element OR, constant bound 80
+p06_do_while_stride2_sum	P	recall_gap_known	any	any	SumReduction	any	any	post-tested do-while stride 2 (reconstruct or refuse; native fidelity)
+p07_three_loops_const	P	recognized	yes	yes	SumReduction	any	any	three sequential loops over one constant extent
+p08_two_loops_mixed_const	P	recognized	yes	yes	CardinalityReduction	any	any	two loops, different constant extents (max view)
+p09_first_set_early_return	P	recall_gap_known	any	any	any	any	any	early-return first-set search (early-exit gap)
+p10_map_then_sum_const	P	recall_gap_known	any	any	MappedSumReduction	any	any	map-then-sum over a constant extent (candidate gap)
+p11_do_while_stride8_sum	P	recall_gap_known	any	any	SumReduction	any	any	post-tested do-while stride 8 (reconstruct or refuse; native fidelity)
+n01_runtime_sum_u16	N	contained_abstain	any	any	any	0	0	runtime extent: recognition allowed, no candidate
+n02_runtime_count_le_u32	N	contained_abstain	any	any	any	0	0	runtime extent cardinality: no candidate
+n03_signed_sum_const	N	contained_abstain	any	any	any	0	0	signed induction/icmp: must refuse
+n04_runtime_step_do_while	N	contained_abstain	any	any	any	0	0	unguarded post-tested runtime step: refuse loudly
+n05_masked_sum_ternary_const	N	safe_abstain	any	any	none	0	0	ternary threshold sum (D5 class)
+n06_running_max_const	N	safe_abstain	any	any	none	0	0	running max lookalike (X06 class)
+n07_masked_sum_hi_const	N	safe_abstain	any	any	none	0	0	high-nibble masked sum (D5 class)
+n08_volatile_load_const	N	safe_abstain	any	any	none	0	0	volatile loads (effects)
+n09_atomic_fetch_add	N	safe_abstain	any	any	none	0	0	C11 atomic read-modify-write
+n10_may_alias_store_const	N	safe_abstain	any	any	none	0	0	may-alias store inside a constant-extent loop
+n11_two_arrays_const	N	safe_abstain	any	any	none	0	0	two-array relation (footprint completeness)
+n12_nonterminating_reverse	N	safe_abstain	any	any	none	0	0	unsigned `i >= 0` reverse search (totality gate)
+n13_early_exit_global_const	N	safe_abstain	any	any	none	0	0	early exit with a global side effect
