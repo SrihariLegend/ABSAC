@@ -614,3 +614,39 @@ fn rewritten_bit_reverse_executes_natively() {
     let got: Vec<&str> = stdout.lines().collect();
     assert_eq!(got, vec!["128", "240", "165", "0"]);
 }
+
+/// `(x << 4) >> 4` over u32 (ShiftMask shape).
+fn shift_mask_function() -> sir_nodes::Function {
+    let ty = Type::u32();
+    let mut b = Builder::new("shift_mask_4", &[("x", ty.clone())], ty.clone());
+    let x = b.parameter_index(0).unwrap();
+    let four = b.constant(sir_types::ConstantData::u32(4), ty.clone(), Span::unknown());
+    let shl = b.shl(x, four, Span::unknown()).unwrap();
+    let shr = b.shr(shl, four, Span::unknown()).unwrap();
+    b.return_value(shr, Span::unknown()).unwrap();
+    b.build()
+}
+
+#[test]
+fn rewritten_shift_mask_executes_natively() {
+    if !clang_available() {
+        return;
+    }
+    let optimized = optimize_suppressed(&shift_mask_function());
+    assert_eq!(
+        optimized.rewrites_applied, 1,
+        "the shift-mask rewrite must be authorized"
+    );
+    let emitted = sir_benchmarks::emit::emit_c(&optimized.function);
+    let main = "    printf(\"%llu\\n\", (unsigned long long)shift_mask_4(0xFFFFFFFFu));\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)shift_mask_4(0x12345678u));\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)shift_mask_4(0xFu));\n";
+    let Some(stdout) = compile_and_run_emitted(&emitted, main, "shift_mask_4") else {
+        return;
+    };
+    // (x << 4) >> 4 == x & 0x0FFFFFFF:
+    // 0xFFFFFFFF -> 0x0FFFFFFF (268435455), 0x12345678 -> 0x02345678
+    // (36984440), 0xF -> 0xF (15).
+    let got: Vec<&str> = stdout.lines().collect();
+    assert_eq!(got, vec!["268435455", "36984440", "15"]);
+}

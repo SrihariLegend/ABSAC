@@ -127,13 +127,15 @@ fn validate_ba004_shift_mask() {
     let mut optimizer = Optimizer::new(OptimizerConfig::default(), default_registry());
     let result = optimizer.optimize(&func);
 
-    // ShiftMask definition is Stub-quarantined (advisor P0 audit).
-    assert_eq!(result.rewrites_applied, 0);
+    // ShiftMask is ConcreteSolverChecked since 2026-09-17: the role
+    // binds the actual shift pair (constant amount, unsigned operand) and
+    // the solver proves `(x << k) >> k == x & ((1 << (W-k)) - 1)`.
+    assert_eq!(result.rewrites_applied, 1);
 
     let has_and = result
         .function
         .arena
         .iter()
         .any(|n| matches!(n.kind, NodeKind::And { .. }));
-    assert!(!has_and, "Must not rewrite to a bitwise AND while quarantined");
+    assert!(has_and, "the authorized rewrite must emit the mask AND");
 }

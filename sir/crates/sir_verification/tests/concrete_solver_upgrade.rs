@@ -622,3 +622,67 @@ fn variable_amount_rotation_cannot_be_bound() {
         VerificationResult::Proven(_)
     ));
 }
+
+fn shift_mask_structure_and_function(
+    k: u32,
+    signed: bool,
+) -> (sir_nodes::Function, sir_semantics::structure::StructuralDescription) {
+    use sir_semantics::structure::StructuralDescription;
+    use sir_transform::roles::RegionRoles;
+    use sir_transform::structures::SourceStructure;
+    let ty = if signed { Type::i32() } else { Type::u32() };
+    let mut b = Builder::new("shift_mask", &[("x", ty.clone())], ty.clone());
+    let x = b.parameter_index(0).unwrap();
+    let amount = b.constant(ConstantData::u32(k), ty.clone(), span());
+    let shl = b.shl(x, amount, span()).unwrap();
+    let shr = b.shr(shl, amount, span()).unwrap();
+    b.return_value(shr, span()).unwrap();
+    let func = b.build();
+    let structural = StructuralDescription::new(
+        RegionId::new(0),
+        SourceStructure::ShiftMaskOperator,
+    )
+    .with_roles(RegionRoles::ArithmeticOperation {
+        operator_node: shr,
+        lhs: shl,
+        rhs: amount,
+        result: shr,
+    });
+    (func, structural)
+}
+
+#[test]
+fn bound_shift_mask_is_concrete_solver_checked() {
+    use sir_verification::definitions::shift_mask::ShiftMaskDefinition;
+    let (func, structural) = shift_mask_structure_and_function(4, false);
+    let def = ShiftMaskDefinition::new(DefinitionId::new(103));
+    // The region nodes are the recognizer's set; the role is what binds.
+    let obligation = def.obligation_with_roles(&candidate(vec![], 103), &func, &structural);
+    assert!(obligation.domain.is_some());
+    match Verifier::new().verify(&obligation, &context()) {
+        VerificationResult::Proven(proof) => {
+            assert_eq!(proof.backend, VerificationBackend::ConcreteSolver);
+            assert_eq!(proof.assurance, VerificationStatus::ConcreteSolverChecked);
+        }
+        other => panic!("expected a concrete-solver proof, got {other:?}"),
+    }
+}
+
+#[test]
+fn signed_or_full_width_shift_mask_cannot_be_bound() {
+    use sir_verification::definitions::shift_mask::ShiftMaskDefinition;
+    let def = ShiftMaskDefinition::new(DefinitionId::new(103));
+    for (k, signed) in [(4u32, true), (32u32, false)] {
+        let (func, structural) = shift_mask_structure_and_function(k, signed);
+        let obligation =
+            def.obligation_with_roles(&candidate(vec![], 103), &func, &structural);
+        assert!(
+            obligation.domain.is_none(),
+            "k={k} signed={signed} must not bind"
+        );
+        assert!(!matches!(
+            Verifier::new().verify(&obligation, &context()),
+            VerificationResult::Proven(_)
+        ));
+    }
+}
