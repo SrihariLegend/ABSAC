@@ -394,7 +394,9 @@ Remediation D3 (P0A, commit c3ebb54):
        pair, mutation-sensitive) [IN PROGRESS 2026-09-17: the
        ConcreteSolver backend bit-blasts bound obligations; MultiplyShift
        is the first lifted definition; ModuloAnd/DivideShift need
-       urem/udiv lowering]; (4) map-then-sum recall, two-loop lowering,
+       a width-efficient division encoding (urem/udiv bit-blasting is
+       implemented and tested, but 32-bit proofs take ~20 s each; see
+       docs/VERIFIER_AUDIT.md)]; (4) map-then-sum recall, two-loop lowering,
        accumulator width, C3 freeze, fresh H3; before fusion: seal
        Gate 6B or independent post-freeze corpus creation.
   ScalarExpression definedness gate (advisor: fail closed NOW, commit

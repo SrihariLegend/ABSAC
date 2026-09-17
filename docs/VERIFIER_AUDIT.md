@@ -168,20 +168,38 @@ The first lift implements the path above end to end:
 Remaining quarantined: 15 definitions. Their blockers are now recorded
 precisely:
 
-- **ModuloAnd / DivideShift** need `urem`/`udiv` bit-blasting in the
-  solver lowering, and their obligations/recipes must gate signedness
-  (the unsigned bitvector identities are false for signed division and
-  remainder semantics).
+- **ModuloAnd / DivideShift**: the `urem`/`udiv` bit-blasting is now
+  implemented and tested in `sir_mech` (restoring division; SMT-LIB
+  zero-divisor semantics; EVAL cross-checked exhaustively at 4 bits,
+  SAT-proved identities at 4/8/16 bits), and the verifier lowering can
+  emit them. The lift is blocked on **proof cost**: a single 32-bit
+  `x % C == x & (C-1)` equivalence takes ~20 s with the current CDCL
+  encoding, so an optimizer run over a handful of division candidates
+  takes minutes. Until there is a width-efficient division encoding
+  (constant-divisor circuit or an inductive width lemma), the
+  definitions stay Stub and unsignedness gating / recipe validation is
+  only preparatory. The binding/recipe code and its mutation tests are
+  written and pinned as fail-closed (concrete_solver_upgrade.rs).
 - **ShiftMask** additionally has a stub *recipe* (`shl(rhs, rhs)`), not
   just a stub obligation: lifting it requires implementing the mask
   extraction (`(x << n) >> n → x & ((1 << (W-n)) - 1)`, with n = 0 and
   n ≥ W handled fail-closed) before any obligation can authorize it.
-- **Zero-scan, bit-permutation (rotate/byteswap/bitreverse) and
-  mask-algebra (clear/isolate/set lowest bit) families** need their
-  operations lowered into `sir_mech` terms (the concrete backend
-  already models the lowest-bit and constant-amount rotate expressions,
-  so those are the next-lower-hanging candidates after the recipes are
-  audited).
+- **Mask-algebra (clear/isolate/set lowest bit)** definitions can bind
+  and prove (the concrete backend already models the lowest-bit
+  expressions), but their recipes emit raw `blsr`/`blsi`/`blsmsk`
+  intrinsics and **no layer lowers or emits those intrinsics** — the C
+  emitter would silently emit `0`. Lifting therefore requires either
+  intrinsic semantics + emission (interpreter, optimizer, emitter) or
+  recipes that emit the equivalent SIR operations.
+- **Zero-scan and bit-permutation (rotate/byteswap/bitreverse)
+  families** need their operations lowered into `sir_mech` terms;
+  constant-amount rotates and lowest-bit expressions are already
+  modeled. A second, shared blocker: recipes for these families emit
+  instruction-selection SIR (`Rol`/`Ror`, `blsr`/`blsi`/`blsmsk`,
+  `bswap`, `rbit`) that no interpreter or emitter lowers — the C
+  emitter would silently produce `0`. Lifting them requires downstream
+  semantics + emission for those operations (or recipes that expand to
+  the modeled SIR operations).
 
 C3 remains an Any-only freeze.
 
