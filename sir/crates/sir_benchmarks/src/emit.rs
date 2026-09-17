@@ -11,9 +11,93 @@
 
 use sir_nodes::{Function, Node, NodeKind};
 use sir_types::{ConstantData, NodeId, Type};
+use std::collections::{HashMap, HashSet};
+
+/// Post-order DFS over dataflow inputs restricted to `in_set`.
+///
+/// Emission order must follow the dataflow graph, not arena order: the
+/// old emitter wrote post-loop (and loop-body) statements in arena order,
+/// so a node could be referenced before its definition (H3 finding F6 —
+/// post-loop emission order).
+fn topo_order(seeds: &[NodeId], in_set: &HashSet<NodeId>, func: &Function) -> Vec<NodeId> {
+    fn visit(
+        id: NodeId,
+        in_set: &HashSet<NodeId>,
+        func: &Function,
+        visited: &mut HashSet<NodeId>,
+        visiting: &mut HashSet<NodeId>,
+        order: &mut Vec<NodeId>,
+    ) {
+        if visited.contains(&id) || !in_set.contains(&id) {
+            return;
+        }
+        // A cycle cannot be emitted as straight-line statements; leave it
+        // to the caller (the inliner has its own cycle guard).
+        if !visiting.insert(id) {
+            return;
+        }
+        if let Some(node) = func.get_node(id) {
+            for dep in sir_analysis::graph::dataflow_inputs(&node.kind) {
+                visit(dep, in_set, func, visited, visiting, order);
+            }
+        }
+        visiting.remove(&id);
+        visited.insert(id);
+        order.push(id);
+    }
+
+    let mut order = Vec::new();
+    let mut visited = HashSet::new();
+    let mut visiting = HashSet::new();
+    for &seed in seeds {
+        visit(seed, in_set, func, &mut visited, &mut visiting, &mut order);
+    }
+    order
+}
+
+/// All non-atom dataflow nodes reachable from `seeds` (excluding the
+/// seeds' own atoms). Atoms (parameters, constants, carried inputs) are
+/// inlined at use sites; everything else must be emitted as a statement.
+fn dependency_closure(
+    seeds: &[NodeId],
+    func: &Function,
+    stops: &HashSet<NodeId>,
+) -> HashSet<NodeId> {
+    fn visit(
+        id: NodeId,
+        func: &Function,
+        stops: &HashSet<NodeId>,
+        out: &mut HashSet<NodeId>,
+        seen: &mut HashSet<NodeId>,
+    ) {
+        if !seen.insert(id) || stops.contains(&id) {
+            return;
+        }
+        let Some(node) = func.get_node(id) else {
+            return;
+        };
+        match &node.kind {
+            NodeKind::Parameter { .. } | NodeKind::Constant(_) => {}
+            NodeKind::Loop { .. } | NodeKind::Return { .. } => {}
+            _ => {
+                out.insert(id);
+                for dep in sir_analysis::graph::dataflow_inputs(&node.kind) {
+                    visit(dep, func, stops, out, seen);
+                }
+            }
+        }
+    }
+
+    let mut out = HashSet::new();
+    let mut seen = HashSet::new();
+    for &seed in seeds {
+        visit(seed, func, stops, &mut out, &mut seen);
+    }
+    out
+}
 
 /// Map a SIR type to a C type string.
-fn c_type(ty: &Type) -> String {
+pub fn c_type(ty: &Type) -> String {
     match ty {
         Type::Bool => "bool".to_string(),
         Type::Integer { width, signed, .. } => {
@@ -38,8 +122,95 @@ fn c_type(ty: &Type) -> String {
         Type::Array { element, length } => {
             format!("{}[{}]", c_type(element), length)
         }
+        // Bitvector masks (rewrite outputs) share one fixed 8-limb
+        // representation; the helpers below keep unused limbs zero.
+        Type::BitVector { .. } => "sir_bv".to_string(),
         _ => "void".to_string(),
     }
+}
+
+/// Element size in bytes (bitvectors/aggregates have none).
+fn int_byte_width(ty: &Type) -> Option<u32> {
+    match ty {
+        Type::Integer { width, .. } => Some(match width {
+            sir_types::IntegerWidth::I8 => 1,
+            sir_types::IntegerWidth::I16 => 2,
+            sir_types::IntegerWidth::I32 => 4,
+            sir_types::IntegerWidth::I64 => 8,
+            sir_types::IntegerWidth::I128 => 16,
+        }),
+        _ => None,
+    }
+}
+
+fn is_bitvector(ty: &Type) -> bool {
+    matches!(ty, Type::BitVector { .. })
+}
+
+/// Runtime support for bitvector masks: `Pack` / `ArrayCmpMask` outputs
+/// and their comparisons, popcounts and bit scans. Emitted once, only in
+/// functions that use a bitvector (H3 noted Pack/ArrayCmpMask as the
+/// unexercised half of the emitter; rewrite outputs on array-backed
+/// collections use them, e.g. `any → mask != 0`).
+fn bitvector_prelude() -> &'static str {
+    r#"
+#include <string.h>
+
+typedef struct { uint64_t w[8]; } sir_bv;
+
+static sir_bv __sir_bv_zero(void) {
+    sir_bv r;
+    for (int i = 0; i < 8; i++) r.w[i] = 0;
+    return r;
+}
+static int __sir_bv_eq(sir_bv a, sir_bv b) {
+    for (int i = 0; i < 8; i++) if (a.w[i] != b.w[i]) return 0;
+    return 1;
+}
+static int __sir_bv_ne(sir_bv a, sir_bv b) { return !__sir_bv_eq(a, b); }
+static uint64_t __sir_bv_popcount(sir_bv a) {
+    uint64_t c = 0;
+    for (int i = 0; i < 8; i++) c += (uint64_t)__builtin_popcountll(a.w[i]);
+    return c;
+}
+static uint64_t __sir_bv_ctz(sir_bv a, unsigned width) {
+    for (unsigned i = 0; i < width && i < 512; i++)
+        if ((a.w[i / 64] >> (i % 64)) & 1u) return i;
+    return width;
+}
+static uint64_t __sir_bv_clz(sir_bv a, unsigned width) {
+    for (unsigned i = 0; i < width && i < 512; i++) {
+        unsigned bit = width - 1 - i;
+        if ((a.w[bit / 64] >> (bit % 64)) & 1u) return i;
+    }
+    return width;
+}
+static sir_bv __sir_mask_cmp(const uint8_t *base, unsigned n, unsigned elem_bytes,
+                             uint64_t scalar, int op) {
+    sir_bv r = __sir_bv_zero();
+    for (unsigned i = 0; i < n && i < 512; i++) {
+        uint64_t v = 0;
+        memcpy(&v, base + (size_t)i * elem_bytes, elem_bytes);
+        int take = 0;
+        switch (op) {
+            case 0: take = (v == scalar); break;
+            case 1: take = (v != scalar); break;
+            case 2: take = (v < scalar); break;
+            case 3: take = (v <= scalar); break;
+            case 4: take = (v > scalar); break;
+            case 5: take = (v >= scalar); break;
+        }
+        if (take) r.w[i / 64] |= (uint64_t)1 << (i % 64);
+    }
+    return r;
+}
+static sir_bv __sir_pack_bools(const bool *b, unsigned n) {
+    sir_bv r = __sir_bv_zero();
+    for (unsigned i = 0; i < n && i < 512; i++)
+        if (b[i]) r.w[i / 64] |= (uint64_t)1 << (i % 64);
+    return r;
+}
+"#
 }
 
 /// Get the width of an integer type.
@@ -74,6 +245,10 @@ fn constant_literal(data: &ConstantData, ty: &Type) -> String {
             } else {
                 "false".to_string()
             }
+        }
+        Type::BitVector { .. } => {
+            let v = data.as_u64().unwrap_or(0);
+            format!("((sir_bv){{ .w = {{ (uint64_t){}ULL }} }})", v)
         }
         _ => "0".to_string(),
     }
@@ -160,6 +335,9 @@ fn emit_expr(
         NodeKind::Popcount { operand } => {
             let o = emit_operand(*operand, func, carrier_map);
             let op_node = func.get_node(*operand);
+            if op_node.map(|n| is_bitvector(&n.ty)).unwrap_or(false) {
+                return format!("__sir_bv_popcount({})", o);
+            }
             let width = op_node.and_then(|n| int_width(&n.ty)).unwrap_or(32);
             let builtin = if width <= 32 { "__builtin_popcount" } else { "__builtin_popcountll" };
             format!("{}({})", builtin, o)
@@ -167,6 +345,11 @@ fn emit_expr(
         NodeKind::LeadingZeros { operand } => {
             let o = emit_operand(*operand, func, carrier_map);
             let op_node = func.get_node(*operand);
+            if let Some(n) = op_node {
+                if let Type::BitVector { width } = n.ty {
+                    return format!("__sir_bv_clz({}, {}u)", o, width);
+                }
+            }
             let width = op_node.and_then(|n| int_width(&n.ty)).unwrap_or(32);
             let builtin = if width <= 32 { "__builtin_clz" } else { "__builtin_clzll" };
             format!("{}({})", builtin, o)
@@ -174,15 +357,79 @@ fn emit_expr(
         NodeKind::TrailingZeros { operand } => {
             let o = emit_operand(*operand, func, carrier_map);
             let op_node = func.get_node(*operand);
+            if let Some(n) = op_node {
+                if let Type::BitVector { width } = n.ty {
+                    return format!("__sir_bv_ctz({}, {}u)", o, width);
+                }
+            }
             let width = op_node.and_then(|n| int_width(&n.ty)).unwrap_or(32);
             let builtin = if width <= 32 { "__builtin_ctz" } else { "__builtin_ctzll" };
             format!("{}({})", builtin, o)
         }
         NodeKind::Eq { lhs, rhs } => {
+            let bv = func
+                .get_node(*lhs)
+                .map(|n| is_bitvector(&n.ty))
+                .unwrap_or(false);
+            if bv {
+                return format!(
+                    "__sir_bv_eq({}, {})",
+                    emit_operand(*lhs, func, carrier_map),
+                    emit_operand(*rhs, func, carrier_map)
+                );
+            }
             format!("({} == {})", emit_operand(*lhs, func, carrier_map), emit_operand(*rhs, func, carrier_map))
         }
         NodeKind::Ne { lhs, rhs } => {
+            let bv = func
+                .get_node(*lhs)
+                .map(|n| is_bitvector(&n.ty))
+                .unwrap_or(false);
+            if bv {
+                return format!(
+                    "__sir_bv_ne({}, {})",
+                    emit_operand(*lhs, func, carrier_map),
+                    emit_operand(*rhs, func, carrier_map)
+                );
+            }
             format!("({} != {})", emit_operand(*lhs, func, carrier_map), emit_operand(*rhs, func, carrier_map))
+        }
+        NodeKind::ArrayCmpMask { array, scalar, op } => {
+            let arr_node = func.get_node(*array);
+            let (elem_bytes, length) = match arr_node.map(|n| &n.ty) {
+                Some(Type::Array { element, length }) => {
+                    (int_byte_width(element).unwrap_or(1), *length)
+                }
+                _ => (1, 0),
+            };
+            let op_code = match op {
+                sir_nodes::CmpOperator::Eq => 0,
+                sir_nodes::CmpOperator::Ne => 1,
+                sir_nodes::CmpOperator::Lt => 2,
+                sir_nodes::CmpOperator::Le => 3,
+                sir_nodes::CmpOperator::Gt => 4,
+                sir_nodes::CmpOperator::Ge => 5,
+            };
+            format!(
+                "__sir_mask_cmp((const uint8_t *){}, {}u, {}u, (uint64_t)({}), {})",
+                emit_operand(*array, func, carrier_map),
+                length,
+                elem_bytes,
+                emit_operand(*scalar, func, carrier_map),
+                op_code
+            )
+        }
+        NodeKind::Pack { array } => {
+            let arr_node = func.get_node(*array);
+            let length = match arr_node.map(|n| &n.ty) {
+                Some(Type::Array { length, .. }) => *length,
+                _ => 0,
+            };
+            format!(
+                "__sir_pack_bools((const bool *){}, {}u)",
+                emit_operand(*array, func, carrier_map),
+                length
+            )
         }
         NodeKind::Lt { lhs, rhs } => {
             format!("({} < {})", emit_operand(*lhs, func, carrier_map), emit_operand(*rhs, func, carrier_map))
@@ -230,6 +477,17 @@ pub fn emit_c(func: &Function) -> String {
     out.push_str("#include <stdint.h>\n");
     out.push_str("#include <stdbool.h>\n\n");
 
+    // Bitvector masks need the runtime helpers (Pack/ArrayCmpMask).
+    let uses_bitvectors = func
+        .arena
+        .iter()
+        .any(|node| is_bitvector(&node.ty))
+        || func.params.iter().any(|p| is_bitvector(&p.ty));
+    if uses_bitvectors {
+        out.push_str(bitvector_prelude());
+        out.push('\n');
+    }
+
     // Function signature
     let ret_c = c_type(&func.return_ty);
     let params: Vec<String> = func
@@ -267,41 +525,62 @@ pub fn emit_c(func: &Function) -> String {
     }
 
     if let Some(loop_n) = loop_node {
-        emit_loop(loop_n, func, &mut out);
+        let emitted_ids = emit_loop(loop_n, func, &mut out);
         // Collect all node IDs that belong to the loop (body, outputs, carried,
         // termination) so we can skip them when emitting post-loop statements.
-        let mut loop_ids: std::collections::HashSet<NodeId> = std::collections::HashSet::new();
+        let mut loop_ids: HashSet<NodeId> = HashSet::new();
         if let NodeKind::Loop { body, termination, outputs, carried_inputs } = &loop_n.kind {
             loop_ids.extend(body.iter().copied());
             loop_ids.insert(*termination);
             loop_ids.extend(outputs.iter().copied());
             loop_ids.extend(carried_inputs.iter().copied());
         }
-        // Emit remaining non-loop, non-parameter, non-return nodes AFTER the loop
-        // (e.g., TupleExtract that reads loop outputs). Skip any node that was
-        // part of the loop.
-        let empty_map = std::collections::HashMap::new();
-        for node in func.arena.iter() {
-            if matches!(node.kind, NodeKind::Parameter { .. } | NodeKind::Return { .. } | NodeKind::Loop { .. } | NodeKind::Constant(_)) {
-                continue;
-            }
-            if loop_ids.contains(&node.id) {
-                continue;
-            }
+        loop_ids.extend(emitted_ids);
+        // Emit remaining non-loop, non-parameter, non-return nodes AFTER the
+        // loop (e.g., TupleExtract that reads loop outputs), in dataflow
+        // order rather than arena order (F6).
+        let post: Vec<NodeId> = func
+            .arena
+            .iter()
+            .filter(|node| {
+                !matches!(
+                    node.kind,
+                    NodeKind::Parameter { .. }
+                        | NodeKind::Return { .. }
+                        | NodeKind::Loop { .. }
+                        | NodeKind::Constant(_)
+                ) && !loop_ids.contains(&node.id)
+            })
+            .map(|node| node.id)
+            .collect();
+        let post_set: HashSet<NodeId> = post.iter().copied().collect();
+        let empty_map = HashMap::new();
+        for id in topo_order(&post, &post_set, func) {
+            let node = func.get_node(id).expect("arena node");
             let ty = c_type(&node.ty);
             let expr = emit_expr(node, func, &empty_map);
-            out.push_str(&format!("    {} v{} = {};\n", ty, node.id.as_u64(), expr));
+            out.push_str(&format!("    {} v{} = {};\n", ty, id.as_u64(), expr));
         }
     } else {
         // No loop: emit all non-parameter, non-return nodes as statements
-        let empty_map = std::collections::HashMap::new();
-        for node in func.arena.iter() {
-            if matches!(node.kind, NodeKind::Parameter { .. } | NodeKind::Return { .. } | NodeKind::Loop { .. }) {
-                continue;
-            }
+        let all: Vec<NodeId> = func
+            .arena
+            .iter()
+            .filter(|node| {
+                !matches!(
+                    node.kind,
+                    NodeKind::Parameter { .. } | NodeKind::Return { .. } | NodeKind::Loop { .. }
+                )
+            })
+            .map(|node| node.id)
+            .collect();
+        let all_set: HashSet<NodeId> = all.iter().copied().collect();
+        let empty_map = HashMap::new();
+        for id in topo_order(&all, &all_set, func) {
+            let node = func.get_node(id).expect("arena node");
             let ty = c_type(&node.ty);
             let expr = emit_expr(node, func, &empty_map);
-            out.push_str(&format!("    {} v{} = {};\n", ty, node.id.as_u64(), expr));
+            out.push_str(&format!("    {} v{} = {};\n", ty, id.as_u64(), expr));
         }
     }
 
@@ -318,17 +597,30 @@ pub fn emit_c(func: &Function) -> String {
     out
 }
 
-/// Emit a Loop node as a C while loop.
-fn emit_loop(loop_node: &Node, func: &Function, out: &mut String) {
+/// Emit a Loop node as a pre-tested C while loop.
+///
+/// SIR semantics (see the interpreter in `h3_run`): the termination is
+/// evaluated with the *current* carried values BEFORE the body runs, and
+/// the loop continues while it is true. The old emitter wrote a
+/// post-tested `while (1) { body; if (!term) break; }`, which executed
+/// the body once even when the entry guard was false (out-of-bounds
+/// reads for `n == 0`) and evaluated the termination on the updated
+/// carries — H3 finding F8 (loop-control polarity/entry-guard). It also
+/// referenced the reconstructed termination node without emitting it —
+/// H3 finding F6, with F7 (buffer element-width typing) fixed in the
+/// lowerer's opaque-pointer inference.
+///
+/// Returns the set of node ids emitted inside the loop.
+fn emit_loop(loop_node: &Node, func: &Function, out: &mut String) -> HashSet<NodeId> {
     let (body, termination, outputs, carried_inputs) = match &loop_node.kind {
         NodeKind::Loop { body, termination, outputs, carried_inputs } => {
             (body, *termination, outputs, carried_inputs)
         }
-        _ => return,
+        _ => return HashSet::new(),
     };
 
     // Build carrier map: each carried input maps to C variable c_{index}
-    let mut carrier_map: std::collections::HashMap<NodeId, String> = std::collections::HashMap::new();
+    let mut carrier_map: HashMap<NodeId, String> = HashMap::new();
     for (i, &ci) in carried_inputs.iter().enumerate() {
         carrier_map.insert(ci, format!("c_{}", i));
     }
@@ -343,32 +635,57 @@ fn emit_loop(loop_node: &Node, func: &Function, out: &mut String) {
         out.push_str(&format!("    {} c_{} = {};\n", ty, i, init));
     }
 
-    // Declare output variables
+    // Declare output variables, initialized to the entry carries: SIR
+    // loop semantics return the carried values when the termination is
+    // false on entry (a zero-trip loop), so an uninitialized `o_i` would
+    // return garbage for `n == 0`.
     for (i, &oi) in outputs.iter().enumerate() {
         let oi_node = func.get_node(oi).unwrap();
         let ty = c_type(&oi_node.ty);
-        out.push_str(&format!("    {} o_{};\n", ty, i));
+        out.push_str(&format!("    {} o_{} = c_{};\n", ty, i, i));
     }
 
-    // The while loop
+    let carried_set: HashSet<NodeId> = carried_inputs.iter().copied().collect();
+    // The termination and its non-atom dependencies are evaluated at the
+    // top of every iteration, before any body statement: a load in the
+    // condition must not execute when the entry guard is false.
+    let term_set = dependency_closure(&[termination], func, &carried_set);
+    let mut body_seeds: Vec<NodeId> = body.clone();
+    body_seeds.extend(outputs.iter().copied());
+    let body_set = dependency_closure(&body_seeds, func, &carried_set);
+    let term_is_atom = carried_set.contains(&termination)
+        || matches!(
+            func.get_node(termination).map(|n| &n.kind),
+            Some(NodeKind::Parameter { .. }) | Some(NodeKind::Constant(_))
+        );
+
+    // The while loop (pre-tested).
     out.push_str("    while (1) {\n");
 
-    // Emit ALL body nodes (except carried inputs) as variable assignments.
-    // Deduplicate: the lowerer may map multiple LLVM values to the same
-    // SIR node (e.g., load pass-through from GEP). Track emitted nodes.
-    let skip_set: std::collections::HashSet<NodeId> = carried_inputs.iter().copied().collect();
-    let mut emitted: std::collections::HashSet<NodeId> = std::collections::HashSet::new();
-    for &node_id in body {
-        if skip_set.contains(&node_id) {
-            continue;
-        }
-        if !emitted.insert(node_id) {
-            continue; // already emitted this node
-        }
-        let node = func.get_node(node_id).unwrap();
+    let mut emitted: HashSet<NodeId> = HashSet::new();
+    for id in topo_order(&[termination], &term_set, func) {
+        let node = func.get_node(id).expect("arena node");
         let ty = c_type(&node.ty);
         let expr = emit_expr(node, func, &carrier_map);
-        out.push_str(&format!("        {} v{} = {};\n", ty, node_id.as_u64(), expr));
+        out.push_str(&format!("        {} v{} = {};\n", ty, id.as_u64(), expr));
+        emitted.insert(id);
+    }
+    let term_expr = if term_is_atom {
+        emit_operand(termination, func, &carrier_map)
+    } else {
+        format!("v{}", termination.as_u64())
+    };
+    out.push_str(&format!("        if (!({})) break;\n", term_expr));
+
+    // Remaining body nodes, in dataflow order.
+    for id in topo_order(&body_seeds, &body_set, func) {
+        if !emitted.insert(id) {
+            continue;
+        }
+        let node = func.get_node(id).expect("arena node");
+        let ty = c_type(&node.ty);
+        let expr = emit_expr(node, func, &carrier_map);
+        out.push_str(&format!("        {} v{} = {};\n", ty, id.as_u64(), expr));
     }
 
     // Assign outputs
@@ -377,14 +694,11 @@ fn emit_loop(loop_node: &Node, func: &Function, out: &mut String) {
         out.push_str(&format!("        o_{} = {};\n", i, val));
     }
 
-    // Check termination (loop continues while termination is true)
-    let term_expr = emit_operand(termination, func, &carrier_map);
-    out.push_str(&format!("        if (!({})) break;\n", term_expr));
-
     // Update carriers
     for (i, _) in carried_inputs.iter().enumerate() {
         out.push_str(&format!("        c_{} = o_{};\n", i, i));
     }
 
     out.push_str("    }\n");
+    emitted
 }

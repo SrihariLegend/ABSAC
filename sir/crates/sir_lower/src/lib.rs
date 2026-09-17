@@ -93,6 +93,116 @@ fn gep_source_array_type(line: &str) -> Option<Type> {
     })
 }
 
+/// Pointee type of a `getelementptr` source operand as used by a
+/// parameter: `<elem>, ptr %p, ...` (or `[N x T], ptr %p, i64 0, i64 %i`
+/// where the accessed element is `T`).
+fn gep_pointee_type(inst: &Instruction) -> Option<Type> {
+    if inst.operands.len() < 2 {
+        return None;
+    }
+    let elem_str = inst.operands[0].replace("inbounds ", "");
+    let elem_str = elem_str.trim();
+    let multi_index = inst.operands.len() >= 4;
+    let ty = if elem_str.starts_with('[') {
+        gep_source_array_type(&inst.raw)?
+    } else {
+        parse_type(elem_str)?
+    };
+    Some(match ty {
+        Type::Array { element, .. } if multi_index => *element,
+        other => other,
+    })
+}
+
+/// Infer the pointee type (and mutability) of opaque `ptr` parameters
+/// from the element types of the GEPs/loads/stores that use them.
+///
+/// LLVM 15+ opaque pointers erase pointee types. The lowerer historically
+/// modeled every `ptr` parameter as `*const u8` (H3 finding F7 — buffer
+/// element-width typing): `ArrayAccess` nodes carried the real GEP source
+/// element type (e.g. `i16`), but the SIR base stayed `*u8`, so the
+/// interpreter read 8-bit elements and the C emitter declared
+/// `uint8_t *`. Infer the pointee from direct uses; mixed-element uses
+/// (aliasing through one pointer) keep the byte view — never guess.
+fn infer_ptr_param_types(ir: &IrFunction) -> HashMap<String, (Type, bool)> {
+    let ptr_param_names: Vec<&str> = ir
+        .params
+        .iter()
+        .filter(|(_, ty)| ty.starts_with("ptr"))
+        .map(|(name, _)| name.as_str())
+        .collect();
+
+    /// Record a candidate pointee; conflicting views collapse to `None`.
+    fn note(
+        candidates: &mut HashMap<String, Option<Type>>,
+        name: &str,
+        ty: Option<Type>,
+    ) {
+        let entry = candidates.entry(name.to_string()).or_insert_with(|| ty.clone());
+        if entry.as_ref() != ty.as_ref() {
+            *entry = None;
+        }
+    }
+
+    let is_param = |name: &str| ptr_param_names.iter().any(|p| *p == name);
+    let mut candidates: HashMap<String, Option<Type>> = HashMap::new();
+    let mut mutable: HashMap<String, bool> = HashMap::new();
+    // GEP result name → owning parameter, so stores through a GEP still
+    // mark the parameter mutable.
+    let mut gep_base: HashMap<String, String> = HashMap::new();
+
+    for block in &ir.blocks {
+        for inst in &block.instructions {
+            match inst.opcode.as_str() {
+                "getelementptr" if inst.operands.len() >= 2 => {
+                    let base = strip_type(&inst.operands[1]);
+                    if is_param(&base) {
+                        note(&mut candidates, &base, gep_pointee_type(inst));
+                    }
+                    if let Some(result) = &inst.result {
+                        gep_base.insert(result.clone(), base);
+                    }
+                }
+                "load" if inst.operands.len() >= 2 => {
+                    let ty = operand_type(&inst.operands[0]);
+                    let base = strip_type(&inst.operands[1]);
+                    if is_param(&base) {
+                        note(&mut candidates, &base, ty);
+                    } else if let Some(owner) = gep_base.get(&base).cloned() {
+                        note(&mut candidates, &owner, ty);
+                    }
+                }
+                "store" if inst.operands.len() >= 2 => {
+                    let ty = operand_type(&inst.operands[0]);
+                    let base = strip_type(&inst.operands[1]);
+                    let owner = if is_param(&base) {
+                        Some(base.clone())
+                    } else {
+                        gep_base.get(&base).cloned()
+                    };
+                    if let Some(owner) = owner {
+                        note(&mut candidates, &owner, ty);
+                        mutable.insert(owner, true);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let mut out = HashMap::new();
+    for name in ptr_param_names {
+        let pointee = candidates
+            .get(name)
+            .cloned()
+            .flatten()
+            .unwrap_or_else(Type::u8);
+        let mutable = mutable.get(name).copied().unwrap_or(false);
+        out.insert(name.to_string(), (pointee, mutable));
+    }
+    out
+}
+
 /// Parse an integer constant from an operand string.
 fn parse_int_constant(s: &str) -> Option<i64> {
     let s = s.trim();
@@ -1120,20 +1230,25 @@ pub fn lower(text: &str) -> Result<Function, String> {
     // Map return type
     let ret_ty = parse_type(&ir.ret_type).unwrap_or(Type::Unit);
 
+    // Opaque `ptr` parameters: recover the pointee element type (F7).
+    let inferred_ptr_types = infer_ptr_param_types(&ir);
+
     // Build parameter list for SIR
     let mut sir_params: Vec<(&str, Type)> = ir
         .params
         .iter()
         .map(|(name, ty)| {
-            let sir_ty = parse_type(ty).unwrap_or(Type::u64());
-            // For pointer params, model as pointer to u8
             let sir_ty = if ty.starts_with("ptr") {
+                let (pointee, mutable) = inferred_ptr_types
+                    .get(name)
+                    .cloned()
+                    .unwrap_or((Type::u8(), false));
                 Type::Pointer {
-                    pointee: Box::new(Type::u8()),
-                    mutable: false,
+                    pointee: Box::new(pointee),
+                    mutable,
                 }
             } else {
-                sir_ty
+                parse_type(ty).unwrap_or(Type::u64())
             };
             (name.as_str(), sir_ty)
         })
@@ -1338,6 +1453,113 @@ fn rotated_counted_domain(
         }
     }
     None
+}
+
+/// D4/F9 counterpart for clang's "back-edge on true" successor rotation.
+///
+/// `for (i = 0; i < n; i += k)` (steps > 1, and other successor-tested
+/// shapes) lowers to:
+///
+/// ```text
+///   %next = add %c, %k          ; k > 0
+///   %t    = icmp ult %next, %K  ; continue test on the SUCCESSOR
+///   br i1 %t, label %loop, label %exit
+/// ```
+///
+/// With the pre-loop entry guard (`K == 0 → exit`) the faithful
+/// pre-checked iteration domain is `c < K` (or `c <= K` for `ule`): the
+/// guard folds into `Lt(0, 0) == false`. Returns `(inclusive, carry,
+/// bound)`. Unguarded successors (a genuine source `do { } while (next
+/// cmp K)`) are *not* returned here; the caller refuses them because a
+/// pre-tested SIR loop cannot force the first iteration.
+fn rotated_successor_domain(
+    builder: &Builder,
+    termination: NodeId,
+    carried_init_nodes: &[NodeId],
+    carried_next_nodes: &[NodeId],
+) -> Option<(bool, NodeId, NodeId)> {
+    use sir_nodes::NodeKind;
+    let function = builder.function();
+    let term = function.get_node(termination)?;
+    let (lhs, rhs, inclusive) = match &term.kind {
+        NodeKind::Lt { lhs, rhs } => (*lhs, *rhs, false),
+        NodeKind::Le { lhs, rhs } => (*lhs, *rhs, true),
+        _ => return None,
+    };
+    for (candidate, bound) in [(lhs, rhs), (rhs, lhs)] {
+        let add_node = function.get_node(candidate)?;
+        let NodeKind::Add {
+            lhs: augend,
+            rhs: addend,
+        } = &add_node.kind
+        else {
+            continue;
+        };
+        let (carry_index, carry, step) = if let Some(i) = carried_init_nodes
+            .iter()
+            .position(|c| c == augend)
+        {
+            (i, *augend, *addend)
+        } else if let Some(i) = carried_init_nodes.iter().position(|c| c == addend) {
+            (i, *addend, *augend)
+        } else {
+            continue;
+        };
+        // The test must compare the carry's own successor value; an
+        // unrelated `carry + k` in the condition would make the rebuilt
+        // `carry < bound` domain wrong.
+        if carried_next_nodes.get(carry_index) != Some(&candidate) {
+            continue;
+        }
+        let step_node = function.get_node(step)?;
+        match &step_node.kind {
+            // Constant steps must advance (step 0 would be an infinite
+            // source loop; refuse rather than emit it).
+            NodeKind::Constant(data) => {
+                if data.as_u64().map(|k| k > 0).unwrap_or(false) {
+                    return Some((inclusive, carry, bound));
+                }
+            }
+            // Runtime steps are fine: the source loop advances by the
+            // same value the successor test used.
+            _ => return Some((inclusive, carry, bound)),
+        }
+    }
+    None
+}
+
+/// Does the function have a pre-loop entry guard (clang's rotation
+/// pre-check: `icmp eq %n, 0` plus a conditional branch before the loop
+/// block)? Required before rebuilding a successor-tested loop as the
+/// pre-checked `c < n` domain.
+fn has_entry_guard(ir: &IrFunction, loop_block_idx: usize) -> bool {
+    let (Some(entry), Some(loop_block)) = (ir.blocks.first(), ir.blocks.get(loop_block_idx))
+    else {
+        return false;
+    };
+    if entry.label == loop_block.label {
+        return false;
+    }
+    let Some(br) = entry
+        .instructions
+        .iter()
+        .rev()
+        .find(|inst| inst.opcode == "br")
+    else {
+        return false;
+    };
+    if br.operands.len() < 3 {
+        return false;
+    }
+    let cond = strip_type(&br.operands[0]);
+    entry.instructions.iter().any(|inst| {
+        inst.opcode == "icmp"
+            && inst.result.as_deref() == Some(cond.as_str())
+            && inst
+                .operands
+                .iter()
+                .any(|op| op.trim() == "0" || op.trim().ends_with(" 0"))
+    })
 }
 
 /// Lower a function with a detected loop.
@@ -1651,6 +1873,17 @@ fn lower_loop_function(
 
     let termination = termination_node.ok_or("no termination condition found in loop block")?;
 
+    // Find the output nodes: the carried "next" values. Resolved before
+    // the termination normalization so a successor-tested loop can check
+    // that its condition really compares the carry's own next value.
+    let mut output_nodes: Vec<NodeId> = Vec::new();
+    for (_, next_str) in &carried_nexts {
+        let next_str = strip_type(next_str);
+        let node_id = get_node_id(&next_str, value_map, &ir.params, builder, None)
+            .ok_or(format!("cannot resolve carried next value '{}'", next_str))?;
+        output_nodes.push(node_id);
+    }
+
     // ── D4/F9: rotated-exit polarity normalization ──────────────
     // SIR semantics: a Loop continues while its termination evaluates
     // to TRUE. clang `-O1` counts loops by ROTATION: the header tests
@@ -1669,7 +1902,33 @@ fn lower_loop_function(
     // trip counts from. Any rotated shape that is not this counted
     // pattern is refused loudly — never silently inverted.
     let termination = if continue_on_true {
-        termination
+        match rotated_successor_domain(
+            builder,
+            termination,
+            &carried_init_nodes,
+            &output_nodes,
+        ) {
+            Some((inclusive, carry, bound)) => {
+                if !has_entry_guard(ir, loop_idx) {
+                    return Err(format!(
+                        "unsupported: unguarded successor-tested loop (`next` compared to \
+                         the bound with a true back-edge and no pre-loop `n == 0` exit); \
+                         SIR loops are pre-tested, so a do-while's first forced iteration \
+                         cannot be represented: {}",
+                        ir.name
+                    ));
+                }
+                let rebuilt = if inclusive {
+                    builder.le(carry, bound, span)
+                } else {
+                    builder.lt(carry, bound, span)
+                };
+                rebuilt.map_err(|e| {
+                    format!("loop build error (F8 carry-domain reconstruction): {:?}", e)
+                })?
+            }
+            None => termination,
+        }
     } else {
         match rotated_counted_domain(builder, termination, &carried_init_nodes) {
             Some((counter, bound)) => builder.lt(counter, bound, span).map_err(|e| {
@@ -1684,15 +1943,6 @@ fn lower_loop_function(
             }
         }
     };
-
-    // Find the output nodes: the carried "next" values
-    let mut output_nodes: Vec<NodeId> = Vec::new();
-    for (_, next_str) in &carried_nexts {
-        let next_str = strip_type(next_str);
-        let node_id = get_node_id(&next_str, value_map, &ir.params, builder, None)
-            .ok_or(format!("cannot resolve carried next value '{}'", next_str))?;
-        output_nodes.push(node_id);
-    }
 
     // Build the Loop node
     let output_types: Vec<Type> = output_nodes

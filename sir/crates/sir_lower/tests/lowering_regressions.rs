@@ -350,3 +350,181 @@ fn sequential_loops_outline_and_lower_per_region() {
         );
     }
 }
+
+// ── F6–F8 emitter-closure regressions (native loop emission) ─────────
+
+/// H3 F7: an opaque `ptr` parameter indexed as `i16` must lower to a
+/// `*u16` SIR parameter, not the historical `*u8` byte view. Otherwise
+/// the interpreter and the C emitter both read 8-bit elements.
+const U16_COUNT: &str = r#"
+define i64 @count_ge_u16(ptr nocapture noundef readonly %0, i64 noundef %1, i16 noundef zeroext %2) {
+entry:
+  %c0 = icmp eq i64 %1, 0
+  br i1 %c0, label %exit, label %loop
+loop:
+  %i = phi i64 [ 0, %entry ], [ %i2, %loop ]
+  %acc = phi i64 [ 0, %entry ], [ %acc2, %loop ]
+  %p = getelementptr inbounds i16, ptr %0, i64 %i
+  %e = load i16, ptr %p
+  %ge = icmp uge i16 %e, %2
+  %z = zext i1 %ge to i64
+  %acc2 = add i64 %acc, %z
+  %i2 = add nuw i64 %i, 1
+  %d = icmp eq i64 %i2, %1
+  br i1 %d, label %exit, label %loop
+exit:
+  %r = phi i64 [ 0, %entry ], [ %acc2, %loop ]
+  ret i64 %r
+}
+"#;
+
+/// The same pointer viewed as bytes and as `i16` — the byte view wins
+/// (never guess an element width through an aliased pointer).
+const MIXED_VIEW: &str = r#"
+define i8 @mixed(ptr %p, i64 %i) {
+entry:
+  %q = getelementptr inbounds i16, ptr %p, i64 %i
+  %a = load i16, ptr %q
+  br label %done
+done:
+  %r = getelementptr inbounds i8, ptr %p, i64 %i
+  %b = load i8, ptr %r
+  %x = trunc i16 %a to i8
+  %y = add i8 %x, %b
+  ret i8 %y
+}
+"#;
+
+/// A store through the parameter itself makes it mutable.
+const STORE_DIRECT: &str = r#"
+define i16 @store_direct(ptr %out, i16 %v) {
+entry:
+  store i16 %v, ptr %out
+  br label %done
+done:
+  ret i16 %v
+}
+"#;
+
+#[test]
+fn opaque_pointer_param_pointee_follows_gep_element_type() {
+    let f = lowers_ok(U16_COUNT, "count_ge_u16");
+    match &f.params[0].ty {
+        sir_types::Type::Pointer { pointee, mutable } => {
+            assert_eq!(
+                **pointee,
+                sir_types::Type::u16(),
+                "the buffer parameter must be *u16, not the opaque-pointer byte default"
+            );
+            assert!(!mutable, "read-only buffer stays const");
+        }
+        other => panic!("expected pointer param, got {other:?}"),
+    }
+}
+
+#[test]
+fn mixed_element_views_keep_the_byte_pointer() {
+    let f = lowers_ok(MIXED_VIEW, "mixed");
+    match &f.params[0].ty {
+        sir_types::Type::Pointer { pointee, mutable } => {
+            assert_eq!(
+                **pointee,
+                sir_types::Type::u8(),
+                "conflicting element views must fall back to the byte view"
+            );
+            assert!(!mutable, "a read-only mixed view stays const");
+        }
+        other => panic!("expected pointer param, got {other:?}"),
+    }
+}
+
+#[test]
+fn store_through_the_parameter_marks_it_mutable() {
+    let f = lowers_ok(STORE_DIRECT, "store_direct");
+    match &f.params[0].ty {
+        sir_types::Type::Pointer { pointee, mutable } => {
+            assert_eq!(**pointee, sir_types::Type::u16());
+            assert!(*mutable, "a store through the pointer marks it mutable");
+        }
+        other => panic!("expected pointer param, got {other:?}"),
+    }
+}
+
+/// H3 F8: `for (i = 0; i < n; i += 2)` (guarded successor-tested
+/// rotation) must lower to the pre-checked `Lt(carry, n)` domain, not
+/// the successor test `Lt(carry + 2, n)` — under pre-tested SIR loop
+/// semantics the successor form skips the first iteration.
+const STRIDE2_SCAN: &str = r#"
+define i64 @stride2(ptr nocapture noundef readonly %0, i64 noundef %1) {
+entry:
+  %g = icmp eq i64 %1, 0
+  br i1 %g, label %exit0, label %loop
+exit0:
+  ret i64 0
+loop:
+  %i = phi i64 [ 0, %entry ], [ %i2, %loop ]
+  %s = phi i64 [ 0, %entry ], [ %s2, %loop ]
+  %p = getelementptr inbounds i8, ptr %0, i64 %i
+  %e = load i8, ptr %p
+  %z = zext i8 %e to i64
+  %s2 = add i64 %s, %z
+  %i2 = add i64 %i, 2
+  %c = icmp ult i64 %i2, %1
+  br i1 %c, label %loop, label %exit
+exit:
+  %r = phi i64 [ %s2, %loop ]
+  ret i64 %r
+}
+"#;
+
+#[test]
+fn successor_tested_stride_loop_rebuilds_the_carry_domain() {
+    let f = lowers_ok(STRIDE2_SCAN, "stride2");
+    let loop_node = f
+        .arena
+        .iter()
+        .find(|n| matches!(n.kind, sir_nodes::NodeKind::Loop { .. }))
+        .expect("a Loop node");
+    let sir_nodes::NodeKind::Loop {
+        termination,
+        carried_inputs,
+        ..
+    } = &loop_node.kind
+    else {
+        unreachable!()
+    };
+    let term = f.get_node(*termination).expect("termination node");
+    match &term.kind {
+        sir_nodes::NodeKind::Lt { lhs, .. } => assert!(
+            carried_inputs.contains(lhs),
+            "termination must compare the carried counter itself, not its successor"
+        ),
+        other => panic!("expected Lt(carry, bound), got {other:?}"),
+    }
+}
+
+/// Without the pre-loop `n == 0` exit there is no way to represent a
+/// source do-while under pre-tested SIR loops: refuse loudly.
+const UNGUARDED_DO_WHILE: &str = r#"
+define i64 @unguarded(ptr %0, i64 %1) {
+entry:
+  br label %loop
+loop:
+  %i = phi i64 [ 0, %entry ], [ %i2, %loop ]
+  %s = phi i64 [ 0, %entry ], [ %s2, %loop ]
+  %p = getelementptr inbounds i8, ptr %0, i64 %i
+  %e = load i8, ptr %p
+  %z = zext i8 %e to i64
+  %s2 = add i64 %s, %z
+  %i2 = add i64 %i, 1
+  %c = icmp ult i64 %i2, %1
+  br i1 %c, label %loop, label %exit
+exit:
+  ret i64 %s2
+}
+"#;
+
+#[test]
+fn unguarded_successor_do_while_is_refused() {
+    refuses_cleanly(UNGUARDED_DO_WHILE, "unguarded", "unguarded successor-tested loop");
+}
