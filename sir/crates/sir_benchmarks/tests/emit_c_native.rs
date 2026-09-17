@@ -107,25 +107,7 @@ fn native_stdout_optimized(
     }
     let lowered = sir_lower::lower_function(ir, func)
         .unwrap_or_else(|e| panic!("{func} must lower: {e}"));
-    let optimized = {
-        let dev_null = std::fs::OpenOptions::new()
-            .write(true)
-            .open("/dev/null")
-            .expect("/dev/null");
-        let null_fd = std::os::fd::AsRawFd::as_raw_fd(&dev_null);
-        let saved_fd = unsafe { libc::dup(1) };
-        unsafe { libc::dup2(null_fd, 1); }
-        let result = sir_optimizer::Optimizer::new(
-            sir_optimizer::OptimizerConfig::default(),
-            sir_rewrite::registry::default_registry(),
-        )
-        .optimize(&lowered);
-        unsafe {
-            libc::dup2(saved_fd, 1);
-            libc::close(saved_fd);
-        }
-        result
-    };
+    let optimized = optimize_suppressed(&lowered);
     assert!(
         optimized.rewrites_applied > 0,
         "{func} must exercise the rewrite path"
@@ -416,7 +398,15 @@ fn rotates_execute_natively_with_width_relative_amounts() {
     }
 }
 
+/// Serializes stdout redirection: libtest runs tests in parallel, and
+/// two concurrent save/dup2/restore sequences can leave fd 1 pointing at
+/// /dev/null for the rest of the process (swallowing later results).
+static STDOUT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn optimize_suppressed(func: &sir_nodes::Function) -> sir_optimizer::OptimizationResult {
+    let _guard = STDOUT_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let dev_null = std::fs::OpenOptions::new()
         .write(true)
         .open("/dev/null")
@@ -698,6 +688,51 @@ fn zero_count_conventions_execute_natively() {
     }
 }
 
+#[test]
+fn rewritten_zero_count_loops_execute_natively() {
+    for (name, leading, calls, expected) in [
+        (
+            "tz_loop",
+            false,
+            vec!["0ULL", "0x10ULL", "1ULL"],
+            vec!["64", "4", "0"],
+        ),
+        (
+            "lz_loop",
+            true,
+            vec!["0ULL", "1ULL", "0x8000000000000000ULL"],
+            vec!["64", "63", "0"],
+        ),
+    ] {
+        if !clang_available() {
+            return;
+        }
+        let func = zero_count_loop_function(name, leading);
+        let optimized = optimize_suppressed(&func);
+        assert_eq!(
+            optimized.rewrites_applied, 1,
+            "{name}: the loop-to-intrinsic rewrite must be authorized"
+        );
+        let emitted = sir_benchmarks::emit::emit_c(&optimized.function);
+        let helper = if leading { "__sir_clz" } else { "__sir_ctz" };
+        assert!(
+            emitted.contains(helper),
+            "{name}: expected {helper} in the emitted C:\n{emitted}"
+        );
+        let mut main = String::new();
+        for input in &calls {
+            main.push_str(&format!(
+                "    printf(\"%llu\\n\", (unsigned long long){name}({input}));\n"
+            ));
+        }
+        let Some(stdout) = compile_and_run_emitted(&emitted, &main, name) else {
+            return;
+        };
+        let got: Vec<&str> = stdout.lines().collect();
+        assert_eq!(got, expected, "{name} zero-count loop results");
+    }
+}
+
 /// `(x << 3) | (x >> (32 - 3))` with constant amounts (rotate left).
 fn rotate_left_const_function() -> sir_nodes::Function {
     let ty = Type::u32();
@@ -736,4 +771,46 @@ fn rewritten_constant_rotate_executes_natively() {
     // rol32(0x80000001, 3) = 0x0C = 12; rol32(0x12345678, 3) = 0x91A2B3C0.
     let got: Vec<&str> = stdout.lines().collect();
     assert_eq!(got, vec!["12", "2443359168"]);
+}
+
+/// The ps003/ps004 scan loops: `while (x & 1) == 0 { x >>= 1; n += 1 }`
+/// (trailing zeros) and the MSB-down variant (leading zeros).
+fn zero_count_loop_function(name: &str, leading: bool) -> sir_nodes::Function {
+    let ty = Type::u64();
+    let mut b = Builder::new(name, &[("value", ty.clone())], ty.clone());
+    let value = b.parameter_index(0).unwrap();
+    let n_init = b.constant(sir_types::ConstantData::u64(0), ty.clone(), Span::unknown());
+    let one = b.constant(sir_types::ConstantData::u64(1), ty.clone(), Span::unknown());
+    let zero = b.constant(sir_types::ConstantData::u64(0), ty.clone(), Span::unknown());
+    let probe = if leading {
+        b.constant(
+            sir_types::ConstantData::u64(1 << 63),
+            ty.clone(),
+            Span::unknown(),
+        )
+    } else {
+        one
+    };
+    // Leading: probe walks down from the MSB. Trailing: probe is 1 and
+    // the value itself is the carried/shifted state.
+    let carried_init = if leading { probe } else { value };
+    let bit = b.bit_and(value, probe, Span::unknown()).unwrap();
+    let cond = b.eq(bit, zero, Span::unknown()).unwrap();
+    let next = b.shr(carried_init, one, Span::unknown()).unwrap();
+    let n_next = b.add(n_init, one, Span::unknown()).unwrap();
+    let loop_node = b
+        .r#loop(
+            &[bit, cond, next, n_next],
+            cond,
+            &[next, n_next],
+            &[carried_init, n_init],
+            Type::Tuple {
+                elements: vec![ty.clone(), ty.clone()],
+            },
+            Span::unknown(),
+        )
+        .unwrap();
+    let res = b.field_access(loop_node, "1", ty, Span::unknown()).unwrap();
+    b.return_value(res, Span::unknown()).unwrap();
+    b.build()
 }

@@ -38,17 +38,16 @@ impl ConcreteSolverVerifier {
 
         let mut widths: HashMap<VariableId, u32> = HashMap::new();
         for var in &domain.variables {
-            match var.kind {
-                VariableKind::BitVector { width } => {
-                    widths.insert(var.id, u32::try_from(width).unwrap_or(u32::MAX));
-                }
-                VariableKind::LogicalSequence { .. } => {
-                    // Collection expressions are not part of the
-                    // arithmetic lowering; the symbolic/exhaustive
-                    // backends own those.
-                    return VerificationResult::Unknown(UnknownReason::NoApplicableBackend);
-                }
+            // Bitvectors and boolean sequences both lower to a fixed-width
+            // bitvector term: sequence bit `i` is bit `i` of the value.
+            let width = match var.kind {
+                VariableKind::BitVector { width } => width,
+                VariableKind::LogicalSequence { length } => length,
+            };
+            if width == 0 || width > 64 {
+                return VerificationResult::Unknown(UnknownReason::NoApplicableBackend);
             }
+            widths.insert(var.id, width as u32);
         }
 
         let mut bv = Bv::new();
@@ -268,6 +267,91 @@ fn lower(
                 acc = bv.or(acc, placed);
             }
             Ok(acc)
+        }
+        // Boolean sequences lower to the same bitvector term as their
+        // packed form: sequence bit i is bit i of the term.
+        SemanticExpression::LogicalSequence { variable } => {
+            let width = *widths.get(variable).ok_or(())?;
+            if let Some(term) = vars.get(variable) {
+                return Ok(*term);
+            }
+            let term = bv.var(VarId(variable.0 as u32), width);
+            vars.insert(*variable, term);
+            Ok(term)
+        }
+        SemanticExpression::Pack(inner) => lower(inner, bv, widths, vars, expected),
+        SemanticExpression::Reverse(inner) => {
+            let seq = lower(inner, bv, widths, vars, None)?;
+            let w = bv.width(seq);
+            let mut acc = bv.zero(w);
+            for i in 0..w {
+                let lsb = bv.bit(seq, i);
+                let bit = bv.zero_ext(lsb, w);
+                let out = bv.constant(u64::from(w - 1 - i), w);
+                let placed = bv.shl(bit, out);
+                acc = bv.or(acc, placed);
+            }
+            Ok(acc)
+        }
+        // Scan constructions, deliberately different in shape from the
+        // folds used for ctz/clz so the equivalences are not reflexive:
+        //   FirstTrue  — forward scan with a found flag (first set bit)
+        //   LastTrue   — forward overwrite (highest set bit wins)
+        //   TrailingZeros — reverse overwrite (lowest set bit wins)
+        //   LeadingZeros  — reverse scan with a found flag
+        // All return the width when no bit is set (tzcnt/lzcnt
+        // convention).
+        SemanticExpression::FirstTrue(inner) => {
+            let seq = lower(inner, bv, widths, vars, None)?;
+            let w = bv.width(seq);
+            let mut found = bv.zero(1);
+            let mut res = bv.constant(u64::from(w), w);
+            for i in 0..w {
+                let bit = bv.bit(seq, i);
+                let not_found = bv.not(found);
+                let take = bv.and(not_found, bit);
+                let idx = bv.constant(u64::from(i), w);
+                res = bv.ite(take, idx, res);
+                found = bv.or(found, bit);
+            }
+            Ok(res)
+        }
+        SemanticExpression::LastTrue(inner) => {
+            let seq = lower(inner, bv, widths, vars, None)?;
+            let w = bv.width(seq);
+            let mut res = bv.constant(u64::from(w), w);
+            for i in 0..w {
+                let bit = bv.bit(seq, i);
+                let idx = bv.constant(u64::from(i), w);
+                res = bv.ite(bit, idx, res);
+            }
+            Ok(res)
+        }
+        SemanticExpression::TrailingZeros(inner) => {
+            let value = lower(inner, bv, widths, vars, None)?;
+            let w = bv.width(value);
+            let mut res = bv.constant(u64::from(w), w);
+            for i in (0..w).rev() {
+                let bit = bv.bit(value, i);
+                let idx = bv.constant(u64::from(i), w);
+                res = bv.ite(bit, idx, res);
+            }
+            Ok(res)
+        }
+        SemanticExpression::LeadingZeros(inner) => {
+            let value = lower(inner, bv, widths, vars, None)?;
+            let w = bv.width(value);
+            let mut found = bv.zero(1);
+            let mut res = bv.constant(u64::from(w), w);
+            for i in (0..w).rev() {
+                let bit = bv.bit(value, i);
+                let not_found = bv.not(found);
+                let take = bv.and(not_found, bit);
+                let idx = bv.constant(u64::from(w - 1 - i), w);
+                res = bv.ite(take, idx, res);
+                found = bv.or(found, bit);
+            }
+            Ok(res)
         }
         // Collections, popcounts and bit scans are not modeled by this
         // lowering yet.

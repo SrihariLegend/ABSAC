@@ -53,6 +53,19 @@ impl Interpreter {
                     }),
                 }
             }
+            SemanticExpression::Reverse(inner) => {
+                let val = self.evaluate(inner, env)?;
+                match val {
+                    Value::LogicalSequence(mut bits) => {
+                        bits.reverse();
+                        Ok(Value::LogicalSequence(bits))
+                    }
+                    other => Err(InterpreterError::TypeMismatch {
+                        expected: "BooleanArray",
+                        found: other,
+                    }),
+                }
+            }
 
             SemanticExpression::Filter { input, predicate } => {
                 let val = self.evaluate(input, env)?;
@@ -297,7 +310,12 @@ impl Interpreter {
             SemanticExpression::TrailingZeros(inner) => {
                 let val = self.evaluate(inner, env)?;
                 match val {
-                    Value::BitVector(bv) => Ok(Value::Integer(bv.bits.trailing_zeros() as u64)),
+                    // tzcnt convention: zero counts as the full width.
+                    Value::BitVector(bv) => Ok(Value::Integer(if bv.bits == 0 {
+                        bv.width as u64
+                    } else {
+                        bv.bits.trailing_zeros() as u64
+                    })),
                     Value::Integer(i) => Ok(Value::Integer(i.trailing_zeros() as u64)),
                     other => Err(InterpreterError::TypeMismatch {
                         expected: "BitVector or Integer",

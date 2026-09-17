@@ -1,12 +1,18 @@
 use sir_generation::candidate::Candidate;
-use sir_transform::ids::DefinitionId;
-use sir_transform::ids::VariableId;
+use sir_semantics::structure::StructuralDescription;
+use sir_transform::ids::{DefinitionId, VariableId};
+use sir_types::ConstantData;
 
-use crate::obligation::ProofObligation;
-use crate::registry::TransformationDefinition;
+use crate::definitions::trailing_zero_count::{scalar_and_width, sequence_domain};
+use crate::obligation::{FiniteDomain, ProofObligation};
+use crate::registry::{TransformationDefinition, VerificationStatus};
 use crate::semantic::expression::SemanticExpression;
 use crate::semantic::theorem::Theorem;
 
+/// The leading-zero loop (`while (value & mask) == 0 { mask >>= 1; n += 1 }`
+/// from the MSB) returns the number of high zero bits: exactly `FirstTrue`
+/// over the REVERSED bit sequence, which the intrinsic computes as
+/// `LeadingZeros(x)` (lzcnt convention for zero).
 pub struct LeadingZeroCountDefinition {
     id: DefinitionId,
 }
@@ -18,15 +24,8 @@ impl LeadingZeroCountDefinition {
 }
 
 impl TransformationDefinition for LeadingZeroCountDefinition {
-    fn verification_status(&self) -> crate::registry::VerificationStatus {
-        // STUB (quarantined, advisor P0 audit): the obligation is a
-        // hardcoded or tautological theorem template that never binds
-        // the actual source/candidate operands — changing the region's
-        // constant, swapping operands, or changing widths cannot cause
-        // rejection. This definition may not authorize a rewrite until
-        // its obligation is built from the actual pair and discharged
-        // concretely.
-        crate::registry::VerificationStatus::Stub
+    fn verification_status(&self) -> VerificationStatus {
+        VerificationStatus::ConcreteSolverChecked
     }
 
     fn id(&self) -> DefinitionId {
@@ -42,18 +41,74 @@ impl TransformationDefinition for LeadingZeroCountDefinition {
     }
 
     fn obligation(&self, candidate: &Candidate) -> ProofObligation {
-        let var = VariableId::new(0); // stub
+        self.unbound_obligation(candidate)
+    }
+
+    fn obligation_bound(
+        &self,
+        candidate: &Candidate,
+        _function: &sir_nodes::Function,
+    ) -> ProofObligation {
+        self.unbound_obligation(candidate)
+    }
+
+    fn obligation_with_roles(
+        &self,
+        candidate: &Candidate,
+        function: &sir_nodes::Function,
+        structural: &StructuralDescription,
+    ) -> ProofObligation {
+        self.bind(candidate, function, structural)
+            .unwrap_or_else(|| self.unbound_obligation(candidate))
+    }
+}
+
+impl LeadingZeroCountDefinition {
+    fn bind(
+        &self,
+        candidate: &Candidate,
+        function: &sir_nodes::Function,
+        structural: &StructuralDescription,
+    ) -> Option<ProofObligation> {
+        let (scalar, width) = scalar_and_width(function, structural)?;
+        let x = VariableId::new(scalar.as_u64());
+        let lhs = SemanticExpression::LeadingZeros(Box::new(SemanticExpression::Variable(x)));
+        let rhs = SemanticExpression::FirstTrue(Box::new(SemanticExpression::Reverse(Box::new(
+            SemanticExpression::LogicalSequence { variable: x },
+        ))));
+        Some(self.obligation_with(
+            candidate,
+            Theorem::new(lhs, rhs),
+            Some(sequence_domain(x, width)),
+        ))
+    }
+
+    fn unbound_obligation(&self, candidate: &Candidate) -> ProofObligation {
+        let v = VariableId::new(u64::MAX);
+        self.obligation_with(
+            candidate,
+            Theorem::new(
+                SemanticExpression::Variable(v),
+                SemanticExpression::Constant(ConstantData::u64(0)),
+            ),
+            None,
+        )
+    }
+
+    fn obligation_with(
+        &self,
+        candidate: &Candidate,
+        theorem: Theorem,
+        domain: Option<FiniteDomain>,
+    ) -> ProofObligation {
         ProofObligation {
             id: sir_transform::ids::ObligationId::new(0),
             region: candidate.region,
             candidate: candidate.id,
             definition: self.id,
-            theorem: Theorem::new(
-                SemanticExpression::LeadingZeros(Box::new(SemanticExpression::Variable(var))),
-                SemanticExpression::LeadingZeros(Box::new(SemanticExpression::Variable(var))),
-            ),
+            theorem,
             assumptions: vec![],
-            domain: None,
+            domain,
         }
     }
 }

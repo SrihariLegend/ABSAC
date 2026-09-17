@@ -683,3 +683,85 @@ fn signed_or_full_width_shift_mask_cannot_be_bound() {
         ));
     }
 }
+
+fn zero_count_function_and_structure(
+    signed: bool,
+    with_role: bool,
+) -> (sir_nodes::Function, sir_semantics::structure::StructuralDescription) {
+    use sir_semantics::structure::StructuralDescription;
+    use sir_transform::roles::RegionRoles;
+    use sir_transform::structures::SourceStructure;
+    let ty = if signed { Type::i64() } else { Type::u64() };
+    let mut b = Builder::new("zcount", &[("x", ty.clone())], ty.clone());
+    let x = b.parameter_index(0).unwrap();
+    b.return_value(x, span()).unwrap();
+    let func = b.build();
+    let mut structural =
+        StructuralDescription::new(RegionId::new(0), SourceStructure::BitMask { width: 64 });
+    if with_role {
+        structural = structural.with_roles(RegionRoles::PositionSearch {
+            collection: None,
+            scalar: Some(x),
+            result: sir_types::NodeId::new(1),
+        });
+    }
+    (func, structural)
+}
+
+#[test]
+fn bound_trailing_zero_count_is_concrete_solver_checked() {
+    use sir_verification::definitions::trailing_zero_count::TrailingZeroCountDefinition;
+    let (func, structural) = zero_count_function_and_structure(false, true);
+    let def = TrailingZeroCountDefinition::new(DefinitionId::new(202));
+    let obligation = def.obligation_with_roles(&candidate(vec![], 202), &func, &structural);
+    assert!(obligation.domain.is_some());
+    match Verifier::new().verify(&obligation, &context()) {
+        VerificationResult::Proven(proof) => {
+            assert_eq!(proof.backend, VerificationBackend::ConcreteSolver);
+            assert_eq!(proof.assurance, VerificationStatus::ConcreteSolverChecked);
+        }
+        other => panic!("expected a concrete-solver proof, got {other:?}"),
+    }
+}
+
+#[test]
+fn bound_leading_zero_count_is_concrete_solver_checked() {
+    use sir_verification::definitions::leading_zero_count::LeadingZeroCountDefinition;
+    let (func, structural) = zero_count_function_and_structure(false, true);
+    let def = LeadingZeroCountDefinition::new(DefinitionId::new(203));
+    let obligation = def.obligation_with_roles(&candidate(vec![], 203), &func, &structural);
+    assert!(obligation.domain.is_some());
+    match Verifier::new().verify(&obligation, &context()) {
+        VerificationResult::Proven(proof) => {
+            assert_eq!(proof.backend, VerificationBackend::ConcreteSolver);
+            assert_eq!(proof.assurance, VerificationStatus::ConcreteSolverChecked);
+        }
+        other => panic!("expected a concrete-solver proof, got {other:?}"),
+    }
+}
+
+#[test]
+fn signed_or_unroled_zero_counts_cannot_be_bound() {
+    use sir_verification::definitions::leading_zero_count::LeadingZeroCountDefinition;
+    use sir_verification::definitions::trailing_zero_count::TrailingZeroCountDefinition;
+    let tz = TrailingZeroCountDefinition::new(DefinitionId::new(202));
+    let lz = LeadingZeroCountDefinition::new(DefinitionId::new(203));
+    for (signed, with_role) in [(true, true), (false, false)] {
+        let (func, structural) = zero_count_function_and_structure(signed, with_role);
+        for (def, id) in [
+            (&tz as &dyn TransformationDefinition, 202u64),
+            (&lz as &dyn TransformationDefinition, 203),
+        ] {
+            let obligation =
+                def.obligation_with_roles(&candidate(vec![], id), &func, &structural);
+            assert!(
+                obligation.domain.is_none(),
+                "signed={signed} with_role={with_role} id={id} must not bind"
+            );
+            assert!(!matches!(
+                Verifier::new().verify(&obligation, &context()),
+                VerificationResult::Proven(_)
+            ));
+        }
+    }
+}

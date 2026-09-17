@@ -25,6 +25,11 @@ pub enum SemanticExpression {
     /// Pack a sequence of booleans into a single bitvector.
     Pack(Box<SemanticExpression>),
 
+    /// Reverse a boolean sequence (bit order reversal). Used to express
+    /// top-down scans in terms of the bottom-up `FirstTrue`: the leading
+    /// zero count of a value is the first set bit of its reversed bits.
+    Reverse(Box<SemanticExpression>),
+
     /// Filter elements of a collection by a predicate.
     Filter {
         input: Box<SemanticExpression>,

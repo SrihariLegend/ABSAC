@@ -28,20 +28,33 @@ impl RewriteRecipe for TrailingZeroCountRecipe {
 
     fn build_patch(
         &self,
-        _function: &sir_nodes::Function,
+        function: &sir_nodes::Function,
         region: &RewriteRegion,
         mut builder: SubgraphBuilder<'_>,
     ) -> Result<ReplacementPatch, RewriteError> {
         let scalar = region.predicate_scalar()?;
-        let tzcnt = builder.trailing_zeros(
+        let result = region.result()?;
+        // The loop result is consumed through a projection (field/tuple
+        // extract); replace THAT consumer, not the tuple-typed loop
+        // node. Leaving the projection in place makes the emitted
+        // function return a stale/default value.
+        let target = crate::recipes::helpers::find_tuple_extract(function, result)
+            .or_else(|| {
+                crate::recipes::helpers::find_tuple_consumer(function, result).map(|(id, _)| id)
+            })
+            .unwrap_or(result);
+        let ty = function
+            .get_node(target)
+            .map(|n| n.ty.clone())
+            .unwrap_or(sir_types::Type::u64());
+        let tzcnt = builder.trailing_zeros_typed(
             crate::local_id::LocalNodeId::new(scalar.as_u64()),
+            ty,
             Span::unknown(),
         );
 
-        let result = region.result()?;
-
         Ok(builder.finish(vec![ReplacementValue {
-            old: result,
+            old: target,
             new: tzcnt,
         }]))
     }

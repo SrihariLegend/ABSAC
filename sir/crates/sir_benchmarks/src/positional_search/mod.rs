@@ -114,8 +114,15 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "trailing_zero_count",
                 category: "Positional search",
                 input_desc: "count trailing zeros of a scalar",
-                expected: ExpectedKnowledge::NonOptimizable {
-                    reason: "TrailingZeroCount definition is Stub-quarantined: obligation is a tautology (LeadingZeros(v)==LeadingZeros(v))",
+                // LIFTED 2026-09-17: the obligation binds the loop's
+                // scalar/width and proves ctz(x) == FirstTrue(bits(x)).
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "PositionSearch",
+                    concepts: vec!["TrailingZeroSearch"],
+                    representation: "BitScan",
+                    candidate: "TrailingZeroCount",
+                    proof: "ConcreteSolverChecked: ctz(x) == FirstTrue(bits(x))",
+                    rewrite: "shift-until-set loop -> TrailingZeros(x)",
                 },
             },
             func: || {
@@ -153,8 +160,13 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "leading_zero_count",
                 category: "Positional search",
                 input_desc: "count leading zeros of a scalar",
-                expected: ExpectedKnowledge::NonOptimizable {
-                    reason: "LeadingZeroCount definition is Stub-quarantined: obligation is a tautology",
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "PositionSearch",
+                    concepts: vec!["LeadingZeroSearch"],
+                    representation: "BitScan",
+                    candidate: "LeadingZeroCount",
+                    proof: "ConcreteSolverChecked: clz(x) == FirstTrue(Reverse(bits(x)))",
+                    rewrite: "mask-shift loop -> LeadingZeros(x)",
                 },
             },
             func: || {
@@ -200,4 +212,3 @@ mod tests {
         }
     }
 }
-

@@ -473,17 +473,17 @@ pub fn generate_semantic_zoo() -> Vec<ZooProgram> {
         name: "ps003_trailing_zero_count".to_string(),
         family: Family::PositionSearch,
         function: build_ps003_trailing_zero_count(),
-        // TrailingZeroCount definition is a tautology — Stub-quarantined
-        // (advisor P0 verifier audit): zero rewrites.
-        expected_rewrites: 0,
+        // LIFTED 2026-09-17: the obligation binds the loop's scalar and
+        // width and proves ctz(x) == FirstTrue(bits(x)) with the
+        // concrete solver.
+        expected_rewrites: 1,
     });
     zoo.push(ZooProgram {
         name: "ps004_leading_zero_count".to_string(),
         family: Family::PositionSearch,
         function: build_ps004_leading_zero_count(),
-        // LeadingZeroCount obligation is a tautology — Stub-quarantined
-        // (advisor P0 verifier audit).
-        expected_rewrites: 0,
+        // LIFTED 2026-09-17: clz(x) == FirstTrue(Reverse(bits(x))).
+        expected_rewrites: 1,
     });
 
     // 4. Predicate Reductions

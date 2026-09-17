@@ -123,6 +123,10 @@ impl Normalizer {
                 let normalized = self.normalize_recursive(inner, steps, depth + 1);
                 SemanticExpression::Pack(Box::new(normalized))
             }
+            SemanticExpression::Reverse(inner) => {
+                let normalized = self.normalize_recursive(inner, steps, depth + 1);
+                SemanticExpression::Reverse(Box::new(normalized))
+            }
             SemanticExpression::Count(inner) => {
                 let normalized = self.normalize_recursive(inner, steps, depth + 1);
                 SemanticExpression::Count(Box::new(normalized))
