@@ -138,9 +138,23 @@ impl RewriteEngine {
             Ok(Some(binding)) => RewriteRegion::new(structural).with_binding(binding),
             Ok(None) => RewriteRegion::new(structural),
             Err(binding_error) => {
-                return Err(RewriteError::RecipeFailed(format!(
-                    "application binding refused: {binding_error}"
-                )));
+                // PositionSearch candidates are authorized by their own
+                // X06 certificate; the reduction binding is not their
+                // application artifact (their live-out is the position
+                // slot, which the reduction classifier refuses by
+                // design). Scalar/position recipes proceed without a
+                // binding.
+                if candidate
+                    .authorization
+                    .domains
+                    .contains(&sir_semantics::authorization::DomainKind::PositionSearch)
+                {
+                    RewriteRegion::new(structural)
+                } else {
+                    return Err(RewriteError::RecipeFailed(format!(
+                        "application binding refused: {binding_error}"
+                    )));
+                }
             }
         };
 

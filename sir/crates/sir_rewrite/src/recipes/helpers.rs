@@ -178,6 +178,52 @@ pub fn emit_pack_from_binding(
     Ok((packed, width))
 }
 
+/// Emit `pack(collection)` for a POSITION-SEARCH region.
+///
+/// Position searches are authorized by their own certificate (X06), not
+/// by the reduction binding: their live-out is the position slot, which
+/// the reduction binding correctly refuses to classify. The role map is
+/// still the single authorized source of the collection and its extent
+/// (the array's declared type) — no graph re-discovery.
+pub fn emit_pack_for_position_search(
+    function: &sir_nodes::Function,
+    region: &RewriteRegion,
+    recipe: &str,
+    builder: &mut SubgraphBuilder,
+) -> Result<(LocalNodeId, usize), RewriteError> {
+    let collection = region
+        .structural
+        .roles
+        .iter()
+        .find_map(|role| match role {
+            sir_transform::roles::RegionRoles::PositionSearch {
+                collection: Some(collection),
+                ..
+            } => Some(*collection),
+            _ => None,
+        })
+        .ok_or_else(|| {
+            RewriteError::RecipeFailed(format!(
+                "{recipe}: no PositionSearch collection role"
+            ))
+        })?;
+    let length = match function.get_node(collection).map(|n| &n.ty) {
+        Some(Type::Array { element, length }) if **element == Type::Bool => *length,
+        _ => {
+            return Err(RewriteError::RecipeFailed(format!(
+                "{recipe}: collection %{} is not a fixed-length boolean array",
+                collection.0
+            )))
+        }
+    };
+    let packed = builder.pack(
+        LocalNodeId::new(collection.as_u64()),
+        length,
+        Span::unknown(),
+    );
+    Ok((packed, length))
+}
+
 /// Find a `TupleExtract` node that consumes the given tuple value, if any.
 ///
 /// Recipes replace the extract when one exists (the loop is consumed field-by-field),

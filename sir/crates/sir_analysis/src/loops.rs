@@ -62,6 +62,15 @@ fn estimate_trip_count(
 ) -> Option<u64> {
     let term_node = func.get_node(termination)?;
 
+    // Guarded terminations (`!found && i < limit`): the trip-count
+    // comparison may be a conjunct of a boolean AND.
+    if let NodeKind::BoolAnd { lhs, rhs } = &term_node.kind {
+        if let Some(trip) = estimate_trip_count(func, *lhs, carried_inputs) {
+            return Some(trip);
+        }
+        return estimate_trip_count(func, *rhs, carried_inputs);
+    }
+
     // Look for a comparison that controls the loop.
     if let NodeKind::Lt { lhs, rhs }
     | NodeKind::Le { lhs, rhs }

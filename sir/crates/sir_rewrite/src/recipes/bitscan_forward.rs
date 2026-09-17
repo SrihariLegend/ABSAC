@@ -34,13 +34,14 @@ impl RewriteRecipe for BitScanForwardRecipe {
     ) -> Result<ReplacementPatch, RewriteError> {
         let result = region.result()?;
 
-        // Prefer replacing the TupleExtract consumer when one exists; when the
-        // tuple is returned wholesale the loop's tuple result is rebuilt below
-        // with the bitscan result in the index position.
-        let extract = crate::recipes::helpers::find_tuple_extract(function, result);
-        let target = extract.unwrap_or(result);
+        // Prefer replacing the slot consumer (TupleExtract OR the numeric
+        // FieldAccess the builder creates); when the tuple is returned
+        // wholesale the loop's tuple result is rebuilt below with the
+        // bitscan result in the index position.
+        let consumer = crate::recipes::helpers::find_tuple_consumer(function, result);
+        let target = consumer.map(|(id, _)| id).unwrap_or(result);
 
-        let (packed, _width) = crate::recipes::helpers::emit_pack_from_binding(
+        let (packed, _width) = crate::recipes::helpers::emit_pack_for_position_search(
             function,
             region,
             "BitScanForward",
@@ -71,7 +72,7 @@ impl RewriteRecipe for BitScanForwardRecipe {
 
         // Use tzcnt directly, type verification will validate. We don't have a cast operator in builder yet.
         // If type mismatches, the selection/verification phase will reject it.
-        let new_value = if extract.is_none() {
+        let new_value = if consumer.is_none() {
             crate::recipes::helpers::wrap_direct_tuple_return(
                 function,
                 result,

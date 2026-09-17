@@ -1,12 +1,18 @@
 use sir_generation::candidate::Candidate;
-use sir_transform::ids::DefinitionId;
-use sir_transform::ids::VariableId;
+use sir_semantics::structure::StructuralDescription;
+use sir_transform::ids::{DefinitionId, VariableId};
+use sir_transform::roles::RegionRoles;
+use sir_types::{ConstantData, Type};
 
-use crate::obligation::ProofObligation;
-use crate::registry::TransformationDefinition;
+use crate::obligation::{FiniteDomain, ProofObligation, VariableKind, VariableSpec};
+use crate::registry::{TransformationDefinition, VerificationStatus};
 use crate::semantic::expression::SemanticExpression;
 use crate::semantic::theorem::Theorem;
 
+/// A forward position search returns the index of the first true element
+/// (or the length sentinel): `FirstTrue(seq) == ctz(Pack(seq))` under the
+/// tzcnt convention. The obligation binds the recognized PositionSearch
+/// collection's declared extent.
 pub struct BitScanForwardDefinition {
     id: DefinitionId,
 }
@@ -18,15 +24,8 @@ impl BitScanForwardDefinition {
 }
 
 impl TransformationDefinition for BitScanForwardDefinition {
-    fn verification_status(&self) -> crate::registry::VerificationStatus {
-        // STUB (quarantined, advisor P0 audit): the obligation is a
-        // hardcoded or tautological theorem template that never binds
-        // the actual source/candidate operands — changing the region's
-        // constant, swapping operands, or changing widths cannot cause
-        // rejection. This definition may not authorize a rewrite until
-        // its obligation is built from the actual pair and discharged
-        // concretely.
-        crate::registry::VerificationStatus::Stub
+    fn verification_status(&self) -> VerificationStatus {
+        VerificationStatus::ConcreteSolverChecked
     }
 
     fn id(&self) -> DefinitionId {
@@ -42,22 +41,108 @@ impl TransformationDefinition for BitScanForwardDefinition {
     }
 
     fn obligation(&self, candidate: &Candidate) -> ProofObligation {
-        let var = VariableId::new(0); // stub
+        self.unbound_obligation(candidate)
+    }
+
+    fn obligation_bound(
+        &self,
+        candidate: &Candidate,
+        _function: &sir_nodes::Function,
+    ) -> ProofObligation {
+        self.unbound_obligation(candidate)
+    }
+
+    fn obligation_with_roles(
+        &self,
+        candidate: &Candidate,
+        function: &sir_nodes::Function,
+        structural: &StructuralDescription,
+    ) -> ProofObligation {
+        self.bind(candidate, function, structural)
+            .unwrap_or_else(|| self.unbound_obligation(candidate))
+    }
+}
+
+impl BitScanForwardDefinition {
+    fn bind(
+        &self,
+        candidate: &Candidate,
+        function: &sir_nodes::Function,
+        structural: &StructuralDescription,
+    ) -> Option<ProofObligation> {
+        let length = position_collection_length(function, structural)?;
+        let v = VariableId::new(collection_id(structural)?.as_u64());
+        let seq = SemanticExpression::LogicalSequence { variable: v };
+        let lhs = SemanticExpression::FirstTrue(Box::new(seq.clone()));
+        let rhs = SemanticExpression::TrailingZeros(Box::new(SemanticExpression::Pack(
+            Box::new(seq),
+        )));
+        Some(self.obligation_with(
+            candidate,
+            Theorem::new(lhs, rhs),
+            Some(sequence_domain(v, length)),
+        ))
+    }
+
+    fn unbound_obligation(&self, candidate: &Candidate) -> ProofObligation {
+        let v = VariableId::new(u64::MAX);
+        self.obligation_with(
+            candidate,
+            Theorem::new(
+                SemanticExpression::Variable(v),
+                SemanticExpression::Constant(ConstantData::u64(0)),
+            ),
+            None,
+        )
+    }
+
+    fn obligation_with(
+        &self,
+        candidate: &Candidate,
+        theorem: Theorem,
+        domain: Option<FiniteDomain>,
+    ) -> ProofObligation {
         ProofObligation {
             id: sir_transform::ids::ObligationId::new(0),
             region: candidate.region,
             candidate: candidate.id,
             definition: self.id,
-            theorem: Theorem::new(
-                SemanticExpression::FirstTrue(Box::new(SemanticExpression::LogicalSequence {
-                    variable: var,
-                })),
-                SemanticExpression::TrailingZeros(Box::new(SemanticExpression::Pack(Box::new(
-                    SemanticExpression::LogicalSequence { variable: var },
-                )))),
-            ),
+            theorem,
             assumptions: vec![],
-            domain: None,
+            domain,
         }
+    }
+}
+
+/// The recognized PositionSearch collection and its declared boolean
+/// extent (length ≤ 64 for the solver).
+pub(crate) fn position_collection_length(
+    function: &sir_nodes::Function,
+    structural: &StructuralDescription,
+) -> Option<usize> {
+    let collection = collection_id(structural)?;
+    match function.get_node(collection).map(|n| &n.ty) {
+        Some(Type::Array { element, length }) if **element == Type::Bool && *length > 0 && *length <= 64 => {
+            Some(*length)
+        }
+        _ => None,
+    }
+}
+
+pub(crate) fn collection_id(
+    structural: &StructuralDescription,
+) -> Option<sir_types::NodeId> {
+    structural.roles.iter().find_map(|role| match role {
+        RegionRoles::PositionSearch { collection, .. } => *collection,
+        _ => None,
+    })
+}
+
+pub(crate) fn sequence_domain(id: VariableId, length: usize) -> FiniteDomain {
+    FiniteDomain {
+        variables: vec![VariableSpec {
+            id,
+            kind: VariableKind::LogicalSequence { length },
+        }],
     }
 }

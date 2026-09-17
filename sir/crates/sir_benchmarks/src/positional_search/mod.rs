@@ -14,8 +14,17 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "first_set_bit",
                 category: "Positional search",
                 input_desc: "find first true in array",
-                expected: ExpectedKnowledge::NonOptimizable {
-                    reason: "BitScanForward definition is Stub-quarantined: obligation does not bind actual source/candidate operands",
+                // LIFTED 2026-09-17: recognized as FirstOccurrence,
+                // authorized under PositionSearch (X06), proven against
+                // FirstTrue(seq) == ctz(Pack(seq)), rewritten to
+                // TrailingZeros(pack(arr)).
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "PositionSearch",
+                    concepts: vec!["FirstOccurrence"],
+                    representation: "BitScan",
+                    candidate: "BitScanForward",
+                    proof: "ConcreteSolverChecked: FirstTrue(seq) == ctz(Pack(seq))",
+                    rewrite: "forward search loop -> TrailingZeros(pack(arr))",
                 },
             },
             func: || {
@@ -65,7 +74,7 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 // Stub-quarantined. Honest result: NO rewrite until
                 // ProposalBinding can prove which live-outs are safe.
                 expected: ExpectedKnowledge::NonOptimizable {
-                    reason: "Any candidate authorized at concept level but bound to the wrong live-out: the returned position is not the accumulator slot (UnauthorizedLiveOut guard)",
+                    reason: "BitScanReverse held Stub: the historical LastTrue == clz(Pack) obligation is FALSE (solver counterexample for an MSB-set mask) and the recipe equally emits clz; a correct lift needs a bit-scan-reverse intrinsic plus reverse trip-count support",
                 },
             },
             func: || {

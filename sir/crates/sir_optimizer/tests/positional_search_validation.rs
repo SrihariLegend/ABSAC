@@ -221,23 +221,20 @@ use sir_rewrite::registry::default_registry;
 
 #[test]
 fn ps001_first_set_bit_optimizer() {
-    // ADVISOR P0 VERIFIER QUARANTINE: the BitscanForwardDefinition
-    // obligation is a variable-placeholder template that never binds the
-    // actual source/candidate operands (Stub) — it may not authorize a
-    // rewrite. The loop->tz rewrite returns when the definition is
-    // upgraded to ConcreteSolverChecked with a node-bound obligation.
+    // BitscanForward is ConcreteSolverChecked since 2026-09-17: the
+    // found-flag forward search is recognized as FirstOccurrence,
+    // authorized under PositionSearch (X06), proven against
+    // FirstTrue(seq) == ctz(Pack(seq)), and rewritten.
     let func = build_ps001_first_set_bit();
     let optimizer = Optimizer::new(OptimizerConfig::default(), default_registry());
     let result = optimizer.optimize(&func);
-    // The Any-reduction candidate over the same loop is SchemaChecked
-    // and still proves/rewrites; the hard quarantine invariant is that
-    // the bitscan path must not produce TrailingZeros.
     let has_tz = result
         .function
         .arena
         .iter()
         .any(|n| matches!(n.kind, sir_nodes::NodeKind::TrailingZeros { .. }));
-    assert!(!has_tz, "BitscanForward is Stub-quarantined: must not rewrite to TrailingZeros");
+    assert!(has_tz, "the bitscan rewrite must select TrailingZeros");
+    assert!(result.rewrites_applied > 0);
 }
 
 // PS002 END-TO-END AUDIT (advisor): the loop's live-out is the POSITION

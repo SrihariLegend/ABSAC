@@ -788,6 +788,74 @@ fn rewritten_pow2_division_executes_natively() {
     }
 }
 
+/// PS001 found-flag forward search over a bool[64] array.
+fn first_set_bit_function() -> sir_nodes::Function {
+    let u64ty = Type::u64();
+    let arr_ty = Type::Array {
+        element: Box::new(Type::Bool),
+        length: 64,
+    };
+    let mut b = Builder::new("array_find_first", &[("board", arr_ty)], u64ty.clone());
+    let board = b.parameter_index(0).unwrap();
+    let i_init = b.constant(sir_types::ConstantData::u64(0), u64ty.clone(), Span::unknown());
+    let one = b.constant(sir_types::ConstantData::u64(1), u64ty.clone(), Span::unknown());
+    let limit = b.constant(sir_types::ConstantData::u64(64), u64ty.clone(), Span::unknown());
+    let found_init = b.constant(sir_types::ConstantData::Bool(false), Type::Bool, Span::unknown());
+    let index_init = b.constant(sir_types::ConstantData::u64(64), u64ty.clone(), Span::unknown());
+    let elem = b.array_access(board, i_init, Type::Bool, Span::unknown()).unwrap();
+    let new_found = b.bool_or(found_init, elem, Span::unknown()).unwrap();
+    let not_found_yet = b.bool_not(found_init, Span::unknown()).unwrap();
+    let is_first = b.bool_and(elem, not_found_yet, Span::unknown()).unwrap();
+    let new_index = b.select(is_first, i_init, index_init, Span::unknown()).unwrap();
+    let i_next = b.add(i_init, one, Span::unknown()).unwrap();
+    let not_found = b.bool_not(found_init, Span::unknown()).unwrap();
+    let in_bounds = b.lt(i_init, limit, Span::unknown()).unwrap();
+    let cond = b.bool_and(not_found, in_bounds, Span::unknown()).unwrap();
+    let loop_node = b
+        .r#loop(
+            &[elem, new_found, not_found_yet, is_first, new_index, i_next, not_found, in_bounds, cond],
+            cond,
+            &[new_found, new_index, i_next],
+            &[found_init, index_init, i_init],
+            Type::Tuple {
+                elements: vec![Type::Bool, u64ty.clone(), u64ty],
+            },
+            Span::unknown(),
+        )
+        .unwrap();
+    let res = b.field_access(loop_node, "1", Type::u64(), Span::unknown()).unwrap();
+    b.return_value(res, Span::unknown()).unwrap();
+    b.build()
+}
+
+#[test]
+fn rewritten_forward_bitscan_executes_natively() {
+    if !clang_available() {
+        return;
+    }
+    let optimized = optimize_suppressed(&first_set_bit_function());
+    assert_eq!(
+        optimized.rewrites_applied, 1,
+        "the forward bitscan rewrite must be authorized"
+    );
+    let emitted = sir_benchmarks::emit::emit_c(&optimized.function);
+    assert!(
+        emitted.contains("__sir_ctz"),
+        "the rewrite must select TrailingZeros:\n{emitted}"
+    );
+    let main = "    bool board[64] = {0};\n\
+                \x20   board[5] = true;\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)array_find_first(board));\n\
+                \x20   bool empty[64] = {0};\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)array_find_first(empty));\n";
+    let Some(stdout) = compile_and_run_emitted(&emitted, main, "array_find_first") else {
+        return;
+    };
+    // First set bit at index 5; empty array returns the length sentinel 64.
+    let got: Vec<&str> = stdout.lines().collect();
+    assert_eq!(got, vec!["5", "64"]);
+}
+
 /// `(x << 3) | (x >> (32 - 3))` with constant amounts (rotate left).
 fn rotate_left_const_function() -> sir_nodes::Function {
     let ty = Type::u32();

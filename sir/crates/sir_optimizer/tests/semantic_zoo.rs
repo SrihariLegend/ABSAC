@@ -454,21 +454,21 @@ pub fn generate_semantic_zoo() -> Vec<ZooProgram> {
         name: "ps001_first_set_bit".to_string(),
         family: Family::PositionSearch,
         function: build_ps001_first_set_bit(),
-        // PS002-audit consequence: the zoo ps001 function returns the
-        // POSITION (field 1) like PS002, and the Any-reduction recipe
-        // now refuses to rebind a live-out its theorem does not cover
-        // (UnauthorizedLiveOut). BitscanForward is Stub-quarantined.
-        expected_rewrites: 0,
+        // LIFTED 2026-09-17: the found-flag forward search is recognized
+        // as FirstOccurrence, gets its own PositionSearch (X06)
+        // authorization, proves FirstTrue(seq) == ctz(Pack(seq)) and
+        // rewrites the position slot to TrailingZeros(pack(board)).
+        expected_rewrites: 1,
     });
     zoo.push(ZooProgram {
         name: "ps002_last_set_bit".to_string(),
         family: Family::PositionSearch,
         function: build_ps002_last_set_bit(),
-        // PS002 END-TO-END AUDIT (advisor): the Any candidate was
-        // authorized at concept level but bound to the wrong live-out —
-        // the returned position was silently rewired to the rebuilt
-        // tuple's non-reduction slot. The authorized-consumer guard
-        // refuses; expected rewrites: 0.
+        // STILL BLOCKED (2026-09-17): the historical reverse obligation
+        // `LastTrue == LeadingZeros(Pack)` is FALSE (the solver returns
+        // the MSB counterexample), and the recipe equally emits
+        // LeadingZeros; BitScanReverse is held Stub pending a
+        // bit-scan-reverse intrinsic and reverse trip-count support.
         expected_rewrites: 0,
     });
     zoo.push(ZooProgram {
@@ -702,42 +702,29 @@ fn build_predicate_reduction(
 }
 
 #[test]
-fn ps001_bitscan_stays_blocked_on_position_authorization() {
-    // Recorded blocker (2026-09-17): ps001's region is recognized as a
-    // BooleanCollectionReduction (Any) whose live-out is the POSITION;
-    // PositionSearch authorization (X06) is deliberately absent, so the
-    // authorization database has no entry for the region and certificate-
-    // gated generation produces ZERO candidates. BitScanForward/Reverse
-    // therefore stay Stub even though their theorems and the solver
-    // sequence/scan support now exist. When X06 lands, replace this with
-    // a rewrite test.
-    use sir_analysis::manager::AnalysisManager;
-    use sir_inference::engine::InferenceEngine;
-    use sir_semantics::semantics::SemanticEngine;
-    let func = build_ps001_first_set_bit();
-    let mut analysis = AnalysisManager::new();
-    analysis.run_all(&func);
-    let mut sem = SemanticEngine::new();
-    sem.derive(&func, analysis.database());
-    let auths = sir_semantics::authorization::derive_authorizations(
-        &func,
-        analysis.database(),
-        sem.database(),
-    );
+fn ps001_bitscan_forward_rewrites() {
+    // LIFTED 2026-09-17: the found-flag forward search is recognized as
+    // FirstOccurrence, authorized under PositionSearch (X06), proven
+    // against FirstTrue(seq) == ctz(Pack(seq)), and rewritten.
+    let optimizer = Optimizer::new(OptimizerConfig::default(), default_registry());
+    let result = optimizer.optimize(&build_ps001_first_set_bit());
+    assert_eq!(result.rewrites_applied, 1, "ps001 must rewrite");
     assert!(
-        sem
-            .database()
-            .regions()
-            .all(|(rid, _)| auths.for_region(rid).is_empty()),
-        "the position region must have no authorization today"
+        result
+            .function
+            .arena
+            .iter()
+            .any(|n| matches!(n.kind, sir_nodes::NodeKind::TrailingZeros { .. })),
+        "the rewrite must select TrailingZeros"
     );
-    let mut inf = InferenceEngine::new();
-    inf.infer(sem.database(), sem.structural_database());
-    let mut gen = sir_generation::generator::CandidateGenerator::new();
-    gen.generate(inf.context_database(), sem.database(), &auths, &func);
-    assert_eq!(
-        gen.database().all_candidates().count(),
-        0,
-        "no candidates without the PositionSearch certificate"
-    );
+}
+
+#[test]
+fn ps002_bitscan_reverse_stays_blocked() {
+    // The historical reverse correspondence is FALSE (LastTrue is the
+    // highest set index, clz is its complement), so the definition is
+    // held Stub and nothing may rewrite.
+    let optimizer = Optimizer::new(OptimizerConfig::default(), default_registry());
+    let result = optimizer.optimize(&build_ps002_last_set_bit());
+    assert_eq!(result.rewrites_applied, 0, "ps002 must stay blocked");
 }

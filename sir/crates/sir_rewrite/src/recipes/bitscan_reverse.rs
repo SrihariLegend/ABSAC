@@ -32,18 +32,35 @@ impl RewriteRecipe for BitScanReverseRecipe {
         region: &RewriteRegion,
         mut builder: SubgraphBuilder<'_>,
     ) -> Result<ReplacementPatch, RewriteError> {
-        let (packed, _width) = crate::recipes::helpers::emit_pack_from_binding(
+        let (packed, _width) = crate::recipes::helpers::emit_pack_for_position_search(
             function,
             region,
             "BitScanReverse",
             &mut builder,
         )?;
-        let lzcnt = builder.leading_zeros(packed, Span::unknown());
-
         let result = region.result()?;
+        let consumer = crate::recipes::helpers::find_tuple_consumer(function, result);
+        let target = consumer.map(|(id, _)| id).unwrap_or(result);
+        // NOTE: this currently emits LeadingZeros, which is NOT the
+        // last-true index (the old obligation was false); the definition
+        // is held Stub so this path cannot be authorized. A correct lift
+        // must emit a bit-scan-reverse intrinsic returning the highest
+        // set index (width sentinel for zero).
+        let mut ty = function
+            .get_node(target)
+            .map(|n| n.ty.clone())
+            .unwrap_or(sir_types::Type::u64());
+        if let sir_types::Type::Tuple { elements } = &ty {
+            if let Some(pos) =
+                crate::recipes::helpers::loop_reduction_position(function, target, None)
+            {
+                ty = elements[pos].clone();
+            }
+        }
+        let lzcnt = builder.leading_zeros_typed(packed, ty, Span::unknown());
 
         Ok(builder.finish(vec![ReplacementValue {
-            old: result,
+            old: target,
             new: lzcnt,
         }]))
     }

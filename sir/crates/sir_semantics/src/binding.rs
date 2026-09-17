@@ -501,6 +501,48 @@ fn find_induction(
 /// first reduction candidate. The generic loop analysis is deliberately
 /// not authoritative here: it does not prove comparison direction,
 /// zero-based start, full collection extent, or wraparound safety.
+/// Find the comparison operand that bounds `carry` inside a termination
+/// expression, looking through boolean conjunctions (a found-flag search
+/// terminates on `!found && i < limit`).
+fn find_counter_bound(function: &Function, term: NodeId, carry: NodeId) -> Option<NodeId> {
+    let node = function.get_node(term)?;
+    match &node.kind {
+        NodeKind::Lt { lhs, rhs } | NodeKind::Le { lhs, rhs } | NodeKind::Ne { lhs, rhs } => {
+            if *lhs == carry {
+                Some(*rhs)
+            } else if *rhs == carry {
+                Some(*lhs)
+            } else {
+                None
+            }
+        }
+        NodeKind::BoolAnd { lhs, rhs } => find_counter_bound(function, *lhs, carry)
+            .or_else(|| find_counter_bound(function, *rhs, carry)),
+        _ => None,
+    }
+}
+
+/// True when the termination contains a conjunct `carry < bound` (the
+/// forward counted-loop contract).
+fn comparison_is_counter_lt(
+    function: &Function,
+    term: NodeId,
+    carry: NodeId,
+    bound: NodeId,
+) -> bool {
+    let Some(node) = function.get_node(term) else {
+        return false;
+    };
+    match &node.kind {
+        NodeKind::Lt { lhs, rhs } => *lhs == carry && *rhs == bound,
+        NodeKind::BoolAnd { lhs, rhs } => {
+            comparison_is_counter_lt(function, *lhs, carry, bound)
+                || comparison_is_counter_lt(function, *rhs, carry, bound)
+        }
+        _ => false,
+    }
+}
+
 fn derive_trip_count(
     function: &Function,
     facts: &FactDatabase,
@@ -522,16 +564,18 @@ fn derive_trip_count(
         ));
     }
 
-    let term = function
-        .get_node(termination)
-        .ok_or(BindingError::UnsupportedShape("termination node missing"))?;
-    match &term.kind {
-        NodeKind::Lt { lhs, rhs } if *lhs == induction.carry && *rhs == bound => {}
-        _ => {
-            return Err(BindingError::UnsupportedShape(
-                "forward reduction requires induction < bound termination",
-            ));
-        }
+    // Accept the counter comparison as a conjunct of the termination
+    // (found-flag searches guard the bound test with `!found`).
+    let counter_comparison_ok = comparison_is_counter_lt(
+        function,
+        termination,
+        induction.carry,
+        bound,
+    );
+    if !counter_comparison_ok {
+        return Err(BindingError::UnsupportedShape(
+            "forward reduction requires induction < bound termination",
+        ));
     }
 
     let collection_length = match function.get_node(collection).map(|node| &node.ty) {
@@ -1325,24 +1369,12 @@ pub fn derive_proposal_binding(
     // 6. Bound: the termination comparison must test the induction
     //    counter (its carried value is the current index) against
     //    exactly one other value.
-    let term = function
-        .get_node(termination)
-        .ok_or(BindingError::UnsupportedShape("termination node missing"))?;
-    let term_inputs = term.kind.input_nodes();
-    if term_inputs.len() != 2 {
-        return Err(BindingError::UnsupportedShape(
-            "termination is not a two-operand comparison",
-        ));
-    }
-    let bound = if term_inputs[0] == induction.carry {
-        term_inputs[1]
-    } else if term_inputs[1] == induction.carry {
-        term_inputs[0]
-    } else {
-        return Err(BindingError::UnsupportedShape(
-            "termination does not compare the induction counter",
-        ));
-    };
+    // The counter comparison may be guarded by other conjuncts (a
+    // found-flag position search terminates on `!found && i < limit`);
+    // search the conjunction for the comparison that tests the carry.
+    let bound = find_counter_bound(function, termination, induction.carry).ok_or(
+        BindingError::UnsupportedShape("termination does not compare the induction counter"),
+    )?;
     if bound == induction.carry {
         return Err(BindingError::AmbiguousRole("bound"));
     }

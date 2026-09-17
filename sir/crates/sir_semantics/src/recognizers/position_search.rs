@@ -86,6 +86,131 @@ fn detect_forward_termination_search(
     Some(index_node)
 }
 
+/// Found-flag search form used by the PS001/PS002 position kernels.
+///
+/// Returns `Some(true)` for a forward (first-occurrence) search and
+/// `Some(false)` for a reverse (last-occurrence) search. The detector
+/// requires all four X06-relevant facts to be visible:
+///   - a carried `found` flag guarded by `!found` in the termination,
+///   - a carried induction value whose successor is `i ± 1` and an output,
+///   - a position select in the body whose TRUE arm is that induction
+///     value (so the result really binds the index),
+///   - a select condition derived from memory (the element) AND `!found`
+///     (so a running value select can never qualify).
+fn detect_found_flag_search(
+    func: &Function,
+    body: &[NodeId],
+    termination: NodeId,
+    outputs: &[NodeId],
+    carried_inputs: &[NodeId],
+) -> Option<bool> {
+    let term = func.get_node(termination)?;
+    let NodeKind::BoolAnd { lhs, rhs } = &term.kind else {
+        return None;
+    };
+    let (found, bounds_id) = match (
+        func.get_node(*lhs).map(|n| &n.kind),
+        func.get_node(*rhs).map(|n| &n.kind),
+    ) {
+        (Some(NodeKind::BoolNot { operand }), _) => (*operand, *rhs),
+        (_, Some(NodeKind::BoolNot { operand })) => (*operand, *lhs),
+        _ => return None,
+    };
+    if !carried_inputs.contains(&found) {
+        return None;
+    }
+
+    // Bounds compare the induction carry: first uses < / <= / !=,
+    // last uses > / >= / !=.
+    let bounds = func.get_node(bounds_id)?;
+    let (idx, forward) = match &bounds.kind {
+        NodeKind::Lt { lhs, .. } | NodeKind::Le { lhs, .. } => (*lhs, true),
+        NodeKind::Gt { lhs, .. } | NodeKind::Ge { lhs, .. } => (*lhs, false),
+        NodeKind::Ne { lhs, rhs } => {
+            if carried_inputs.contains(lhs) {
+                (*lhs, true)
+            } else if carried_inputs.contains(rhs) {
+                (*rhs, true)
+            } else {
+                return None;
+            }
+        }
+        _ => return None,
+    };
+    if !carried_inputs.contains(&idx) {
+        return None;
+    }
+
+    // The induction successor is `i ± 1` and appears in the outputs.
+    let mut successor_seen = false;
+    for &out in outputs {
+        let Some(node) = func.get_node(out) else {
+            continue;
+        };
+        let (lhs, rhs) = match (&node.kind, forward) {
+            (NodeKind::Add { lhs, rhs }, true) | (NodeKind::Sub { lhs, rhs }, false) => (*lhs, *rhs),
+            _ => continue,
+        };
+        if lhs == idx
+            && matches!(
+                func.get_node(rhs).map(|n| &n.kind),
+                Some(NodeKind::Constant(c)) if c.as_u64() == Some(1)
+            )
+        {
+            successor_seen = true;
+            break;
+        }
+    }
+    if !successor_seen {
+        return None;
+    }
+
+    // The position select: `cond ? idx : sentinel`, with `cond` derived
+    // from memory and guarded by `!found`.
+    for &body_id in body {
+        let Some(node) = func.get_node(body_id) else {
+            continue;
+        };
+        let NodeKind::Select {
+            cond,
+            true_val,
+            false_val,
+        } = &node.kind
+        else {
+            continue;
+        };
+        if *true_val != idx {
+            continue;
+        }
+        if !matches!(
+            func.get_node(*false_val).map(|n| &n.kind),
+            Some(NodeKind::Constant(_))
+        ) {
+            continue;
+        }
+        if !crate::authorization::derives_from_memory(func, *cond) {
+            continue;
+        }
+        let guarded_by_not_found = match func.get_node(*cond).map(|n| &n.kind) {
+            Some(NodeKind::BoolAnd { lhs, rhs }) => {
+                is_not_of(func, *lhs, found) || is_not_of(func, *rhs, found)
+            }
+            _ => false,
+        };
+        if guarded_by_not_found {
+            return Some(forward);
+        }
+    }
+    None
+}
+
+fn is_not_of(func: &Function, id: NodeId, operand: NodeId) -> bool {
+    matches!(
+        func.get_node(id).map(|n| &n.kind),
+        Some(NodeKind::BoolNot { operand: inner }) if *inner == operand
+    )
+}
+
 pub fn recognize_position_search(
     func: &Function,
     _analysis: &FactDatabase,
@@ -124,6 +249,23 @@ pub fn recognize_position_search(
                 .is_some()
             {
                 is_first = true;
+            }
+
+            // Found-flag search form (PS001/PS002 kernels):
+            //   elem = arr[i]; found' = found | elem;
+            //   pos' = (elem & !found) ? i : sentinel;
+            //   i' = i + 1 (first) / i - 1 (last);
+            //   cond = !found && in_bounds(i);
+            // The position select binds the induction carry and the
+            // condition derives from memory — the X06 invariant holds.
+            if let Some(first) =
+                detect_found_flag_search(func, body, *termination, outputs, carried_inputs)
+            {
+                if first {
+                    is_first = true;
+                } else {
+                    is_last = true;
+                }
             }
 
             // To be precise we need to examine the loop body nodes.
