@@ -89,3 +89,9 @@ h3/h4/h4b/h4c/d4, 48 cases each — the result is
 violations** (`emitter_native/sanitize/*.txt`). The emitted C,
 including every applied rewrite, is free of ASan/UBSan diagnostics
 under this mode.
+
+The same instrumentation was extended to the Gate 6B fusion harness
+(`gate6b_run --sanitize`, 10/10, no diagnostics) and to the native
+fixture suite (`emit_c_native.rs` compiles every test driver with
+ASan+UBSan: 20/20 pass, no diagnostics), so the builder-fixture paths
+not exercised by the corpora are sanitizer-clean too.

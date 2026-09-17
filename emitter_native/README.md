@@ -158,3 +158,9 @@ The **Gate 6B fusion corpus** was re-evaluated under the same mode
 `emitter_native/sanitize/gate6b.txt`): **pass=10 fail=0** with no
 sanitizer diagnostics, so the fused emission path is also ASan/UBSan
 clean. The standard (non-sanitized) 6B run remains 10/10.
+
+The **native fixture suite** (`sir_benchmarks/tests/emit_c_native.rs`)
+also compiles and runs every builder-fixture path under ASan+UBSan:
+20/20 tests pass with no diagnostics, covering rotates, byte-swap,
+bit-reverse, mask algebra, zero-count conventions, bit-scan variants,
+early-exit searches and the sequential two-loop fixture.

@@ -66,6 +66,13 @@ fn compile_and_run_emitted(emitted: &str, main_body: &str, tag: &str) -> Option<
         .args([
             "-O1",
             "-w",
+            // Sanitizer-instrumented native tests (2026-09-17): the
+            // fixture paths (rotates, bswap, bitreverse, mask algebra,
+            // vectorized emission) are checked for UB/memory errors, not
+            // just expected output.
+            "-fsanitize=address,undefined",
+            "-fno-sanitize-recover=all",
+            "-g",
             "-o",
             exe_path.to_str().unwrap(),
             driver_path.to_str().unwrap(),
@@ -78,6 +85,13 @@ fn compile_and_run_emitted(emitted: &str, main_body: &str, tag: &str) -> Option<
         String::from_utf8_lossy(&compile.stderr)
     );
     let run = Command::new(&exe_path).output().expect("run");
+    let run_stderr = String::from_utf8_lossy(&run.stderr).to_string();
+    assert!(
+        !run_stderr.contains("runtime error:")
+            && !run_stderr.contains("AddressSanitizer")
+            && !run_stderr.contains("UndefinedBehaviorSanitizer"),
+        "sanitizer diagnostic in {tag}:\n{run_stderr}"
+    );
     assert!(
         run.status.success(),
         "driver failed: status {:?}",
