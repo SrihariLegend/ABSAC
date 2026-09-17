@@ -213,6 +213,41 @@ static sir_bv __sir_pack_bools(const bool *b, unsigned n) {
 "#
 }
 
+/// Runtime helpers for instruction-selection operations (rotates, bit
+/// reversal). `Rol`/`Ror` semantics are width-relative, so the helper
+/// reduces the amount modulo the true bit width and never performs a
+/// shift by the width (which is UB in C).
+fn alu_prelude() -> &'static str {
+    r#"
+static uint64_t __sir_rotl(uint64_t x, uint64_t k, unsigned w) {
+    if (w == 0) return 0;
+    k %= w;
+    if (k == 0) return x;
+    return (x << k) | (x >> (w - k));
+}
+static uint64_t __sir_rotr(uint64_t x, uint64_t k, unsigned w) {
+    if (w == 0) return 0;
+    k %= w;
+    if (k == 0) return x;
+    return (x >> k) | (x << (w - k));
+}
+static uint64_t __sir_rbit(uint64_t x, unsigned w) {
+    uint64_t r = 0;
+    for (unsigned i = 0; i < w; i++) {
+        r = (r << 1) | (x & 1u);
+        x >>= 1;
+    }
+    return r;
+}
+"#
+}
+
+fn sanitize_ident(name: &str) -> String {
+    name.chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect()
+}
+
 /// Get the width of an integer type.
 fn int_width(ty: &Type) -> Option<u32> {
     match ty {
@@ -222,6 +257,21 @@ fn int_width(ty: &Type) -> Option<u32> {
             sir_types::IntegerWidth::I32 => 32,
             sir_types::IntegerWidth::I64 => 64,
             sir_types::IntegerWidth::I128 => 64,
+        }),
+        _ => None,
+    }
+}
+
+/// The actual bit width of an integer type (unlike `int_width`, which
+/// promotes narrow types for C builtins).
+fn int_bits(ty: &Type) -> Option<u32> {
+    match ty {
+        Type::Integer { width, .. } => Some(match width {
+            sir_types::IntegerWidth::I8 => 8,
+            sir_types::IntegerWidth::I16 => 16,
+            sir_types::IntegerWidth::I32 => 32,
+            sir_types::IntegerWidth::I64 => 64,
+            sir_types::IntegerWidth::I128 => 128,
         }),
         _ => None,
     }
@@ -332,6 +382,74 @@ fn emit_expr(
         NodeKind::Not { operand } => {
             format!("(~{})", emit_operand(*operand, func, carrier_map))
         }
+        // Rotates: the helper takes the true bit width so the shift by
+        // `w - k` never reaches the C undefined-behaviour cases; the
+        // result is cast back to the node's declared type.
+        NodeKind::Rol { lhs, rhs } | NodeKind::Ror { lhs, rhs } => {
+            let x = emit_operand(*lhs, func, carrier_map);
+            let k = emit_operand(*rhs, func, carrier_map);
+            let width = func
+                .get_node(*lhs)
+                .and_then(|n| int_bits(&n.ty))
+                .unwrap_or(32);
+            let helper = if matches!(node.kind, NodeKind::Rol { .. }) {
+                "__sir_rotl"
+            } else {
+                "__sir_rotr"
+            };
+            format!(
+                "(({}){}((uint64_t)({}), (uint64_t)({}), {}u))",
+                c_type(&node.ty),
+                helper,
+                x,
+                k,
+                width
+            )
+        }
+        // Instruction-selection intrinsics: each expands to the
+        // semantic SIR operation it selects. Unknown names fail loudly
+        // at compile time instead of silently emitting 0.
+        NodeKind::Intrinsic { name, args } => match name.as_str() {
+            "blsr" if args.len() == 1 => {
+                let x = emit_operand(args[0], func, carrier_map);
+                format!("(({})(({}) & (({}) - 1)))", c_type(&node.ty), x, x)
+            }
+            "blsi" if args.len() == 1 => {
+                let x = emit_operand(args[0], func, carrier_map);
+                format!("(({})(({}) & (0 - ({}))))", c_type(&node.ty), x, x)
+            }
+            "blsmsk" if args.len() == 1 => {
+                let x = emit_operand(args[0], func, carrier_map);
+                format!("(({})(({}) ^ (({}) - 1)))", c_type(&node.ty), x, x)
+            }
+            "bswap" if args.len() == 1 => {
+                let x = emit_operand(args[0], func, carrier_map);
+                let width = func
+                    .get_node(args[0])
+                    .and_then(|n| int_bits(&n.ty))
+                    .unwrap_or(32);
+                let builtin = match width {
+                    16 => "__builtin_bswap16",
+                    32 => "__builtin_bswap32",
+                    _ => "__builtin_bswap64",
+                };
+                format!("(({}){}((uint64_t)({})))", c_type(&node.ty), builtin, x)
+            }
+            "rbit" if args.len() == 1 => {
+                let x = emit_operand(args[0], func, carrier_map);
+                let width = func
+                    .get_node(args[0])
+                    .and_then(|n| int_bits(&n.ty))
+                    .unwrap_or(64);
+                format!(
+                    "(({})__sir_rbit((uint64_t)({}), {}u))",
+                    c_type(&node.ty),
+                    x,
+                    width
+                )
+            }
+            other => format!("__sir_unsupported_intrinsic_{}()", sanitize_ident(other)),
+        },
         NodeKind::Popcount { operand } => {
             let o = emit_operand(*operand, func, carrier_map);
             let op_node = func.get_node(*operand);
@@ -485,6 +603,17 @@ pub fn emit_c(func: &Function) -> String {
         || func.params.iter().any(|p| is_bitvector(&p.ty));
     if uses_bitvectors {
         out.push_str(bitvector_prelude());
+        out.push('\n');
+    }
+
+    // Instruction-selection operations need the rotate/reverse helpers.
+    let uses_alu_helpers = func.arena.iter().any(|node| match &node.kind {
+        NodeKind::Rol { .. } | NodeKind::Ror { .. } => true,
+        NodeKind::Intrinsic { name, .. } => name == "rbit",
+        _ => false,
+    });
+    if uses_alu_helpers {
+        out.push_str(alu_prelude());
         out.push('\n');
     }
 

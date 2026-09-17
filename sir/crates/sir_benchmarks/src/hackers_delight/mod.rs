@@ -93,8 +93,17 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "isolate_lowest_set_bit",
                 category: "Hacker's Delight",
                 input_desc: "x & -x",
-                expected: ExpectedKnowledge::NonOptimizable {
-                    reason: "IsolateLowestSetBit definition is Stub-quarantined: obligation is a free-variable template",
+                // UNQUARANTINED (2026-09-17): bound to the actual
+                // `x & -x` pattern (operand + width) and discharged by
+                // the concrete solver; the recipe emits `blsi`, which
+                // the C emitter now expands as x & -x.
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "MaskAlgebra",
+                    concepts: vec!["LowestSetBit"],
+                    representation: "MaskAlgebra",
+                    candidate: "BitScanForward",
+                    proof: "ConcreteSolverChecked: LowestSetBit(x) == x & (0 - x)",
+                    rewrite: "x & -x -> blsi(x)",
                 },
             },
             func: || {
@@ -113,8 +122,13 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "isolate_lowest_clear_bit",
                 category: "Hacker's Delight",
                 input_desc: "~x & (x + 1)",
-                expected: ExpectedKnowledge::NonOptimizable {
-                    reason: "IsolateLowestClearBit definition is Stub-quarantined: obligation is a free-variable template",
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "MaskAlgebra",
+                    concepts: vec!["LowestClearBitMask"],
+                    representation: "MaskAlgebra",
+                    candidate: "BitScanForward",
+                    proof: "ConcreteSolverChecked: LowestClearBitMask(x) == ~x & (x + 1)",
+                    rewrite: "~x & (x + 1) -> blsi(~x)",
                 },
             },
             func: || {
@@ -134,8 +148,13 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "set_lowest_clear_bit",
                 category: "Hacker's Delight",
                 input_desc: "x | (x + 1)",
-                expected: ExpectedKnowledge::NonOptimizable {
-                    reason: "SetLowestClearBit definition is Stub-quarantined: obligation is a free-variable template",
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "MaskAlgebra",
+                    concepts: vec!["SetLowestClearBit"],
+                    representation: "MaskAlgebra",
+                    candidate: "BitScanForward",
+                    proof: "ConcreteSolverChecked: SetLowestClearBit(x) == x | (x + 1)",
+                    rewrite: "x | (x + 1) -> x | blsmsk(~x)",
                 },
             },
             func: || {

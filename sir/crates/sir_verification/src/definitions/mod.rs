@@ -9,6 +9,7 @@ pub mod divide_shift;
 pub mod isolate_lowest_clear_bit;
 pub mod isolate_lowest_set_bit;
 pub mod leading_zero_count;
+pub mod mask_bind;
 pub mod modulo_and;
 pub mod multiply_shift;
 pub mod parity;

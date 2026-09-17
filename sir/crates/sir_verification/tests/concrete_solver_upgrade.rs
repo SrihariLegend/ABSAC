@@ -314,3 +314,106 @@ fn quarantined_modulo_mask_mutation_is_not_proven() {
         "a quarantined mutated claim must not be Proven, got {result:?}"
     );
 }
+
+/// One mask-algebra pattern, built as SIR, with the region nodes the
+/// recognizer would authorize (pattern root + operand).
+fn mask_pattern_function(
+    kind: &str,
+) -> (sir_nodes::Function, Vec<sir_types::NodeId>) {
+    let ty = Type::u64();
+    let mut b = Builder::new(kind, &[("x", ty.clone())], ty.clone());
+    let x = b.parameter_index(0).unwrap();
+    let one = b.constant(ConstantData::u64(1), ty.clone(), span());
+    let (root, operand) = match kind {
+        "clear" => {
+            let sub = b.sub(x, one, span()).unwrap();
+            let and = b.bit_and(x, sub, span()).unwrap();
+            (and, x)
+        }
+        "isolate" => {
+            let neg = b.neg(x, span()).unwrap();
+            let and = b.bit_and(x, neg, span()).unwrap();
+            (and, x)
+        }
+        "isolate_clear" => {
+            let not = b.bit_not(x, span()).unwrap();
+            let add = b.add(x, one, span()).unwrap();
+            let and = b.bit_and(not, add, span()).unwrap();
+            (and, x)
+        }
+        "set_clear" => {
+            let add = b.add(x, one, span()).unwrap();
+            let or = b.bit_or(x, add, span()).unwrap();
+            (or, x)
+        }
+        other => panic!("unknown pattern {other}"),
+    };
+    b.return_value(root, span()).unwrap();
+    let func = b.build();
+    (func, vec![root, operand])
+}
+
+#[test]
+fn bound_mask_algebra_patterns_are_concrete_solver_checked() {
+    use sir_verification::definitions::clear_lowest_set_bit::ClearLowestSetBitDefinition;
+    use sir_verification::definitions::isolate_lowest_clear_bit::IsolateLowestClearBitDefinition;
+    use sir_verification::definitions::isolate_lowest_set_bit::IsolateLowestSetBitDefinition;
+    use sir_verification::definitions::set_lowest_clear_bit::SetLowestClearBitDefinition;
+
+    let cases: Vec<(&str, u64, Box<dyn Fn(DefinitionId) -> Box<dyn TransformationDefinition>>)> = vec![
+        (
+            "clear",
+            300,
+            Box::new(|id| Box::new(ClearLowestSetBitDefinition::new(id))),
+        ),
+        (
+            "isolate",
+            301,
+            Box::new(|id| Box::new(IsolateLowestSetBitDefinition::new(id))),
+        ),
+        (
+            "isolate_clear",
+            302,
+            Box::new(|id| Box::new(IsolateLowestClearBitDefinition::new(id))),
+        ),
+        (
+            "set_clear",
+            303,
+            Box::new(|id| Box::new(SetLowestClearBitDefinition::new(id))),
+        ),
+    ];
+    for (kind, id, make) in cases {
+        let (func, nodes) = mask_pattern_function(kind);
+        let def = make(DefinitionId::new(id));
+        let obligation = def.obligation_bound(&candidate(nodes, id), &func);
+        assert!(
+            obligation.domain.is_some(),
+            "{kind}: the actual pattern must bind"
+        );
+        match Verifier::new().verify(&obligation, &context()) {
+            VerificationResult::Proven(proof) => {
+                assert_eq!(proof.backend, VerificationBackend::ConcreteSolver);
+                assert_eq!(proof.assurance, VerificationStatus::ConcreteSolverChecked);
+            }
+            other => panic!("{kind}: expected a concrete-solver proof, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn unrelated_region_cannot_bind_a_mask_pattern() {
+    use sir_verification::definitions::isolate_lowest_set_bit::IsolateLowestSetBitDefinition;
+    // A region containing only the parameter is not the `x & -x`
+    // pattern: the definition must leave the obligation unbound.
+    let mut b = Builder::new("unrelated", &[("x", Type::u64())], Type::u64());
+    let x = b.parameter_index(0).unwrap();
+    b.return_value(x, span()).unwrap();
+    let func = b.build();
+    let def = IsolateLowestSetBitDefinition::new(DefinitionId::new(301));
+    let obligation = def.obligation_bound(&candidate(vec![x], 301), &func);
+    assert!(obligation.domain.is_none());
+    assert!(!matches!(
+        Verifier::new().verify(&obligation, &context()),
+        VerificationResult::Proven(_)
+    ));
+}

@@ -1,20 +1,14 @@
 use sir_generation::candidate::Candidate;
 use sir_transform::ids::{DefinitionId, VariableId};
+use sir_types::ConstantData;
 
-use crate::obligation::ProofObligation;
-use crate::registry::TransformationDefinition;
+use crate::definitions::mask_bind::{bind_mask, MaskPattern};
+use crate::obligation::{FiniteDomain, ProofObligation, VariableKind, VariableSpec};
+use crate::registry::{TransformationDefinition, VerificationStatus};
 use crate::semantic::expression::SemanticExpression;
 use crate::semantic::theorem::Theorem;
 
-/// The SetLowestClearBit transformation: `x | (x + 1)` sets the lowest clear
-/// (zero) bit of `x`.
-///
-/// Theorem:
-///   SetLowestClearBit(x) ≡ BitwiseOr(x, Add(x, 1))
-///
-/// The semantic operation is target-independent; the recipe selects the
-/// instruction composition (e.g. `x | blsmsk(~x)`) at the instruction
-/// selection layer.
+/// `x | (x + 1)` sets the lowest clear bit.
 pub struct SetLowestClearBitDefinition {
     id: DefinitionId,
 }
@@ -26,15 +20,10 @@ impl SetLowestClearBitDefinition {
 }
 
 impl TransformationDefinition for SetLowestClearBitDefinition {
-    fn verification_status(&self) -> crate::registry::VerificationStatus {
-        // STUB (quarantined, advisor P0 audit): the obligation is a
-        // hardcoded or tautological theorem template that never binds
-        // the actual source/candidate operands — changing the region's
-        // constant, swapping operands, or changing widths cannot cause
-        // rejection. This definition may not authorize a rewrite until
-        // its obligation is built from the actual pair and discharged
-        // concretely.
-        crate::registry::VerificationStatus::Stub
+    fn verification_status(&self) -> VerificationStatus {
+        // UPGRADED (2026-09-17): bound to the actual `x | (x + 1)`
+        // pattern and discharged by the concrete solver.
+        VerificationStatus::ConcreteSolverChecked
     }
 
     fn id(&self) -> DefinitionId {
@@ -50,31 +39,84 @@ impl TransformationDefinition for SetLowestClearBitDefinition {
     }
 
     fn obligation(&self, candidate: &Candidate) -> ProofObligation {
-        let x = SemanticExpression::Variable(VariableId::new(0));
-        let one = SemanticExpression::Constant(sir_types::ConstantData::u64(1));
+        self.unbound_obligation(candidate)
+    }
 
-        // The candidate expression: `x | (x + 1)`.
-        let candidate_expr = SemanticExpression::BitwiseOr(
-            Box::new(x.clone()),
-            Box::new(SemanticExpression::Add(Box::new(x.clone()), Box::new(one))),
+    fn obligation_bound(
+        &self,
+        candidate: &Candidate,
+        function: &sir_nodes::Function,
+    ) -> ProofObligation {
+        self.bind(candidate, function)
+            .unwrap_or_else(|| self.unbound_obligation(candidate))
+    }
+}
+
+impl SetLowestClearBitDefinition {
+    fn bind(
+        &self,
+        candidate: &Candidate,
+        function: &sir_nodes::Function,
+    ) -> Option<ProofObligation> {
+        let bound = bind_mask(
+            function,
+            &candidate.authorization.region_nodes,
+            MaskPattern::SetLowestClearBit,
+        )?;
+        let x = VariableId::new(bound.operand.as_u64());
+        let one = SemanticExpression::Constant(ConstantData::u64(1));
+        let lhs = SemanticExpression::SetLowestClearBit(Box::new(
+            SemanticExpression::Variable(x),
+        ));
+        let rhs = SemanticExpression::BitwiseOr(
+            Box::new(SemanticExpression::Variable(x)),
+            Box::new(SemanticExpression::Add(
+                Box::new(SemanticExpression::Variable(x)),
+                Box::new(one),
+            )),
         );
+        Some(self.obligation_with(
+            candidate,
+            Theorem::new(lhs, rhs),
+            Some(domain(x, bound.width)),
+        ))
+    }
 
+    fn unbound_obligation(&self, candidate: &Candidate) -> ProofObligation {
+        let v = VariableId::new(u64::MAX);
+        self.obligation_with(
+            candidate,
+            Theorem::new(
+                SemanticExpression::Variable(v),
+                SemanticExpression::Constant(ConstantData::u64(0)),
+            ),
+            None,
+        )
+    }
+
+    fn obligation_with(
+        &self,
+        candidate: &Candidate,
+        theorem: Theorem,
+        domain: Option<FiniteDomain>,
+    ) -> ProofObligation {
         ProofObligation {
             id: sir_transform::ids::ObligationId::new(0),
             region: candidate.region,
-            definition: self.id,
             candidate: candidate.id,
-            theorem: Theorem::new(
-                SemanticExpression::SetLowestClearBit(Box::new(x.clone())),
-                candidate_expr,
-            ),
+            definition: self.id,
+            theorem,
             assumptions: vec![],
-            domain: Some(crate::obligation::FiniteDomain {
-                variables: vec![crate::obligation::VariableSpec {
-                    id: VariableId::new(0),
-                    kind: crate::obligation::VariableKind::BitVector { width: 64 },
-                }],
-            }),
+            domain,
         }
+    }
+}
+
+fn domain(id: VariableId, width: usize) -> FiniteDomain {
+    FiniteDomain {
+        variables: vec![VariableSpec {
+            id,
+            kind: VariableKind::BitVector { width },
+        }],
     }
 }
