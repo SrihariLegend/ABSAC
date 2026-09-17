@@ -89,7 +89,19 @@ pub fn recognize_sum_reduction(
                     .filter(|r| is_raw_element_value(func, r.invariant_value))
                     .collect();
 
-                if sum_reductions_only.is_empty() {
+                // ── Mapped sums (w03/p11 recall gap) ──
+                // A per-element WHITELISTED map of the raw element is a
+                // legitimate reduction of the mapped values, but it must
+                // NOT be labelled a raw-element SumReduction (D5). It
+                // gets its own concept so no raw-sum consumer accepts it.
+                let mapped_sum_reductions: Vec<_> = non_counter_reductions
+                    .iter()
+                    .filter(|r| !is_boolean_predicate(func, r.invariant_value))
+                    .filter(|r| !is_raw_element_value(func, r.invariant_value))
+                    .filter(|r| element_map_source(func, r.invariant_value).is_some())
+                    .collect();
+
+                if sum_reductions_only.is_empty() && mapped_sum_reductions.is_empty() {
                     continue;
                 }
 
@@ -107,40 +119,99 @@ pub fn recognize_sum_reduction(
                 }
 
                 // ── Passed all safety checks — emit recognition ──
-                let mut related = vec![node.id];
-                for reduction in &sum_reductions_only {
-                    related.push(reduction.variable);
-                    related.push(reduction.invariant_value);
-                }
-
-                let mut inputs = Vec::new();
-                let mut outputs = Vec::new();
-                for reduction in &sum_reductions_only {
-                    inputs.push(ValueId::new(reduction.invariant_value.0));
-                    outputs.push(ValueId::new(node.id.0));
-                }
-
-                results.push((
-                    SemanticConcept::SumReduction,
-                    RecognitionExplanation {
-                        concept: SemanticConcept::SumReduction,
-                        triggering_facts: vec![
+                for (concept, reductions, facts) in [
+                    (
+                        SemanticConcept::SumReduction,
+                        &sum_reductions_only,
+                        vec![
                             "Loop has additive reduction",
                             "Reduction variable accumulates raw element values",
                             "Loop has no volatile accesses",
                             "Loop has contiguous stride (increment by 1)",
                             "Accumulators are independent",
                         ],
-                    },
-                    related,
-                    inputs,
-                    outputs,
-                ));
+                    ),
+                    (
+                        SemanticConcept::MappedSumReduction,
+                        &mapped_sum_reductions,
+                        vec![
+                            "Loop has additive reduction",
+                            "Reduction variable accumulates a per-element map of the values",
+                            "Loop has no volatile accesses",
+                            "Loop has contiguous stride (increment by 1)",
+                            "Accumulators are independent",
+                        ],
+                    ),
+                ] {
+                    if reductions.is_empty() {
+                        continue;
+                    }
+                    let mut related = vec![node.id];
+                    let mut inputs = Vec::new();
+                    let mut outputs = Vec::new();
+                    for reduction in reductions {
+                        related.push(reduction.variable);
+                        related.push(reduction.invariant_value);
+                        inputs.push(ValueId::new(reduction.invariant_value.0));
+                        outputs.push(ValueId::new(node.id.0));
+                    }
+                    results.push((
+                        concept,
+                        RecognitionExplanation {
+                            concept,
+                            triggering_facts: facts,
+                        },
+                        related,
+                        inputs,
+                        outputs,
+                    ));
+                }
             }
         }
     }
 
     results
+}
+
+/// The raw element behind a whitelisted per-element map:
+/// `Add/Sub/Xor/Mul/And/Or(element, constant)` (either operand order),
+/// with the element reached through transparent conversions.
+///
+/// The whitelist is deliberately narrow: boolean predicates and
+/// conditionals (`select(cond, x, 0)`) never qualify, so the D5
+/// masked-sum class stays out of both SumReduction and
+/// MappedSumReduction.
+fn element_map_source(func: &Function, id: NodeId) -> Option<NodeId> {
+    let mut current = id;
+    for _ in 0..8 {
+        let node = func.get_node(current)?;
+        match &node.kind {
+            sir_nodes::NodeKind::Convert { operand, .. } => current = *operand,
+            sir_nodes::NodeKind::Add { lhs, rhs }
+            | sir_nodes::NodeKind::Sub { lhs, rhs }
+            | sir_nodes::NodeKind::Xor { lhs, rhs }
+            | sir_nodes::NodeKind::Mul { lhs, rhs }
+            | sir_nodes::NodeKind::And { lhs, rhs }
+            | sir_nodes::NodeKind::Or { lhs, rhs } => {
+                if is_raw_element_value(func, *lhs) && is_constant_value(func, *rhs) {
+                    return Some(*lhs);
+                }
+                if is_raw_element_value(func, *rhs) && is_constant_value(func, *lhs) {
+                    return Some(*rhs);
+                }
+                return None;
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
+fn is_constant_value(func: &Function, id: NodeId) -> bool {
+    matches!(
+        func.get_node(id).map(|n| &n.kind),
+        Some(sir_nodes::NodeKind::Constant(_))
+    )
 }
 
 fn collect_loop_body_nodes(kind: &sir_nodes::NodeKind) -> Vec<NodeId> {

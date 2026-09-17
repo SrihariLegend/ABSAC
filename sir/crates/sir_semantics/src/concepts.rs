@@ -17,6 +17,11 @@ pub enum SemanticConcept {
     CardinalityReduction,
     /// Operation: summing the values of elements in a collection
     SumReduction,
+    /// Operation: summing a PER-ELEMENT MAP of the collection values
+    /// (e.g. `sum(a[i] + 1)`, `sum(a[i] ^ 0x0F)`). Distinct from
+    /// `SumReduction`: the accumulated value is not the raw element, so
+    /// raw-sum consumers must not accept it (D5 strictness).
+    MappedSumReduction,
     /// Operation: checking if at least one element satisfies a condition
     DisjunctiveReduction,
     /// Operation: checking if all elements satisfy a condition
@@ -132,6 +137,7 @@ impl SemanticConcept {
         Self::MembershipTraversal,
         Self::CardinalityReduction,
         Self::SumReduction,
+        Self::MappedSumReduction,
         Self::DisjunctiveReduction,
         Self::ConjunctiveReduction,
         Self::ExclusiveReduction,
@@ -210,6 +216,7 @@ impl fmt::Display for SemanticConcept {
             SemanticConcept::MembershipTraversal => write!(f, "MembershipTraversal"),
             SemanticConcept::CardinalityReduction => write!(f, "CardinalityReduction"),
             SemanticConcept::SumReduction => write!(f, "SumReduction"),
+            SemanticConcept::MappedSumReduction => write!(f, "MappedSumReduction"),
             SemanticConcept::DisjunctiveReduction => write!(f, "DisjunctiveReduction"),
             SemanticConcept::ConjunctiveReduction => write!(f, "ConjunctiveReduction"),
             SemanticConcept::ExclusiveReduction => write!(f, "ExclusiveReduction"),
