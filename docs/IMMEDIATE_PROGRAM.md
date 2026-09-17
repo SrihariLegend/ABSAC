@@ -451,11 +451,14 @@ Remediation D3 (P0A, commit c3ebb54):
        synthesizes the found-flag SIR loop, FirstOccurrence derives, and
        the bitscan recipes apply — v6/v7 p09 lower and are native-clean
        (extents 96/80); a <=64 extent rewrites to ctz natively
-       (5/0/47/48); >64 extents stay unrewritten (64-bit solver cap).
-       The emitter also gained BoolAnd/BoolOr/BoolNot emission, a
-       silent-0 gap the native differential caught while landing this.
-       Remaining: >64-bit solver domains, runtime-extent reductions,
-       map-then-sum candidate, Sum strategy. The w07 "u8/I64 accumulator mismatch"
+       (5/0/47/48). >64 extents (80/96) ALSO rewrite now, discharged by
+       the symbolic scan identity and honestly issued SchemaChecked
+       (the 64-bit concrete solver cannot bit-blast them); a sentinel
+       guard requires the no-hit result to equal the extent (select
+       form or successor-as-result bound). The emitter also gained
+       BoolAnd/BoolOr/BoolNot emission, a silent-0 gap the native
+       differential caught while landing this. Remaining: runtime-extent
+       reductions, map-then-sum candidate, Sum strategy. The w07 "u8/I64 accumulator mismatch"
        is refined to a dynamic-extent limitation: recognition and
        authorization now succeed, but the runtime-length pointer
        collection has no sound fixed-width encoding (no fabricated

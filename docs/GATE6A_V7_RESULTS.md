@@ -55,13 +55,14 @@ v7 probes unseen variants of the three v6 remediation areas:
 
 p09's header/latch/merge CFG now lowers: the lowerer synthesizes the
 canonical found-flag SIR loop, promotes the buffer to `[u8; 80]`,
-derives `FirstOccurrence`, and the native differential is **clean
-48/48**. The solver-backed rewrite is capped at 64-bit domains, so this
-80-element search stays unrewritten; a 48-element early-exit search
-lowers, is proven, rewrites to `ctz(pack)` and runs natively
-(5/0/47/48) — pinned by the `emit_c_native` test
-`early_exit_search_rewrites_and_executes_natively`. v6 p09 (extent 96)
-behaves the same way. While landing this, the native differential
+derives `FirstOccurrence`, **rewrites to `ctz(pack)`** (`cands=2
+rewrites=1`) and is **native-clean 48/48**. The 80-element extent
+exceeds the 64-bit concrete solver, so the proof is discharged by the
+symbolic scan identity and honestly issued **SchemaChecked**; a sentinel
+guard requires the no-hit result (80) to equal the extent. A 48-element
+early-exit search was already covered by the `emit_c_native` test
+`early_exit_search_rewrites_and_executes_natively` (5/0/47/48). v6 p09
+(extent 96) behaves the same way. While landing this, the native differential
 caught that the emitter had no `BoolAnd`/`BoolOr`/`BoolNot` arms (they
 emitted `0`); they now emit `&&`/`||`/`!`.
 

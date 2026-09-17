@@ -207,7 +207,16 @@ pub fn emit_pack_for_position_search(
                 "{recipe}: no PositionSearch collection role"
             ))
         })?;
+    // The emitter's bitvector capacity is 512 bits; a longer mask would
+    // silently truncate, so refuse before building anything.
     match function.get_node(collection).map(|n| &n.ty) {
+        Some(Type::Array { length, .. }) if *length > 512 => {
+            return Err(RewriteError::RecipeFailed(format!(
+                "{recipe}: collection %{} has {length} elements, beyond the \
+                 512-bit mask capacity",
+                collection.0
+            )))
+        }
         Some(Type::Array { element, length }) if **element == Type::Bool => {
             let packed = builder.pack(
                 LocalNodeId::new(collection.as_u64()),

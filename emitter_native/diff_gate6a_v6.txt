@@ -6,7 +6,7 @@ NATIVE p05_sum_u16_const_u32: clean cases=48 rewrites=0
 NATIVE p06_all_ne_const_u8: clean cases=48 rewrites=0
 NATIVE p07_any_or_const_u32: clean cases=48 rewrites=1
 NATIVE p08_two_loops_const: clean cases=48 rewrites=1
-NATIVE p09_first_set_const: clean cases=48 rewrites=0
+NATIVE p09_first_set_const: clean cases=48 rewrites=1
 NATIVE p10_map_then_sum_const: clean cases=48 rewrites=0
 NATIVE n01_runtime_sum_u8: clean cases=48 rewrites=0
 NATIVE n02_runtime_count_ge_u32: clean cases=48 rewrites=0

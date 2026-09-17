@@ -108,14 +108,16 @@ sum loop unchanged). Regression test:
 Runtime-bound two-loop kernels (w08, v5/v3/v4 p12) still promote
 nothing and stay candidate-free by design.
 
-### Follow-up 2 (same day): early-exit search lowering
+### Follow-up 2 (same day): early-exit search lowering + >64 scan rewrite
 
-p09 (`p09_first_set_const`, extent 96) now lowers: the header/latch/
-merge CFG is synthesized into the canonical found-flag SIR loop, the
-buffer promotes to `[u8; 96]`, `FirstOccurrence` derives, and the
-native differential is clean. The 96-element extent exceeds the
-64-bit solver cap, so it stays unrewritten; the ≤64 rewrite chain is
-covered by the 48-element `emit_c_native` test.
+p09 (`p09_first_set_const`, extent 96) now lowers (header/latch/merge
+synthesized into the canonical found-flag loop, buffer promoted to
+`[u8; 96]`, `FirstOccurrence` derived) AND rewrites to `ctz(pack)`:
+`observed: lowered=true verify=true cands=2 rewrites=1`, native-clean
+48/48. The 96-element extent exceeds the 64-bit concrete solver, so the
+proof is discharged by the symbolic scan identity and honestly issued
+**SchemaChecked**; a sentinel guard requires the no-hit result (96) to
+equal the extent.
 
 ## Cross-corpus regression after the fixes
 

@@ -29,9 +29,16 @@ buffer byte-for-byte.
 | `h4b/tier_b.ll` | 7 | 0 | 6 | 24 | 4 |
 | `h4c/tier_b.ll` | 6 | 0 | 4 | 24 | 3 |
 | `d4/tier_b.ll` | 7 | 0 | 5 | 24 | 4 |
-| `gate6a/v6_corpus.ll` | 17 | 0 | 5 | 48 | 5 |
-| `gate6a/v7_corpus.ll` | 19 | 0 | 5 | 48 | 4 |
-| **Total** | **139** | **0** | **55** | — | **31** |
+| `gate6a/v6_corpus.ll` | 17 | 0 | 5 | 48 | 6 |
+| `gate6a/v7_corpus.ll` | 19 | 0 | 5 | 48 | 5 |
+| **Total** | **139** | **0** | **55** | — | **33** |
+
+**>64-element scan rewrites** (2026-09-17): v6 `p09` (96) and v7 `p09`
+(80) now rewrite to `ctz(pack)` and are native-clean 48/48 each. The
+64-bit concrete solver cannot bit-blast those extents, so the obligation
+is discharged by the symbolic scan identity and honestly issued
+**SchemaChecked** (not solver-checked); a sentinel guard requires the
+no-hit result to equal the extent.
 
 Re-measured after **early-exit search lowering** (2026-09-17): v6/v7
 `p09` header/latch/merge search CFGs lower via found-flag synthesis and

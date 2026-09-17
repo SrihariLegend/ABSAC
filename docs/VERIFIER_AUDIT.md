@@ -759,3 +759,31 @@ the second artifact.
   is the authorization-layer totality witness above. The forward-only
   reduction binding remains a separate, documented limitation for
   reduction families.
+
+## Scan assurance beyond the 64-bit solver (2026-09-17)
+
+The concrete solver is `u64`-based (`sir_mech` masks are ≤ 64 bits), so
+search obligations over longer collections cannot be bit-blasted. The
+binding previously capped the PositionSearch extent at 64, which turned
+those kernels into unprovable candidates (v6/v7 `p09`, extents 96/80).
+
+- The binding now accepts extents up to **512** (the emitter's bitvector
+  capacity; the recipe refuses anything longer).
+- For extents ≤ 64 the concrete solver discharges the obligation and the
+  artifact is **ConcreteSolverChecked**.
+- For extents > 64 the verifier's fallback runs the symbolic backend,
+  whose `FirstTrue(seq) → TrailingZeros(Pack(seq))` normalization proves
+  the scan identity by construction; the ISSUED assurance is then
+  `min(definition cap, symbolic cap)` = **SchemaChecked**. The proof
+  artifact records that honestly; the policy default (SchemaChecked)
+  admits it, and a stricter policy would quarantine it.
+- **Sentinel guard**: the theorem's no-hit result is the sequence length,
+  so the forward binding requires the loop's no-hit result to equal the
+  extent — either a position-select constant (select form) or the bound
+  of the exported successor (successor-as-result form, PS001).
+  Constant folding covers SSA-computed bounds (`add(63,1)`). A kernel
+  searching a sub-range or using a different sentinel is refused.
+
+Native differential: v6 `p09` (96) and v7 `p09` (80) rewrite to
+`ctz(pack)` and are clean 48/48 each; corpus totals 139 clean /
+0 mismatched / 55 lower-refused with 33 native-clean rewrites.
