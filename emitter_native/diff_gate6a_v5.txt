@@ -13,7 +13,7 @@ NATIVE p12_two_loops: clean cases=48 rewrites=0
 NATIVE n01_sum_if_mask: clean cases=48 rewrites=0
 NATIVE n02_sum_ternary_gt: clean cases=48 rewrites=0
 NATIVE n03_sum_masked_hi: clean cases=48 rewrites=0
-NATIVE n04_sum_index_conditional: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: n04_sum_index_conditional)
+NATIVE n04_sum_index_conditional: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: n04_sum_index_conditional (early-exit search: no header/latch/merge triple))
 NATIVE n05_sum_i64_nsw: clean cases=48 rewrites=0
 NATIVE n06_running_max_u16: clean cases=48 rewrites=0
 NATIVE n07_two_arrays_u8: clean cases=48 rewrites=0

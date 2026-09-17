@@ -89,3 +89,17 @@ The v9 generation blind-tested the position-predicate extraction:
   silently upgraded.
 - Cumulative native evidence: 185 clean / 0 mismatched / 66
   lower-refused, 54 native-clean rewrites.
+
+### Runtime-extent search lowering (follow-up)
+
+The lowerer's early-exit synthesis now accepts clang's **guarded**
+runtime-extent search: an `n == 0` entry guard, the header/latch
+search, and a merge that clamps the phi with `llvm.umin(phi, n)` before
+returning. The merge's post-instructions are emitted after the
+synthesized loop (so the clamp is not assumed to be a no-op) and the
+extra zero-trip predecessor is validated against the guard
+(`sentinel == 0`). The pointer stays a pointer — no extent is
+fabricated — FirstOccurrence derives, the candidate proof fails (no
+collection role), and v8 `p14` / v9 `p16` are native-clean with 0
+rewrites (lower-refused totals drop by one in each corpus; cumulative
+187 clean / 0 mismatched / 64 lower-refused).

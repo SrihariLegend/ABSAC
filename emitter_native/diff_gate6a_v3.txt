@@ -19,7 +19,7 @@ NATIVE n06_stride2: clean cases=48 rewrites=0
 NATIVE n07_dynamic_stride: clean cases=48 rewrites=0
 NATIVE n08_conditional_sum: clean cases=48 rewrites=0
 NATIVE n09_self_recurrence: lower_refused (function has too few blocks for the lowerer)
-NATIVE n10_early_exit_write: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: n10_early_exit_write)
+NATIVE n10_early_exit_write: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: n10_early_exit_write (early-exit search: no header/latch/merge triple))
 NATIVE n11_reverse_sum: lower_refused (unsupported: signed icmp 'sgt' (SIR comparison semantics are unsigned-model; signed predicate would mistranslate negative operands): %3 = icmp sgt i64 %1, 0)
 NATIVE n12_atomic_sum: lower_refused (unsupported: atomic load (ordering semantics not modeled): %10 = load atomic i8, ptr %9 monotonic, align 1)
 EMITC_SUMMARY clean=17 mismatched=0 lower_refused=7 harness_errors=0

@@ -865,3 +865,49 @@ fn early_exit_search_lowers_to_a_found_flag_loop() {
     assert_eq!(loops, 1, "the early exit is modeled inside one SIR loop");
     assert!(func.return_node.is_some(), "the index must be returned");
 }
+
+/// Runtime-extent search: clang guards `n == 0`, runs the header/latch
+/// search, and clamps the merge phi with `llvm.umin(phi, n)` before the
+/// return. The lowering must synthesize the found-flag loop, emit the
+/// merge's post-processing, and NOT promote the pointer (no fabricated
+/// extent).
+const RUNTIME_EXTENT_SEARCH: &str = r#"
+define i64 @rt_search(ptr %0, i64 %1) {
+  %3 = icmp eq i64 %1, 0
+  br i1 %3, label %12, label %4
+
+4:
+  %5 = phi i64 [ %10, %9 ], [ 0, %2 ]
+  %6 = getelementptr inbounds i8, ptr %0, i64 %5
+  %7 = load i8, ptr %6
+  %8 = icmp eq i8 %7, 0
+  br i1 %8, label %9, label %12
+
+9:
+  %10 = add nuw i64 %5, 1
+  %11 = icmp eq i64 %10, %1
+  br i1 %11, label %12, label %4
+
+12:
+  %13 = phi i64 [ 0, %2 ], [ %1, %9 ], [ %5, %4 ]
+  %14 = tail call i64 @llvm.umin.i64(i64 %13, i64 %1)
+  ret i64 %14
+}
+"#;
+
+#[test]
+fn runtime_extent_search_lowers_without_fabricating_an_extent() {
+    let func = lower_function(RUNTIME_EXTENT_SEARCH, "rt_search")
+        .expect("the guarded runtime-extent search must lower");
+    assert!(
+        matches!(func.params[0].ty, sir_types::Type::Pointer { .. }),
+        "a runtime extent must never promote to a fixed array view"
+    );
+    let loops = func
+        .arena
+        .iter()
+        .filter(|n| matches!(n.kind, sir_nodes::NodeKind::Loop { .. }))
+        .count();
+    assert_eq!(loops, 1, "one synthesized found-flag loop");
+    assert!(func.return_node.is_some(), "the clamped index must be returned");
+}

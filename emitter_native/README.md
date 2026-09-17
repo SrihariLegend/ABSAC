@@ -31,9 +31,16 @@ buffer byte-for-byte.
 | `d4/tier_b.ll` | 7 | 0 | 5 | 24 | 4 |
 | `gate6a/v6_corpus.ll` | 17 | 0 | 5 | 48 | 6 |
 | `gate6a/v7_corpus.ll` | 19 | 0 | 5 | 48 | 5 |
-| `gate6a/v8_corpus.ll` | 22 | 0 | 6 | 48 | 8 |
-| `gate6a/v9_corpus.ll` | 24 | 0 | 5 | 48 | 13 |
-| **Total** | **185** | **0** | **66** | — | **54** |
+| `gate6a/v8_corpus.ll` | 23 | 0 | 5 | 48 | 8 |
+| `gate6a/v9_corpus.ll` | 25 | 0 | 4 | 48 | 13 |
+| **Total** | **187** | **0** | **64** | — | **54** |
+
+**Runtime-extent search lowering** (2026-09-17): clang's guarded form
+(`n == 0` entry guard, header/latch search, `llvm.umin(phi, n)` clamp
+before the return) now lowers via the found-flag synthesis — the merge's
+post-processing is emitted and the extra zero-trip predecessor is
+validated — with the pointer preserved (no fabricated extent). v8 `p14`
+and v9 `p16` move from lower-refused to native-clean with 0 rewrites.
 
 **v9** (2026-09-17): the predicate extraction generalizes blind —
 Eq/Ne/Lt/Ge/Gt, u8/u16/u32, zero/literal/parameter scalars, swapped

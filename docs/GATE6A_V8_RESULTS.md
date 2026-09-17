@@ -78,5 +78,16 @@ has **8 native-clean rewrites**; compound predicates are still refused.
 - Fresh **v9** after the next capability change.
 - Open gaps: runtime-extent reductions (contained by design),
   multi-loop + early-exit composition (search then another loop),
-  runtime-extent search lowering, map-then-sum candidate/recipe, a Sum
-  reduction strategy, and deliberate non-unit-stride abstention.
+  map-then-sum candidate/recipe, a Sum reduction strategy, and
+  deliberate non-unit-stride abstention.
+
+### Follow-up (same day): runtime-extent search lowering
+
+p14 (`p14_runtime_extent_search`) now lowers: clang's guarded form
+(`n == 0` entry, header/latch search, `llvm.umin(phi, n)` clamp before
+the return) is synthesized into the found-flag loop, the merge's
+post-processing is emitted, and the extra zero-trip predecessor is
+validated against the `sentinel == 0` guard. The pointer is preserved
+(no promoted extent), FirstOccurrence derives, and the candidate proof
+fails (no collection role/extent) — so the row is native-clean with 0
+rewrites. v8 lower-refused drops 6 → 5.

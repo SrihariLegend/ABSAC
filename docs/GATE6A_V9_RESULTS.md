@@ -56,7 +56,16 @@ select, negation- and swap-normalized):
 ## Next
 
 - Fresh **v10** after the next capability change.
-- Open gaps: runtime-extent search lowering and runtime-extent
-  reductions, multi-loop + early-exit composition (break-carrying
-  peeled shape), map-then-sum candidate/recipe, Sum reduction strategy,
-  deliberate non-unit-stride abstention.
+- Open gaps: runtime-extent reductions, multi-loop + early-exit
+  composition (break-carrying peeled shape), map-then-sum
+  candidate/recipe, Sum reduction strategy, deliberate non-unit-stride
+  abstention.
+
+### Follow-up (same day): runtime-extent search lowering
+
+p16 (`p16_runtime_extent_search`) now lowers with the guarded
+entry/merge-clamp form handled by the found-flag synthesis (the
+`llvm.umin(phi, n)` merge instruction is emitted after the loop and the
+`n == 0` predecessor is validated). The pointer is preserved, the
+extent is not fabricated, the candidate proof fails, and the function
+is native-clean with 0 rewrites; v9 lower-refused drops 5 → 4.

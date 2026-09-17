@@ -1642,9 +1642,9 @@ pub fn lower(text: &str) -> Result<Function, String> {
         // refusal (never a partial or guessed lowering).
         return match lower_early_exit_search(&ir, &mut builder, &mut value_map) {
             Ok(()) => Ok(builder.build()),
-            Err(_) => Err(format!(
-                "unsupported: loop with a separate latch block (multi-block back-edge) not modeled: {}",
-                ir.name
+            Err(reason) => Err(format!(
+                "unsupported: loop with a separate latch block (multi-block back-edge) not modeled: {} ({})",
+                ir.name, reason
             )),
         };
     }
@@ -2106,15 +2106,81 @@ fn lower_early_exit_search(
         return Err("early-exit search: merge does not return the counter".into());
     }
     let merge_result = m_phi.result.clone().unwrap_or_default();
-    let returns_phi = m.instructions.iter().any(|i| {
-        i.opcode == "ret"
-            && i.operands
-                .first()
-                .map(|o| strip_type(o) == merge_result)
-                .unwrap_or(false)
-    });
-    if !returns_phi {
-        return Err("early-exit search: merge does not return its phi".into());
+    // The merge may post-process the phi before returning (clang's
+    // runtime-extent search clamps it with `llvm.umin(phi, n)` on the
+    // `n == 0` guard path). Those instructions are emitted after the
+    // synthesized loop with the phi mapped to the index output, so the
+    // observable result is preserved without assuming the clamp is a
+    // no-op.
+    let ret_operand = m
+        .instructions
+        .iter()
+        .find(|i| i.opcode == "ret")
+        .and_then(|i| i.operands.first().cloned())
+        .ok_or("early-exit search: merge does not return")?;
+
+    // Extra merge predecessors are only tolerated as the zero-trip entry
+    // guard (`sentinel == 0 -> merge`) whose incoming value is the zero
+    // constant: the synthesized loop's zero-trip output is the sentinel,
+    // which that guard pins to zero.
+    for (value, label) in &m_incomings {
+        if label == &h.label || label == &l.label {
+            continue;
+        }
+        let pi = match ir.block_map.get(label).copied() {
+            Some(pi) => pi,
+            // The parser names an unlabeled entry block "entry", while phi
+            // references use LLVM's implicit numeric label. The entry is
+            // the only unlabeled block in textual IR, so resolve a numeric
+            // unknown label to block 0; the branch/guard validation below
+            // still has to confirm the shape.
+            None if ir.blocks.first().map(|b| b.label.as_str()) == Some("entry")
+                && label.chars().all(|c| c.is_ascii_digit()) =>
+            {
+                0
+            }
+            None => return Err("early-exit search: merge incoming from an unknown block".into()),
+        };
+        let p = &ir.blocks[pi];
+        let p_br = p
+            .instructions
+            .iter()
+            .rev()
+            .find(|i| i.opcode == "br")
+            .ok_or("early-exit search: merge predecessor has no branch")?;
+        let p_succs = block_successors(p);
+        let p_cond = strip_type(&p_br.operands[0]);
+        // icmp operands keep the comparison token in the first operand
+        // ("eq i64 %1"), so compare on each operand's value token.
+        let value_token = |o: &str| {
+            o.split_whitespace()
+                .last()
+                .unwrap_or(o)
+                .trim_end_matches(')')
+                .to_string()
+        };
+        let guard_matches = p.instructions.iter().any(|inst| {
+            inst.opcode == "icmp"
+                && inst.result.as_deref() == Some(p_cond.as_str())
+                && inst
+                    .operands
+                    .iter()
+                    .any(|o| value_token(o) == sentinel_str)
+                && inst
+                    .operands
+                    .iter()
+                    .any(|o| {
+                        parse_int_constant(&value_token(o))
+                            .map(|v| v == 0)
+                            .unwrap_or(false)
+                    })
+        });
+        let zero_incoming = parse_int_constant(&strip_type(value))
+            .map(|v| v == 0)
+            .unwrap_or(false);
+        if !(p_succs.contains(&m.label) && guard_matches && zero_incoming) {
+            return Err("early-exit search: unsupported extra merge predecessor".into());
+        }
     }
 
     // 4. Pre-header blocks (everything before H, except the merge).
@@ -2254,8 +2320,25 @@ fn lower_early_exit_search(
         .map_err(|e| format!("early-exit search: {:?}", e))?;
     value_map.insert(counter_name, counter_extract);
     value_map.insert(merge_result, index_extract);
+
+    // Emit the merge's post-processing and return its result; a bare
+    // `ret phi` resolves straight back to the index extract.
+    for inst in &m.instructions {
+        if inst.opcode == "phi" || inst.opcode == "ret" {
+            continue;
+        }
+        emit_instruction(inst, builder, value_map, &ir.params, span)?;
+    }
+    let ret_node = get_node_id(
+        &strip_type(&ret_operand),
+        value_map,
+        &ir.params,
+        builder,
+        None,
+    )
+    .ok_or("early-exit search: cannot resolve the merge return value")?;
     builder
-        .return_value(index_extract, span)
+        .return_value(ret_node, span)
         .map_err(|e| format!("early-exit search return: {:?}", e))?;
     Ok(())
 }

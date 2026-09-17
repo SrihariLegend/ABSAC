@@ -533,9 +533,13 @@ Gate 6A-v9:  PASSED — fresh held-out generation for the position-
              native-clean (13 native rewrites in the corpus); compound
              predicates and sentinel-mismatched sub-range searches
              recognize but never rewrite; 0 false positives /
-             0 unsafe candidates / 0 unsafe rewrites; native 24 clean /
-             0 mismatched / 5 lower-refused. Cumulative native sweep:
-             185 clean / 0 mismatched / 66 lower-refused, 54 rewrites.
+             0 unsafe candidates / 0 unsafe rewrites; native 25 clean /
+             0 mismatched / 4 lower-refused. Follow-up (same day):
+             runtime-extent search lowering (guarded entry, header/
+             latch search, umin-clamped merge) lands fail-closed with
+             the pointer preserved — v8 p14/v9 p16 move to native-clean,
+             no rewrite. Cumulative native sweep: 187 clean /
+             0 mismatched / 64 lower-refused, 54 rewrites.
              See docs/GATE6A_V9_RESULTS.md.
 
 Gate 6B:     PASSED — the fusion corpus was sealed before automation

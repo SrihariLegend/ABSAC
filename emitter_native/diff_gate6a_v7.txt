@@ -21,5 +21,5 @@ NATIVE n09_atomic_fetch_add: lower_refused (unsupported instruction: atomicrmw (
 NATIVE n10_may_alias_store_const: lower_refused (TypeMismatch { node: NodeId(5), expected: Pointer { pointee: Unit, mutable: true }, actual: Integer { width: I16, signed: false, overflow: Wrapping } })
 NATIVE n11_two_arrays_const: clean cases=48 rewrites=0
 NATIVE n12_nonterminating_reverse: lower_refused (function has too few blocks for the lowerer)
-NATIVE n13_early_exit_global_const: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: n13_early_exit_global_const)
+NATIVE n13_early_exit_global_const: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: n13_early_exit_global_const (early-exit search: no header/latch/merge triple))
 EMITC_SUMMARY clean=19 mismatched=0 lower_refused=5 harness_errors=0

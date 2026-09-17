@@ -19,5 +19,5 @@ NATIVE n08_atomic_load: lower_refused (unsupported: atomic load (ordering semant
 NATIVE n09_may_alias_store: lower_refused (TypeMismatch { node: NodeId(8), expected: Pointer { pointee: Unit, mutable: true }, actual: Integer { width: I16, signed: false, overflow: Wrapping } })
 NATIVE n10_two_arrays_const: clean cases=48 rewrites=0
 NATIVE n11_nonterminating_reverse: lower_refused (function has too few blocks for the lowerer)
-NATIVE n12_early_exit_global: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: n12_early_exit_global)
+NATIVE n12_early_exit_global: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: n12_early_exit_global (early-exit search: no header/latch/merge triple))
 EMITC_SUMMARY clean=17 mismatched=0 lower_refused=5 harness_errors=0
