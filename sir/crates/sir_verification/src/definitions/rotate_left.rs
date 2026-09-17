@@ -1,20 +1,17 @@
 use sir_generation::candidate::Candidate;
+use sir_semantics::structure::StructuralDescription;
 use sir_transform::ids::{DefinitionId, VariableId};
 use sir_types::ConstantData;
 
-use crate::obligation::ProofObligation;
-use crate::registry::TransformationDefinition;
+use crate::definitions::rotate_bind::{bind_rotate, RotateDir};
+use crate::obligation::{FiniteDomain, ProofObligation, VariableKind, VariableSpec};
+use crate::registry::{TransformationDefinition, VerificationStatus};
 use crate::semantic::expression::SemanticExpression;
 use crate::semantic::theorem::Theorem;
 
-/// The RotateLeft transformation: `(x << k) | (x >> (64 - k))` is a left
-/// rotation of `x` by `k`.
-///
-/// Theorem (over 64-bit words):
-///   RotateLeft(x, k) ≡ Or(Shl(x, k), Shr(x, Sub(64, k)))
-///
-/// The semantic concept is the circular permutation; the recipe selects the
-/// `rol` instruction only after this identity is proven.
+/// `(x << k) | (x >> (W - k))` is a left rotation by a CONSTANT `k`.
+/// Variable amounts are not bound here: their definedness (k < W) is the
+/// separate DefinednessCertificate gate.
 pub struct RotateLeftDefinition {
     id: DefinitionId,
 }
@@ -26,15 +23,14 @@ impl RotateLeftDefinition {
 }
 
 impl TransformationDefinition for RotateLeftDefinition {
-    fn verification_status(&self) -> crate::registry::VerificationStatus {
-        // STUB (quarantined, advisor P0 audit): the obligation is a
-        // hardcoded or tautological theorem template that never binds
-        // the actual source/candidate operands — changing the region's
-        // constant, swapping operands, or changing widths cannot cause
-        // rejection. This definition may not authorize a rewrite until
-        // its obligation is built from the actual pair and discharged
-        // concretely.
-        crate::registry::VerificationStatus::Stub
+    fn verification_status(&self) -> VerificationStatus {
+        // HOLD (2026-09-17): the binding below is concrete and
+        // role-verified, but candidate generation produces ZERO
+        // candidates for CircularPermutation today (even for constant
+        // amounts), so lifting the status would authorize nothing. The
+        // upstream generation/authorization gap must be fixed first;
+        // this stays Stub so the quarantine boundary is unchanged.
+        VerificationStatus::Stub
     }
 
     fn id(&self) -> DefinitionId {
@@ -50,35 +46,98 @@ impl TransformationDefinition for RotateLeftDefinition {
     }
 
     fn obligation(&self, candidate: &Candidate) -> ProofObligation {
-        let x = SemanticExpression::Variable(VariableId::new(0));
-        let k = SemanticExpression::Variable(VariableId::new(1));
-        let width = SemanticExpression::Constant(ConstantData::u64(64));
+        self.unbound_obligation(candidate)
+    }
 
-        let candidate_expr = SemanticExpression::BitwiseOr(
+    fn obligation_bound(
+        &self,
+        candidate: &Candidate,
+        _function: &sir_nodes::Function,
+    ) -> ProofObligation {
+        self.unbound_obligation(candidate)
+    }
+
+    fn obligation_with_roles(
+        &self,
+        candidate: &Candidate,
+        function: &sir_nodes::Function,
+        structural: &StructuralDescription,
+    ) -> ProofObligation {
+        self.bind(candidate, function, structural)
+            .unwrap_or_else(|| self.unbound_obligation(candidate))
+    }
+}
+
+impl RotateLeftDefinition {
+    fn bind(
+        &self,
+        candidate: &Candidate,
+        function: &sir_nodes::Function,
+        structural: &StructuralDescription,
+    ) -> Option<ProofObligation> {
+        let bound = bind_rotate(
+            function,
+            &candidate.authorization.region_nodes,
+            structural,
+            RotateDir::Left,
+        )?;
+        let x = VariableId::new(bound.operand.as_u64());
+        let k = ConstantData::u64(bound.amount);
+        let complement = ConstantData::u64(bound.width as u64 - bound.amount);
+        let lhs = SemanticExpression::RotateLeft(
+            Box::new(SemanticExpression::Variable(x)),
+            Box::new(SemanticExpression::Constant(k.clone())),
+        );
+        let rhs = SemanticExpression::BitwiseOr(
             Box::new(SemanticExpression::ShiftLeft(
-                Box::new(x.clone()),
-                Box::new(k.clone()),
+                Box::new(SemanticExpression::Variable(x)),
+                Box::new(SemanticExpression::Constant(k)),
             )),
             Box::new(SemanticExpression::ShiftRight(
-                Box::new(x.clone()),
-                Box::new(SemanticExpression::Subtract(
-                    Box::new(width),
-                    Box::new(k.clone()),
-                )),
+                Box::new(SemanticExpression::Variable(x)),
+                Box::new(SemanticExpression::Constant(complement)),
             )),
         );
+        Some(self.obligation_with(
+            candidate,
+            Theorem::new(lhs, rhs),
+            Some(FiniteDomain {
+                variables: vec![VariableSpec {
+                    id: x,
+                    kind: VariableKind::BitVector {
+                        width: bound.width,
+                    },
+                }],
+            }),
+        ))
+    }
 
+    fn unbound_obligation(&self, candidate: &Candidate) -> ProofObligation {
+        let v = VariableId::new(u64::MAX);
+        self.obligation_with(
+            candidate,
+            Theorem::new(
+                SemanticExpression::Variable(v),
+                SemanticExpression::Constant(ConstantData::u64(0)),
+            ),
+            None,
+        )
+    }
+
+    fn obligation_with(
+        &self,
+        candidate: &Candidate,
+        theorem: Theorem,
+        domain: Option<FiniteDomain>,
+    ) -> ProofObligation {
         ProofObligation {
             id: sir_transform::ids::ObligationId::new(0),
             region: candidate.region,
-            definition: self.id,
             candidate: candidate.id,
-            theorem: Theorem::new(
-                SemanticExpression::RotateLeft(Box::new(x), Box::new(k)),
-                candidate_expr,
-            ),
+            definition: self.id,
+            theorem,
             assumptions: vec![],
-            domain: None,
+            domain,
         }
     }
 }

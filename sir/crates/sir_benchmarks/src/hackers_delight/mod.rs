@@ -335,8 +335,18 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "reverse_bits",
                 category: "Hacker's Delight",
                 input_desc: "swap adjacent bits, then pairs, then nibbles...",
-                expected: ExpectedKnowledge::NonOptimizable {
-                    reason: "BitReverse definition is Stub-quarantined: obligation is a free-variable template",
+                // UNQUARANTINED (2026-09-17): BitReverse binds the
+                // recognized BitPermutation role (operand, perm_width,
+                // type_width) and the concrete solver proves
+                // `rbit(x) >> (type_width - perm_width) == <reversed low
+                // perm_width bits>`; the recipe selects `rbit`.
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "BitPermutation",
+                    concepts: vec!["BitPermutation"],
+                    representation: "BitPermutation",
+                    candidate: "BitReverse",
+                    proof: "ConcreteSolverChecked: rbit(x) >> (32-8) == source pattern",
+                    rewrite: "swap-network pattern -> rbit(x) >> 24",
                 },
             },
             func: || {
@@ -511,18 +521,23 @@ mod tests {
             kinds
         );
 
-        // HD005 (reverse bits): QUARANTINED (Stub, same audit) — rbit
-        // recipe backed by BitReverseDefinition (Stub) must abstain.
+        // HD005 (reverse bits): ConcreteSolverChecked since 2026-09-17 —
+        // the role binds operand/perm_width/type_width and the solver
+        // proves the alignment identity, so the rewrite must fire and
+        // select `rbit`.
         let hd005 = defs
             .iter()
             .find(|d| d.spec.id == "HD005")
             .expect("HD005 present");
         let res = optimizer.optimize(&(hd005.func)());
-        assert!(res.rewrites_applied == 0, "HD005 must abstain (Stub quarantine)");
+        assert_eq!(
+            res.rewrites_applied, 1,
+            "HD005 must rewrite once BitReverse is concrete-solver checked"
+        );
         let kinds = node_kinds(&res.function);
         assert!(
-            !kinds.iter().any(|k| k == "Intrinsic(rbit)"),
-            "HD005 must not emit rbit while quarantined: {:?}",
+            kinds.iter().any(|k| k == "Intrinsic(rbit)"),
+            "HD005 must emit rbit: {:?}",
             kinds
         );
     }

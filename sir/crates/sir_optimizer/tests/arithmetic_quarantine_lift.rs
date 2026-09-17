@@ -130,3 +130,43 @@ fn divide_power_of_two_stays_quarantined() {
         "DivideShift is still Stub-quarantined; it must not rewrite"
     );
 }
+
+/// Recorded blocker (2026-09-17): `CircularPermutation` regions infer the
+/// BitPermutation representation but produce ZERO candidates today —
+/// for constant AND variable amounts. Rotate definitions are therefore
+/// held Stub even though their bindings are concrete. When the
+/// generation/authorization gap is fixed, replace this with a rewrite +
+/// native-execution test.
+#[test]
+fn circular_permutation_generates_no_candidates_today() {
+    let mut b = Builder::new("rotl3", &[("x", Type::u32())], Type::u32());
+    let x = b.parameter_index(0).unwrap();
+    let three = b.constant(ConstantData::u32(3), Type::u32(), span());
+    let width = b.constant(ConstantData::u32(32), Type::u32(), span());
+    let diff = b.sub(width, three, span()).unwrap();
+    let shl = b.shl(x, three, span()).unwrap();
+    let shr = b.shr(x, diff, span()).unwrap();
+    let res = b.bit_or(shl, shr, span()).unwrap();
+    b.return_value(res, span()).unwrap();
+    let func = b.build();
+    let result = optimize(&func);
+    assert_eq!(
+        result.iterations_detail[0].candidates_generated, 0,
+        "constant-amount rotation candidate generation is the recorded blocker"
+    );
+    assert_eq!(result.rewrites_applied, 0, "held Stub definitions authorize nothing");
+
+    // Variable amount (HD003 shape): same zero-candidate outcome.
+    let mut b = Builder::new("rotl_k", &[("x", Type::u32()), ("k", Type::u32())], Type::u32());
+    let x = b.parameter_index(0).unwrap();
+    let k = b.parameter_index(1).unwrap();
+    let width = b.constant(ConstantData::u32(32), Type::u32(), span());
+    let diff = b.sub(width, k, span()).unwrap();
+    let shl = b.shl(x, k, span()).unwrap();
+    let shr = b.shr(x, diff, span()).unwrap();
+    let res = b.bit_or(shl, shr, span()).unwrap();
+    b.return_value(res, span()).unwrap();
+    let result = optimize(&b.build());
+    assert_eq!(result.iterations_detail[0].candidates_generated, 0);
+    assert_eq!(result.rewrites_applied, 0);
+}

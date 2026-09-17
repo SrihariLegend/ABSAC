@@ -253,8 +253,24 @@ fn lower(
             }
             Ok(acc)
         }
-        // Collections, popcounts, bit scans and byte/bit reversals are
-        // not modeled by this lowering yet (bit reversal is next).
+        // Full-width bit reversal at the variable's declared width.
+        SemanticExpression::BitReverse(inner) => {
+            let x = lower(inner, bv, widths, vars, expected)?;
+            let w = bv.width(x);
+            let mut acc = bv.zero(w);
+            for i in 0..w {
+                let shift = bv.constant(u64::from(i), w);
+                let bit = bv.lshr(x, shift);
+                let one = bv.one(w);
+                let bit = bv.and(bit, one);
+                let out = bv.constant(u64::from(w - 1 - i), w);
+                let placed = bv.shl(bit, out);
+                acc = bv.or(acc, placed);
+            }
+            Ok(acc)
+        }
+        // Collections, popcounts and bit scans are not modeled by this
+        // lowering yet.
         _ => Err(()),
     }
 }

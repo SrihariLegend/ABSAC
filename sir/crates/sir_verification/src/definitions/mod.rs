@@ -16,6 +16,7 @@ pub mod parity;
 pub mod popcount;
 pub mod rotate_left;
 pub mod rotate_right;
+pub mod rotate_bind;
 pub mod set_lowest_clear_bit;
 pub mod shift_mask;
 pub mod trailing_zero_count;

@@ -479,3 +479,146 @@ fn byte_swap_without_the_role_cannot_be_proven() {
         VerificationResult::Proven(_)
     ));
 }
+
+fn bit_reverse_structure(
+    perm_width: u32,
+    type_width: u32,
+) -> sir_semantics::structure::StructuralDescription {
+    use sir_semantics::structure::StructuralDescription;
+    use sir_transform::roles::{PermutationKind, RegionRoles};
+    use sir_transform::structures::SourceStructure;
+    StructuralDescription::new(
+        RegionId::new(0),
+        SourceStructure::BitPermutation {
+            width: perm_width as usize,
+        },
+    )
+    .with_roles(RegionRoles::BitPermutation {
+        operand: sir_types::NodeId::new(0),
+        result: sir_types::NodeId::new(1),
+        kind: PermutationKind::BitReverse {
+            perm_width,
+            type_width,
+        },
+    })
+}
+
+#[test]
+fn bound_bit_reverse_is_concrete_solver_checked() {
+    use sir_verification::definitions::bit_reverse::BitReverseDefinition;
+    let def = BitReverseDefinition::new(DefinitionId::new(313));
+    let func = sir_nodes::Function::new("br", Type::u32());
+    let structural = bit_reverse_structure(8, 32);
+    let obligation =
+        def.obligation_with_roles(&candidate(vec![], 313), &func, &structural);
+    assert!(obligation.domain.is_some());
+    match Verifier::new().verify(&obligation, &context()) {
+        VerificationResult::Proven(proof) => {
+            assert_eq!(proof.backend, VerificationBackend::ConcreteSolver);
+            assert_eq!(proof.assurance, VerificationStatus::ConcreteSolverChecked);
+        }
+        other => panic!("expected a concrete-solver proof, got {other:?}"),
+    }
+}
+
+/// Build `Or(Shl(x,k), Shr(x, W-k))` (left) or the mirror (right), plus
+/// the structural role the recognizer would attach.
+fn rotate_structure_and_function(
+    left: bool,
+    constant_amount: bool,
+) -> (
+    sir_nodes::Function,
+    sir_semantics::structure::StructuralDescription,
+    Vec<sir_types::NodeId>,
+) {
+    use sir_semantics::structure::StructuralDescription;
+    use sir_transform::roles::{PermutationKind, RegionRoles, ShiftDirection};
+    use sir_transform::structures::SourceStructure;
+    let ty = Type::u32();
+    let mut b = Builder::new(
+        if left { "rotl" } else { "rotr" },
+        &[("x", ty.clone()), ("k", ty.clone())],
+        ty.clone(),
+    );
+    let x = b.parameter_index(0).unwrap();
+    let k_param = b.parameter_index(1).unwrap();
+    let three = b.constant(ConstantData::u32(3), ty.clone(), span());
+    let width = b.constant(ConstantData::u32(32), ty.clone(), span());
+    let amount = if constant_amount { three } else { k_param };
+    let diff = b.sub(width, amount, span()).unwrap();
+    let (a, c) = if left {
+        (
+            b.shl(x, amount, span()).unwrap(),
+            b.shr(x, diff, span()).unwrap(),
+        )
+    } else {
+        (
+            b.shr(x, amount, span()).unwrap(),
+            b.shl(x, diff, span()).unwrap(),
+        )
+    };
+    let root = b.bit_or(a, c, span()).unwrap();
+    b.return_value(root, span()).unwrap();
+    let func = b.build();
+    let direction = if left {
+        ShiftDirection::Left
+    } else {
+        ShiftDirection::Right
+    };
+    let structural = StructuralDescription::new(
+        RegionId::new(0),
+        SourceStructure::BitPermutation { width: 32 },
+    )
+    .with_roles(RegionRoles::BitPermutation {
+        operand: x,
+        result: root,
+        kind: PermutationKind::Circular { direction, amount },
+    });
+    (func, structural, vec![root, x])
+}
+
+#[test]
+fn constant_rotations_bind_but_stay_quarantined() {
+    use sir_verification::definitions::rotate_left::RotateLeftDefinition;
+    use sir_verification::definitions::rotate_right::RotateRightDefinition;
+    for left in [true, false] {
+        let (func, structural, nodes) = rotate_structure_and_function(left, true);
+        let def: Box<dyn TransformationDefinition> = if left {
+            Box::new(RotateLeftDefinition::new(DefinitionId::new(310)))
+        } else {
+            Box::new(RotateRightDefinition::new(DefinitionId::new(311)))
+        };
+        let id = if left { 310 } else { 311 };
+        let obligation = def.obligation_with_roles(&candidate(nodes, id), &func, &structural);
+        assert!(
+            obligation.domain.is_some(),
+            "constant rotation must bind (left={left})"
+        );
+        // The definitions are HELD Stub: no CircularPermutation
+        // candidates are generated today, so the quarantine must still
+        // block even a correctly bound obligation.
+        assert!(
+            !matches!(
+                Verifier::new().verify(&obligation, &context()),
+                VerificationResult::Proven(_)
+            ),
+            "left={left}: the held definition must not authorize anything"
+        );
+    }
+}
+
+#[test]
+fn variable_amount_rotation_cannot_be_bound() {
+    use sir_verification::definitions::rotate_left::RotateLeftDefinition;
+    let (func, structural, nodes) = rotate_structure_and_function(true, false);
+    let def = RotateLeftDefinition::new(DefinitionId::new(310));
+    let obligation = def.obligation_with_roles(&candidate(nodes, 310), &func, &structural);
+    assert!(
+        obligation.domain.is_none(),
+        "variable amounts are the DefinednessCertificate gate, not this binding"
+    );
+    assert!(!matches!(
+        Verifier::new().verify(&obligation, &context()),
+        VerificationResult::Proven(_)
+    ));
+}

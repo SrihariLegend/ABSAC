@@ -559,3 +559,58 @@ fn rewritten_byte_swap_executes_natively() {
     let got: Vec<&str> = stdout.lines().collect();
     assert_eq!(got, vec!["17459", "48042", "65280"]);
 }
+
+/// HD005 shape: reverse the low 8 bits of a u32 with a three-stage swap
+/// network.
+fn reverse_bits_8_function() -> sir_nodes::Function {
+    let ty = Type::u32();
+    let mut b = Builder::new("reverse_bits_8", &[("x", ty.clone())], ty.clone());
+    let x = b.parameter_index(0).unwrap();
+    let c = |v: u32| sir_types::ConstantData::u32(v);
+    let m1 = b.constant(c(0x55), ty.clone(), Span::unknown());
+    let m2 = b.constant(c(0x33), ty.clone(), Span::unknown());
+    let m3 = b.constant(c(0x0F), ty.clone(), Span::unknown());
+    let one = b.constant(c(1), ty.clone(), Span::unknown());
+    let two = b.constant(c(2), ty.clone(), Span::unknown());
+    let four = b.constant(c(4), ty.clone(), Span::unknown());
+    let stage = |b: &mut Builder, x, mask, amount| {
+        let shr = b.shr(x, amount, Span::unknown()).unwrap();
+        let low = b.bit_and(shr, mask, Span::unknown()).unwrap();
+        let and = b.bit_and(x, mask, Span::unknown()).unwrap();
+        let shl = b.shl(and, amount, Span::unknown()).unwrap();
+        b.bit_or(low, shl, Span::unknown()).unwrap()
+    };
+    let x1 = stage(&mut b, x, m1, one);
+    let x2 = stage(&mut b, x1, m2, two);
+    let res = stage(&mut b, x2, m3, four);
+    b.return_value(res, Span::unknown()).unwrap();
+    b.build()
+}
+
+#[test]
+fn rewritten_bit_reverse_executes_natively() {
+    if !clang_available() {
+        return;
+    }
+    let optimized = optimize_suppressed(&reverse_bits_8_function());
+    assert_eq!(
+        optimized.rewrites_applied, 1,
+        "the bit-reverse rewrite must be authorized"
+    );
+    let emitted = sir_benchmarks::emit::emit_c(&optimized.function);
+    assert!(
+        emitted.contains("__sir_rbit"),
+        "the rewrite must select the rbit intrinsic:\n{emitted}"
+    );
+    let main = "    printf(\"%llu\\n\", (unsigned long long)reverse_bits_8(0x01u));\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)reverse_bits_8(0x0Fu));\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)reverse_bits_8(0xA5u));\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)reverse_bits_8(0u));\n";
+    let Some(stdout) = compile_and_run_emitted(&emitted, main, "reverse_bits_8") else {
+        return;
+    };
+    // reverse8(0x01)=0x80=128, reverse8(0x0F)=0xF0=240,
+    // reverse8(0xA5)=0xA5=165 (palindrome), 0 -> 0.
+    let got: Vec<&str> = stdout.lines().collect();
+    assert_eq!(got, vec!["128", "240", "165", "0"]);
+}
