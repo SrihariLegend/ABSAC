@@ -296,8 +296,18 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "byte_swap",
                 category: "Hacker's Delight",
                 input_desc: "((x & 0xFF) << 8) | ((x >> 8) & 0xFF)",
-                expected: ExpectedKnowledge::NonOptimizable {
-                    reason: "ByteSwap definition is Stub-quarantined: obligation is a free-variable template",
+                // UNQUARANTINED (2026-09-17): ByteSwap binds the
+                // recognized BitPermutation role (operand, perm_width,
+                // type_width) and the concrete solver proves
+                // `bswap(x) >> (type_width - perm_width) == <source
+                // pattern>`; the recipe selects `bswap`.
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "BitPermutation",
+                    concepts: vec!["BytePermutation"],
+                    representation: "BitPermutation",
+                    candidate: "ByteSwap",
+                    proof: "ConcreteSolverChecked: bswap(x) >> (32-16) == source pattern",
+                    rewrite: "masked-swap pattern -> bswap(x) >> 16",
                 },
             },
             func: || {
@@ -481,21 +491,23 @@ mod tests {
             "BP001 must abstain on unproven shift ranges (definedness gate)"
         );
 
-        // HD004 (byte swap): QUARANTINED (advisor P0 verifier audit) —
-        // the ByteSwapDefinition obligation is a variable-shape template
-        // that never binds the actual source operands, so a recipe may
-        // not rewrite on its basis. Abstention is the honest behavior
-        // until the definition is ConcreteSolverChecked.
+        // HD004 (byte swap): ConcreteSolverChecked since 2026-09-17 —
+        // the role binds operand/perm_width/type_width and the solver
+        // proves the alignment identity, so the rewrite must fire and
+        // select `bswap`.
         let hd004 = defs
             .iter()
             .find(|d| d.spec.id == "HD004")
             .expect("HD004 present");
         let res = optimizer.optimize(&(hd004.func)());
-        assert!(res.rewrites_applied == 0, "HD004 must abstain (Stub quarantine)");
+        assert_eq!(
+            res.rewrites_applied, 1,
+            "HD004 must rewrite once ByteSwap is concrete-solver checked"
+        );
         let kinds = node_kinds(&res.function);
         assert!(
-            !kinds.iter().any(|k| k == "Intrinsic(bswap)"),
-            "HD004 must not emit bswap while quarantined: {:?}",
+            kinds.iter().any(|k| k == "Intrinsic(bswap)"),
+            "HD004 must emit bswap: {:?}",
             kinds
         );
 

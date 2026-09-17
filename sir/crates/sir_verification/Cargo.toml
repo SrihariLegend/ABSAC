@@ -11,6 +11,7 @@ sir_transform = { path = "../sir_transform" }
 sir_generation = { path = "../sir_generation" }
 sir_nodes = { path = "../sir_nodes" }
 sir_mech = { path = "../sir_mech" }
+sir_semantics = { path = "../sir_semantics" }
 
 [dev-dependencies]
 sir_builder = { path = "../sir_builder" }

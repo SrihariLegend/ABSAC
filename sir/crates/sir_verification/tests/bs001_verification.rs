@@ -141,6 +141,7 @@ fn run_full_pipeline() -> (Verifier, Vec<(ProofObligation, VerificationResult)>)
         generator.database(),
         inference.context_database(),
         &func,
+        semantics.structural_database(),
     );
 
     assert!(

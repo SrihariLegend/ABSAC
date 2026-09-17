@@ -285,6 +285,7 @@ impl Verifier {
         candidates: &CandidateDatabase,
         contexts: &TransformationContextDatabase,
         function: &sir_nodes::Function,
+        structural: &sir_semantics::structure::StructuralDatabase,
     ) -> ProofObligationDatabase {
         let mut db = ProofObligationDatabase::new();
 
@@ -298,11 +299,18 @@ impl Verifier {
             // Find the first context this definition is applicable to
             for _ctx in ctx_list {
                 if let Some(def) = self.registry.find_for(candidate) {
-                    // Bind the obligation to the ACTUAL function version:
-                    // concrete definitions read their constants/widths
-                    // from the authorized region nodes; legacy/stub
+                    // Bind the obligation to the ACTUAL function version
+                    // and, when available, the recognized structural
+                    // roles of the candidate's region. Concrete
+                    // definitions read their constants/widths/operands
+                    // from those authorized facts; legacy/stub
                     // definitions fall back to their template.
-                    let mut obligation = def.obligation_bound(candidate, function);
+                    let mut obligation = match structural.region(candidate.region) {
+                        Some(description) => {
+                            def.obligation_with_roles(candidate, function, description)
+                        }
+                        None => def.obligation_bound(candidate, function),
+                    };
                     obligation.candidate = candidate.id;
                     obligation.definition = def.id();
                     db.insert(obligation);

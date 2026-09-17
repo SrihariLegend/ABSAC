@@ -417,3 +417,65 @@ fn unrelated_region_cannot_bind_a_mask_pattern() {
         VerificationResult::Proven(_)
     ));
 }
+
+fn byte_swap_structure(perm_width: u32, type_width: u32) -> sir_semantics::structure::StructuralDescription {
+    use sir_semantics::structure::StructuralDescription;
+    use sir_transform::roles::{PermutationKind, RegionRoles};
+    use sir_transform::structures::SourceStructure;
+    StructuralDescription::new(
+        RegionId::new(0),
+        SourceStructure::BitPermutation {
+            width: perm_width as usize,
+        },
+    )
+    .with_roles(RegionRoles::BitPermutation {
+        operand: sir_types::NodeId::new(0),
+        result: sir_types::NodeId::new(1),
+        kind: PermutationKind::ByteSwap {
+            perm_width,
+            type_width,
+        },
+    })
+}
+
+#[test]
+fn bound_byte_swap_is_concrete_solver_checked() {
+    use sir_verification::definitions::byte_swap::ByteSwapDefinition;
+    let def = ByteSwapDefinition::new(DefinitionId::new(312));
+    let func = sir_nodes::Function::new("bs", Type::u32());
+    let structural = byte_swap_structure(16, 32);
+    let obligation =
+        def.obligation_with_roles(&candidate(vec![], 312), &func, &structural);
+    assert!(
+        obligation.domain.is_some(),
+        "the recognized permutation role must bind"
+    );
+    match Verifier::new().verify(&obligation, &context()) {
+        VerificationResult::Proven(proof) => {
+            assert_eq!(proof.backend, VerificationBackend::ConcreteSolver);
+            assert_eq!(proof.assurance, VerificationStatus::ConcreteSolverChecked);
+        }
+        other => panic!("expected a concrete-solver proof, got {other:?}"),
+    }
+}
+
+#[test]
+fn byte_swap_without_the_role_cannot_be_proven() {
+    use sir_semantics::structure::StructuralDescription;
+    use sir_transform::structures::SourceStructure;
+    use sir_verification::definitions::byte_swap::ByteSwapDefinition;
+    let def = ByteSwapDefinition::new(DefinitionId::new(312));
+    let func = sir_nodes::Function::new("bs", Type::u32());
+    // Same source structure but no recognized BitPermutation role.
+    let structural = StructuralDescription::new(
+        RegionId::new(0),
+        SourceStructure::BitPermutation { width: 16 },
+    );
+    let obligation =
+        def.obligation_with_roles(&candidate(vec![], 312), &func, &structural);
+    assert!(obligation.domain.is_none());
+    assert!(!matches!(
+        Verifier::new().verify(&obligation, &context()),
+        VerificationResult::Proven(_)
+    ));
+}

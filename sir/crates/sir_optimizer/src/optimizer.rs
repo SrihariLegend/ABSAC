@@ -272,6 +272,7 @@ impl Optimizer {
             generator.database(),
             inference.context_database(),
             function,
+            semantics.structural_database(),
         );
         // Candidate generation is intentionally exploratory, but the
         // configured recipe registry is the execution/freeze boundary.

@@ -516,3 +516,46 @@ fn rewritten_mask_algebra_executes_natively() {
         assert_eq!(got, expected, "{name}: rewritten native results");
     }
 }
+
+/// HD004 shape: swap the low two bytes of a u32 via masks and shifts.
+fn byte_swap_16_function() -> sir_nodes::Function {
+    let ty = Type::u32();
+    let mut b = Builder::new("byte_swap_16", &[("x", ty.clone())], ty.clone());
+    let x = b.parameter_index(0).unwrap();
+    let mask = b.constant(sir_types::ConstantData::u32(0xFF), ty.clone(), Span::unknown());
+    let eight = b.constant(sir_types::ConstantData::u32(8), ty.clone(), Span::unknown());
+    let low = b.bit_and(x, mask, Span::unknown()).unwrap();
+    let low_shifted = b.shl(low, eight, Span::unknown()).unwrap();
+    let high = b.shr(x, eight, Span::unknown()).unwrap();
+    let high_masked = b.bit_and(high, mask, Span::unknown()).unwrap();
+    let res = b.bit_or(low_shifted, high_masked, Span::unknown()).unwrap();
+    b.return_value(res, Span::unknown()).unwrap();
+    b.build()
+}
+
+#[test]
+fn rewritten_byte_swap_executes_natively() {
+    if !clang_available() {
+        return;
+    }
+    let optimized = optimize_suppressed(&byte_swap_16_function());
+    assert_eq!(
+        optimized.rewrites_applied, 1,
+        "the byte-swap rewrite must be authorized"
+    );
+    let emitted = sir_benchmarks::emit::emit_c(&optimized.function);
+    assert!(
+        emitted.contains("__builtin_bswap32"),
+        "the rewrite must select the bswap intrinsic:\n{emitted}"
+    );
+    let main = "    printf(\"%llu\\n\", (unsigned long long)byte_swap_16(0x11223344u));\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)byte_swap_16(0xAABBu));\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)byte_swap_16(0xFFu));\n";
+    let Some(stdout) = compile_and_run_emitted(&emitted, main, "byte_swap_16") else {
+        return;
+    };
+    // Low two bytes swapped, high bytes dropped:
+    // 0x3344 -> 0x4433 (17459), 0xAABB -> 0xBBAA (48042), 0xFF -> 0xFF00 (65280).
+    let got: Vec<&str> = stdout.lines().collect();
+    assert_eq!(got, vec!["17459", "48042", "65280"]);
+}

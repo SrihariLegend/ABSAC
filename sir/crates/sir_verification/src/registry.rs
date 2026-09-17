@@ -56,6 +56,20 @@ pub trait TransformationDefinition {
     ) -> ProofObligation {
         self.obligation(candidate)
     }
+
+    /// Construct the obligation with the recognized structural roles
+    /// available (the authorization's semantic description of the
+    /// region). Families whose binding comes from a recognized role
+    /// (bit permutations, scans, collections) override this; the default
+    /// keeps the function-only path.
+    fn obligation_with_roles(
+        &self,
+        candidate: &Candidate,
+        function: &sir_nodes::Function,
+        _structural: &sir_semantics::structure::StructuralDescription,
+    ) -> ProofObligation {
+        self.obligation_bound(candidate, function)
+    }
 }
 
 /// Explicit assurance level of a transformation definition's proof

@@ -231,8 +231,30 @@ fn lower(
             let hi = bv.shl(x, w_minus_k);
             Ok(bv.or(lo, hi))
         }
+        // Full-width byte-order reversal at the variable's declared
+        // width (SMT-level construction from shifts/masks; the partial
+        // cases add an explicit right shift in the obligation).
+        SemanticExpression::ByteSwap(inner) => {
+            let x = lower(inner, bv, widths, vars, expected)?;
+            let w = bv.width(x);
+            if w % 8 != 0 {
+                return Err(());
+            }
+            let bytes = w / 8;
+            let mut acc = bv.zero(w);
+            for i in 0..bytes {
+                let shift = bv.constant(u64::from(8 * i), w);
+                let byte = bv.lshr(x, shift);
+                let mask = bv.constant(0xFF, w);
+                let byte = bv.and(byte, mask);
+                let out = bv.constant(u64::from(8 * (bytes - 1 - i)), w);
+                let placed = bv.shl(byte, out);
+                acc = bv.or(acc, placed);
+            }
+            Ok(acc)
+        }
         // Collections, popcounts, bit scans and byte/bit reversals are
-        // not modeled by this lowering yet.
+        // not modeled by this lowering yet (bit reversal is next).
         _ => Err(()),
     }
 }
