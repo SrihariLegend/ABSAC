@@ -77,3 +77,15 @@ Full workspace: **603 passed / 0 failed**.
 - `gate6a_run` on the sealed v3 and v5 corpora: `GATE6A_VERDICT PASS`
   (v4 remains FAIL, its recorded corpus-classification defect).
 - Full workspace suite: 603/0.
+
+## Sanitizer-instrumented differential (2026-09-17, follow-up)
+
+The native bridge now has a stricter mode: `emit_c_diff --sanitize`
+compiles the reference/emitted pair with
+`-fsanitize=address,undefined -fno-sanitize-recover=all` and reports any
+diagnostic as a violation. On the full corpus set — v2–v11 plus
+h3/h4/h4b/h4c/d4, 48 cases each — the result is
+**223 clean / 0 mismatched / 76 lower-refused / 0 sanitizer
+violations** (`emitter_native/sanitize/*.txt`). The emitted C,
+including every applied rewrite, is free of ASan/UBSan diagnostics
+under this mode.

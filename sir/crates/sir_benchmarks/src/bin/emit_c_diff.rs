@@ -294,6 +294,7 @@ fn optimize(func: &Function) -> sir_optimizer::OptimizationResult {
 enum Outcome {
     Clean { cases: usize, rewrites: usize },
     Mismatch { cases: usize, mismatches: usize, rewrites: usize },
+    Sanitizer { reason: String },
     Refused { reason: String },
     HarnessError { reason: String },
 }
@@ -303,6 +304,7 @@ fn run_function(
     name: &str,
     cases: usize,
     workdir: &Path,
+    sanitize: bool,
 ) -> Outcome {
     let func = match lower_function(ll, name) {
         Ok(f) => f,
@@ -353,17 +355,27 @@ fn run_function(
         };
     }
 
-    let compile = Command::new("clang")
-        .args([
-            "-O1",
-            "-w",
-            "-o",
-            exe_path.to_str().unwrap(),
-            driver_path.to_str().unwrap(),
-            emitted_path.to_str().unwrap(),
-            ref_path.to_str().unwrap(),
-        ])
-        .output();
+    let mut clang = Command::new("clang");
+    clang.args([
+        "-O1",
+        "-w",
+        "-o",
+        exe_path.to_str().unwrap(),
+        driver_path.to_str().unwrap(),
+        emitted_path.to_str().unwrap(),
+        ref_path.to_str().unwrap(),
+    ]);
+    if sanitize {
+        // Native assurance hardening: run the ref/emitted pair under
+        // ASan+UBSan with no recovery, so undefined behaviour aborts and
+        // is reported instead of silently matching a wrong result.
+        clang.args([
+            "-fsanitize=address,undefined",
+            "-fno-sanitize-recover=all",
+            "-g",
+        ]);
+    }
+    let compile = clang.output();
     let compile = match compile {
         Ok(o) => o,
         Err(e) => {
@@ -393,6 +405,24 @@ fn run_function(
         }
     };
     let stdout = String::from_utf8_lossy(&run.stdout).to_string();
+    if sanitize {
+        let stderr = String::from_utf8_lossy(&run.stderr).to_string();
+        if stderr.contains("runtime error:")
+            || stderr.contains("AddressSanitizer")
+            || stderr.contains("UndefinedBehaviorSanitizer")
+        {
+            let reason = stderr
+                .lines()
+                .find(|l| {
+                    l.contains("runtime error:")
+                        || l.contains("AddressSanitizer")
+                        || l.contains("UndefinedBehaviorSanitizer")
+                })
+                .unwrap_or("sanitizer report")
+                .to_string();
+            return Outcome::Sanitizer { reason };
+        }
+    }
     let summary = stdout
         .lines()
         .find(|l| l.starts_with("EMITDIFF "))
@@ -430,13 +460,16 @@ fn run_function(
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        eprintln!("usage: emit_c_diff <corpus.ll> [--cases N] [--workdir DIR] [--function NAME]");
+        eprintln!(
+            "usage: emit_c_diff <corpus.ll> [--cases N] [--workdir DIR] [--function NAME] [--sanitize]"
+        );
         std::process::exit(2);
     }
     let corpus = &args[1];
     let mut cases = 24usize;
     let mut workdir = std::env::temp_dir().join("emit_c_diff");
     let mut only: Option<String> = None;
+    let mut sanitize = false;
     let mut i = 2;
     while i < args.len() {
         match args[i].as_str() {
@@ -451,6 +484,10 @@ fn main() {
             "--function" if i + 1 < args.len() => {
                 only = Some(args[i + 1].clone());
                 i += 2;
+            }
+            "--sanitize" => {
+                sanitize = true;
+                i += 1;
             }
             other => {
                 eprintln!("unknown argument: {other}");
@@ -471,13 +508,14 @@ fn main() {
     let mut mismatched = 0usize;
     let mut refused = 0usize;
     let mut errors = 0usize;
+    let mut violations = 0usize;
     for name in function_names(&ll) {
         if let Some(only) = &only {
             if &name != only {
                 continue;
             }
         }
-        match run_function(&ll, &name, cases, &workdir) {
+        match run_function(&ll, &name, cases, &workdir, sanitize) {
             Outcome::Clean { cases, rewrites } => {
                 println!("NATIVE {name}: clean cases={cases} rewrites={rewrites}");
                 clean += 1;
@@ -496,14 +534,26 @@ fn main() {
                 println!("NATIVE {name}: lower_refused ({reason})");
                 refused += 1;
             }
+            Outcome::Sanitizer { reason } => {
+                println!("NATIVE {name}: SANITIZER ({reason})");
+                violations += 1;
+            }
             Outcome::HarnessError { reason } => {
                 println!("NATIVE {name}: HARNESS_ERROR ({reason})");
                 errors += 1;
             }
         }
     }
+    if sanitize {
+        println!("# sanitize=address,undefined");
+        println!("EMITC_SANITIZE violations={violations}");
+    }
     println!(
         "EMITC_SUMMARY clean={clean} mismatched={mismatched} lower_refused={refused} harness_errors={errors}"
     );
-    std::process::exit(if mismatched == 0 && errors == 0 { 0 } else { 1 });
+    std::process::exit(if mismatched == 0 && errors == 0 && violations == 0 {
+        0
+    } else {
+        1
+    });
 }

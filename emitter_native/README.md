@@ -139,3 +139,16 @@ cd sir
 cargo run -q -p sir_benchmarks --bin emit_c_diff -- ../gate6a/v5_corpus.ll --cases 48
 cargo run -q -p sir_benchmarks --bin emit_c_diff -- ../h4c/tier_b.ll --cases 24
 ```
+
+## Sanitizer-instrumented differential (2026-09-17)
+
+`emit_c_diff --sanitize` compiles the reference/emitted pair with
+`-fsanitize=address,undefined -fno-sanitize-recover=all` and reports any
+sanitizer diagnostic as a violation (the run aborts on the first one).
+This checks the emitted C — including all rewrite code paths — for
+undefined behaviour and memory errors, not just output equality.
+
+Result on the full corpus set (`emitter_native/sanitize/*.txt`,
+48 cases each): **223 clean / 0 mismatched / 76 lower-refused /
+0 sanitizer violations**. Every native-clean kernel (and every applied
+rewrite) is free of ASan/UBSan diagnostics under this mode.
