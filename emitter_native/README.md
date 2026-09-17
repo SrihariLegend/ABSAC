@@ -171,3 +171,13 @@ also compiles and runs every builder-fixture path under ASan+UBSan:
 20/20 tests pass with no diagnostics, covering rotates, byte-swap,
 bit-reverse, mask algebra, zero-count conventions, bit-scan variants,
 early-exit searches and the sequential two-loop fixture.
+
+## Deep randomized campaign (2026-09-17)
+
+The standard table uses 48 cases per kernel. A deeper campaign
+(`emitter_native/deep/*.txt`) re-ran every corpus with **2000 cases per
+kernel**: 225 clean / **0 mismatched** / 74 lower-refused — no rare
+boundary mismatch appeared at ~40× the input coverage. The four newest
+generations (v8–v11) were additionally re-run with 500 cases under
+ASan+UBSan (`emitter_native/deep/*_sanitize.txt`):
+**0 sanitizer violations**, 0 mismatches.

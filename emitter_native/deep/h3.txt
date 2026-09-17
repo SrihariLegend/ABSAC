@@ -1,0 +1,13 @@
+NATIVE h3b01_any_or_global: clean cases=2000 rewrites=1
+NATIVE h3b02_any_gt_global: clean cases=2000 rewrites=1
+NATIVE h3b03_any_eq_global: clean cases=2000 rewrites=1
+NATIVE h3b04_any_lt_global: clean cases=2000 rewrites=1
+NATIVE h3b05_ptr_scan: clean cases=2000 rewrites=0
+NATIVE h3b06_volatile_load: clean cases=2000 rewrites=0
+NATIVE h3b07_store_in_loop: lower_refused (unsupported call: tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 16 dereferenceable(256) @h3_g_b, i8 %0, i64 256, i1 false), !tbaa !5)
+NATIVE h3b08_two_loops: lower_refused (unsupported: multiple loops sharing an exit CFG (nested/sequential loops) not modeled: h3b08_two_loops)
+NATIVE h3b09_reverse_scan: lower_refused (unsupported: rotated loop exit (back-edge on false) that is not the counted eq-next form (`icmp eq next, bound` with `next = carry + 1`); lowering it as SIR would invert or shift the iteration domain)
+NATIVE h3b10_early_exit: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: h3b10_early_exit (early-exit search: expected one merge phi))
+NATIVE h3b11_out_param: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: h3b11_out_param (early-exit search: no header/latch/merge triple))
+NATIVE h3b12_signed_lt_zero: clean cases=2000 rewrites=0
+EMITC_SUMMARY clean=7 mismatched=0 lower_refused=5 harness_errors=0

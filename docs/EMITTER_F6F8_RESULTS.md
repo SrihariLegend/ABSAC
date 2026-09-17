@@ -95,3 +95,9 @@ The same instrumentation was extended to the Gate 6B fusion harness
 fixture suite (`emit_c_native.rs` compiles every test driver with
 ASan+UBSan: 20/20 pass, no diagnostics), so the builder-fixture paths
 not exercised by the corpora are sanitizer-clean too.
+
+A deep randomized campaign then widened the input coverage: every
+corpus re-run at **2000 cases per kernel** (48 → 2000) stayed at
+225 clean / **0 mismatched** / 74 lower-refused, and v8–v11 re-ran at
+500 cases under ASan+UBSan with **0 violations**. No rare boundary
+mismatch appeared under the wider sampling.
