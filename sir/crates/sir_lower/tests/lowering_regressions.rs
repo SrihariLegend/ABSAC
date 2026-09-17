@@ -354,25 +354,17 @@ fn sequential_loops_outline_and_lower_per_region() {
     }
 }
 
-/// w08 recall (2026-09-17): the SAME sequential-loop kernel now lowers
-/// WHOLE. The first loop's exit walk stops at the second loop's
-/// conditional guard (emitting the shared exit phis), and the last
-/// loop's exit walk emits the shared exit block and the single return.
-/// `lower_function` runs the SIR verifier, so a MissingReturn or a
-/// malformed composition cannot pass this test.
+/// Sequential two-loop kernels stay REFUSED (2026-09-17). A composition
+/// was prototyped and it lowered/verified/recognized both reductions,
+/// but the SIR→C emitter is single-loop: native differential execution
+/// of the emitted C mismatched the source (w08 21/24, p12 21–24/24
+/// cases, 0 rewrites). Fail closed until the emitter composes loops.
 #[test]
-fn sequential_two_loops_lower_as_one_function() {
-    let f = lower_function(TWO_LOOP_COUNT_SUM, "two")
-        .expect("sequential two-loop function must lower");
-    let loop_count = f
-        .arena
-        .iter()
-        .filter(|n| matches!(n.kind, sir_nodes::NodeKind::Loop { .. }))
-        .count();
-    assert_eq!(loop_count, 2, "both self-latching loops must be present");
-    assert!(
-        f.return_node.is_some(),
-        "the shared exit/return must be emitted exactly once"
+fn sequential_two_loops_are_refused_until_the_emitter_composes() {
+    refuses_cleanly(
+        TWO_LOOP_COUNT_SUM,
+        "two",
+        "multiple loops sharing an exit CFG",
     );
 }
 
@@ -552,4 +544,111 @@ exit:
 #[test]
 fn unguarded_successor_do_while_is_refused() {
     refuses_cleanly(UNGUARDED_DO_WHILE, "unguarded", "unguarded successor-tested loop");
+}
+
+// ── Constant-extent buffer promotion (dynamic-extent recall slice) ──
+
+/// Constant bound 96: every access is `b[i]` for the strict counted
+/// loop `i = 0 .. 96`, so the pointer may be viewed as `[u8; 96]`.
+const CONST_BOUND_POINTER: &str = r#"
+define i64 @const_bound(ptr %b, i8 %key) {
+entry:
+  br label %loop
+loop:
+  %i = phi i64 [ 0, %entry ], [ %i2, %loop ]
+  %acc = phi i64 [ 0, %entry ], [ %acc2, %loop ]
+  %p = getelementptr inbounds i8, ptr %b, i64 %i
+  %e = load i8, ptr %p
+  %hit = icmp eq i8 %e, %key
+  %z = zext i1 %hit to i64
+  %acc2 = add i64 %acc, %z
+  %i2 = add i64 %i, 1
+  %c = icmp eq i64 %i2, 96
+  br i1 %c, label %exit, label %loop
+exit:
+  ret i64 %acc2
+}
+"#;
+
+/// Runtime bound: the extent is not a constant, so no promotion.
+const RUNTIME_BOUND_POINTER: &str = r#"
+define i64 @runtime_bound(ptr %b, i64 %n) {
+entry:
+  br label %loop
+loop:
+  %i = phi i64 [ 0, %entry ], [ %i2, %loop ]
+  %acc = phi i64 [ 0, %entry ], [ %acc2, %loop ]
+  %p = getelementptr inbounds i8, ptr %b, i64 %i
+  %e = load i8, ptr %p
+  %z = zext i8 %e to i64
+  %acc2 = add i64 %acc, %z
+  %i2 = add i64 %i, 1
+  %c = icmp eq i64 %i2, %n
+  br i1 %c, label %exit, label %loop
+exit:
+  ret i64 %acc2
+}
+"#;
+
+/// A second access on a parameter index has no proven extent: the
+/// whole parameter must stay a pointer (no fabricated extent).
+const UNCOVERED_ACCESS_POINTER: &str = r#"
+define i64 @uncovered(ptr %b, i64 %j) {
+entry:
+  br label %loop
+loop:
+  %i = phi i64 [ 0, %entry ], [ %i2, %loop ]
+  %acc = phi i64 [ 0, %entry ], [ %acc2, %loop ]
+  %p = getelementptr inbounds i8, ptr %b, i64 %i
+  %e = load i8, ptr %p
+  %q = getelementptr inbounds i8, ptr %b, i64 %j
+  %e2 = load i8, ptr %q
+  %z1 = zext i8 %e to i64
+  %z2 = zext i8 %e2 to i64
+  %s = add i64 %z1, %z2
+  %acc2 = add i64 %acc, %s
+  %i2 = add i64 %i, 1
+  %c = icmp eq i64 %i2, 96
+  br i1 %c, label %exit, label %loop
+exit:
+  ret i64 %acc2
+}
+"#;
+
+fn param_type(func: &sir_nodes::Function, index: usize) -> sir_types::Type {
+    func.params[index].ty.clone()
+}
+
+#[test]
+fn constant_bound_pointer_is_promoted_to_an_array_view() {
+    let func = lower_function(CONST_BOUND_POINTER, "const_bound")
+        .expect("constant-bound pointer loop must lower");
+    assert_eq!(
+        param_type(&func, 0),
+        sir_types::Type::Array {
+            element: Box::new(sir_types::Type::u8()),
+            length: 96
+        },
+        "a fully-proven constant extent must promote the pointer view"
+    );
+}
+
+#[test]
+fn runtime_bound_pointer_is_not_promoted() {
+    let func = lower_function(RUNTIME_BOUND_POINTER, "runtime_bound")
+        .expect("runtime-bound pointer loop must lower");
+    assert!(
+        matches!(param_type(&func, 0), sir_types::Type::Pointer { .. }),
+        "a runtime extent must never be fabricated into an array view"
+    );
+}
+
+#[test]
+fn uncovered_pointer_access_blocks_promotion() {
+    let func = lower_function(UNCOVERED_ACCESS_POINTER, "uncovered")
+        .expect("loop with an uncovered access must still lower");
+    assert!(
+        matches!(param_type(&func, 0), sir_types::Type::Pointer { .. }),
+        "one uncovered access must keep the whole parameter a pointer"
+    );
 }

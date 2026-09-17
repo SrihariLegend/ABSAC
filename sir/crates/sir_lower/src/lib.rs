@@ -21,7 +21,7 @@
 use std::collections::HashMap;
 
 use sir_builder::Builder;
-use sir_nodes::Function;
+use sir_nodes::{Function, NodeKind};
 use sir_types::{ConstantData, Effects, IntegerWidth, NodeId, Span, Type};
 
 /// A single LLVM IR instruction.
@@ -683,7 +683,14 @@ pub fn lower_function(text: &str, func_name: &str) -> Result<Function, String> {
     if func_text.is_empty() {
         return Err(format!("function '{}' not found", func_name));
     }
-    let func = lower(&func_text)?;
+    let mut func = lower(&func_text)?;
+
+    // Sound dynamic-extent recall slice (constant extents): promote a
+    // pointer parameter to a fixed array view when every access to it
+    // is proven within a common constant extent. Conservative: any
+    // uncovered use leaves the parameter a pointer (no fabricated
+    // extent, no candidate).
+    promote_constant_extent_buffers(&mut func);
 
     // ══════════════════════════════════════════════════════════
     // MANDATORY LOWERER VALIDATION (Gate 6A-v1, Priority 0A)
@@ -712,6 +719,198 @@ pub fn lower_function(text: &str, func_name: &str) -> Result<Function, String> {
         ));
     }
     Ok(func)
+}
+
+/// The integer value of a constant node (signed values normalized to
+/// u64 when non-negative).
+fn lower_constant_u64(func: &Function, id: NodeId) -> Option<u64> {
+    match &func.get_node(id)?.kind {
+        NodeKind::Constant(data) => data
+            .as_u64()
+            .or_else(|| data.as_i64().and_then(|v| u64::try_from(v).ok())),
+        _ => None,
+    }
+}
+
+/// The constant trip count of a strict counted loop whose carried
+/// counter is `counter`: counter starts at 0, its successor is
+/// `counter + 1` among the outputs, and the termination is EXACTLY the
+/// bound test (`counter < K`, `counter != K`, or `counter <= K-1`).
+/// A termination with an early-exit conjunct (found-flag scans) returns
+/// None: those loops may read fewer than K elements, so promoting the
+/// parameter to `[T; K]` would over-assert the caller's buffer.
+fn strict_counted_bound(
+    func: &Function,
+    termination: NodeId,
+    counter: NodeId,
+    outputs: &[NodeId],
+) -> Option<u64> {
+    if lower_constant_u64(func, counter) != Some(0) {
+        return None;
+    }
+    let successor_seen = outputs.iter().any(|out| {
+        matches!(
+            func.get_node(*out).map(|n| &n.kind),
+            Some(NodeKind::Add { lhs, rhs })
+                if *lhs == counter && lower_constant_u64(func, *rhs) == Some(1)
+        )
+    });
+    if !successor_seen {
+        return None;
+    }
+    let bound = match func.get_node(termination).map(|n| &n.kind) {
+        Some(NodeKind::Lt { lhs, rhs }) | Some(NodeKind::Ne { lhs, rhs })
+            if *lhs == counter =>
+        {
+            lower_constant_u64(func, *rhs)?
+        }
+        Some(NodeKind::Le { lhs, rhs }) if *lhs == counter => {
+            lower_constant_u64(func, *rhs)?.checked_add(1)?
+        }
+        _ => return None,
+    };
+    if bound == 0 {
+        return None;
+    }
+    Some(bound)
+}
+
+/// Promote `Pointer` parameters to `Array { element, length: K }` when
+/// every use of the parameter is an `ArrayAccess` whose index is
+/// provably within one common constant extent K:
+///   - a constant index c requires K > c;
+///   - a strict counted-loop counter requires K >= the loop's constant
+///     trip count (see `strict_counted_bound`);
+///   - any other use — an uncovered index, a store, a call, a return,
+///     a direct load, or disagreeing element types — aborts promotion.
+///
+/// This asserts only what a defined execution of the source already
+/// requires (all K elements are read), and it never fabricates an
+/// extent: an unproven access leaves the pointer type in place.
+fn promote_constant_extent_buffers(func: &mut Function) {
+    let parameters: Vec<(usize, NodeId)> = func
+        .arena
+        .iter()
+        .filter_map(|node| match &node.kind {
+            NodeKind::Parameter { index } => Some((*index, node.id)),
+            _ => None,
+        })
+        .collect();
+
+    for (index, param_id) in parameters {
+        let Some(param) = func.get_node(param_id) else {
+            continue;
+        };
+        if !matches!(param.ty, Type::Pointer { .. }) {
+            continue;
+        }
+
+        // Every use must be an ArrayAccess on this pointer.
+        let mut accesses: Vec<NodeId> = Vec::new();
+        let mut unsupported = false;
+        for node in func.arena.iter() {
+            if node.kind.input_nodes().contains(&param_id) {
+                if matches!(node.kind, NodeKind::ArrayAccess { .. }) {
+                    accesses.push(node.id);
+                } else {
+                    unsupported = true;
+                    break;
+                }
+            }
+        }
+        if unsupported || accesses.is_empty() {
+            continue;
+        }
+
+        let mut extent: u64 = 0;
+        let mut element_ty: Option<Type> = None;
+        let mut saw_loop_bound = false;
+        let mut ok = true;
+        for access_id in &accesses {
+            let Some(access) = func.get_node(*access_id) else {
+                ok = false;
+                break;
+            };
+            let NodeKind::ArrayAccess { index: idx, .. } = &access.kind else {
+                ok = false;
+                break;
+            };
+            let idx = *idx;
+            match &element_ty {
+                None => element_ty = Some(access.ty.clone()),
+                Some(prev) if *prev != access.ty => {
+                    ok = false;
+                    break;
+                }
+                _ => {}
+            }
+
+            // The index may be the carried counter of an enclosing
+            // strict counted loop. NOTE: in SIR the carried input IS a
+            // constant node (the counter's initial value 0), so the
+            // loop-domain proof must be tried BEFORE the constant-index
+            // fast path — otherwise a 96-element scan would promote to
+            // a 1-element view.
+            let mut bound: Option<u64> = None;
+            let mut enclosing_carried = false;
+            for loop_node in func.arena.iter() {
+                let NodeKind::Loop {
+                    body,
+                    termination,
+                    outputs,
+                    carried_inputs,
+                } = &loop_node.kind
+                else {
+                    continue;
+                };
+                if !body.contains(access_id) || !carried_inputs.contains(&idx) {
+                    continue;
+                }
+                enclosing_carried = true;
+                if let Some(k) = strict_counted_bound(func, *termination, idx, outputs) {
+                    bound = Some(bound.map_or(k, |prev| prev.min(k)));
+                }
+            }
+            if let Some(k) = bound {
+                extent = extent.max(k);
+                saw_loop_bound = true;
+                continue;
+            }
+            // A loop-varying index whose bound is not a constant has no
+            // proven extent — never fall through to the constant path
+            // (the carried input node is the constant initial value).
+            if enclosing_carried {
+                ok = false;
+                break;
+            }
+
+            match lower_constant_u64(func, idx) {
+                Some(c) => extent = extent.max(c.saturating_add(1)),
+                None => {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if !ok || extent == 0 || !saw_loop_bound {
+            continue;
+        }
+
+        let element = element_ty.unwrap_or_else(|| match &param.ty {
+            Type::Pointer { pointee, .. } => (**pointee).clone(),
+            other => other.clone(),
+        });
+        let array_ty = Type::Array {
+            element: Box::new(element),
+            length: extent as usize,
+        };
+        if let Some(node) = func.arena.get_mut(param_id) {
+            node.ty = array_ty.clone();
+        }
+        if let Some(param) = func.params.get_mut(index) {
+            param.ty = array_ty;
+        }
+    }
 }
 
 /// Extract a specific function by name from LLVM IR text.
@@ -1357,27 +1556,15 @@ pub fn lower(text: &str) -> Result<Function, String> {
     //     its header phis were never mapped and lowering died mid-
     //     instruction on "cannot resolve gep index '%N'".
     if self_loop_blocks.len() > 1 {
-        // SEQUENTIAL MULTI-LOOP COMPOSITION (w08 recall). Lower each
-        // self-latching loop in block order:
-        //   - the first loop's exit walk stops at the next loop's
-        //     conditional guard, having emitted the shared exit phis
-        //     (they feed the second loop's pre-header as straight-line
-        //     values);
-        //   - the last loop's exit walk emits the shared exit block and
-        //     the single return.
-        // Any failure (nested loops, unresolved cross-loop values, a
-        // second return) falls back to the historical explicit refusal
-        // — never a partially lowered function.
-        let mut sequential_ok = true;
-        for &lbi in &self_loop_blocks {
-            if lower_loop_function(&ir, lbi, &mut builder, &mut value_map).is_err() {
-                sequential_ok = false;
-                break;
-            }
-        }
-        if sequential_ok && builder.function().return_node.is_some() {
-            return Ok(builder.build());
-        }
+        // FAIL-CLOSED (2026-09-17): a sequential composition of two
+        // self-latching loops DOES lower and structurally verify, and
+        // the semantic layer recognizes both reductions — but the SIR→C
+        // emitter models a single loop, so the emitted native code
+        // mismatched the source (native differential: w08 21/24 and
+        // p12 21–24/24 cases wrong, with 0 rewrites). Lowering a
+        // function the native bridge cannot emit is not a recall win.
+        // The explicit refusal stays until the emitter composes
+        // sequential loops (see docs/RECALL_RESULTS.md).
         return Err(format!(
             "unsupported: multiple loops sharing an exit CFG (nested/sequential loops) not modeled: {}",
             ir.name

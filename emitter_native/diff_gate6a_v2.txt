@@ -3,7 +3,7 @@ NATIVE w02_sum_u32: clean cases=48 rewrites=0
 NATIVE w03_sum_plus_one: clean cases=48 rewrites=0
 NATIVE w04_all_equal_i8: lower_refused (unsupported: signed icmp 'sgt' (SIR comparison semantics are unsigned-model; signed predicate would mistranslate negative operands): %4 = icmp sgt i64 %1, 0)
 NATIVE w05_count_positive: lower_refused (unsupported: signed icmp 'sgt' (SIR comparison semantics are unsigned-model; signed predicate would mistranslate negative operands): %11 = icmp sgt i32 %10, 0)
-NATIVE w06_count_mismatch_const: clean cases=48 rewrites=0
+NATIVE w06_count_mismatch_const: clean cases=48 rewrites=1
 NATIVE w07_all_min: clean cases=48 rewrites=0
 NATIVE w08_two_reductions: lower_refused (unsupported: multiple loops sharing an exit CFG (nested/sequential loops) not modeled: w08_two_reductions)
 NATIVE x01_volatile_store: lower_refused (unsupported: volatile store (observable occurrence/ordering semantics): store volatile i8 %2, ptr %9, align 1, !tbaa !15)

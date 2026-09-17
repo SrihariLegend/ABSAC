@@ -225,6 +225,30 @@ corpus with the current code (after the two-loop lowerer landed):
   10/10. The two-loop lowering gap is closed; the map-then-sum
   candidate and the early-exit gep remain open.
 
+### Correction (same day): the two-loop composition was REVERTED
+
+The re-measurement above reported the SIR-layer result (lowering,
+structural verification, recognition). It was **not** the end-to-end
+result. The native differential (`emit_c_diff`, original LLVM IR vs
+emitted C on 24 random cases) then showed the emitted code was wrong:
+
+- `w08_two_reductions`: **21/24 mismatching cases, 0 rewrites**;
+- v3/v4 `p12` 21/24; v5 `p12` 24/24.
+
+Root cause: the SIR→C emitter models a single loop (`emit.rs` keeps one
+`loop_node` and emits one loop), so the second Loop node's body was
+emitted as straight-line code. Working a two-loop SIR function through
+a single-loop emitter is exactly the silent-miscompile class the native
+harness exists to catch. The composition was reverted: the lowerer
+again refuses multi-loop functions explicitly and the emitter panics
+loudly on more than one Loop node. The final native sweep is
+**99 clean / 0 mismatched / 49 lower-refused**.
+
+The independent constant-extent promotion (pointer parameter → fixed
+array view when every access is inside a proven constant loop extent)
+remains and is native-clean: `w06_count_mismatch_const` now rewrites
+(24/24 clean), as do v3 `p04` and v5 `p07`.
+
 ## Files
 
 - `gate6a/v2_corpus.c` / `.ll` — H2 corpus (promotes to regression set D3)

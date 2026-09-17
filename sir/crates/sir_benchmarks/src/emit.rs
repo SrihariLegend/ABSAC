@@ -712,6 +712,26 @@ pub fn emit_c(func: &Function) -> String {
     out.push_str(&format!("{} {}({}) {{\n", ret_c, name, params.join(", ")));
 
     // Find Loop and Return nodes
+    // FAIL-CLOSED: this emitter models at most ONE loop per function
+    // (pre-test + body + post-loop closure). A second Loop node would
+    // silently emit its body as straight-line code — the 2026-09-17
+    // native differential caught exactly that for the two-loop lowering
+    // (w08 21/24 and p12 21-24/24 mismatches with 0 rewrites). Refuse
+    // loudly instead of emitting wrong C.
+    let loop_count = func
+        .arena
+        .iter()
+        .filter(|n| matches!(n.kind, NodeKind::Loop { .. }))
+        .count();
+    if loop_count > 1 {
+        panic!(
+            "emit_c: {} Loop nodes are not supported by the single-loop \
+             emitter; lower-to-C for multi-loop functions is fail-closed \
+             until the emitter composes sequential loops",
+            loop_count
+        );
+    }
+
     let mut loop_node: Option<&Node> = None;
     let mut return_node: Option<&Node> = None;
     for node in func.arena.iter() {

@@ -1,7 +1,7 @@
 NATIVE p01_count_ge_u16: clean cases=48 rewrites=0
 NATIVE p02_sum_u8_u32acc: clean cases=48 rewrites=0
 NATIVE p03_all_ne_const: clean cases=48 rewrites=0
-NATIVE p04_count_ge_const_u32: clean cases=48 rewrites=0
+NATIVE p04_count_ge_const_u32: clean cases=48 rewrites=1
 NATIVE p05_sum_u16_u64acc: clean cases=48 rewrites=0
 NATIVE p06_count_ne_u8: clean cases=48 rewrites=0
 NATIVE p07_all_eq_u64: clean cases=48 rewrites=0

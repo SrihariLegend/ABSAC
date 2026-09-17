@@ -4,7 +4,7 @@ NATIVE p03_count_lt_u16: clean cases=48 rewrites=0
 NATIVE p04_all_eq_u16: clean cases=48 rewrites=0
 NATIVE p05_all_ne_u8: clean cases=48 rewrites=0
 NATIVE p06_sum_u32_u32: clean cases=48 rewrites=0
-NATIVE p07_count_eq_const_bound: clean cases=48 rewrites=0
+NATIVE p07_count_eq_const_bound: clean cases=48 rewrites=1
 NATIVE p08_any_or_u32: clean cases=48 rewrites=0
 NATIVE p09_all_ge_u16: clean cases=48 rewrites=0
 NATIVE p10_count_ne_do_while_u16: clean cases=48 rewrites=0

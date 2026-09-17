@@ -154,3 +154,19 @@ known gaps) is preserved. With the current code:
   recognitions, 0 unsafe candidates/rewrites — PASS.
 - Both re-measurements are remediation runs on frozen regression
   sets, not new generations.
+
+### Correction (same day): two-loop composition reverted; final state
+
+The 11/12 figure was the SIR-layer recognition count after a two-loop
+lowering composition. The native differential then proved the emitted C
+for those kernels wrong (v3 `p12` 21/24 mismatching cases, v5 `p12`
+24/24, 0 rewrites) because the SIR→C emitter is single-loop. The
+composition was reverted to the explicit fail-closed refusal and the
+emitter now refuses >1 Loop loudly. **Final re-measurement: v5 10/12
+and v3 10/12 recognized (the same pre-registered known gaps), 0 false
+positives, 0 unsafe candidates, 0 unsafe rewrites, PASS; Gate 6B
+10/10; native sweep 99 clean / 0 mismatched / 49 lower-refused.**
+
+Remaining recall on the positive side (constant-extent promotion):
+v3 `p04_count_ge_const_u32` and v5 `p07_count_eq_const_bound` now
+rewrite and run natively clean (24/24 each).
