@@ -165,9 +165,10 @@ The first lift implements the path above end to end:
   multiply-by-power-of-two rows expect 1 rewrite; `validate_ba003`
   asserts the shift-left.
 
-Remaining quarantined: 6 definitions (MultiplyShift, the four
-mask-algebra definitions, ByteSwap, BitReverse, ShiftMask and the two
-rotate definitions are lifted; see below). Their blockers are now recorded
+Remaining quarantined: 4 definitions (MultiplyShift, the four
+mask-algebra definitions, ByteSwap, BitReverse, ShiftMask, the two
+rotate definitions and the two zero-count definitions are lifted; see
+below). Their blockers are now recorded
 precisely:
 
 - **ModuloAnd / DivideShift**: the `urem`/`udiv` bit-blasting is now
@@ -205,23 +206,51 @@ The four scan definitions have distinct, now-measured blockers:
   clz(Pack(seq))`), but the optimizer generates **zero candidates** for
   these loops (semantic-zoo ps001, evidence in its iteration record):
   PositionSearch authorization is deliberately absent from the scalar
-  lists — it needs its own certificate (X06) — so there is nothing to
-  prove against yet. Lifting also requires solver support for
-  `LogicalSequence`/`Pack`/`FirstTrue`/`LastTrue` and ctz/clz lowering.
-- **TrailingZeroCount / LeadingZeroCount (202/203)**: candidates DO
-  exist (semantic-zoo ps003/ps004, 1 each, currently failing on the Stub
-  quarantine), and the recipes correctly emit `TrailingZeros`/
-  `LeadingZeros` on the loop's scalar. But their current obligations are
-  literal tautologies (`ctz(x) == ctz(x)`). A genuine lift needs a
-  loop↔intrinsic correspondence model — the obligation language has no
-  loop/scan expression today — so they stay Stub rather than being
-  greenwashed with a reflexive proof.
+  lists — it needs its own certificate (X06). The solver now supports
+  `LogicalSequence`/`Pack`/`FirstTrue`/`LastTrue` and ctz/clz lowering
+  (added for the zero-count lift), so only the authorization/binding
+  side remains.
+- **TrailingZeroCount / LeadingZeroCount (202/203) → LIFTED 2026-09-17**
+  (lift 7 below).
 - **Emitter prerequisite (done)**: `TrailingZeros`/`LeadingZeros` now
   emit `__sir_ctz`/`__sir_clz` with the tzcnt/lzcnt convention
   (`ctz(0) = clz(0) = width`); the previous raw builtins were
   undefined behaviour for zero. Native tests cover 0/1/0x10 and the
   MSB case. This is required for any future scan rewrite to execute
   natively.
+
+## Quarantine lift 7 — zero-count scans with a loop↔intrinsic model (2026-09-17)
+
+- **New `SemanticExpression::Reverse`** (boolean-sequence reversal) plus
+  interpreter, normalizer and solver support; the solver also gained
+  `LogicalSequence`/`Pack` lowering, `FirstTrue` (forward found-flag
+  scan), `LastTrue` (overwrite fold), `TrailingZeros` (reverse overwrite
+  fold) and `LeadingZeros` (reverse found-flag scan). The two sides of
+  each obligation are deliberately different constructions so the proof
+  is not reflexive.
+- **Definitions 202/203 are ConcreteSolverChecked**: the obligation
+  binds the loop's scalar and unsigned width from the recognized
+  PositionSearch (or SetIteration) role and proves
+  `ctz(x) == FirstTrue(bits(x))` / `clz(x) == FirstTrue(Reverse(bits(x)))`
+  (tzcnt/lzcnt convention for zero). Signed scalars and regions without
+  the role carry no domain and are never Proven.
+- **Recipes fixed**: both zero-count recipes replaced `region.result()`
+  (the tuple-typed loop) directly, leaving the function's field-access
+  consumer reading a stale/default value — the emitted C returned 0 for
+  every input. They now target the tuple-extract consumer with the
+  consumer's type (`leading_zeros_typed` added). This was a live
+  miscompile hidden by the quarantine.
+- **Interpreter fix**: `TrailingZeros(BitVector)` returned 128 for zero;
+  it now follows the width convention, matching the solver and emitter.
+- **Evidence**: semantic-zoo ps003/ps004 and positional-search
+  PS003/PS004 flip to `Optimizes` (they rewrite); verifier tests cover
+  both proofs plus signed/no-role refusal; a native test runs the
+  rewritten loops and checks tz(0/0x10/1) = 64/4/0 and
+  lz(0/1/MSB) = 64/63/0.
+- **Harness fix recorded**: `emit_c_native`'s stdout redirection is now
+  serialized by a mutex — parallel tests racing on `dup2(1)` could leave
+  fd 1 on `/dev/null` and swallow later test output (the workspace run
+  appeared to lose nine passing tests).
 
 ## Quarantine lift 3 — ByteSwap + role-based obligation context (2026-09-17)
 
