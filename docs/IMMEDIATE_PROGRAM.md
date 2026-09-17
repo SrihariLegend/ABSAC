@@ -393,7 +393,9 @@ Remediation D3 (P0A, commit c3ebb54):
        definitions to ConcreteSolverChecked (obligation from the actual
        pair, mutation-sensitive) [IN PROGRESS 2026-09-17: the
        ConcreteSolver backend bit-blasts bound obligations; MultiplyShift
-       and the four mask-algebra definitions are lifted (5/16);
+       the four mask-algebra definitions and ByteSwap are lifted (6/16);
+       obligations can bind the authorized structural roles
+       (`obligation_with_roles` + structural DB in build_obligations);
        instruction-selection emission (Rol/Ror, blsr/blsi/blsmsk,
        bswap, rbit) is implemented; ModuloAnd/DivideShift need
        a width-efficient division encoding (urem/udiv bit-blasting is

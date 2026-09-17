@@ -165,8 +165,8 @@ The first lift implements the path above end to end:
   multiply-by-power-of-two rows expect 1 rewrite; `validate_ba003`
   asserts the shift-left.
 
-Remaining quarantined: 11 definitions (MultiplyShift plus the four
-mask-algebra definitions are lifted; see below). Their blockers are now recorded
+Remaining quarantined: 10 definitions (MultiplyShift, the four
+mask-algebra definitions and ByteSwap are lifted; see below). Their blockers are now recorded
 precisely:
 
 - **ModuloAnd / DivideShift**: the `urem`/`udiv` bit-blasting is now
@@ -197,6 +197,36 @@ precisely:
   instead of emitting 0. What remains for those families is the
   definition binding + solver lowering (`ctz`/`clz`/bit-reverse terms),
   not emission.
+
+## Quarantine lift 3 — ByteSwap + role-based obligation context (2026-09-17)
+
+- **Role-aware obligations**: `TransformationDefinition::obligation_with_roles`
+  (default delegates to the function-only path) and
+  `Verifier::build_obligations(..., function, structural_db)` give a
+  definition the authorized `StructuralDescription` of the candidate's
+  region. Families whose semantics live in a recognized role can now
+  bind from it instead of re-scanning the graph.
+- **ByteSwap (312) is ConcreteSolverChecked**: the obligation reads the
+  recognized `BitPermutation { operand, kind: ByteSwap { perm_width,
+  type_width } }` role and proves, with the bit-blasting solver,
+  `bswap(x) >> (type_width - perm_width) == <byte-swapped low
+  perm_width bits>` at the actual word width. The recipe (already
+  correct for partial swaps) selects `bswap`; the emitter expands it
+  via `__builtin_bswap32`. HD004 now rewrites, and a native test runs
+  the optimized/emitted function and checks the values
+  (`emit_c_native.rs`).
+- **Recorded scope caveat**: the solver proves the semantic operation
+  equals the canonical permutation built from the role's operand and
+  widths. The *source pattern* match is the recognizer's structural
+  role — versioned by the authorization fingerprint — not a
+  node-by-node translation of the source subgraph into the theorem
+  (that stronger form remains future work). This is still materially
+  stronger than the old free-variable template: wrong operand, wrong
+  widths or a mutated role shape change the bound obligation.
+- **Next**: BitReverse (313) needs the same role binding plus a
+  bit-reversal lowering; the scan families need `ctz`/`clz` lowering;
+  rotate families are definedness-blocked on variable amounts
+  (constant-amount obligations can bind once candidates exist).
 
 ## Quarantine lift 2 — mask algebra + instruction-selection emission (2026-09-17)
 
