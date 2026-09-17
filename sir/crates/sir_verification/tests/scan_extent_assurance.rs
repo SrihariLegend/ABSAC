@@ -21,6 +21,7 @@ use sir_transform::roles::RegionRoles;
 use sir_transform::structures::SourceStructure;
 use sir_types::{ConstantData, RegionId, Span, Type};
 use sir_verification::definitions::bitscan_forward::BitScanForwardDefinition;
+use sir_verification::errors::UnknownReason;
 use sir_verification::registry::TransformationDefinition;
 use sir_verification::{VerificationBackend, VerificationResult, Verifier};
 
@@ -170,4 +171,39 @@ fn forward_scan_with_a_mismatched_sentinel_is_unbound() {
         !matches!(result, VerificationResult::Proven(_)),
         "an unbound sentinel mismatch must not be Proven, got {result:?}"
     );
+}
+
+#[test]
+fn strict_policy_quarantines_the_symbolic_scan_proof() {
+    // The >64 path is honestly SchemaChecked. Under a policy that
+    // requires solver-checked assurance it must be quarantined, never
+    // upgraded by the caller's optimism.
+    let (func, seq, loop_node) = forward_search(96);
+    let def = BitScanForwardDefinition::new(DefinitionId::new(200));
+    let obligation =
+        def.obligation_with_roles(&candidate(), &func, &structural(seq, loop_node));
+    let result = Verifier::new()
+        .with_min_verification_level(
+            sir_verification::registry::VerificationStatus::ConcreteSolverChecked,
+        )
+        .verify(&obligation, &context());
+    match result {
+        VerificationResult::Unknown(UnknownReason::InsufficientAssurance {
+            status,
+            minimum,
+            ..
+        }) => {
+            assert_eq!(
+                status,
+                sir_verification::registry::VerificationStatus::SchemaChecked
+            );
+            assert_eq!(
+                minimum,
+                sir_verification::registry::VerificationStatus::ConcreteSolverChecked
+            );
+        }
+        other => panic!(
+            "a solver-checked policy must quarantine the symbolic scan proof, got {other:?}"
+        ),
+    }
 }

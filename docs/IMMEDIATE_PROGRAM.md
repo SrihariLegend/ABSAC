@@ -526,6 +526,18 @@ Gate 6A-v8:  PASSED — fresh held-out generation after the early-exit
              0 mismatched / 61 lower-refused, 41 rewrites.
              See docs/GATE6A_V8_RESULTS.md.
 
+Gate 6A-v9:  PASSED — fresh held-out generation for the position-
+             predicate extraction: Eq/Ne/Lt/Ge/Gt across u8/u16/u32,
+             zero/literal/parameter scalars, swapped operands, extents
+             48–128 (solver and symbolic) all rewrite and run
+             native-clean (13 native rewrites in the corpus); compound
+             predicates and sentinel-mismatched sub-range searches
+             recognize but never rewrite; 0 false positives /
+             0 unsafe candidates / 0 unsafe rewrites; native 24 clean /
+             0 mismatched / 5 lower-refused. Cumulative native sweep:
+             185 clean / 0 mismatched / 66 lower-refused, 54 rewrites.
+             See docs/GATE6A_V9_RESULTS.md.
+
 Gate 6B:     PASSED — the fusion corpus was sealed before automation
              (gate6b/manifest.sha256, commit 4aedce1) and evaluated
              one-shot with a frozen harness (7ab8edc/2594d1a): 10/10 rows

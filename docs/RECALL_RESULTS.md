@@ -70,3 +70,22 @@ The v8 generation tested the early-exit/scan frontier blindly:
   successor test and the merge-to-continuation composition are not
   modeled). Multi-loop + early-exit composition is the next frontend
   item after runtime extents.
+
+## v9 held-out data points (2026-09-17)
+
+The v9 generation blind-tested the position-predicate extraction:
+
+- **All ten predicate probes rewrote and ran native-clean**: Eq/Ne/Lt/
+  Ge/Gt over u8/u16/u32, against zero, literal constants and
+  parameters, with swapped operands (`key < elem` → `Gt`,
+  `key >= elem` → `Le`), at extents 40–128 (concrete solver ≤64 and
+  symbolic >64). The extracted mask is the exact hit predicate.
+- **Refusal discipline confirmed blind**: a compound predicate
+  (`(x & 1) && x > 3`) and a sentinel-mismatched sub-range search both
+  recognize `FirstOccurrence` with candidates but apply 0 rewrites.
+- **Assurance boundary pinned**: a strict `ConcreteSolverChecked`
+  policy quarantines the >64 symbolic scan proof (new test in
+  `scan_extent_assurance.rs`), so the weaker assurance can never be
+  silently upgraded.
+- Cumulative native evidence: 185 clean / 0 mismatched / 66
+  lower-refused, 54 native-clean rewrites.

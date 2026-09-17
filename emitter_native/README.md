@@ -32,7 +32,14 @@ buffer byte-for-byte.
 | `gate6a/v6_corpus.ll` | 17 | 0 | 5 | 48 | 6 |
 | `gate6a/v7_corpus.ll` | 19 | 0 | 5 | 48 | 5 |
 | `gate6a/v8_corpus.ll` | 22 | 0 | 6 | 48 | 8 |
-| **Total** | **161** | **0** | **61** | — | **41** |
+| `gate6a/v9_corpus.ll` | 24 | 0 | 5 | 48 | 13 |
+| **Total** | **185** | **0** | **66** | — | **54** |
+
+**v9** (2026-09-17): the predicate extraction generalizes blind —
+Eq/Ne/Lt/Ge/Gt, u8/u16/u32, zero/literal/parameter scalars, swapped
+operands, extents 48–128 — 13 native-clean rewrites; compound
+predicates and sentinel-mismatched sub-range searches recognize but
+apply 0 rewrites. 0 mismatches.
 
 **Scalar-predicate searches** (2026-09-17): the position pack helper now
 extracts the hit comparison (`Eq`/`Ne`/ordered, negation-normalized)
