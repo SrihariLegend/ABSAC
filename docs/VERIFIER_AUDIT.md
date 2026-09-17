@@ -165,7 +165,8 @@ The first lift implements the path above end to end:
   multiply-by-power-of-two rows expect 1 rewrite; `validate_ba003`
   asserts the shift-left.
 
-Remaining quarantined: 15 definitions. Their blockers are now recorded
+Remaining quarantined: 11 definitions (MultiplyShift plus the four
+mask-algebra definitions are lifted; see below). Their blockers are now recorded
 precisely:
 
 - **ModuloAnd / DivideShift**: the `urem`/`udiv` bit-blasting is now
@@ -184,22 +185,41 @@ precisely:
   just a stub obligation: lifting it requires implementing the mask
   extraction (`(x << n) >> n → x & ((1 << (W-n)) - 1)`, with n = 0 and
   n ≥ W handled fail-closed) before any obligation can authorize it.
-- **Mask-algebra (clear/isolate/set lowest bit)** definitions can bind
-  and prove (the concrete backend already models the lowest-bit
-  expressions), but their recipes emit raw `blsr`/`blsi`/`blsmsk`
-  intrinsics and **no layer lowers or emits those intrinsics** — the C
-  emitter would silently emit `0`. Lifting therefore requires either
-  intrinsic semantics + emission (interpreter, optimizer, emitter) or
-  recipes that emit the equivalent SIR operations.
+- **Mask-algebra (clear/isolate/set lowest bit) → LIFTED 2026-09-17**
+  (see the next section).
 - **Zero-scan and bit-permutation (rotate/byteswap/bitreverse)
   families** need their operations lowered into `sir_mech` terms;
   constant-amount rotates and lowest-bit expressions are already
-  modeled. A second, shared blocker: recipes for these families emit
-  instruction-selection SIR (`Rol`/`Ror`, `blsr`/`blsi`/`blsmsk`,
-  `bswap`, `rbit`) that no interpreter or emitter lowers — the C
-  emitter would silently produce `0`. Lifting them requires downstream
-  semantics + emission for those operations (or recipes that expand to
-  the modeled SIR operations).
+  modeled. The emitter blocker is gone: `Rol`/`Ror`, `blsr`/`blsi`/
+  `blsmsk`, `bswap`, `rbit` now emit correct C (rotates via a
+  width-relative helper; bswap via the builtin; rbit/blsr/blsi/blsmsk
+  via helpers), and unknown intrinsics fail loudly at compile time
+  instead of emitting 0. What remains for those families is the
+  definition binding + solver lowering (`ctz`/`clz`/bit-reverse terms),
+  not emission.
+
+## Quarantine lift 2 — mask algebra + instruction-selection emission (2026-09-17)
+
+- **Emitter** (`sir_benchmarks::emit`): `Rol`/`Ror` lower to a
+  width-relative rotate helper (`k %= w`, no shift-by-width UB);
+  `blsr`/`blsi`/`blsmsk` expand to `x&(x-1)`, `x&(0-x)`,
+  `x^(x-1)`; `bswap` uses `__builtin_bswap16/32/64`; `rbit` uses a
+  bit-reversal helper. An unknown intrinsic now emits a call to an
+  undeclared function (loud compile/link error) rather than the old
+  silent `0`. Native tests execute every one of these
+  (`emit_c_native.rs`).
+- **Definitions 300-303** (ClearLowestSetBit, IsolateLowestSetBit,
+  IsolateLowestClearBit, SetLowestClearBit) are ConcreteSolverChecked:
+  the obligation binds the candidate's actual pattern (`mask_bind.rs`
+  matches `x&(x-1)`, `x&-x` / `x&(0-x)`, `~x&(x+1)`, `x|(x+1)` with
+  either operand order) and the concrete solver discharges the semantic
+  identity at the operand's width. Unbound regions (wrong pattern, no
+  authorized nodes) carry no domain and are never Proven.
+- **End-to-end**: HD001/HD007/HD008 flip to `Optimizes`; a new native
+  test runs the optimizer on each pattern, asserts the rewrite fired,
+  emits the rewritten `blsr`/`blsi`/`blsmsk` form, compiles and
+  executes it, and checks the values. Verifier binding tests cover all
+  four patterns plus an unrelated-region refusal.
 
 C3 remains an Any-only freeze.
 
