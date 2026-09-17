@@ -165,8 +165,9 @@ The first lift implements the path above end to end:
   multiply-by-power-of-two rows expect 1 rewrite; `validate_ba003`
   asserts the shift-left.
 
-Remaining quarantined: 10 definitions (MultiplyShift, the four
-mask-algebra definitions and ByteSwap are lifted; see below). Their blockers are now recorded
+Remaining quarantined: 9 definitions (MultiplyShift, the four
+mask-algebra definitions, ByteSwap and BitReverse are lifted; see
+below). Their blockers are now recorded
 precisely:
 
 - **ModuloAnd / DivideShift**: the `urem`/`udiv` bit-blasting is now
@@ -227,6 +228,28 @@ precisely:
   bit-reversal lowering; the scan families need `ctz`/`clz` lowering;
   rotate families are definedness-blocked on variable amounts
   (constant-amount obligations can bind once candidates exist).
+
+## Quarantine lift 4 — BitReverse (2026-09-17)
+
+- **BitReverse (313) is ConcreteSolverChecked**: binds the recognized
+  `BitPermutation { kind: BitReverse { perm_width, type_width } }` role
+  and the concrete solver proves `rbit(x) >> (type_width - perm_width)`
+  equals the reversal of the low `perm_width` bits at the actual width
+  (new full-width bit-reversal lowering). HD005 flips to `Optimizes`;
+  a native test runs the optimized/emitted `rbit` form and checks
+  values (0x01→0x80, 0x0F→0xF0, 0xA5→0xA5, 0→0); the permutation test
+  asserts the `Intrinsic(rbit)` selection. Verifier tests cover the
+  bound role and the no-role refusal.
+- **Rotate families HELD Stub despite a concrete binding.** The rotate
+  definitions now have role-verified constant-amount obligations
+  (`rotate_bind.rs` re-checks the actual
+  `Or(Shl(x,k), Shr(x,W-k))` source pattern before binding), but the
+  optimizer generates **zero candidates** for `CircularPermutation`
+  regions today — for constant AND variable amounts (pinned by
+  `circular_permutation_generates_no_candidates_today`). The
+  generation/authorization gap is the blocker; flipping the status
+  would authorize nothing. When it is fixed, the rotate definitions
+  are ready to lift.
 
 ## Quarantine lift 2 — mask algebra + instruction-selection emission (2026-09-17)
 

@@ -392,8 +392,10 @@ Remediation D3 (P0A, commit c3ebb54):
        recorded role-driven exceptions]; (3) upgrade quarantined
        definitions to ConcreteSolverChecked (obligation from the actual
        pair, mutation-sensitive) [IN PROGRESS 2026-09-17: the
-       ConcreteSolver backend bit-blasts bound obligations; MultiplyShift
-       the four mask-algebra definitions and ByteSwap are lifted (6/16);
+       ConcreteSolver backend bit-blasts bound obligations; MultiplyShift,
+       the four mask-algebra definitions, ByteSwap and BitReverse are
+       lifted (7/16); the rotate definitions are bound but held Stub
+       pending CircularPermutation candidate generation;
        obligations can bind the authorized structural roles
        (`obligation_with_roles` + structural DB in build_obligations);
        instruction-selection emission (Rol/Ror, blsr/blsi/blsmsk,
