@@ -123,6 +123,22 @@ real lowering defect:
 - Cumulative native evidence: 205 clean / 0 mismatched / 70
   lower-refused, 57 native-clean rewrites.
 
+## v11 held-out data points (2026-09-17)
+
+The v11 generation blind-tested the repaired early-exit synthesis:
+
+- Unseen header polarities and predicates hold: runtime searches for
+  zero (`!buf[i]`), `== key` with a `-1` identity sentinel, `!= key`
+  with an `n` sentinel, and u16 elements all lower, verify and derive
+  `FirstOccurrence` (0 rewrites — runtime extent, no fabricated mask).
+- Constant zero-element and ordered (`>= key`) searches rewrite to the
+  exact mask + ctz and are native-clean (4 native rewrites in v11).
+- Recorded shape limits behave fail-closed: computed `n-1` and
+  descending searches are refused at lowering; do-while lowers without
+  a `FirstOccurrence` truth.
+- Cumulative native evidence: 223 clean / 0 mismatched / 76
+  lower-refused, 61 native-clean rewrites.
+
 **Hardening (same day):** the extra zero-trip predecessor is accepted
 only when its guard compares the loop's actual **trip bound** (the
 latch comparison's non-successor operand), not merely the merge's

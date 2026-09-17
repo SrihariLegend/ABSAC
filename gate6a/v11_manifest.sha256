@@ -1,0 +1,8 @@
+# Gate 6A-v11 sealed corpus manifest (generated before the frozen run).
+# Frozen candidate: HEAD cbcbdee (merge-form matching + guard-bound hardening + latch selection).
+# Classification frozen before evaluation; post-run records live in docs/GATE6A_V11_RESULTS.md.
+9e746702429c94290d2f6b93e6126426dc97e7bd48498f18d6d370e2523a8262  gate6a/v11_corpus.c
+49564ab98e6707c40f5fb1ce7ab3f2a03dac48a23428d33dbf71ae3227a047fd  gate6a/v11_corpus.ll
+009b9385aee9db3bc1bed64897fec85524bd50b43b0a8d31954145502763c5d1  gate6a/v11_expected.csv
+4a29330583253a616b88c0d7d7d18c8e2c102bbd63d5120dfa527f67671db4ab  gate6a/v11_README.md
+986620419dd38e11cd7f300b942a066e22eb37c51439408d8b92caad72ee033f  sir/crates/sir_benchmarks/src/bin/gate6a_run.rs

@@ -555,6 +555,18 @@ Gate 6A-v10: FAILED one-shot (preserved) → REMEDIATED on the frozen
              Cumulative: 205 clean / 0 mismatched / 70 lower-refused,
              57 rewrites. See docs/GATE6A_V10_RESULTS.md.
 
+Gate 6A-v11: PASSED — fresh held-out generation for the early-exit
+             synthesis: runtime searches with unseen polarities and
+             predicates (`!buf[i]`, `== key` with a -1 identity
+             sentinel, `!= key` with n, u16 elements) all lower and
+             recognize `FirstOccurrence`; constant zero/ordered searches
+             rewrite and run native-clean; computed n-1 / descending
+             searches stay refused and do-while stays a recorded gap.
+             0 false positives / 0 unsafe candidates / 0 unsafe
+             rewrites; native 18 clean / 0 mismatched / 6 lower-refused,
+             4 native rewrites. Cumulative: 223 clean / 0 mismatched /
+             76 lower-refused, 61 rewrites. See docs/GATE6A_V11_RESULTS.md.
+
 Gate 6B:     PASSED — the fusion corpus was sealed before automation
              (gate6b/manifest.sha256, commit 4aedce1) and evaluated
              one-shot with a frozen harness (7ab8edc/2594d1a): 10/10 rows

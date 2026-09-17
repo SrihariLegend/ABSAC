@@ -34,7 +34,13 @@ buffer byte-for-byte.
 | `gate6a/v8_corpus.ll` | 23 | 0 | 5 | 48 | 8 |
 | `gate6a/v9_corpus.ll` | 25 | 0 | 4 | 48 | 13 |
 | `gate6a/v10_corpus.ll` | 17 | 0 | 7 | 48 | 3 |
-| **Total** | **205** | **0** | **70** | — | **57** |
+| `gate6a/v11_corpus.ll` | 18 | 0 | 6 | 48 | 4 |
+| **Total** | **223** | **0** | **76** | — | **61** |
+
+**v11** (2026-09-17): runtime searches with unseen polarities and
+predicates (`!buf[i]`, `== key` with `-1`, `!= key` with `n`, u16) all
+lower and recognize; constant zero/ordered searches rewrite natively.
+0 mismatches; 4 native-clean rewrites.
 
 **v10** (2026-09-17): the clamp and identity runtime-search forms lower
 (p01 sentinel n, p02 sentinel -1, p04 bool hit-on-true after the latch-
