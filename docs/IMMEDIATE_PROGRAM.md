@@ -434,14 +434,16 @@ Remediation D3 (P0A, commit c3ebb54):
   Still open in D3 (status in docs/RECALL_RESULTS.md): map-then-sum
        recall is closed at recognition (both `x ^ const` and clang's
        reassociated `+1` forms derive MappedSumReduction; a candidate
-       preserving the map is the follow-on). Two-loop lowering was
-       prototyped, then REVERTED to fail-closed (2026-09-17): the SIR
-       composition lowered/verified/recognized both reductions, but the
-       SIR→C emitter is single-loop and the native differential caught
-       wrong emitted code (w08 21/24, p12 21–24/24, 0 rewrites) — the
-       emitter now refuses >1 Loop loudly and the lowerer keeps the
-       explicit refusal until the emitter composes sequential loops.
-       New native-clean capability instead: constant-extent buffer
+       preserving the map is the follow-on). Two-loop lowering is
+       CLOSED with native assurance (2026-09-17): the SIR composition
+       was first reverted after the native differential caught wrong
+       emitted C (w08 21/24, p12 21–24/24, 0 rewrites — the emitter
+       modelled one loop), then re-landed once the emitter learned to
+       compose sequential loops (namespaced carriers/outputs;
+       TupleExtract/FieldAccess resolve to the producing loop). Native
+       sweep now 103 clean / 0 mismatched / 45 lower-refused (was
+       99/0/49); v5 and v3 11/12 recognized, 0 unsafe; 6B 10/10.
+       Also native-clean: constant-extent buffer
        promotion (pointer → `[T; K]` when every access is within a
        proven constant loop extent) rewrites w06/p04/p07 natively
        (24/24 each; 22 native rewrites total, 0 mismatches). Remaining:

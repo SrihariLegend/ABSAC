@@ -225,7 +225,7 @@ corpus with the current code (after the two-loop lowerer landed):
   10/10. The two-loop lowering gap is closed; the map-then-sum
   candidate and the early-exit gep remain open.
 
-### Correction (same day): the two-loop composition was REVERTED
+### Correction (same day): reverted, then re-landed behind a fixed emitter
 
 The re-measurement above reported the SIR-layer result (lowering,
 structural verification, recognition). It was **not** the end-to-end
@@ -235,14 +235,16 @@ emitted C on 24 random cases) then showed the emitted code was wrong:
 - `w08_two_reductions`: **21/24 mismatching cases, 0 rewrites**;
 - v3/v4 `p12` 21/24; v5 `p12` 24/24.
 
-Root cause: the SIR→C emitter models a single loop (`emit.rs` keeps one
-`loop_node` and emits one loop), so the second Loop node's body was
-emitted as straight-line code. Working a two-loop SIR function through
-a single-loop emitter is exactly the silent-miscompile class the native
-harness exists to catch. The composition was reverted: the lowerer
-again refuses multi-loop functions explicitly and the emitter panics
-loudly on more than one Loop node. The final native sweep is
-**99 clean / 0 mismatched / 49 lower-refused**.
+Root cause: the SIR→C emitter modelled a single loop, so the second
+Loop node's body was emitted as straight-line code. The composition was
+reverted fail-closed while the emitter learned to compose sequential
+loops (carrier/output variables namespaced by loop ordinal;
+TupleExtract/FieldAccess resolve to the producing loop). It was then
+re-landed and re-measured: **w08 is native-clean 24/24**, and the full
+native sweep is **103 clean / 0 mismatched / 45 lower-refused** (the
+four multi-loop kernels move from lower-refused to clean). The failed
+attempt is preserved in the git history; this harness is what caught
+it and what gates the re-landing.
 
 The independent constant-extent promotion (pointer parameter → fixed
 array view when every access is inside a proven constant loop extent)

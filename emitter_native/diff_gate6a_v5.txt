@@ -9,7 +9,7 @@ NATIVE p08_any_or_u32: clean cases=48 rewrites=0
 NATIVE p09_all_ge_u16: clean cases=48 rewrites=0
 NATIVE p10_count_ne_do_while_u16: clean cases=48 rewrites=0
 NATIVE p11_map_then_sum: clean cases=48 rewrites=0
-NATIVE p12_two_loops: lower_refused (unsupported: multiple loops sharing an exit CFG (nested/sequential loops) not modeled: p12_two_loops)
+NATIVE p12_two_loops: clean cases=48 rewrites=0
 NATIVE n01_sum_if_mask: clean cases=48 rewrites=0
 NATIVE n02_sum_ternary_gt: clean cases=48 rewrites=0
 NATIVE n03_sum_masked_hi: clean cases=48 rewrites=0
@@ -22,4 +22,4 @@ NATIVE n09_volatile_load: clean cases=48 rewrites=0
 NATIVE n10_stride4: clean cases=48 rewrites=0
 NATIVE n11_atomic_flags: lower_refused (unsupported: atomic load (ordering semantics not modeled): %10 = load atomic i32, ptr %9 monotonic, align 4)
 NATIVE n12_self_recurrence: clean cases=48 rewrites=0
-EMITC_SUMMARY clean=20 mismatched=0 lower_refused=4 harness_errors=0
+EMITC_SUMMARY clean=21 mismatched=0 lower_refused=3 harness_errors=0

@@ -5,7 +5,7 @@ NATIVE w04_all_equal_i8: lower_refused (unsupported: signed icmp 'sgt' (SIR comp
 NATIVE w05_count_positive: lower_refused (unsupported: signed icmp 'sgt' (SIR comparison semantics are unsigned-model; signed predicate would mistranslate negative operands): %11 = icmp sgt i32 %10, 0)
 NATIVE w06_count_mismatch_const: clean cases=48 rewrites=1
 NATIVE w07_all_min: clean cases=48 rewrites=0
-NATIVE w08_two_reductions: lower_refused (unsupported: multiple loops sharing an exit CFG (nested/sequential loops) not modeled: w08_two_reductions)
+NATIVE w08_two_reductions: clean cases=48 rewrites=0
 NATIVE x01_volatile_store: lower_refused (unsupported: volatile store (observable occurrence/ordering semantics): store volatile i8 %2, ptr %9, align 1, !tbaa !15)
 NATIVE x02_sum_i32_nsw: lower_refused (unsupported: signed icmp 'sgt' (SIR comparison semantics are unsigned-model; signed predicate would mistranslate negative operands): %3 = icmp sgt i32 %1, 0)
 NATIVE x03_sliding_sum: lower_refused (unsupported: signed icmp 'sgt' (SIR comparison semantics are unsigned-model; signed predicate would mistranslate negative operands): %3 = icmp sgt i64 %1, 1)
@@ -14,4 +14,4 @@ NATIVE x05_atomic_flags: lower_refused (unsupported: atomic load (ordering seman
 NATIVE x06_running_max: clean cases=48 rewrites=0
 NATIVE x07_self_recurrence: clean cases=48 rewrites=0
 NATIVE x08_early_exit_write: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: x08_early_exit_write)
-EMITC_SUMMARY clean=8 mismatched=0 lower_refused=8 harness_errors=0
+EMITC_SUMMARY clean=9 mismatched=0 lower_refused=7 harness_errors=0

@@ -344,6 +344,18 @@ fn constant_literal(data: &ConstantData, ty: &Type) -> String {
 
 /// Emit an operand — either an inlined expression (for constants/params) or
 /// a variable reference (for nodes already emitted as statements).
+/// Execution ordinal of a Loop node: loops are built in execution order
+/// and their arena ids ascend, so this ordinal namespaces the emitted
+/// carrier/output variables (`c{ord}_{i}` / `o{ord}_{i}`) for
+/// sequential-loop functions.
+fn loop_ordinal(func: &Function, loop_id: NodeId) -> usize {
+    func.arena
+        .iter()
+        .filter(|n| matches!(n.kind, NodeKind::Loop { .. }))
+        .position(|n| n.id == loop_id)
+        .unwrap_or(0)
+}
+
 fn emit_operand(
     id: NodeId,
     func: &Function,
@@ -645,9 +657,33 @@ fn emit_expr(
                 }
             }
         }
-        NodeKind::TupleExtract { index, .. } => {
-            // Loop output variable: o_{index}
-            format!("o_{}", index)
+        NodeKind::TupleExtract { tuple, index } => {
+            // Loop output variable, namespaced by the loop's execution
+            // ordinal so sequential loops do not collide: o{ord}_{index}.
+            if matches!(
+                func.get_node(*tuple).map(|n| &n.kind),
+                Some(NodeKind::Loop { .. })
+            ) {
+                format!("o{}_{}", loop_ordinal(func, *tuple), index)
+            } else {
+                format!("o_{}", index)
+            }
+        }
+        NodeKind::FieldAccess { base, field } => {
+            // Numeric field projection of a Loop tuple is an output read
+            // (the builder represents `field_access(loop, "1")` as a
+            // FieldAccess, while the lowerer uses TupleExtract). Any
+            // other base/field has no C lowering: fail loudly at compile
+            // time instead of emitting a silent 0.
+            if matches!(
+                func.get_node(*base).map(|n| &n.kind),
+                Some(NodeKind::Loop { .. })
+            ) {
+                if let Ok(index) = field.parse::<usize>() {
+                    return format!("o{}_{}", loop_ordinal(func, *base), index);
+                }
+            }
+            format!("__sir_unsupported_field_access_{}_{}", base.as_u64(), sanitize_ident(field))
         }
         _ => "0".to_string(),
     }
@@ -711,51 +747,44 @@ pub fn emit_c(func: &Function) -> String {
     let name = func.name.split("::").last().unwrap_or(&func.name);
     out.push_str(&format!("{} {}({}) {{\n", ret_c, name, params.join(", ")));
 
-    // Find Loop and Return nodes
-    // FAIL-CLOSED: this emitter models at most ONE loop per function
-    // (pre-test + body + post-loop closure). A second Loop node would
-    // silently emit its body as straight-line code — the 2026-09-17
-    // native differential caught exactly that for the two-loop lowering
-    // (w08 21/24 and p12 21-24/24 mismatches with 0 rewrites). Refuse
-    // loudly instead of emitting wrong C.
-    let loop_count = func
+    // Find Loop nodes (execution order = ascending id) and the Return.
+    let loops: Vec<&Node> = func
         .arena
         .iter()
         .filter(|n| matches!(n.kind, NodeKind::Loop { .. }))
-        .count();
-    if loop_count > 1 {
-        panic!(
-            "emit_c: {} Loop nodes are not supported by the single-loop \
-             emitter; lower-to-C for multi-loop functions is fail-closed \
-             until the emitter composes sequential loops",
-            loop_count
-        );
-    }
-
-    let mut loop_node: Option<&Node> = None;
+        .collect();
     let mut return_node: Option<&Node> = None;
     for node in func.arena.iter() {
-        match &node.kind {
-            NodeKind::Loop { .. } => loop_node = Some(node),
-            NodeKind::Return { .. } => return_node = Some(node),
-            _ => {}
+        if matches!(node.kind, NodeKind::Return { .. }) {
+            return_node = Some(node);
         }
     }
 
-    if let Some(loop_n) = loop_node {
-        let emitted_ids = emit_loop(loop_n, func, &mut out);
-        // Collect all node IDs that belong to the loop (body, outputs, carried,
-        // termination) so we can skip them when emitting post-loop statements.
+    if !loops.is_empty() {
+        // SEQUENTIAL MULTI-LOOP COMPOSITION (2026-09-17): emit each loop
+        // in execution order. Carrier/output variables are namespaced by
+        // the loop ordinal, and TupleExtract resolves to the producing
+        // loop's output variable, so a later loop may thread an earlier
+        // loop's result. Nodes that belong to any loop are excluded from
+        // the post-loop straight-line emission.
         let mut loop_ids: HashSet<NodeId> = HashSet::new();
-        if let NodeKind::Loop { body, termination, outputs, carried_inputs } = &loop_n.kind {
-            loop_ids.extend(body.iter().copied());
-            loop_ids.insert(*termination);
-            loop_ids.extend(outputs.iter().copied());
-            loop_ids.extend(carried_inputs.iter().copied());
+        for (ordinal, loop_n) in loops.iter().enumerate() {
+            let emitted_ids = emit_loop(loop_n, func, &mut out, ordinal);
+            loop_ids.extend(emitted_ids);
+            if let NodeKind::Loop {
+                body,
+                termination,
+                outputs,
+                ..
+            } = &loop_n.kind
+            {
+                loop_ids.extend(body.iter().copied());
+                loop_ids.insert(*termination);
+                loop_ids.extend(outputs.iter().copied());
+            }
         }
-        loop_ids.extend(emitted_ids);
         // Emit remaining non-loop, non-parameter, non-return nodes AFTER the
-        // loop (e.g., TupleExtract that reads loop outputs), in dataflow
+        // loops (e.g., TupleExtract that reads loop outputs), in dataflow
         // order rather than arena order (F6).
         let post: Vec<NodeId> = func
             .arena
@@ -829,7 +858,12 @@ pub fn emit_c(func: &Function) -> String {
 /// lowerer's opaque-pointer inference.
 ///
 /// Returns the set of node ids emitted inside the loop.
-fn emit_loop(loop_node: &Node, func: &Function, out: &mut String) -> HashSet<NodeId> {
+fn emit_loop(
+    loop_node: &Node,
+    func: &Function,
+    out: &mut String,
+    ordinal: usize,
+) -> HashSet<NodeId> {
     let (body, termination, outputs, carried_inputs) = match &loop_node.kind {
         NodeKind::Loop { body, termination, outputs, carried_inputs } => {
             (body, *termination, outputs, carried_inputs)
@@ -837,10 +871,11 @@ fn emit_loop(loop_node: &Node, func: &Function, out: &mut String) -> HashSet<Nod
         _ => return HashSet::new(),
     };
 
-    // Build carrier map: each carried input maps to C variable c_{index}
+    // Build carrier map: each carried input maps to C variable
+    // c{ordinal}_{index} (namespaced for sequential loops).
     let mut carrier_map: HashMap<NodeId, String> = HashMap::new();
     for (i, &ci) in carried_inputs.iter().enumerate() {
-        carrier_map.insert(ci, format!("c_{}", i));
+        carrier_map.insert(ci, format!("c{}_{}", ordinal, i));
     }
 
     // Declare carrier variables with initial values (the carried-input nodes
@@ -850,7 +885,7 @@ fn emit_loop(loop_node: &Node, func: &Function, out: &mut String) -> HashSet<Nod
         let ci_node = func.get_node(ci).unwrap();
         let ty = c_type(&ci_node.ty);
         let init = emit_expr(ci_node, func, &empty_map);
-        out.push_str(&format!("    {} c_{} = {};\n", ty, i, init));
+        out.push_str(&format!("    {} c{}_{} = {};\n", ty, ordinal, i, init));
     }
 
     // Declare output variables, initialized to the entry carries: SIR
@@ -860,7 +895,10 @@ fn emit_loop(loop_node: &Node, func: &Function, out: &mut String) -> HashSet<Nod
     for (i, &oi) in outputs.iter().enumerate() {
         let oi_node = func.get_node(oi).unwrap();
         let ty = c_type(&oi_node.ty);
-        out.push_str(&format!("    {} o_{} = c_{};\n", ty, i, i));
+        out.push_str(&format!(
+            "    {} o{}_{} = c{}_{};\n",
+            ty, ordinal, i, ordinal, i
+        ));
     }
 
     let carried_set: HashSet<NodeId> = carried_inputs.iter().copied().collect();
@@ -909,12 +947,15 @@ fn emit_loop(loop_node: &Node, func: &Function, out: &mut String) -> HashSet<Nod
     // Assign outputs
     for (i, &oi) in outputs.iter().enumerate() {
         let val = emit_operand(oi, func, &carrier_map);
-        out.push_str(&format!("        o_{} = {};\n", i, val));
+        out.push_str(&format!("        o{}_{} = {};\n", ordinal, i, val));
     }
 
     // Update carriers
     for (i, _) in carried_inputs.iter().enumerate() {
-        out.push_str(&format!("        c_{} = o_{};\n", i, i));
+        out.push_str(&format!(
+            "        c{}_{} = o{}_{};\n",
+            ordinal, i, ordinal, i
+        ));
     }
 
     out.push_str("    }\n");

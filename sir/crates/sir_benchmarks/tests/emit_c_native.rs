@@ -1049,3 +1049,77 @@ fn zero_count_loop_function(name: &str, leading: bool) -> sir_nodes::Function {
     b.return_value(res, Span::unknown()).unwrap();
     b.build()
 }
+
+/// Two SEQUENTIAL loops in one SIR function: loop1 counts to 3, loop2
+/// takes loop1's output as its carried start and counts to 8; the return
+/// combines both extracts (3 + 8 = 11). Pins multi-loop emission:
+/// namespaced carrier/output variables, TupleExtract -> producing loop,
+/// and threading an earlier loop's output into a later loop.
+fn two_loop_sir_function() -> sir_nodes::Function {
+    let ty = Type::u64();
+    let mut b = Builder::new("two_loop_sir", &[("x", ty.clone())], ty.clone());
+    let _x = b.parameter_index(0).unwrap();
+    let zero = b.constant(sir_types::ConstantData::u64(0), ty.clone(), Span::unknown());
+    let one = b.constant(sir_types::ConstantData::u64(1), ty.clone(), Span::unknown());
+    let bound1 = b.constant(sir_types::ConstantData::u64(3), ty.clone(), Span::unknown());
+
+    // loop1: c = 0; while (c < 3) c += 1;  -> output 3
+    let next1 = b.add(zero, one, Span::unknown()).unwrap();
+    let term1 = b.lt(zero, bound1, Span::unknown()).unwrap();
+    let loop1 = b
+        .r#loop(
+            &[next1, term1],
+            term1,
+            &[next1],
+            &[zero],
+            Type::Tuple {
+                elements: vec![ty.clone()],
+            },
+            Span::unknown(),
+        )
+        .unwrap();
+    let e1 = b
+        .field_access(loop1, "0", ty.clone(), Span::unknown())
+        .unwrap();
+
+    // loop2: c = loop1; while (c < 8) c += 1;  -> output 8
+    let bound2 = b.constant(sir_types::ConstantData::u64(8), ty.clone(), Span::unknown());
+    let next2 = b.add(e1, one, Span::unknown()).unwrap();
+    let term2 = b.lt(e1, bound2, Span::unknown()).unwrap();
+    let loop2 = b
+        .r#loop(
+            &[next2, term2],
+            term2,
+            &[next2],
+            &[e1],
+            Type::Tuple {
+                elements: vec![ty.clone()],
+            },
+            Span::unknown(),
+        )
+        .unwrap();
+    let e2 = b
+        .field_access(loop2, "0", ty.clone(), Span::unknown())
+        .unwrap();
+    let sum = b.add(e1, e2, Span::unknown()).unwrap();
+    b.return_value(sum, Span::unknown()).unwrap();
+    b.build()
+}
+
+#[test]
+fn sequential_two_loops_execute_natively() {
+    if !clang_available() {
+        return;
+    }
+    let emitted = sir_benchmarks::emit::emit_c(&two_loop_sir_function());
+    let main = "    printf(\"%llu\\n\", (unsigned long long)two_loop_sir(0));\n";
+    let Some(stdout) = compile_and_run_emitted(&emitted, main, "two_loop_sir") else {
+        return;
+    };
+    let got: Vec<&str> = stdout.lines().collect();
+    assert_eq!(
+        got,
+        vec!["11"],
+        "loop2 must start from loop1's output and the combine must read both"
+    );
+}

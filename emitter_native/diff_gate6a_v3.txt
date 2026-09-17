@@ -9,7 +9,7 @@ NATIVE p08_all_ge_u8: clean cases=48 rewrites=0
 NATIVE p09_any_or_u8: clean cases=48 rewrites=0
 NATIVE p10_count_eq_do_while: clean cases=48 rewrites=0
 NATIVE p11_sum_plus_one_u16: clean cases=48 rewrites=0
-NATIVE p12_two_reductions: lower_refused (unsupported: multiple loops sharing an exit CFG (nested/sequential loops) not modeled: p12_two_reductions)
+NATIVE p12_two_reductions: clean cases=48 rewrites=0
 NATIVE n01_sum_i64_nsw: lower_refused (unsupported: signed icmp 'sgt' (SIR comparison semantics are unsigned-model; signed predicate would mistranslate negative operands): %3 = icmp sgt i64 %1, 0)
 NATIVE n02_running_max: lower_refused (unsupported: signed icmp 'sgt' (SIR comparison semantics are unsigned-model; signed predicate would mistranslate negative operands): %4 = icmp sgt i64 %1, 1)
 NATIVE n03_count_equal_pairs: clean cases=48 rewrites=0
@@ -22,4 +22,4 @@ NATIVE n09_self_recurrence: lower_refused (function has too few blocks for the l
 NATIVE n10_early_exit_write: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: n10_early_exit_write)
 NATIVE n11_reverse_sum: lower_refused (unsupported: signed icmp 'sgt' (SIR comparison semantics are unsigned-model; signed predicate would mistranslate negative operands): %3 = icmp sgt i64 %1, 0)
 NATIVE n12_atomic_sum: lower_refused (unsupported: atomic load (ordering semantics not modeled): %10 = load atomic i8, ptr %9 monotonic, align 1)
-EMITC_SUMMARY clean=16 mismatched=0 lower_refused=8 harness_errors=0
+EMITC_SUMMARY clean=17 mismatched=0 lower_refused=7 harness_errors=0

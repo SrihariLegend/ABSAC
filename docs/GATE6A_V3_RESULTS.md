@@ -155,17 +155,18 @@ known gaps) is preserved. With the current code:
 - Both re-measurements are remediation runs on frozen regression
   sets, not new generations.
 
-### Correction (same day): two-loop composition reverted; final state
+### Correction (same day): reverted, then re-landed behind a fixed emitter
 
-The 11/12 figure was the SIR-layer recognition count after a two-loop
-lowering composition. The native differential then proved the emitted C
-for those kernels wrong (v3 `p12` 21/24 mismatching cases, v5 `p12`
-24/24, 0 rewrites) because the SIR→C emitter is single-loop. The
-composition was reverted to the explicit fail-closed refusal and the
-emitter now refuses >1 Loop loudly. **Final re-measurement: v5 10/12
-and v3 10/12 recognized (the same pre-registered known gaps), 0 false
+The first 11/12 figure came from a composition whose emitted C the
+native differential then proved wrong (v3 `p12` 21/24, v5 `p12` 24/24
+mismatches, 0 rewrites) because the emitter modelled one loop. The
+composition was reverted, the emitter gained sequential-loop
+composition (namespaced carriers/outputs; TupleExtract/FieldAccess
+resolve to the producing loop), and the composition was re-landed.
+**Final re-measurement: v5 11/12 and v3 11/12 recognized, 0 false
 positives, 0 unsafe candidates, 0 unsafe rewrites, PASS; Gate 6B
-10/10; native sweep 99 clean / 0 mismatched / 49 lower-refused.**
+10/10; native sweep 103 clean / 0 mismatched / 45 lower-refused;
+v3/v4/v5 `p12` each native-clean 24/24.**
 
 Remaining recall on the positive side (constant-extent promotion):
 v3 `p04_count_ge_const_u32` and v5 `p07_count_eq_const_bound` now

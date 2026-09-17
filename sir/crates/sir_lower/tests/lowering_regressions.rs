@@ -354,17 +354,25 @@ fn sequential_loops_outline_and_lower_per_region() {
     }
 }
 
-/// Sequential two-loop kernels stay REFUSED (2026-09-17). A composition
-/// was prototyped and it lowered/verified/recognized both reductions,
-/// but the SIR→C emitter is single-loop: native differential execution
-/// of the emitted C mismatched the source (w08 21/24, p12 21–24/24
-/// cases, 0 rewrites). Fail closed until the emitter composes loops.
+/// Sequential two-loop kernels lower WHOLE (re-landed 2026-09-17 once
+/// the SIR→C emitter learned to compose sequential loops). The first
+/// composition attempt emitted wrong native code and was reverted; the
+/// emitter now namespaces carriers/outputs per loop and resolves
+/// TupleExtract/FieldAccess to the producing loop, and the corpus
+/// native differential gates this path.
 #[test]
-fn sequential_two_loops_are_refused_until_the_emitter_composes() {
-    refuses_cleanly(
-        TWO_LOOP_COUNT_SUM,
-        "two",
-        "multiple loops sharing an exit CFG",
+fn sequential_two_loops_lower_as_one_function() {
+    let f = lower_function(TWO_LOOP_COUNT_SUM, "two")
+        .expect("sequential two-loop function must lower");
+    let loop_count = f
+        .arena
+        .iter()
+        .filter(|n| matches!(n.kind, sir_nodes::NodeKind::Loop { .. }))
+        .count();
+    assert_eq!(loop_count, 2, "both self-latching loops must be present");
+    assert!(
+        f.return_node.is_some(),
+        "the shared exit/return must be emitted exactly once"
     );
 }
 

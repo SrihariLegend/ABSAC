@@ -20,27 +20,32 @@ buffer byte-for-byte.
 
 | Corpus | Clean | Mismatched | Lower-refused | Cases each | Rewrites applied |
 |---|---:|---:|---:|---:|---:|
-| `gate6a/v2_corpus.ll` | 8 | 0 | 8 | 48 | 1 |
-| `gate6a/v3_corpus.ll` | 16 | 0 | 8 | 48 | 0 |
-| `gate6a/v4_corpus.ll` | 21 | 0 | 3 | 48 | 0 |
-| `gate6a/v5_corpus.ll` | 20 | 0 | 4 | 48 | 1 |
+| `gate6a/v2_corpus.ll` | 9 | 0 | 7 | 48 | 1 |
+| `gate6a/v3_corpus.ll` | 17 | 0 | 7 | 48 | 1 |
+| `gate6a/v4_corpus.ll` | 22 | 0 | 2 | 48 | 0 |
+| `gate6a/v5_corpus.ll` | 21 | 0 | 3 | 48 | 1 |
 | `h3/tier_b.ll` | 7 | 0 | 5 | 24 | 4 |
 | `h4/tier_b.ll` | 7 | 0 | 6 | 24 | 4 |
 | `h4b/tier_b.ll` | 7 | 0 | 6 | 24 | 4 |
 | `h4c/tier_b.ll` | 6 | 0 | 4 | 24 | 3 |
 | `d4/tier_b.ll` | 7 | 0 | 5 | 24 | 4 |
-| **Total** | **99** | **0** | **49** | — | **22** |
+| **Total** | **103** | **0** | **45** | — | **22** |
 
-Re-measured 2026-09-17 after constant-extent buffer promotion: v2
-`w06_count_mismatch_const`, v3 `p04_count_ge_const_u32` and v5
-`p07_count_eq_const_bound` each apply 1 native-clean rewrite (24/24
-cases), so the total rises 19 → 22 with 0 mismatches. The multi-loop
-kernels (v2 `w08`, v3/v4/v5 `p12`) are lower-refused again: a two-loop
-SIR composition was prototyped, but this harness caught wrong emitted C
-(21–24/24 mismatching cases, 0 rewrites) because `emit.rs` models a
-single loop. `emit_c` now panics loudly on >1 Loop node and the lowerer
-keeps its explicit multi-loop refusal until the emitter composes
-sequential loops.
+Re-measured 2026-09-17 (final): constant-extent buffer promotion adds
+native-clean rewrites for v2 `w06_count_mismatch_const`, v3
+`p04_count_ge_const_u32` and v5 `p07_count_eq_const_bound` (19 → 22
+rewrites), and the SIR→C emitter now composes **sequential loops**
+(carrier/output variables are namespaced by the loop ordinal;
+TupleExtract/FieldAccess resolve to the producing loop). The four
+multi-loop kernels (v2 `w08`, v3/v4/v5 `p12`) moved from lower-refused
+to native-clean, so clean rises 99 → 103 and lower-refused falls
+49 → 45, still with **0 mismatches**.
+
+History: the first two-loop composition attempt (before the emitter
+learned sequential loops) emitted wrong C — this harness caught it
+(w08 21/24, p12 21–24/24 mismatches, 0 rewrites) — and the lowering was
+reverted fail-closed until the emitter was fixed. The failed attempt is
+preserved in the git history and in docs/RECALL_RESULTS.md.
 
 Lower refusals are the documented fail-closed classes (signed icmp,
 atomic/volatile ordering, multi-loop CFGs, separate latch blocks,

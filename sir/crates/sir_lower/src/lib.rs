@@ -1556,15 +1556,28 @@ pub fn lower(text: &str) -> Result<Function, String> {
     //     its header phis were never mapped and lowering died mid-
     //     instruction on "cannot resolve gep index '%N'".
     if self_loop_blocks.len() > 1 {
-        // FAIL-CLOSED (2026-09-17): a sequential composition of two
-        // self-latching loops DOES lower and structurally verify, and
-        // the semantic layer recognizes both reductions — but the SIR→C
-        // emitter models a single loop, so the emitted native code
-        // mismatched the source (native differential: w08 21/24 and
-        // p12 21–24/24 cases wrong, with 0 rewrites). Lowering a
-        // function the native bridge cannot emit is not a recall win.
-        // The explicit refusal stays until the emitter composes
-        // sequential loops (see docs/RECALL_RESULTS.md).
+        // SEQUENTIAL MULTI-LOOP COMPOSITION (w08/p12 recall, re-landed
+        // 2026-09-17 behind the multi-loop emitter): lower each
+        // self-latching loop in block order. The first loop's exit walk
+        // stops at the next loop's conditional guard, so its exit phis
+        // feed the second loop's pre-header as straight-line values; the
+        // last loop's exit walk emits the shared exit and the single
+        // return. Any failure (nested/shared-exit shapes, unresolved
+        // cross-loop values, a second return) falls back to the
+        // historical explicit refusal — never a partial function. The
+        // SIR→C emitter composes sequential loops (namespaced
+        // carriers/outputs) and the native differential gates this
+        // path.
+        let mut sequential_ok = true;
+        for &lbi in &self_loop_blocks {
+            if lower_loop_function(&ir, lbi, &mut builder, &mut value_map).is_err() {
+                sequential_ok = false;
+                break;
+            }
+        }
+        if sequential_ok && builder.function().return_node.is_some() {
+            return Ok(builder.build());
+        }
         return Err(format!(
             "unsupported: multiple loops sharing an exit CFG (nested/sequential loops) not modeled: {}",
             ir.name
