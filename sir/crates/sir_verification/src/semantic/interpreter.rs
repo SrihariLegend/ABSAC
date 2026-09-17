@@ -344,6 +344,32 @@ impl Interpreter {
                 }
             }
 
+            SemanticExpression::BitScanReverse(inner) => {
+                let val = self.evaluate(inner, env)?;
+                match val {
+                    Value::BitVector(bv) => {
+                        // Highest set index; width sentinel for zero
+                        // (matches the solver's reverse found-flag scan).
+                        let highest = if bv.bits == 0 {
+                            bv.width as u64
+                        } else {
+                            let unused_bits = 128 - bv.width;
+                            (127 - (bv.bits.leading_zeros() - unused_bits as u32)) as u64
+                        };
+                        Ok(Value::Integer(highest))
+                    }
+                    Value::Integer(i) => Ok(Value::Integer(if i == 0 {
+                        64
+                    } else {
+                        63 - i.leading_zeros() as u64
+                    })),
+                    other => Err(InterpreterError::TypeMismatch {
+                        expected: "BitVector or Integer",
+                        found: other,
+                    }),
+                }
+            }
+
             SemanticExpression::ShiftLeft(lhs, rhs) => {
                 let l = self.evaluate(lhs, env)?;
                 let r = self.evaluate(rhs, env)?;

@@ -102,8 +102,16 @@ pub enum SemanticExpression {
     /// Count of trailing zeros in a bitvector (equal to BitScanForward).
     TrailingZeros(Box<SemanticExpression>),
 
-    /// Count of leading zeros in a bitvector (equal to BitScanReverse).
+    /// Count of leading zeros in a bitvector (clz; `width` for zero).
+    /// NOT equal to BitScanReverse for nonzero values:
+    /// `bsr(x) = width - 1 - clz(x)`.
     LeadingZeros(Box<SemanticExpression>),
+
+    /// Index of the highest set bit (bit-scan-reverse), or the width
+    /// when the value is zero. The historical equation
+    /// `LastTrue(seq) == LeadingZeros(Pack(seq))` was FALSE (an
+    /// MSB-set mask gives 63 vs 0); this term is the correct target.
+    BitScanReverse(Box<SemanticExpression>),
 
     // ── Added for Mask Algebra (Phase 0020) ────────────
     /// Clears the lowest set bit of a bitvector.

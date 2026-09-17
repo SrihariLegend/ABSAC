@@ -396,10 +396,18 @@ Remediation D3 (P0A, commit c3ebb54):
        the four mask-algebra definitions, ByteSwap, BitReverse and
        ShiftMask, the rotate pair, the two zero-count scans, the two
        division identities and BitScanForward are lifted (15/16); only
-       BitScanReverse remains (false LastTrue==clz theorem caught by the
-       solver; the PS002 kernel is additionally non-terminating on the
-       all-false input — unsigned `i >= 0` underflows; a sound reverse
-       kernel + bsr intrinsic are prerequisites);
+       BitScanReverse remains — its SEMANTIC half landed 2026-09-17:
+       the false `LastTrue == clz` theorem is replaced by
+       `LastTrue == BitScanReverse(Pack)` (new SemanticExpression +
+       interpreter + normalizer + concrete-solver lowering; the
+       bit-blaster proves the corrected pair and refutes the historical
+       one, tests/bitscan_reverse_theorem.rs). The definition stays Stub
+       until the application half closes: a bsr SIR intrinsic whose
+       emission is the highest set index (width sentinel for zero), the
+       recipe emitting it (it still emits LeadingZeros — a latent
+       miscompile), reverse counted-loop trip-count support, and a
+       sound reverse kernel (the PS002 kernel is non-terminating on the
+       all-false input — unsigned `i >= 0` underflows);
        obligations can bind the authorized structural roles
        (`obligation_with_roles` + structural DB in build_obligations);
        instruction-selection emission (Rol/Ror, blsr/blsi/blsmsk,

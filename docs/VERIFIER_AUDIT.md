@@ -199,8 +199,19 @@ The four scan definitions have distinct, now-measured blockers:
 - **BitScanReverse (201) remains Stub** with three recorded blockers:
   (a) the historical obligation `LastTrue(seq) == LeadingZeros(Pack(seq))`
   is **FALSE** — the solver returns the counterexample for an MSB-set
-  mask (lhs 63 vs rhs 0); (b) the recipe equally emits `LeadingZeros`, a
-  latent miscompile the quarantine hid; (c) the reduction binding's
+  mask (lhs 63 vs rhs 0). **Corrected 2026-09-17 (semantic half):** the
+  false conflation is removed — `SemanticExpression::BitScanReverse`
+  (highest set index, width sentinel for zero) is added with
+  interpreter, normalizer and concrete-solver lowering (a reverse
+  found-flag scan, structurally distinct from `LastTrue`'s overwrite
+  fold); the normalizer rule now rewrites `LastTrue(seq)` to
+  `BitScanReverse(Pack(seq))` instead of `LeadingZeros`; and the
+  definition binds the corrected theorem, which the bit-blaster PROVES
+  (8-bit fixture) while the historical equation is REJECTED with a
+  counterexample (tests/bitscan_reverse_theorem.rs). The definition
+  stays **Stub** (never Proven through the verifier) because the
+  application blockers are unchanged: (b) the recipe still emits
+  `LeadingZeros`, a latent miscompile the quarantine hid; (c) the reduction binding's
   trip-count contract is forward-only (`i < bound`, zero-based), while
   the reverse search iterates `i = 63 .. 0`. A correct lift needs a
   bit-scan-reverse intrinsic (highest set index, width sentinel for

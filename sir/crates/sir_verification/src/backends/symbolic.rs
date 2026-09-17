@@ -16,7 +16,7 @@ use crate::semantic::rules::count_filter_to_popcount::CountFilterToPopcount;
 use crate::semantic::rules::divide_to_shift::DivideToShift;
 use crate::semantic::rules::exists_to_not_equal_zero::ExistsToNotEqualZero;
 use crate::semantic::rules::first_true_to_trailing_zeros::FirstTrueToTrailingZeros;
-use crate::semantic::rules::last_true_to_leading_zeros::LastTrueToLeadingZeros;
+use crate::semantic::rules::last_true_to_bit_scan_reverse::LastTrueToBitScanReverse;
 use crate::semantic::rules::lowest_clear_bit_mask_to_bitwise_and::LowestClearBitMaskToBitwiseAnd;
 use crate::semantic::rules::lowest_set_bit_to_bitwise_and::LowestSetBitToBitwiseAnd;
 use crate::semantic::rules::modulo_to_and::ModuloToAnd;
@@ -48,7 +48,7 @@ impl SymbolicVerifier {
         normalizer.add_rule(Box::new(DivideToShift));
         normalizer.add_rule(Box::new(MultiplyToShift));
         normalizer.add_rule(Box::new(FirstTrueToTrailingZeros));
-        normalizer.add_rule(Box::new(LastTrueToLeadingZeros));
+        normalizer.add_rule(Box::new(LastTrueToBitScanReverse));
         normalizer.add_rule(Box::new(ClearLowestSetBitToBitwiseAnd));
         normalizer.add_rule(Box::new(LowestSetBitToBitwiseAnd));
         normalizer.add_rule(Box::new(LowestClearBitMaskToBitwiseAnd));

@@ -185,6 +185,10 @@ impl Normalizer {
                 let normalized = self.normalize_recursive(inner, steps, depth + 1);
                 SemanticExpression::LeadingZeros(Box::new(normalized))
             }
+            SemanticExpression::BitScanReverse(inner) => {
+                let normalized = self.normalize_recursive(inner, steps, depth + 1);
+                SemanticExpression::BitScanReverse(Box::new(normalized))
+            }
 
             // Binary nodes
             SemanticExpression::Modulo(lhs, rhs) => SemanticExpression::Modulo(

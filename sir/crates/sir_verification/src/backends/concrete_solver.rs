@@ -353,6 +353,25 @@ fn lower(
             }
             Ok(res)
         }
+        // Bit-scan-reverse: highest set index, width sentinel for zero.
+        // Deliberately a REVERSE FOUND-FLAG scan (from the MSB down),
+        // structurally different from `LastTrue`'s forward overwrite
+        // fold, so the corrected LastTrue obligation is not reflexive.
+        SemanticExpression::BitScanReverse(inner) => {
+            let value = lower(inner, bv, widths, vars, None)?;
+            let w = bv.width(value);
+            let mut found = bv.zero(1);
+            let mut res = bv.constant(u64::from(w), w);
+            for i in (0..w).rev() {
+                let bit = bv.bit(value, i);
+                let not_found = bv.not(found);
+                let take = bv.and(not_found, bit);
+                let idx = bv.constant(u64::from(i), w);
+                res = bv.ite(take, idx, res);
+                found = bv.or(found, bit);
+            }
+            Ok(res)
+        }
         // Collections, popcounts and bit scans are not modeled by this
         // lowering yet.
         _ => Err(()),

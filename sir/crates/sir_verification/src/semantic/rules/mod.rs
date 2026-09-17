@@ -6,7 +6,7 @@ pub mod count_filter_to_popcount;
 pub mod divide_to_shift;
 pub mod exists_to_not_equal_zero;
 pub mod first_true_to_trailing_zeros;
-pub mod last_true_to_leading_zeros;
+pub mod last_true_to_bit_scan_reverse;
 pub mod lowest_clear_bit_mask_to_bitwise_and;
 pub mod lowest_set_bit_to_bitwise_and;
 pub mod modulo_to_and;
