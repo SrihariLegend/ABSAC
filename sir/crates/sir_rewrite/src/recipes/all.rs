@@ -4,7 +4,9 @@ use sir_types::{ConstantData, Span, Type};
 use crate::error::RewriteError;
 use crate::patch::{ReplacementPatch, ReplacementValue};
 use crate::recipe::RewriteRecipe;
-use crate::recipes::helpers::{authorized_tuple_consumer, collection_length, emit_pack, wrap_direct_tuple_return};
+use crate::recipes::helpers::{
+    binding_target, emit_pack_from_binding, require_binding, wrap_direct_tuple_return,
+};
 use crate::region::RewriteRegion;
 use crate::subgraph_builder::SubgraphBuilder;
 
@@ -37,24 +39,22 @@ impl RewriteRecipe for AllRecipe {
         region: &RewriteRegion,
         mut builder: SubgraphBuilder,
     ) -> Result<ReplacementPatch, RewriteError> {
-        let result = region.result()?;
-        let accumulator = region.accumulator().ok().flatten();
+        // Binding-only (P0A): roles, observable target and collection
+        // extent all come from the authorized ProposalBinding.
+        let binding = require_binding(region, "All")?;
+        let map = &binding.map;
+        let target = binding_target(region, "All")?;
+        let (packed, width) = emit_pack_from_binding(function, region, "All", &mut builder)?;
 
-        // Prefer replacing the tuple-slot consumer when one exists; when the
-        // tuple is returned wholesale the loop's tuple result is rebuilt
-        // below. The consumer must read the ACCUMULATOR slot — a slot the
-        // theorem does not cover (e.g. a position/index live-out) refuses
-        // the rewrite (PS002 audit: array_find_last was silently rewritten
-        // to return a constant).
-        let extract = authorized_tuple_consumer(function, result, accumulator)?;
-        let target = extract.unwrap_or(result);
-
-        let packed = emit_pack(function, region, &mut builder)?;
-
-        let width = match builder.get_type(packed) {
-            Some(Type::BitVector { width }) => width,
-            _ => 64, // Default
-        };
+        // SIR constants carry a single u64: an all-ones mask exists only
+        // up to 64 elements. Wider All sets refuse loudly instead of
+        // emitting a truncated mask.
+        if width > 64 {
+            return Err(RewriteError::RecipeFailed(format!(
+                "All over a {width}-element collection needs a multi-limb \
+                 all-ones constant, which SIR constants cannot represent"
+            )));
+        }
 
         let full_mask_val = if width == 64 {
             u64::MAX
@@ -68,12 +68,14 @@ impl RewriteRecipe for AllRecipe {
         );
         let eq_mask = builder.eq(packed, full_mask, Span::unknown());
 
-        let new_value = if extract.is_none() {
+        let new_value = if target == map.loop_node {
+            // Whole-value observable: rebuild the loop result when it is
+            // a tuple (multi-element tuples refuse inside the helper).
             wrap_direct_tuple_return(
                 function,
-                result,
-                accumulator,
-                collection_length(region),
+                map.loop_node,
+                Some(map.accumulator),
+                Some(width),
                 eq_mask,
                 &mut builder,
             )?

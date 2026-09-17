@@ -164,48 +164,91 @@ impl RewriteRecipe for PopcountRecipe {
             }
         }
 
-        // Existing Pack + Popcount strategy (loop elimination).
-        // Used for: Array<Bool> collections, SetIteration (scalar BK popcount),
-        // and PredicateCollectionReduction patterns.
-        let mut old_result = region.result()?;
-        let accumulator = region.accumulator().ok().flatten();
-
-        // Replace the tuple-slot consumer ONLY when it reads the
-        // accumulator slot (PS002 audit: a consumer reading a different
-        // slot — e.g. a position live-out — cannot be satisfied by a
-        // popcount; replacing the tuple wholesale under it silently
-        // changes program semantics).
-        if let Some(extract) = authorized_tuple_consumer(function, old_result, accumulator)? {
-            old_result = extract;
-        }
-
-        // Type the popcount from the replaced node.
-        let mut pop_ty = function.get_node(old_result).unwrap().ty.clone();
-        if let Type::Tuple { elements } = &pop_ty {
-            if let Some(pos) = loop_reduction_position(function, old_result, accumulator) {
-                pop_ty = elements[pos].clone();
-            }
-        }
-
-        let packed = if let Some(set_val) = region.structural.roles.iter().find_map(|r| {
+        // Pack + Popcount strategy (loop elimination): Array<Bool>
+        // collections, SetIteration (scalar BK popcount), and
+        // PredicateCollectionReduction patterns.
+        //
+        // Collection reductions consume the authorized ProposalBinding;
+        // the scalar SetIteration path has no binding (the engine binds
+        // collection reductions only) and is driven by its role.
+        let set_val = region.structural.roles.iter().find_map(|r| {
             if let sir_transform::roles::RegionRoles::SetIteration { set_value, .. } = r {
                 Some(*set_value)
             } else {
                 None
             }
-        }) {
-            use crate::local_id::LocalNodeId;
-            LocalNodeId::new(set_val.as_u64())
+        });
+
+        let (old_result, pop_ty, packed, fallback_bound) = if region.binding.is_some() {
+            let map = &crate::recipes::helpers::require_binding(region, "Popcount")?.map;
+            let target = crate::recipes::helpers::binding_target(region, "Popcount")?;
+            let width = crate::recipes::helpers::binding_collection_extent(
+                function,
+                region,
+                "Popcount",
+            )?
+            .1;
+            // Type the popcount from the authorized reduction position.
+            let node_ty = function
+                .get_node(target)
+                .map(|n| n.ty.clone())
+                .unwrap_or(sir_types::Type::Unit);
+            let pop_ty = match node_ty {
+                Type::Tuple { elements } => elements
+                    .get(map.reduction_position)
+                    .cloned()
+                    .unwrap_or(sir_types::Type::Unit),
+                other => other,
+            };
+            let packed = match set_val {
+                Some(set_val) => crate::local_id::LocalNodeId::new(set_val.as_u64()),
+                None => crate::recipes::helpers::emit_pack_from_binding(
+                    function,
+                    region,
+                    "Popcount",
+                    &mut builder,
+                )?
+                .0,
+            };
+            (target, pop_ty, packed, Some(width))
         } else {
-            crate::recipes::helpers::emit_pack(function, region, &mut builder)?
+            let Some(set_val) = set_val else {
+                return Err(RewriteError::RecipeFailed(
+                    "Popcount requires an application binding (ProposalBinding) or a \
+                     SetIteration scalar role; neither was derived"
+                        .to_string(),
+                ));
+            };
+            let mut old_result = region.result()?;
+            let accumulator = region.accumulator().ok().flatten();
+            // Replace the tuple-slot consumer ONLY when it reads the
+            // accumulator slot (PS002 audit).
+            if let Some(extract) = authorized_tuple_consumer(function, old_result, accumulator)? {
+                old_result = extract;
+            }
+            let mut pop_ty = function.get_node(old_result).unwrap().ty.clone();
+            if let Type::Tuple { elements } = &pop_ty {
+                if let Some(pos) = loop_reduction_position(function, old_result, accumulator) {
+                    pop_ty = elements[pos].clone();
+                }
+            }
+            (
+                old_result,
+                pop_ty,
+                crate::local_id::LocalNodeId::new(set_val.as_u64()),
+                collection_length(region),
+            )
         };
         let pop = builder.popcount(packed, pop_ty, Span::unknown());
 
         let new_value = wrap_direct_tuple_return(
             function,
             old_result,
-            accumulator,
-            collection_length(region),
+            region
+                .binding
+                .as_ref()
+                .map(|b| b.map.accumulator),
+            fallback_bound,
             pop,
             &mut builder,
         )?;
@@ -239,6 +282,62 @@ mod tests {
         RewriteRegion::new(structural)
     }
 
+    /// A minimal authorized-binding stand-in: one reconstructed
+    /// observable at `use_site`, role map pointing at `collection`.
+    fn test_binding(
+        collection: sir_types::NodeId,
+        element_access: sir_types::NodeId,
+        predicate_op: Option<sir_nodes::CmpOperator>,
+        predicate_scalar: Option<sir_types::NodeId>,
+        use_site: sir_types::NodeId,
+    ) -> sir_semantics::binding::ProposalBinding {
+        use sir_semantics::authorization::IntegerSemantics;
+        use sir_semantics::binding::{
+            FrameCondition, LiveOutBinding, LiveOutKind, LiveOutSlot, PredicateScalarClass,
+            ProposalBinding, ReductionRoleMap,
+        };
+        ProposalBinding {
+            map: ReductionRoleMap {
+                region: RegionId::new(0),
+                loop_node: sir_types::NodeId::new(8),
+                collection,
+                element_access,
+                induction: None,
+                start: None,
+                bound: None,
+                stride: 1,
+                predicate: Some(element_access),
+                predicate_op,
+                predicate_scalar,
+                predicate_scalar_class: PredicateScalarClass::None,
+                accumulator: sir_types::NodeId::new(3),
+                recurrence: "bitwise_or".to_string(),
+                identity: None,
+                reduction_position: 0,
+                live_ins: vec![],
+                effects: sir_types::Effects::empty(),
+                integer_semantics: IntegerSemantics::Modular,
+            },
+            live_outs: vec![LiveOutSlot {
+                kind: LiveOutKind::Slot(0),
+                binding: LiveOutBinding::Reconstructed { slot: 0 },
+                closure: None,
+                use_site: Some(use_site),
+            }],
+            frame: FrameCondition {
+                source_reads: vec![],
+                source_writes: false,
+                has_volatile_or_atomic: false,
+                has_calls: false,
+                possible_traps: false,
+                terminates: true,
+                single_normal_exit: true,
+                output_count: 2,
+                trip_count: None,
+            },
+        }
+    }
+
     #[test]
     fn popcount_recipe_has_correct_definition_id() {
         let recipe = PopcountRecipe::new(DefinitionId::new(42));
@@ -254,7 +353,13 @@ mod tests {
     #[test]
     fn popcount_recipe_produces_patch_with_correct_structure() {
         let recipe = PopcountRecipe::new(DefinitionId::new(0));
-        let region = make_test_region();
+        let region = make_test_region().with_binding(test_binding(
+            sir_types::NodeId::new(10),
+            sir_types::NodeId::new(10),
+            None,
+            None,
+            sir_types::NodeId::new(20),
+        ));
         let builder = SubgraphBuilder::new();
         // The region result (node 20) must exist in the function with a scalar
         // type: the recipe reads its type to type the popcount, and the tuple
@@ -302,8 +407,119 @@ mod tests {
         let result = recipe.build_patch(&func, &region, builder);
         assert!(result.is_err());
         match result {
-            Err(RewriteError::MissingRole { .. }) => {} // expected
-            other => panic!("expected MissingRole, got {:?}", other),
+            Err(RewriteError::RecipeFailed(ref msg))
+                if msg.contains("requires an application binding") => {}
+            other => panic!("expected a binding refusal, got {:?}", other),
+        }
+    }
+
+    /// P0A: predicate masks must use the binding's TRUE operator. The old
+    /// structural `emit_pack` hardcoded `Gt`, so an `==` collection would
+    /// have been rewritten as `>`.
+    #[test]
+    fn popcount_recipe_uses_the_bindings_true_operator() {
+        let recipe = PopcountRecipe::new(DefinitionId::new(0));
+        let structural = StructuralDescription::new(
+            RegionId::new(0),
+            SourceStructure::DynamicBooleanSequence { length: 64 },
+        )
+        .with_roles(RegionRoles::PredicateCollectionReduction {
+            collection: sir_types::NodeId::new(10),
+            scalar: sir_types::NodeId::new(12),
+            operator: sir_types::NodeId::new(13),
+            accumulator: None,
+            result: sir_types::NodeId::new(20),
+        });
+        let region = RewriteRegion::new(structural).with_binding(test_binding(
+            sir_types::NodeId::new(10),
+            sir_types::NodeId::new(10),
+            Some(sir_nodes::CmpOperator::Eq),
+            Some(sir_types::NodeId::new(12)),
+            sir_types::NodeId::new(20),
+        ));
+
+        let mut func = sir_nodes::Function::new("test", sir_types::Type::Unit);
+        func.arena.insert(sir_nodes::Node::new(
+            sir_types::NodeId::new(10),
+            sir_nodes::NodeKind::Parameter { index: 0 },
+            sir_types::Type::Array {
+                element: Box::new(sir_types::Type::u8()),
+                length: 64,
+            },
+            sir_types::Effects::empty(),
+            sir_types::Span::unknown(),
+        ));
+        func.arena.insert(sir_nodes::Node::new(
+            sir_types::NodeId::new(12),
+            sir_nodes::NodeKind::Constant(sir_types::ConstantData::u8(7)),
+            sir_types::Type::u8(),
+            sir_types::Effects::empty(),
+            sir_types::Span::unknown(),
+        ));
+        func.arena.insert(sir_nodes::Node::new(
+            sir_types::NodeId::new(20),
+            sir_nodes::NodeKind::Constant(sir_types::ConstantData::i32(0)),
+            sir_types::Type::i32(),
+            sir_types::Effects::empty(),
+            sir_types::Span::unknown(),
+        ));
+
+        let patch = recipe
+            .build_patch(&func, &region, SubgraphBuilder::new())
+            .unwrap();
+        let mut mask_op = None;
+        for (_, node) in patch.arena.iter() {
+            if let sir_nodes::NodeKind::ArrayCmpMask { op, .. } = &node.kind {
+                mask_op = Some(*op);
+            }
+        }
+        assert_eq!(
+            mask_op,
+            Some(sir_nodes::CmpOperator::Eq),
+            "the mask must use the binding's operator, not a hardcoded Gt"
+        );
+    }
+
+    /// The binding is authoritative: a stale/mutated structural role that
+    /// points somewhere else must not silently become the rewrite source.
+    #[test]
+    fn stale_structural_collection_is_not_a_fallback() {
+        let recipe = PopcountRecipe::new(DefinitionId::new(0));
+        // Structural role points at the valid collection (10); the
+        // binding points at a node that does not exist (99).
+        let region = make_test_region().with_binding(test_binding(
+            sir_types::NodeId::new(99),
+            sir_types::NodeId::new(99),
+            None,
+            None,
+            sir_types::NodeId::new(20),
+        ));
+        let mut func = sir_nodes::Function::new("test", sir_types::Type::Unit);
+        func.arena.insert(sir_nodes::Node::new(
+            sir_types::NodeId::new(10),
+            sir_nodes::NodeKind::Parameter { index: 0 },
+            sir_types::Type::Array {
+                element: Box::new(sir_types::Type::Bool),
+                length: 64,
+            },
+            sir_types::Effects::empty(),
+            sir_types::Span::unknown(),
+        ));
+        func.arena.insert(sir_nodes::Node::new(
+            sir_types::NodeId::new(20),
+            sir_nodes::NodeKind::Constant(sir_types::ConstantData::i32(0)),
+            sir_types::Type::i32(),
+            sir_types::Effects::empty(),
+            sir_types::Span::unknown(),
+        ));
+        let result = recipe.build_patch(&func, &region, SubgraphBuilder::new());
+        match result {
+            Err(RewriteError::RecipeFailed(ref msg))
+                if msg.contains("no declared array extent") => {}
+            other => panic!(
+                "a binding whose collection has no extent must refuse, got {:?}",
+                other
+            ),
         }
     }
 }

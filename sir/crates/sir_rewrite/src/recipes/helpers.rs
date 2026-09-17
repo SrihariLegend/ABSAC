@@ -3,7 +3,180 @@ use crate::local_id::LocalNodeId;
 use crate::region::RewriteRegion;
 use crate::subgraph_builder::SubgraphBuilder;
 use sir_nodes::NodeKind;
+use sir_semantics::binding::{
+    LiveOutBinding, LiveOutKind, ProposalBinding, ReductionRoleMap,
+};
 use sir_types::{ConstantData, NodeId, Span, Type};
+
+/// The authorized application binding, or a fail-closed refusal.
+///
+/// Reduction recipes must consume this artifact instead of re-deriving
+/// roles from the structural description (P0A: the canonical binder is
+/// the ONE legitimate role scan).
+pub fn require_binding<'a>(
+    region: &'a RewriteRegion,
+    recipe: &str,
+) -> Result<&'a ProposalBinding, RewriteError> {
+    region.binding.as_ref().ok_or_else(|| {
+        RewriteError::RecipeFailed(format!(
+            "{recipe} requires an application binding (ProposalBinding); none was derived"
+        ))
+    })
+}
+
+/// The single reconstructed observable target a reduction recipe may
+/// replace, taken from the authorized binding's live-out classification.
+///
+/// Dead slots carry use-closure evidence and get no replacement; any
+/// other binding state refuses. Shared by every reduction recipe so the
+/// observable interface has one implementation.
+pub fn binding_target(region: &RewriteRegion, recipe: &str) -> Result<NodeId, RewriteError> {
+    let binding = require_binding(region, recipe)?;
+    let mut target: Option<NodeId> = None;
+    for observable in &binding.live_outs {
+        match &observable.binding {
+            LiveOutBinding::Reconstructed { .. } => {
+                let Some(site) = observable.use_site else {
+                    return Err(RewriteError::RecipeFailed(format!(
+                        "{recipe}: reconstructed observable has no replacement site"
+                    )));
+                };
+                if target.is_some() {
+                    return Err(RewriteError::RecipeFailed(format!(
+                        "{recipe}: binding classifies more than one reconstructed observable"
+                    )));
+                }
+                target = Some(match observable.kind {
+                    LiveOutKind::WholeValue => binding.map.loop_node,
+                    LiveOutKind::Slot(_) => site,
+                });
+            }
+            LiveOutBinding::Dead { .. } => {}
+            _ => {
+                return Err(RewriteError::RecipeFailed(format!(
+                    "{recipe}: unsupported live-out binding state"
+                )));
+            }
+        }
+    }
+    target.ok_or_else(|| {
+        RewriteError::RecipeFailed(format!(
+            "{recipe}: binding classifies no reconstructed observable"
+        ))
+    })
+}
+
+/// The collection extent from the authorized role map: the collection's
+/// own declared array type, never a guess.
+pub fn binding_collection_extent(
+    function: &sir_nodes::Function,
+    region: &RewriteRegion,
+    recipe: &str,
+) -> Result<(NodeId, usize, Type), RewriteError> {
+    let map = &require_binding(region, recipe)?.map;
+    match function.get_node(map.collection).map(|n| &n.ty) {
+        Some(Type::Array { length, element }) => {
+            Ok((map.collection, *length, (**element).clone()))
+        }
+        _ => Err(RewriteError::RecipeFailed(format!(
+            "{recipe}: collection %{} has no declared array extent",
+            map.collection.0
+        ))),
+    }
+}
+
+/// D4: the implicit element-truthiness predicate is certified by the
+/// role map itself — the accumulator combines the RAW element access
+/// (`predicate == element_access`), the recurrence is a disjunction
+/// whose nonzero value means "some element is nonzero", and the element
+/// type is a non-Boolean integer the mask comparison is defined over.
+pub fn implicit_element_nonzero(map: &ReductionRoleMap, element_ty: &Type) -> bool {
+    map.predicate_op.is_none()
+        && map.predicate == Some(map.element_access)
+        && map.recurrence == "bitwise_or"
+        && !element_ty.is_bool()
+        && zero_of_type(element_ty).is_some()
+}
+
+/// The canonical zero constant of an integer type (None for types
+/// without a constructor — those refuse rather than guess).
+pub fn zero_of_type(ty: &Type) -> Option<ConstantData> {
+    use sir_types::IntegerWidth;
+    match ty {
+        Type::Integer { width, signed, .. } => Some(match (width, signed) {
+            (IntegerWidth::I8, false) => ConstantData::u8(0),
+            (IntegerWidth::I8, true) => ConstantData::i8(0),
+            (IntegerWidth::I16, false) => ConstantData::u16(0),
+            (IntegerWidth::I16, true) => ConstantData::i16(0),
+            (IntegerWidth::I32, false) => ConstantData::u32(0),
+            (IntegerWidth::I32, true) => ConstantData::i32(0),
+            (IntegerWidth::I64, false) => ConstantData::u64(0),
+            (IntegerWidth::I64, true) => ConstantData::i64(0),
+            (IntegerWidth::I128, _) => return None,
+        }),
+        _ => None,
+    }
+}
+
+/// Emit the initial mask/board read for a reduction, entirely from the
+/// authorized role map:
+///
+/// - predicate collection → `array_cmp_mask(collection, scalar, TRUE op)`
+///   (the operator is the binding's role, never hardcoded);
+/// - boolean collection → `pack(collection)`;
+/// - integer collection reducing raw elements with an OR recurrence →
+///   the certified `x[i] != 0` mask with a synthesized canonical zero.
+///
+/// Returns the packed node and the collection width.
+pub fn emit_pack_from_binding(
+    function: &sir_nodes::Function,
+    region: &RewriteRegion,
+    recipe: &str,
+    builder: &mut SubgraphBuilder,
+) -> Result<(LocalNodeId, usize), RewriteError> {
+    let (collection, width, element_ty) =
+        binding_collection_extent(function, region, recipe)?;
+    let map = &require_binding(region, recipe)?.map;
+    let span = Span::unknown();
+    let collection_local = LocalNodeId::new(collection.as_u64());
+    let packed = match (map.predicate_op, map.predicate_scalar) {
+        (Some(op), Some(scalar)) => builder.array_cmp_mask(
+            collection_local,
+            LocalNodeId::new(scalar.as_u64()),
+            op,
+            span,
+        ),
+        (None, None) if element_ty == Type::Bool => {
+            builder.pack(collection_local, width, span)
+        }
+        (None, None) if implicit_element_nonzero(map, &element_ty) => {
+            let zero_data = zero_of_type(&element_ty).ok_or_else(|| {
+                RewriteError::RecipeFailed(format!(
+                    "no canonical zero constant for element type {element_ty:?}"
+                ))
+            })?;
+            let element_zero = builder.constant(zero_data, element_ty.clone(), span);
+            builder.array_cmp_mask(
+                collection_local,
+                element_zero,
+                sir_nodes::CmpOperator::Ne,
+                span,
+            )
+        }
+        (None, None) => {
+            return Err(RewriteError::RecipeFailed(format!(
+                "{recipe}: integer collection without a certified element predicate: \
+                 the recurrence does not reduce the raw elements"
+            )));
+        }
+        _ => {
+            return Err(RewriteError::RecipeFailed(format!(
+                "{recipe}: predicate roles inconsistent (op without scalar or vice versa)"
+            )));
+        }
+    };
+    Ok((packed, width))
+}
 
 /// Find a `TupleExtract` node that consumes the given tuple value, if any.
 ///
@@ -316,42 +489,7 @@ pub fn collection_length(region: &RewriteRegion) -> Option<usize> {
     }
 }
 
-/// Shared helper to emit the initial `pack(board)` operation for bitset reductions.
-pub fn emit_pack(
-    _function: &sir_nodes::Function,
-    region: &RewriteRegion,
-    builder: &mut SubgraphBuilder,
-) -> Result<LocalNodeId, RewriteError> {
-    let collection = region.collection()?;
-
-    // Check if the structure is a DynamicBooleanSequence, in which case we emit an ArrayCmpMask instead of Pack.
-    // We can infer this by checking if the RegionRole is PredicateCollectionReduction.
-    if let Ok(scalar) = region.predicate_scalar() {
-        if let Ok(_op) = region.predicate_op_node() {
-            // In v0.1 we simplify by assuming it is `Gt` or whatever the operator was.
-            // We really should extract the actual `CmpOperator` from the original graph, but we don't have it here.
-            // As a fallback for the test, we'll hardcode `Gt`.
-            let packed = builder.array_cmp_mask(
-                LocalNodeId::new(collection.as_u64()),
-                LocalNodeId::new(scalar.as_u64()),
-                sir_nodes::CmpOperator::Gt,
-                Span::unknown(),
-            );
-            return Ok(packed);
-        }
-    }
-
-    let mut width = 64;
-    if let sir_transform::structures::SourceStructure::LogicalSequence { length } =
-        region.structural.source_structure
-    {
-        width = length;
-    }
-
-    let packed = builder.pack(
-        LocalNodeId::new(collection.as_u64()),
-        width,
-        Span::unknown(),
-    );
-    Ok(packed)
-}
+// `emit_pack` (which hardcoded `CmpOperator::Gt` for predicate
+// collections) is gone: every pack site now goes through
+// `emit_pack_from_binding`, which takes the TRUE operator from the
+// authorized role map.

@@ -40,7 +40,12 @@ impl RewriteRecipe for BitScanForwardRecipe {
         let extract = crate::recipes::helpers::find_tuple_extract(function, result);
         let target = extract.unwrap_or(result);
 
-        let packed = crate::recipes::helpers::emit_pack(function, region, &mut builder)?;
+        let (packed, _width) = crate::recipes::helpers::emit_pack_from_binding(
+            function,
+            region,
+            "BitScanForward",
+            &mut builder,
+        )?;
 
         // Type the bitscan result from the replaced node — except when the
         // replaced node is the tuple-typed loop itself: the result's type is

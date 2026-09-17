@@ -4,7 +4,10 @@ use sir_types::{ConstantData, Span};
 use crate::error::RewriteError;
 use crate::patch::{ReplacementPatch, ReplacementValue};
 use crate::recipe::RewriteRecipe;
-use crate::recipes::helpers::{authorized_tuple_consumer, collection_length, emit_pack, wrap_direct_tuple_return};
+use crate::recipes::helpers::{
+    authorized_tuple_consumer, binding_collection_extent, binding_target,
+    collection_length, emit_pack_from_binding, wrap_direct_tuple_return,
+};
 use crate::region::RewriteRegion;
 use crate::subgraph_builder::SubgraphBuilder;
 
@@ -37,32 +40,56 @@ impl RewriteRecipe for ParityRecipe {
         region: &RewriteRegion,
         mut builder: SubgraphBuilder,
     ) -> Result<ReplacementPatch, RewriteError> {
-        let result = region.result()?;
-        let accumulator = region.accumulator().ok().flatten();
-
-        // Prefer replacing the tuple-slot consumer when one exists; when the
-        // tuple is returned wholesale the loop's tuple result is rebuilt
-        // below. The consumer must read the ACCUMULATOR slot — a slot the
-        // theorem does not cover (e.g. a position/index live-out) refuses
-        // the rewrite (PS002 audit: array_find_last was silently rewritten
-        // to return a constant).
-        let extract = authorized_tuple_consumer(function, result, accumulator)?;
-        let target = extract.unwrap_or(result);
-
-        // Scalar Kernighan-parity path: the region is a BitsetIteration loop
-        // over a scalar value (no array to pack), so popcount the set value
-        // directly. Mirrors the PopcountRecipe's SetIteration handling.
-        let packed = if let Some(set_val) = region.structural.roles.iter().find_map(|r| {
+        // Scalar Kernighan-parity path: the region is a BitsetIteration
+        // loop over a scalar value (no array to pack, and no
+        // ProposalBinding — the engine binds collection reductions only),
+        // so popcount the set value directly.
+        let set_val = region.structural.roles.iter().find_map(|r| {
             if let sir_transform::roles::RegionRoles::SetIteration { set_value, .. } = r {
                 Some(*set_value)
             } else {
                 None
             }
-        }) {
-            crate::local_id::LocalNodeId::new(set_val.as_u64())
-        } else {
-            emit_pack(function, region, &mut builder)?
-        };
+        });
+
+        let (target, accumulator, packed, whole_value, fallback_bound) =
+            if region.binding.is_some() {
+                // Collection reduction: consume the authorized binding.
+                let map = &crate::recipes::helpers::require_binding(region, "Parity")?.map;
+                let target = binding_target(region, "Parity")?;
+                let width = binding_collection_extent(function, region, "Parity")?.1;
+                let packed = match set_val {
+                    Some(set_val) => crate::local_id::LocalNodeId::new(set_val.as_u64()),
+                    None => emit_pack_from_binding(function, region, "Parity", &mut builder)?.0,
+                };
+                (
+                    target,
+                    Some(map.accumulator),
+                    packed,
+                    target == map.loop_node,
+                    Some(width),
+                )
+            } else {
+                let Some(set_val) = set_val else {
+                    return Err(RewriteError::RecipeFailed(
+                        "Parity requires an application binding (ProposalBinding) or a \
+                         SetIteration scalar role; neither was derived"
+                            .to_string(),
+                    ));
+                };
+                let result = region.result()?;
+                let accumulator = region.accumulator().ok().flatten();
+                // The consumer must read the accumulator slot (PS002).
+                let extract = authorized_tuple_consumer(function, result, accumulator)?;
+                let target = extract.unwrap_or(result);
+                (
+                    target,
+                    accumulator,
+                    crate::local_id::LocalNodeId::new(set_val.as_u64()),
+                    extract.is_none(),
+                    collection_length(region),
+                )
+            };
 
         // The replacement must match the target's type: a Bool slot gets
         // (popcount & 1) != 0; an integer slot gets popcount & 1 directly
@@ -70,7 +97,7 @@ impl RewriteRecipe for ParityRecipe {
         // turns into Bool). When the tuple is returned wholesale there is no
         // typed slot to match, so emit the Bool form (the reduction slot of
         // the rebuilt tuple is Bool).
-        let target_ty = if extract.is_some() {
+        let target_ty = if !whole_value {
             function.get_node(target).unwrap().ty.clone()
         } else {
             sir_types::Type::Bool
@@ -106,12 +133,12 @@ impl RewriteRecipe for ParityRecipe {
             and_one
         };
 
-        let new_value = if extract.is_none() {
+        let new_value = if whole_value {
             wrap_direct_tuple_return(
                 function,
-                result,
+                target,
                 accumulator,
-                collection_length(region),
+                fallback_bound,
                 new_value,
                 &mut builder,
             )?

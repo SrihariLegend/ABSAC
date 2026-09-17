@@ -428,7 +428,7 @@ pub fn check_candidate_frame(
     if is_any {
         let element_ty_for_shape = collection_element_type(function, binding);
         let implicit_for_shape = element_ty_for_shape.as_ref().is_some_and(|ty| {
-            crate::recipes::any::implicit_element_nonzero(&binding.map, ty)
+            crate::recipes::helpers::implicit_element_nonzero(&binding.map, ty)
         });
         check_any_patch_shape(
             patch,
@@ -540,7 +540,7 @@ pub fn check_candidate_frame(
                         let certified = element_ty
                             .as_ref()
                             .is_some_and(|ty| {
-                                crate::recipes::any::implicit_element_nonzero(&binding.map, ty)
+                                crate::recipes::helpers::implicit_element_nonzero(&binding.map, ty)
                             });
                         if *op != sir_nodes::CmpOperator::Ne
                             || !scalar_is_element_zero

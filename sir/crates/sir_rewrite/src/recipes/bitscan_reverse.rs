@@ -32,7 +32,12 @@ impl RewriteRecipe for BitScanReverseRecipe {
         region: &RewriteRegion,
         mut builder: SubgraphBuilder<'_>,
     ) -> Result<ReplacementPatch, RewriteError> {
-        let packed = crate::recipes::helpers::emit_pack(function, region, &mut builder)?;
+        let (packed, _width) = crate::recipes::helpers::emit_pack_from_binding(
+            function,
+            region,
+            "BitScanReverse",
+            &mut builder,
+        )?;
         let lzcnt = builder.leading_zeros(packed, Span::unknown());
 
         let result = region.result()?;
