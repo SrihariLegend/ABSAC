@@ -1963,6 +1963,570 @@ fn phi_incomings(inst: &Instruction) -> Vec<(String, String)> {
     out
 }
 
+/// Value token of an LLVM operand ("i64 %13" -> "%13",
+/// "inbounds i8" -> "i8", "i64 0" -> "0").
+fn operand_value_token(o: &str) -> String {
+    o.split_whitespace()
+        .last()
+        .unwrap_or(o)
+        .trim_end_matches(')')
+        .trim_end_matches(',')
+        .to_string()
+}
+
+/// A peeled search: clang lifts the first element check out of the loop
+/// and threads a found-flag + index pair through the merge, then selects
+/// against a computed no-hit sentinel.
+struct PeeledSearch {
+    header: usize,
+    body: usize,
+    merge: usize,
+    counter_name: String,
+    successor_name: String,
+    bound_name: String,
+    body_cmp_name: String,
+    body_found_on_true: bool,
+    sentinel_name: String,
+    select_result: String,
+    ret_operand: String,
+}
+
+fn block_by_label<'a>(ir: &'a IrFunction, label: &str) -> Option<&'a Block> {
+    ir.block_map.get(label).and_then(|i| ir.blocks.get(*i))
+}
+
+/// Find `<access> = gep base, index; load access; icmp op load, scalar`
+/// plus the branch polarity towards `hit_label`.
+fn hit_test_in(
+    block: &Block,
+    index_token: &str,
+    hit_label: &str,
+) -> Option<(String, String, String, String, bool)> {
+    let access = block.instructions.iter().find(|i| {
+        i.opcode == "getelementptr"
+            && i.operands
+                .last()
+                .map(|o| operand_value_token(o) == index_token)
+                .unwrap_or(false)
+    });
+    // Index 0 is often folded into the base pointer (no GEP): then the
+    // block loads the base directly.
+    let (base, load) = if let Some(access) = access {
+        let access_name = access.result.clone()?;
+        let base = access
+            .operands
+            .iter()
+            .find(|o| o.trim().starts_with("ptr "))
+            .map(|o| operand_value_token(o))
+            .or_else(|| access.operands.get(1).map(|o| operand_value_token(o)))?;
+        let load = block.instructions.iter().find(|i| {
+            i.opcode == "load"
+                && i.operands
+                    .iter()
+                    .any(|o| operand_value_token(o) == access_name)
+        })?;
+        (base, load)
+    } else {
+        if index_token != "0" {
+            return None;
+        }
+        let load = block.instructions.iter().find(|i| i.opcode == "load")?;
+        let base = load
+            .operands
+            .iter()
+            .find(|o| o.trim().starts_with("ptr "))
+            .map(|o| operand_value_token(o))?;
+        (base, load)
+    };
+    let load_name = load.result.clone()?;
+    let cmp = block.instructions.iter().find(|i| {
+        i.opcode == "icmp"
+            && i.operands
+                .iter()
+                .any(|o| operand_value_token(o) == load_name)
+    })?;
+    let cmp_name = cmp.result.clone()?;
+    let op = cmp.operands.first()?.split_whitespace().next()?.to_string();
+    let scalar = cmp
+        .operands
+        .iter()
+        .map(|o| operand_value_token(o))
+        .find(|t| *t != load_name)?;
+    let br = block.instructions.iter().rev().find(|i| i.opcode == "br")?;
+    if br.operands.len() < 3 {
+        return None;
+    }
+    let true_label = br.operands[1]
+        .trim_start_matches("label ")
+        .trim_start_matches('%')
+        .to_string();
+    Some((base, op, scalar, cmp_name, true_label == hit_label))
+}
+
+/// Pure detection of the peeled search shape; no emission.
+fn detect_peeled_search(ir: &IrFunction) -> Option<PeeledSearch> {
+    for (ei, e) in ir.blocks.iter().enumerate() {
+        let e_succs = block_successors(e);
+        if e_succs.len() != 2 {
+            continue;
+        }
+        let e_br = e.instructions.iter().rev().find(|i| i.opcode == "br")?;
+        if e_br.operands.len() < 3 {
+            continue;
+        }
+        let e_cond = strip_type(&e_br.operands[0]);
+        let e_cmp = e
+            .instructions
+            .iter()
+            .find(|i| i.opcode == "icmp" && i.result.as_deref() == Some(e_cond.as_str()))?;
+        let e_op = e_cmp.operands.first()?.split_whitespace().next()?;
+        if e_op != "ne" && e_op != "eq" {
+            continue;
+        }
+        let mut e_tokens: Vec<String> = e_cmp.operands.iter().map(|o| operand_value_token(o)).collect();
+        if e_tokens.len() != 2 {
+            continue;
+        }
+        let guard_value = if parse_int_constant(&e_tokens[0]) == Some(0) {
+            e_tokens.remove(1);
+            e_tokens.remove(0);
+            e_tokens.first().cloned()?
+        } else if parse_int_constant(&e_tokens[1]) == Some(0) {
+            e_tokens.remove(1);
+            e_tokens.first().cloned()?
+        } else {
+            continue;
+        };
+        // Prefer the successor that reaches a head block with a phi-carrying
+        // loop; try both orderings.
+        for (p_label, m_label) in [(&e_succs[0], &e_succs[1]), (&e_succs[1], &e_succs[0])] {
+            let Some(p) = block_by_label(ir, p_label) else {
+                continue;
+            };
+            let Some(m) = block_by_label(ir, m_label) else {
+                continue;
+            };
+            if p.instructions.iter().any(|i| i.opcode == "phi") {
+                continue;
+            }
+            let p_succs = block_successors(p);
+            if p_succs.len() != 2 || !p_succs.contains(m_label) {
+                continue;
+            }
+            let Some(h_label) = p_succs.iter().find(|s| *s != m_label) else {
+                continue;
+            };
+            let Some(h) = block_by_label(ir, h_label) else {
+                continue;
+            };
+            let h_phis: Vec<&Instruction> = h
+                .instructions
+                .iter()
+                .filter(|i| i.opcode == "phi")
+                .collect();
+            if h_phis.len() != 1 {
+                continue;
+            }
+            let counter_phi = h_phis[0];
+            let Some(counter_name) = counter_phi.result.clone() else {
+                continue;
+            };
+            let h_inc = phi_incomings(counter_phi);
+            let Some(init) = h_inc.iter().find(|(_, l)| l == p_label) else {
+                continue;
+            };
+            if parse_int_constant(&strip_type(&init.0)) != Some(0) {
+                continue;
+            }
+            let Some(next_name) = h_inc
+                .iter()
+                .find(|(_, l)| l != p_label)
+                .map(|(v, _)| strip_type(v))
+            else {
+                continue;
+            };
+            let Some(succ_inst) = h.instructions.iter().find(|i| {
+                i.result.as_deref() == Some(next_name.as_str())
+                    && (i.opcode == "add" || i.opcode == "sub")
+            }) else {
+                continue;
+            };
+            if strip_type(succ_inst.operands.first()?) != counter_name {
+                continue;
+            }
+            let Some(step) = succ_inst
+                .operands
+                .get(1)
+                .and_then(|o| parse_int_constant(&operand_value_token(o)))
+            else {
+                continue;
+            };
+            if !((succ_inst.opcode == "add" && step == 1) || (succ_inst.opcode == "sub" && step == 1))
+            {
+                continue;
+            }
+            let h_succs = block_successors(h);
+            if h_succs.len() != 2 {
+                continue;
+            }
+            // Exit-on-true to the exit block X.
+            let x_label = h_succs[0].clone();
+            let l_label = h_succs[1].clone();
+            let Some(x) = block_by_label(ir, &x_label) else {
+                continue;
+            };
+            let Some(l) = block_by_label(ir, &l_label) else {
+                continue;
+            };
+            if block_successors(x) != [m_label.clone()] {
+                continue;
+            }
+            let l_succs = block_successors(l);
+            if l_succs.len() != 2
+                || !l_succs.contains(h_label)
+                || !l_succs.contains(&x_label)
+            {
+                continue;
+            }
+            let Some(h_br) = h.instructions.iter().rev().find(|i| i.opcode == "br") else {
+                continue;
+            };
+            let h_cond = strip_type(&h_br.operands[0]);
+            let Some(h_cmp) = h.instructions.iter().find(|i| {
+                i.opcode == "icmp" && i.result.as_deref() == Some(h_cond.as_str())
+            }) else {
+                continue;
+            };
+            if h_cmp.operands.first()?.split_whitespace().next()? != "eq" {
+                continue;
+            }
+            let h_tokens: Vec<String> = h_cmp.operands.iter().map(|o| operand_value_token(o)).collect();
+            let bound_name = if h_tokens.first() == Some(&next_name) {
+                h_tokens.get(1).cloned()
+            } else if h_tokens.get(1) == Some(&next_name) {
+                h_tokens.first().cloned()
+            } else {
+                None
+            };
+            let Some(bound_name) = bound_name else {
+                continue;
+            };
+            // Predicate equality between the peeled head (index 0) and the
+            // loop body (index = successor).
+            let Some((head_base, head_op, head_scalar, _, head_found)) =
+                hit_test_in(p, "0", m_label)
+            else {
+                continue;
+            };
+            let Some((body_base, body_op, body_scalar, body_cmp_name, body_found)) =
+                hit_test_in(l, &next_name, &x_label)
+            else {
+                continue;
+            };
+            if head_base != body_base
+                || head_op != body_op
+                || head_scalar != body_scalar
+                || head_found != body_found
+            {
+                continue;
+            }
+            // X carries the exit index (bound on the header path,
+            // successor on the body path) and the found comparison.
+            let Some(index_phi_x) = x.instructions.iter().find(|phi| {
+                if phi.opcode != "phi" {
+                    return false;
+                }
+                let inc = phi_incomings(phi);
+                inc.iter().any(|(v, l)| {
+                    l == h_label && strip_type(v) == bound_name
+                }) && inc.iter().any(|(v, l)| {
+                    l == &l_label && strip_type(v) == next_name
+                })
+            }) else {
+                continue;
+            };
+            let Some(index_phi_x_name) = index_phi_x.result.clone() else {
+                continue;
+            };
+            let Some(x_cmp) = x.instructions.iter().find(|i| {
+                i.opcode == "icmp"
+                    && i.operands
+                        .iter()
+                        .any(|o| operand_value_token(o) == next_name)
+                    && i.operands
+                        .iter()
+                        .any(|o| operand_value_token(o) == bound_name)
+            }) else {
+                continue;
+            };
+            let Some(x_cmp_name) = x_cmp.result.clone() else {
+                continue;
+            };
+            // M has exactly the index and found phis and the sentinel select.
+            let m_phis: Vec<&Instruction> = m
+                .instructions
+                .iter()
+                .filter(|i| i.opcode == "phi")
+                .collect();
+            if m_phis.len() != 2 {
+                continue;
+            }
+            let Some(index_phi_m) = m_phis.iter().find(|phi| {
+                phi_incomings(phi)
+                    .iter()
+                    .any(|(v, l)| l == &x_label && strip_type(v) == index_phi_x_name)
+            }) else {
+                continue;
+            };
+            let Some(found_phi_m) = m_phis.iter().find(|phi| {
+                phi_incomings(phi)
+                    .iter()
+                    .any(|(v, l)| l == &x_label && strip_type(v) == x_cmp_name)
+            }) else {
+                continue;
+            };
+            if std::ptr::eq(*index_phi_m, *found_phi_m) {
+                continue;
+            }
+            let (Some(index_phi_name), Some(found_phi_name)) =
+                (index_phi_m.result.clone(), found_phi_m.result.clone())
+            else {
+                continue;
+            };
+            let Some(sel) = m.instructions.iter().find(|i| i.opcode == "select") else {
+                continue;
+            };
+            if sel.operands.len() < 3 {
+                continue;
+            }
+            let sel_cond = strip_type(sel.operands.first()?);
+            let sel_true = strip_type(sel.operands.get(1)?);
+            let sentinel_name = strip_type(sel.operands.get(2)?);
+            if sel_cond != found_phi_name || sel_true != index_phi_name {
+                continue;
+            }
+            let Some(select_result) = sel.result.clone() else {
+                continue;
+            };
+            let Some(ret_operand) = m
+                .instructions
+                .iter()
+                .find(|i| i.opcode == "ret")
+                .and_then(|i| i.operands.first().cloned())
+            else {
+                continue;
+            };
+            if strip_type(&guard_value) != bound_name {
+                continue;
+            }
+            let Some(hi) = ir.block_map.get(h_label).copied() else {
+                continue;
+            };
+            let Some(li) = ir.block_map.get(&l_label).copied() else {
+                continue;
+            };
+            let Some(mi) = ir.block_map.get(m_label).copied() else {
+                continue;
+            };
+            return Some(PeeledSearch {
+                header: hi,
+                body: li,
+                merge: mi,
+                counter_name,
+                successor_name: next_name,
+                bound_name,
+                body_cmp_name,
+                body_found_on_true: body_found,
+                sentinel_name,
+                select_result,
+                ret_operand,
+            });
+            let _ = ei;
+        }
+    }
+    None
+}
+
+/// De-peel the recognized search into one canonical found-flag loop over
+/// the full index range 0 .. bound-1, then select the sentinel on no hit.
+fn build_peeled_search(
+    ir: &IrFunction,
+    shape: &PeeledSearch,
+    builder: &mut Builder,
+    value_map: &mut HashMap<String, NodeId>,
+) -> Result<(), String> {
+    let span = Span::unknown();
+    let h = &ir.blocks[shape.header];
+    let l = &ir.blocks[shape.body];
+    let m = &ir.blocks[shape.merge];
+
+    let counter_phi = h
+        .instructions
+        .iter()
+        .find(|i| i.opcode == "phi")
+        .ok_or("peeled search: header phi missing")?;
+    let counter_ty_str = counter_phi
+        .operands
+        .first()
+        .and_then(|o| o.split_whitespace().next())
+        .unwrap_or("i64");
+    let counter_ty = parse_type(counter_ty_str).ok_or("peeled search: bad counter type")?;
+    let counter_init = builder.constant(
+        int_constant_data(&counter_ty, 0),
+        counter_ty.clone(),
+        span,
+    );
+    let bound_node = get_node_id(
+        &shape.bound_name,
+        value_map,
+        &ir.params,
+        builder,
+        Some(counter_ty.clone()),
+    )
+    .ok_or("peeled search: cannot resolve the bound")?;
+
+    value_map.insert(shape.counter_name.clone(), counter_init);
+    let mut body_nodes: Vec<NodeId> = Vec::new();
+    for inst in &h.instructions {
+        if inst.opcode == "phi" || inst.opcode == "br" || inst.opcode == "ret" {
+            continue;
+        }
+        if let Some(id) = emit_instruction(inst, builder, value_map, &ir.params, span)? {
+            body_nodes.push(id);
+        }
+    }
+    let successor = value_map
+        .get(&shape.successor_name)
+        .copied()
+        .ok_or("peeled search: successor did not emit")?;
+    // The body accesses the element at the SUCCESSOR; the de-peeled loop
+    // covers index 0 as well, so remap the successor name to the carried
+    // counter for the body's access/test emission.
+    value_map.insert(shape.successor_name.clone(), counter_init);
+    for inst in &l.instructions {
+        if inst.opcode == "phi" || inst.opcode == "br" || inst.opcode == "ret" {
+            continue;
+        }
+        if let Some(id) = emit_instruction(inst, builder, value_map, &ir.params, span)? {
+            body_nodes.push(id);
+        }
+    }
+    let body_cmp = value_map
+        .get(&shape.body_cmp_name)
+        .copied()
+        .ok_or("peeled search: body comparison did not emit")?;
+    let hit = if shape.body_found_on_true {
+        body_cmp
+    } else {
+        let not = builder
+            .bool_not(body_cmp, span)
+            .map_err(|e| format!("peeled search: {:?}", e))?;
+        body_nodes.push(not);
+        not
+    };
+    let found_init = builder.constant(ConstantData::boolean(false), Type::Bool, span);
+    let index_init = builder.constant(
+        int_constant_data(&counter_ty, 0),
+        counter_ty.clone(),
+        span,
+    );
+    let not_found = builder
+        .bool_not(found_init, span)
+        .map_err(|e| format!("peeled search: {:?}", e))?;
+    let found_next = builder
+        .bool_or(found_init, hit, span)
+        .map_err(|e| format!("peeled search: {:?}", e))?;
+    let update = builder
+        .bool_and(hit, not_found, span)
+        .map_err(|e| format!("peeled search: {:?}", e))?;
+    let index_next = builder
+        .select(update, counter_init, index_init, span)
+        .map_err(|e| format!("peeled search: {:?}", e))?;
+    let domain = builder
+        .lt(counter_init, bound_node, span)
+        .map_err(|e| format!("peeled search: {:?}", e))?;
+    let termination = builder
+        .bool_and(not_found, domain, span)
+        .map_err(|e| format!("peeled search: {:?}", e))?;
+    body_nodes.extend([found_next, update, index_next, domain, termination]);
+    let outputs = vec![found_next, index_next, successor];
+    let carried = vec![found_init, index_init, counter_init];
+    let loop_ty = Type::Tuple {
+        elements: vec![Type::Bool, counter_ty.clone(), counter_ty.clone()],
+    };
+    let loop_node = builder
+        .r#loop(&body_nodes, termination, &outputs, &carried, loop_ty, span)
+        .map_err(|e| format!("peeled search loop build: {:?}", e))?;
+    let found_extract = builder
+        .tuple_extract(loop_node, 0, Type::Bool, span)
+        .map_err(|e| format!("peeled search: {:?}", e))?;
+    let index_extract = builder
+        .tuple_extract(loop_node, 1, counter_ty.clone(), span)
+        .map_err(|e| format!("peeled search: {:?}", e))?;
+    let counter_extract = builder
+        .tuple_extract(loop_node, 2, counter_ty.clone(), span)
+        .map_err(|e| format!("peeled search: {:?}", e))?;
+    value_map.insert(shape.counter_name.clone(), counter_extract);
+    value_map.insert(shape.successor_name.clone(), counter_extract);
+
+    // Emit the merge instructions that produce the sentinel (everything
+    // except the phis, the substituted select and the return), then the
+    // sentinel select and any post-select instructions.
+    let mut after_select = false;
+    for inst in &m.instructions {
+        match inst.opcode.as_str() {
+            "phi" | "ret" => continue,
+            "select" => {
+                after_select = true;
+                continue;
+            }
+            _ => {}
+        }
+        if !after_select {
+            emit_instruction(inst, builder, value_map, &ir.params, span)?;
+        }
+    }
+    let sentinel = get_node_id(
+        &shape.sentinel_name,
+        value_map,
+        &ir.params,
+        builder,
+        Some(counter_ty.clone()),
+    )
+    .ok_or("peeled search: cannot resolve the sentinel")?;
+    let result = builder
+        .select(found_extract, index_extract, sentinel, span)
+        .map_err(|e| format!("peeled search: {:?}", e))?;
+    value_map.insert(shape.select_result.clone(), result);
+    let mut post_select = false;
+    for inst in &m.instructions {
+        match inst.opcode.as_str() {
+            "phi" | "ret" | "select" => {
+                if inst.opcode == "select" {
+                    post_select = true;
+                }
+                continue;
+            }
+            _ => {}
+        }
+        if post_select {
+            emit_instruction(inst, builder, value_map, &ir.params, span)?;
+        }
+    }
+    let ret_node = get_node_id(
+        &strip_type(&shape.ret_operand),
+        value_map,
+        &ir.params,
+        builder,
+        None,
+    )
+    .ok_or("peeled search: cannot resolve the return value")?;
+    builder
+        .return_value(ret_node, span)
+        .map_err(|e| format!("peeled search return: {:?}", e))?;
+    Ok(())
+}
+
 /// Lower clang's early-return search loop into the canonical found-flag
 /// SIR loop:
 ///
@@ -1986,6 +2550,13 @@ fn lower_early_exit_search(
     builder: &mut Builder,
     value_map: &mut HashMap<String, NodeId>,
 ) -> Result<(), String> {
+    // Peeled form first: clang lifts the first element check out of the
+    // loop and threads a found-flag + index pair through the merge, then
+    // selects against a computed no-hit sentinel. Detection is pure, so a
+    // non-match falls through to the ordinary ascent/descent synthesis.
+    if let Some(shape) = detect_peeled_search(ir) {
+        return build_peeled_search(ir, &shape, builder, value_map);
+    }
     let span = Span::unknown();
 
     // 1. Header H with a latch L that branches back to H; H and L share

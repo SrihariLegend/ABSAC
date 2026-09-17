@@ -89,3 +89,13 @@ correct `LastOccurrence` (never `FirstOccurrence`), and the
 exclusive-counter form stays unauthorized with 0 candidates. v10
 native-clean rises 17 → 18 (lower-refused 7 → 6); cumulative native
 evidence 225 clean / 0 mismatched / 74 lower-refused.
+
+### Follow-up 2 (same day): peeled computed-sentinel search
+
+p03 (the computed `n - 1` sentinel shape) now lowers via de-peeling into
+one canonical found-flag loop (pure detection, then one loop over
+`0 .. bound-1` plus the sentinel select). The scan derives the correct
+`FirstOccurrence`, applies 0 rewrites (runtime extent) and is
+native/sanitizer-clean. v10 native-clean rises 18 → 19
+(lower-refused 6 → 5); cumulative 227 clean / 0 mismatched /
+72 lower-refused.

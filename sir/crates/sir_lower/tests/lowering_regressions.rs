@@ -1082,3 +1082,60 @@ fn descending_search_lowers_with_a_sub_successor() {
         "the decrement must be normalized to a Sub node"
     );
 }
+
+/// Peeled search with a computed sentinel (v11 `p05`): clang lifts the
+/// index-0 check out of the loop, threads an index/found pair through the
+/// merge and selects `n - 1` on no hit. The synthesis de-peels it into one
+/// canonical loop over 0 .. n-1.
+const PEELED_SENTINEL_SEARCH: &str = r#"
+define i64 @peeled(ptr %0, i64 %1) {
+  %3 = icmp ne i64 %1, 0
+  br i1 %3, label %4, label %18
+
+4:
+  %5 = load i8, ptr %0
+  %6 = icmp eq i8 %5, 0
+  br i1 %6, label %11, label %18
+
+7:
+  %8 = getelementptr inbounds i8, ptr %0, i64 %13
+  %9 = load i8, ptr %8
+  %10 = icmp eq i8 %9, 0
+  br i1 %10, label %11, label %15
+
+11:
+  %12 = phi i64 [ %13, %7 ], [ 0, %4 ]
+  %13 = add nuw i64 %12, 1
+  %14 = icmp eq i64 %13, %1
+  br i1 %14, label %15, label %7
+
+15:
+  %16 = phi i64 [ %1, %11 ], [ %13, %7 ]
+  %17 = icmp ult i64 %13, %1
+  br label %18
+
+18:
+  %19 = phi i64 [ 0, %2 ], [ 0, %4 ], [ %16, %15 ]
+  %20 = phi i1 [ %3, %2 ], [ %3, %4 ], [ %17, %15 ]
+  %21 = add i64 %1, -1
+  %22 = select i1 %20, i64 %19, i64 %21
+  ret i64 %22
+}
+"#;
+
+#[test]
+fn peeled_search_with_computed_sentinel_lowers() {
+    let func = lower_function(PEELED_SENTINEL_SEARCH, "peeled")
+        .expect("the peeled search must lower");
+    assert!(
+        matches!(func.params[0].ty, sir_types::Type::Pointer { .. }),
+        "no extent may be fabricated for a runtime bound"
+    );
+    let loops = func
+        .arena
+        .iter()
+        .filter(|n| matches!(n.kind, sir_nodes::NodeKind::Loop { .. }))
+        .count();
+    assert_eq!(loops, 1, "the peeled head folds into one canonical loop");
+    assert!(func.return_node.is_some(), "the select must be returned");
+}

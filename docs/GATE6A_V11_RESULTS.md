@@ -54,6 +54,15 @@ p07 now lowers: the pre-decrement scan is synthesized with a normalized
 to use the carried index. v11 native-clean rises 18 → 19
 (lower-refused 6 → 5).
 
+### Follow-up 2 (same day): peeled computed-sentinel search
+
+p05 (the `n - 1` sentinel shape) now lowers via de-peeling: a pure
+detector validates the peeled form and the builder emits one canonical
+found-flag loop over `0 .. bound-1` plus the sentinel select. The scan
+derives the correct `FirstOccurrence`, applies 0 rewrites (runtime
+extent) and is native/sanitizer-clean. v11 native-clean rises 19 → 20
+(lower-refused 5 → 4).
+
 ## Cumulative native evidence
 
 - All corpora: **223 clean / 0 mismatched / 76 lower-refused**, 61

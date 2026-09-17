@@ -2,7 +2,7 @@ NATIVE p01_runtime_search_zero_elem: clean cases=48 rewrites=0
 NATIVE p02_runtime_search_eq_key_neg1: clean cases=48 rewrites=0
 NATIVE p03_runtime_search_ne_key_n: clean cases=48 rewrites=0
 NATIVE p04_runtime_search_u16: clean cases=48 rewrites=0
-NATIVE p05_runtime_search_sentinel_nm1: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: p05_runtime_search_sentinel_nm1 (early-exit search: merge does not return))
+NATIVE p05_runtime_search_sentinel_nm1: clean cases=48 rewrites=0
 NATIVE p06_runtime_search_do_while: clean cases=48 rewrites=0
 NATIVE p07_runtime_descending_search: clean cases=48 rewrites=0
 NATIVE p08_const_search_zero_elem: clean cases=48 rewrites=1
@@ -22,4 +22,4 @@ NATIVE n09_early_exit_global_const: lower_refused (unsupported: loop with a sepa
 NATIVE n10_runtime_sum_u16: clean cases=48 rewrites=0
 NATIVE n11_runtime_count_ge_u32: clean cases=48 rewrites=0
 NATIVE n12_signed_sum_const: clean cases=48 rewrites=0
-EMITC_SUMMARY clean=19 mismatched=0 lower_refused=5 harness_errors=0
+EMITC_SUMMARY clean=20 mismatched=0 lower_refused=4 harness_errors=0

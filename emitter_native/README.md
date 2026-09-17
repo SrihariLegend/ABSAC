@@ -33,9 +33,16 @@ buffer byte-for-byte.
 | `gate6a/v7_corpus.ll` | 19 | 0 | 5 | 48 | 5 |
 | `gate6a/v8_corpus.ll` | 23 | 0 | 5 | 48 | 8 |
 | `gate6a/v9_corpus.ll` | 25 | 0 | 4 | 48 | 13 |
-| `gate6a/v10_corpus.ll` | 18 | 0 | 6 | 48 | 3 |
-| `gate6a/v11_corpus.ll` | 19 | 0 | 5 | 48 | 4 |
-| **Total** | **225** | **0** | **74** | — | **61** |
+| `gate6a/v10_corpus.ll` | 19 | 0 | 5 | 48 | 3 |
+| `gate6a/v11_corpus.ll` | 20 | 0 | 4 | 48 | 4 |
+| **Total** | **227** | **0** | **72** | — | **61** |
+
+**Peeled computed-sentinel searches** (2026-09-17): clang's peeled form
+(index-0 check outside the loop, index/found pair threaded through the
+merge, `select(found, index, n-1)` on no hit) is de-peeled into one
+canonical found-flag loop over `0 .. bound-1`; v10 p03 and v11 p05 move
+from lower-refused to native-clean with the correct `FirstOccurrence`
+truth and 0 rewrites (runtime extent).
 
 **Descending searches** (2026-09-17): clang's pre-decrement search
 (`for (i = n; i-- > 0;) if (buf[i]) return i;`) now lowers in v10/v11
@@ -156,7 +163,7 @@ This checks the emitted C — including all rewrite code paths — for
 undefined behaviour and memory errors, not just output equality.
 
 Result on the full corpus set (`emitter_native/sanitize/*.txt`,
-48 cases each): **225 clean / 0 mismatched / 74 lower-refused /
+48 cases each): **227 clean / 0 mismatched / 72 lower-refused /
 0 sanitizer violations**. Every native-clean kernel (and every applied
 rewrite) is free of ASan/UBSan diagnostics under this mode.
 

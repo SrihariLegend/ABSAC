@@ -162,6 +162,23 @@ Two precision/soundness points are pinned by tests:
 Cumulative native evidence: 225 clean / 0 mismatched / 74
 lower-refused, 61 rewrites; sanitized runs remain 0-violation.
 
+## Peeled computed-sentinel search lowering (2026-09-17, follow-up)
+
+clang sometimes lifts the index-0 check out of a search loop and threads
+an index/found pair through a merge that selects against a computed
+sentinel (`return n - 1`). The lowerer now **de-peels** that shape: a
+pure detector validates the entry guard, peeled head, counted loop,
+exit phis and sentinel select, and the builder emits ONE canonical
+found-flag loop over `0 .. bound-1` (the head's predicate must equal the
+loop body's predicate, and the guard value must equal the trip bound).
+The runtime-extent kernels derive the correct `FirstOccurrence` truth
+and apply 0 rewrites (no promoted extent); v10 p03 and v11 p05 move
+from lower-refused to native-clean, sanitizer-clean.
+
+Tests: `peeled_search_with_computed_sentinel_lowers` (lowerer) and
+`peeled_search_semantics.rs` (FirstOccurrence, never LastOccurrence,
+0 rewrites). Cumulative: 227 clean / 0 mismatched / 72 lower-refused.
+
 **Hardening (same day):** the extra zero-trip predecessor is accepted
 only when its guard compares the loop's actual **trip bound** (the
 latch comparison's non-successor operand), not merely the merge's
