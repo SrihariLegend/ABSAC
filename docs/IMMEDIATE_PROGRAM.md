@@ -399,7 +399,10 @@ Remediation D3 (P0A, commit c3ebb54):
        obligations can bind the authorized structural roles
        (`obligation_with_roles` + structural DB in build_obligations);
        instruction-selection emission (Rol/Ror, blsr/blsi/blsmsk,
-       bswap, rbit) is implemented; ModuloAnd/DivideShift need
+       bswap, rbit) is implemented and ctz/clz follow the tzcnt/lzcnt
+       zero convention; the scan families are blocked on
+       PositionSearch authorization (200/201) and the missing
+       loop↔intrinsic correspondence model (202/203); ModuloAnd/DivideShift need
        a width-efficient division encoding (urem/udiv bit-blasting is
        implemented and tested, but 32-bit proofs take ~20 s each; see
        docs/VERIFIER_AUDIT.md)]; (4) map-then-sum recall, two-loop lowering,

@@ -196,6 +196,33 @@ precisely:
   definition binding + solver lowering (`ctz`/`clz`/bit-reverse terms),
   not emission.
 
+### Scan-family blockers (recorded 2026-09-17)
+
+The four scan definitions have distinct, now-measured blockers:
+
+- **BitScanForward / BitScanReverse (200/201)**: their theorems are real
+  (`FirstTrue(seq) == ctz(Pack(seq))`, `LastTrue(seq) ==
+  clz(Pack(seq))`), but the optimizer generates **zero candidates** for
+  these loops (semantic-zoo ps001, evidence in its iteration record):
+  PositionSearch authorization is deliberately absent from the scalar
+  lists — it needs its own certificate (X06) — so there is nothing to
+  prove against yet. Lifting also requires solver support for
+  `LogicalSequence`/`Pack`/`FirstTrue`/`LastTrue` and ctz/clz lowering.
+- **TrailingZeroCount / LeadingZeroCount (202/203)**: candidates DO
+  exist (semantic-zoo ps003/ps004, 1 each, currently failing on the Stub
+  quarantine), and the recipes correctly emit `TrailingZeros`/
+  `LeadingZeros` on the loop's scalar. But their current obligations are
+  literal tautologies (`ctz(x) == ctz(x)`). A genuine lift needs a
+  loop↔intrinsic correspondence model — the obligation language has no
+  loop/scan expression today — so they stay Stub rather than being
+  greenwashed with a reflexive proof.
+- **Emitter prerequisite (done)**: `TrailingZeros`/`LeadingZeros` now
+  emit `__sir_ctz`/`__sir_clz` with the tzcnt/lzcnt convention
+  (`ctz(0) = clz(0) = width`); the previous raw builtins were
+  undefined behaviour for zero. Native tests cover 0/1/0x10 and the
+  MSB case. This is required for any future scan rewrite to execute
+  natively.
+
 ## Quarantine lift 3 — ByteSwap + role-based obligation context (2026-09-17)
 
 - **Role-aware obligations**: `TransformationDefinition::obligation_with_roles`
