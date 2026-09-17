@@ -152,16 +152,16 @@ fn test_orchestration_multiple_rewrites() {
         );
     }
 
-    // 0 rewrites, previously 3 then 4: the modulo region's
-    // ModuloAndDefinition is Stub-quarantined (advisor P0 verifier
-    // audit), AND the count/any/parity loops return their (value,
-    // index) tuples wholesale into the external call. The reduction
-    // theorems cover slot 0 only; rebuilding the tuples would invent
-    // the index slots from the termination bound — the PS002
-    // corruption class (wholesale-tuple quarantine). Abstention is
-    // the honest result until complete live-out binding exists.
+    // 1 rewrite since 2026-09-17: the modulo region's ModuloAndDefinition
+    // is now ConcreteSolverChecked, so `x % 2^n -> x & mask` fires. The
+    // count/any/parity loops still return their (value, index) tuples
+    // wholesale into the external call: the reduction theorems cover slot
+    // 0 only, and rebuilding the tuples would invent the index slots from
+    // the termination bound — the PS002 corruption class (wholesale-tuple
+    // quarantine). Those remain abstained until complete live-out binding
+    // exists.
     assert_eq!(
-        result.rewrites_applied, 0,
-        "wholesale tuple returns must NOT rewrite (wholesale-tuple quarantine)"
+        result.rewrites_applied, 1,
+        "only the modulo mask rewrite may fire; wholesale tuple returns must not"
     );
 }

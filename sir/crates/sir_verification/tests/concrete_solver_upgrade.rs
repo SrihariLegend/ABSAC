@@ -765,3 +765,90 @@ fn signed_or_unroled_zero_counts_cannot_be_bound() {
         }
     }
 }
+
+fn pow2_structure_and_function(
+    k: u32,
+    signed: bool,
+    divide: bool,
+) -> (sir_nodes::Function, sir_semantics::structure::StructuralDescription) {
+    use sir_semantics::structure::StructuralDescription;
+    use sir_transform::roles::RegionRoles;
+    use sir_transform::structures::SourceStructure;
+    let ty = if signed { Type::i32() } else { Type::u32() };
+    let mut b = Builder::new("pow2", &[("x", ty.clone())], ty.clone());
+    let x = b.parameter_index(0).unwrap();
+    let c = b.constant(ConstantData::u32(k), ty.clone(), span());
+    let node = if divide {
+        b.div(x, c, span()).unwrap()
+    } else {
+        b.rem(x, c, span()).unwrap()
+    };
+    b.return_value(node, span()).unwrap();
+    let func = b.build();
+    let structure = if divide {
+        SourceStructure::DivideOperator
+    } else {
+        SourceStructure::ModuloOperator
+    };
+    let structural = StructuralDescription::new(RegionId::new(0), structure).with_roles(
+        RegionRoles::ArithmeticOperation {
+            operator_node: node,
+            lhs: x,
+            rhs: c,
+            result: node,
+        },
+    );
+    (func, structural)
+}
+
+#[test]
+fn bound_modulo_and_divide_are_concrete_solver_checked() {
+    use sir_verification::definitions::divide_shift::DivideShiftDefinition;
+    use sir_verification::definitions::modulo_and::ModuloAndDefinition;
+    for divide in [false, true] {
+        let (func, structural) = pow2_structure_and_function(16, false, divide);
+        let def: Box<dyn TransformationDefinition> = if divide {
+            Box::new(DivideShiftDefinition::new(DefinitionId::new(101)))
+        } else {
+            Box::new(ModuloAndDefinition::new(DefinitionId::new(100)))
+        };
+        let id = if divide { 101 } else { 100 };
+        let obligation = def.obligation_with_roles(&candidate(vec![], id), &func, &structural);
+        assert!(obligation.domain.is_some(), "divide={divide}");
+        match Verifier::new().verify(&obligation, &context()) {
+            VerificationResult::Proven(proof) => {
+                assert_eq!(proof.backend, VerificationBackend::ConcreteSolver);
+                assert_eq!(proof.assurance, VerificationStatus::ConcreteSolverChecked);
+            }
+            other => panic!("divide={divide}: expected a concrete-solver proof, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn signed_or_non_power_of_two_division_cannot_be_bound() {
+    use sir_verification::definitions::divide_shift::DivideShiftDefinition;
+    use sir_verification::definitions::modulo_and::ModuloAndDefinition;
+    let mod_def = ModuloAndDefinition::new(DefinitionId::new(100));
+    let div_def = DivideShiftDefinition::new(DefinitionId::new(101));
+    // Signed operand (k=16 power of two) and unsigned non-power-of-two
+    // divisor (k=12) must both refuse.
+    for (k, signed) in [(16u32, true), (12u32, false)] {
+        for (def, id, divide) in [
+            (&mod_def as &dyn TransformationDefinition, 100u64, false),
+            (&div_def as &dyn TransformationDefinition, 101, true),
+        ] {
+            let (func, structural) = pow2_structure_and_function(k, signed, divide);
+            let obligation =
+                def.obligation_with_roles(&candidate(vec![], id), &func, &structural);
+            assert!(
+                obligation.domain.is_none(),
+                "k={k} signed={signed} divide={divide} must not bind"
+            );
+            assert!(!matches!(
+                Verifier::new().verify(&obligation, &context()),
+                VerificationResult::Proven(_)
+            ));
+        }
+    }
+}

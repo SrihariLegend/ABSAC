@@ -733,6 +733,61 @@ fn rewritten_zero_count_loops_execute_natively() {
     }
 }
 
+fn pow2_function(name: &str, constant: u32, divide: bool) -> sir_nodes::Function {
+    let ty = Type::u32();
+    let mut b = Builder::new(name, &[("x", ty.clone())], ty.clone());
+    let x = b.parameter_index(0).unwrap();
+    let c = b.constant(sir_types::ConstantData::u32(constant), ty.clone(), Span::unknown());
+    let node = if divide {
+        b.div(x, c, Span::unknown()).unwrap()
+    } else {
+        b.rem(x, c, Span::unknown()).unwrap()
+    };
+    b.return_value(node, Span::unknown()).unwrap();
+    b.build()
+}
+
+#[test]
+fn rewritten_pow2_division_executes_natively() {
+    for (name, constant, divide, calls, expected) in [
+        (
+            "mod16",
+            16u32,
+            false,
+            vec!["0xFFFFFFFFu", "0x12345678u", "0xFu"],
+            vec!["15", "8", "15"],
+        ),
+        (
+            "div8",
+            8u32,
+            true,
+            vec!["0xFFFFFFFFu", "0x12345678u", "0xFu"],
+            vec!["536870911", "38177487", "1"],
+        ),
+    ] {
+        if !clang_available() {
+            return;
+        }
+        let optimized = optimize_suppressed(&pow2_function(name, constant, divide));
+        assert_eq!(
+            optimized.rewrites_applied, 1,
+            "{name}: the power-of-two rewrite must be authorized"
+        );
+        let emitted = sir_benchmarks::emit::emit_c(&optimized.function);
+        let mut main = String::new();
+        for input in &calls {
+            main.push_str(&format!(
+                "    printf(\"%llu\\n\", (unsigned long long){name}({input}));\n"
+            ));
+        }
+        let Some(stdout) = compile_and_run_emitted(&emitted, &main, name) else {
+            return;
+        };
+        let got: Vec<&str> = stdout.lines().collect();
+        assert_eq!(got, expected, "{name} native results");
+    }
+}
+
 /// `(x << 3) | (x >> (32 - 3))` with constant amounts (rotate left).
 fn rotate_left_const_function() -> sir_nodes::Function {
     let ty = Type::u32();

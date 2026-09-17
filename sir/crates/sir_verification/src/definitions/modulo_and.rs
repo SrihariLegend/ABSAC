@@ -1,12 +1,17 @@
 use sir_generation::candidate::Candidate;
-use sir_transform::ids::DefinitionId;
+use sir_semantics::structure::StructuralDescription;
+use sir_transform::ids::{DefinitionId, VariableId};
 use sir_types::ConstantData;
 
-use crate::obligation::ProofObligation;
-use crate::registry::TransformationDefinition;
+use crate::definitions::pow2_bind::{bind_pow2, Pow2Op};
+use crate::obligation::{FiniteDomain, ProofObligation, VariableKind, VariableSpec};
+use crate::registry::{TransformationDefinition, VerificationStatus};
 use crate::semantic::expression::SemanticExpression;
 use crate::semantic::theorem::Theorem;
 
+/// Unsigned `x % C` for a constant power-of-two `C` is `x & (C - 1)`.
+/// The obligation binds the actual `Rem` node (divisor, operand, width)
+/// from the recognized role; signed operands are refused.
 pub struct ModuloAndDefinition {
     id: DefinitionId,
 }
@@ -18,15 +23,8 @@ impl ModuloAndDefinition {
 }
 
 impl TransformationDefinition for ModuloAndDefinition {
-    fn verification_status(&self) -> crate::registry::VerificationStatus {
-        // STUB (quarantined, advisor P0 audit): the obligation is a
-        // hardcoded or tautological theorem template that never binds
-        // the actual source/candidate operands — changing the region's
-        // constant, swapping operands, or changing widths cannot cause
-        // rejection. This definition may not authorize a rewrite until
-        // its obligation is built from the actual pair and discharged
-        // concretely.
-        crate::registry::VerificationStatus::Stub
+    fn verification_status(&self) -> VerificationStatus {
+        VerificationStatus::ConcreteSolverChecked
     }
 
     fn id(&self) -> DefinitionId {
@@ -38,36 +36,91 @@ impl TransformationDefinition for ModuloAndDefinition {
     }
 
     fn applicability(&self, _candidate: &Candidate) -> bool {
-        true // Assume valid if candidate generation decided it
+        true
     }
 
     fn obligation(&self, candidate: &Candidate) -> ProofObligation {
-        // Find the operator node and operands
-        let _lhs = SemanticExpression::Constant(ConstantData::u64(0));
-        let _rhs = SemanticExpression::Constant(ConstantData::u64(0));
+        self.unbound_obligation(candidate)
+    }
 
+    fn obligation_bound(
+        &self,
+        candidate: &Candidate,
+        _function: &sir_nodes::Function,
+    ) -> ProofObligation {
+        self.unbound_obligation(candidate)
+    }
+
+    fn obligation_with_roles(
+        &self,
+        candidate: &Candidate,
+        function: &sir_nodes::Function,
+        structural: &StructuralDescription,
+    ) -> ProofObligation {
+        self.bind(candidate, function, structural)
+            .unwrap_or_else(|| self.unbound_obligation(candidate))
+    }
+}
+
+impl ModuloAndDefinition {
+    fn bind(
+        &self,
+        candidate: &Candidate,
+        function: &sir_nodes::Function,
+        structural: &StructuralDescription,
+    ) -> Option<ProofObligation> {
+        let bound = bind_pow2(function, structural, Pow2Op::Rem)?;
+        let x = VariableId::new(bound.dynamic.as_u64());
+        let lhs = SemanticExpression::Modulo(
+            Box::new(SemanticExpression::Variable(x)),
+            Box::new(SemanticExpression::Constant(ConstantData::u64(bound.constant))),
+        );
+        let rhs = SemanticExpression::BitwiseAnd(
+            Box::new(SemanticExpression::Variable(x)),
+            Box::new(SemanticExpression::Constant(ConstantData::u64(
+                bound.constant - 1,
+            ))),
+        );
+        Some(self.obligation_with(
+            candidate,
+            Theorem::new(lhs, rhs),
+            Some(FiniteDomain {
+                variables: vec![VariableSpec {
+                    id: x,
+                    kind: VariableKind::BitVector {
+                        width: bound.width,
+                    },
+                }],
+            }),
+        ))
+    }
+
+    fn unbound_obligation(&self, candidate: &Candidate) -> ProofObligation {
+        let v = VariableId::new(u64::MAX);
+        self.obligation_with(
+            candidate,
+            Theorem::new(
+                SemanticExpression::Variable(v),
+                SemanticExpression::Constant(ConstantData::u64(0)),
+            ),
+            None,
+        )
+    }
+
+    fn obligation_with(
+        &self,
+        candidate: &Candidate,
+        theorem: Theorem,
+        domain: Option<FiniteDomain>,
+    ) -> ProofObligation {
         ProofObligation {
             id: sir_transform::ids::ObligationId::new(0),
             region: candidate.region,
             candidate: candidate.id,
             definition: self.id,
-            theorem: Theorem::new(
-                // E.g., Modulo(Var, Constant(2^n)) == BitwiseAnd(Var, Constant(2^n - 1))
-                SemanticExpression::Modulo(
-                    Box::new(SemanticExpression::Variable(
-                        sir_transform::ids::VariableId::new(0),
-                    )),
-                    Box::new(SemanticExpression::Constant(ConstantData::u64(16))), // stub
-                ),
-                SemanticExpression::BitwiseAnd(
-                    Box::new(SemanticExpression::Variable(
-                        sir_transform::ids::VariableId::new(0),
-                    )),
-                    Box::new(SemanticExpression::Constant(ConstantData::u64(15))), // stub
-                ),
-            ),
+            theorem,
             assumptions: vec![],
-            domain: None,
+            domain,
         }
     }
 }

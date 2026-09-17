@@ -1,6 +1,8 @@
 use sir_transform::ids::DefinitionId;
+use sir_types::{ConstantData, Span, Type};
 
 use crate::error::RewriteError;
+use crate::local_id::LocalNodeId;
 use crate::patch::{ReplacementPatch, ReplacementValue};
 use crate::recipe::RewriteRecipe;
 use crate::region::RewriteRegion;
@@ -28,7 +30,7 @@ impl RewriteRecipe for DivideShiftRecipe {
 
     fn build_patch(
         &self,
-        _function: &sir_nodes::Function,
+        function: &sir_nodes::Function,
         region: &RewriteRegion,
         mut builder: SubgraphBuilder,
     ) -> Result<ReplacementPatch, RewriteError> {
@@ -37,22 +39,67 @@ impl RewriteRecipe for DivideShiftRecipe {
         let rhs_id = region.rhs()?;
         let result_id = region.result()?;
 
-        use crate::local_id::LocalNodeId;
-        use sir_types::Span;
-
-        let local_lhs = LocalNodeId::new(lhs_id.as_u64());
-        let local_rhs = LocalNodeId::new(rhs_id.as_u64());
-
-        // Extract trailing zeros of the constant RHS
-        // In a real implementation we'd read the constant value, compute trailing zeros,
-        // and create a new constant node. Here we just use a stub builder method
-        // to represent the computation.
-        let trailing_zeros = builder.trailing_zeros(local_rhs, Span::unknown());
-        let shr_op = builder.shr(local_lhs, trailing_zeros, Span::unknown());
+        // The divisor must be the constant RHS and a power of two; the
+        // identity is only valid for unsigned operands.
+        let constant = match function.get_node(rhs_id).map(|n| &n.kind) {
+            Some(sir_nodes::NodeKind::Constant(data)) => data
+                .as_u64()
+                .or_else(|| data.as_i64().and_then(|v| u64::try_from(v).ok())),
+            _ => None,
+        }
+        .ok_or_else(|| {
+            RewriteError::RecipeFailed("divide-shift divisor is not a constant".to_string())
+        })?;
+        if constant == 0 || !constant.is_power_of_two() {
+            return Err(RewriteError::RecipeFailed(
+                "divide-shift divisor is not a power of two".to_string(),
+            ));
+        }
+        let (width, signed) = match function.get_node(lhs_id).map(|n| &n.ty) {
+            Some(Type::Integer { width, signed, .. }) => (width.bits() as usize, *signed),
+            _ => {
+                return Err(RewriteError::RecipeFailed(
+                    "divide-shift operand has no integer width".to_string(),
+                ))
+            }
+        };
+        if signed {
+            return Err(RewriteError::RecipeFailed(
+                "divide-shift is only valid for unsigned operands".to_string(),
+            ));
+        }
+        let shift = constant.trailing_zeros() as usize;
+        if shift >= width {
+            return Err(RewriteError::RecipeFailed(
+                "divide-shift constant exceeds the operand width".to_string(),
+            ));
+        }
+        let shift_data = unsigned_constant(width, shift as u64).ok_or_else(|| {
+            RewriteError::RecipeFailed(format!(
+                "no unsigned constant representation for width {width}"
+            ))
+        })?;
+        let ty = function.get_node(lhs_id).unwrap().ty.clone();
+        let amount = builder.constant(shift_data, ty, Span::unknown());
+        let shr_op = builder.shr(
+            LocalNodeId::new(lhs_id.as_u64()),
+            amount,
+            Span::unknown(),
+        );
 
         Ok(builder.finish(vec![ReplacementValue {
             old: result_id,
             new: shr_op,
         }]))
     }
+}
+
+fn unsigned_constant(width: usize, value: u64) -> Option<ConstantData> {
+    Some(match width {
+        8 => ConstantData::u8(value as u8),
+        16 => ConstantData::u16(value as u16),
+        32 => ConstantData::u32(value as u32),
+        64 => ConstantData::u64(value),
+        _ => return None,
+    })
 }

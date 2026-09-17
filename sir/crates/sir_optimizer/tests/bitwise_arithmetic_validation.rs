@@ -70,14 +70,17 @@ fn validate_ba001_modulo() {
     let mut optimizer = Optimizer::new(OptimizerConfig::default(), default_registry());
     let result = optimizer.optimize(&func);
 
-    assert_eq!(result.rewrites_applied, 0, "ModuloAnd is Stub-quarantined");
+    // ModuloAnd is ConcreteSolverChecked: unsigned x % 16 rewrites to
+    // x & 15 (the 32-bit proof is now sub-second after CNF constant
+    // folding).
+    assert_eq!(result.rewrites_applied, 1);
 
     let has_and = result
         .function
         .arena
         .iter()
         .any(|n| matches!(n.kind, NodeKind::And { .. }));
-    assert!(!has_and, "Must not emit AND while quarantined");
+    assert!(has_and, "the authorized rewrite must emit the AND mask");
 }
 
 #[test]
@@ -86,15 +89,15 @@ fn validate_ba002_divide() {
     let mut optimizer = Optimizer::new(OptimizerConfig::default(), default_registry());
     let result = optimizer.optimize(&func);
 
-    // Stub-quarantined (advisor P0 verifier audit).
-    assert_eq!(result.rewrites_applied, 0, "DivideShift is Stub-quarantined");
+    // DivideShift is ConcreteSolverChecked: unsigned x / 8 -> x >> 3.
+    assert_eq!(result.rewrites_applied, 1);
 
     let has_shr = result
         .function
         .arena
         .iter()
         .any(|n| matches!(n.kind, NodeKind::Shr { .. }));
-    assert!(!has_shr, "Must not rewrite to shift while quarantined");
+    assert!(has_shr, "the authorized rewrite must emit the shift");
 }
 
 #[test]

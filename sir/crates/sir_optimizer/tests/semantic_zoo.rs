@@ -174,12 +174,14 @@ fn build_arithmetic(name: &str, op: &str, divisor: u64, signed: bool) -> ZooProg
     //
     // ADVISOR P0 VERIFIER QUARANTINE, partially lifted (2026-09-17):
     // MultiplyShift is ConcreteSolverChecked for signed and unsigned bit
-    // patterns; ShiftMask is ConcreteSolverChecked for unsigned operands
-    // with a constant amount in (0, width). ModuloAnd and DivideShift
-    // remain Stub-quarantined (32-bit divide/remainder SAT proofs are not
-    // yet tractable).
-    let expected = if op == "multiply" && divisor.is_power_of_two()
+    // patterns; ShiftMask for unsigned constant amounts in (0, width);
+    // ModuloAnd/DivideShift for UNSIGNED power-of-two divisors (CNF
+    // constant folding made the 32-bit division proofs sub-second).
+    let expected = if (op == "multiply" && divisor.is_power_of_two())
         || (op == "shift_mask" && !signed && divisor > 0 && divisor < 32)
+        || (!signed
+            && (op == "modulo" || op == "divide")
+            && divisor.is_power_of_two())
     {
         1
     } else {
@@ -697,4 +699,45 @@ fn build_predicate_reduction(
         function: b.build(),
         expected_rewrites: 1,
     }
+}
+
+#[test]
+fn ps001_bitscan_stays_blocked_on_position_authorization() {
+    // Recorded blocker (2026-09-17): ps001's region is recognized as a
+    // BooleanCollectionReduction (Any) whose live-out is the POSITION;
+    // PositionSearch authorization (X06) is deliberately absent, so the
+    // authorization database has no entry for the region and certificate-
+    // gated generation produces ZERO candidates. BitScanForward/Reverse
+    // therefore stay Stub even though their theorems and the solver
+    // sequence/scan support now exist. When X06 lands, replace this with
+    // a rewrite test.
+    use sir_analysis::manager::AnalysisManager;
+    use sir_inference::engine::InferenceEngine;
+    use sir_semantics::semantics::SemanticEngine;
+    let func = build_ps001_first_set_bit();
+    let mut analysis = AnalysisManager::new();
+    analysis.run_all(&func);
+    let mut sem = SemanticEngine::new();
+    sem.derive(&func, analysis.database());
+    let auths = sir_semantics::authorization::derive_authorizations(
+        &func,
+        analysis.database(),
+        sem.database(),
+    );
+    assert!(
+        sem
+            .database()
+            .regions()
+            .all(|(rid, _)| auths.for_region(rid).is_empty()),
+        "the position region must have no authorization today"
+    );
+    let mut inf = InferenceEngine::new();
+    inf.infer(sem.database(), sem.structural_database());
+    let mut gen = sir_generation::generator::CandidateGenerator::new();
+    gen.generate(inf.context_database(), sem.database(), &auths, &func);
+    assert_eq!(
+        gen.database().all_candidates().count(),
+        0,
+        "no candidates without the PositionSearch certificate"
+    );
 }

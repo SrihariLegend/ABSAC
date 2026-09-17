@@ -17,12 +17,7 @@ fn assert_valid(r: CheckResult, what: &str) {
 
 #[test]
 fn division_and_remainder_by_power_of_two_match_shift_and_mask() {
-    // Widths are capped at 16 here deliberately: the 32-bit instances
-    // take tens of seconds with the current CDCL encoding, which is the
-    // recorded blocker for lifting ModuloAnd/DivideShift in the
-    // verifier (docs/VERIFIER_AUDIT.md). The identities themselves are
-    // width-uniform; the solver cost is not.
-    for width in [4u32, 8, 16] {
+    for width in [4u32, 8, 16, 32] {
         let mut bv = Bv::new();
         let x = bv.var(VarId(0), width);
         let four = bv.constant(4, width);

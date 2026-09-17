@@ -1,6 +1,8 @@
 use sir_transform::ids::DefinitionId;
+use sir_types::{ConstantData, Span, Type};
 
 use crate::error::RewriteError;
+use crate::local_id::LocalNodeId;
 use crate::patch::{ReplacementPatch, ReplacementValue};
 use crate::recipe::RewriteRecipe;
 use crate::region::RewriteRegion;
@@ -37,36 +39,61 @@ impl RewriteRecipe for BitwiseAndModuloRecipe {
         let rhs_id = region.rhs()?;
         let result_id = region.result()?;
 
-        use crate::local_id::LocalNodeId;
-        use sir_types::{ConstantData, Span};
-
-        let local_lhs = LocalNodeId::new(lhs_id.as_u64());
-        let local_rhs = LocalNodeId::new(rhs_id.as_u64());
-
-        let ty = function
-            .get_node(lhs_id)
-            .map(|n| n.ty.clone())
-            .unwrap_or(sir_types::Type::i32());
-
-        // Determine whether to emit a signed or unsigned `1` constant
-        let is_signed = match &ty {
-            sir_types::Type::Integer { signed, .. } => *signed,
-            _ => true,
+        // The divisor must be the constant RHS and a power of two; the
+        // identity is only valid for unsigned operands.
+        let constant = match function.get_node(rhs_id).map(|n| &n.kind) {
+            Some(sir_nodes::NodeKind::Constant(data)) => data
+                .as_u64()
+                .or_else(|| data.as_i64().and_then(|v| u64::try_from(v).ok())),
+            _ => None,
+        }
+        .ok_or_else(|| {
+            RewriteError::RecipeFailed("modulo-and divisor is not a constant".to_string())
+        })?;
+        if constant == 0 || !constant.is_power_of_two() {
+            return Err(RewriteError::RecipeFailed(
+                "modulo-and divisor is not a power of two".to_string(),
+            ));
+        }
+        let (width, signed) = match function.get_node(lhs_id).map(|n| &n.ty) {
+            Some(Type::Integer { width, signed, .. }) => (width.bits() as usize, *signed),
+            _ => {
+                return Err(RewriteError::RecipeFailed(
+                    "modulo-and operand has no integer width".to_string(),
+                ))
+            }
         };
-        let one_data = if is_signed {
-            ConstantData::i32(1)
-        } else {
-            ConstantData::u32(1)
-        };
-
-        let one = builder.constant(one_data, ty.clone(), Span::unknown());
-        let mask = builder.sub(local_rhs, one, Span::unknown());
-        // Create `lhs & mask`
-        let and_op = builder.bitwise_and(local_lhs, mask, Span::unknown());
+        if signed {
+            return Err(RewriteError::RecipeFailed(
+                "modulo-and is only valid for unsigned operands".to_string(),
+            ));
+        }
+        let mask_data = unsigned_constant(width, constant - 1).ok_or_else(|| {
+            RewriteError::RecipeFailed(format!(
+                "no unsigned constant representation for width {width}"
+            ))
+        })?;
+        let ty = function.get_node(lhs_id).unwrap().ty.clone();
+        let mask = builder.constant(mask_data, ty, Span::unknown());
+        let and_op = builder.bitwise_and(
+            LocalNodeId::new(lhs_id.as_u64()),
+            mask,
+            Span::unknown(),
+        );
 
         Ok(builder.finish(vec![ReplacementValue {
             old: result_id,
             new: and_op,
         }]))
     }
+}
+
+fn unsigned_constant(width: usize, value: u64) -> Option<ConstantData> {
+    Some(match width {
+        8 => ConstantData::u8(value as u8),
+        16 => ConstantData::u16(value as u16),
+        32 => ConstantData::u32(value as u32),
+        64 => ConstantData::u64(value),
+        _ => return None,
+    })
 }

@@ -14,6 +14,7 @@ pub mod modulo_and;
 pub mod multiply_shift;
 pub mod parity;
 pub mod popcount;
+pub mod pow2_bind;
 pub mod rotate_left;
 pub mod rotate_right;
 pub mod rotate_bind;

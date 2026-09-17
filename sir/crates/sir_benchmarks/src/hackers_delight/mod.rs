@@ -14,17 +14,16 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "modulo_power_of_two",
                 category: "Arithmetic identities",
                 input_desc: "x % 8",
-                // QUARANTINED (advisor P0 verifier audit): the
-                // ModuloAndDefinition obligation is a hardcoded template
-                // (Modulo(x,16)==And(x,15)) that never binds the actual
-                // divisor or operand — a theorem-shaped stub, not a
-                // proof. The identity itself is true for unsigned x;
-                // re-enabling requires a ConcreteSolverChecked
-                // obligation built from the actual nodes, which in turn
-                // waits on a width-efficient division encoding (32-bit
-                // urem SAT proofs are minutes-scale today).
-                expected: ExpectedKnowledge::NonOptimizable {
-                    reason: "ModuloAnd definition is Stub-quarantined: obligation does not bind actual source/candidate operands",
+                // UNQUARANTINED (2026-09-17): binds the actual unsigned
+                // Rem node (power-of-two divisor, width); the 32-bit
+                // proof is sub-second after CNF constant folding.
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "BitwiseArithmetic",
+                    concepts: vec!["ModuloPowerOfTwo"],
+                    representation: "BitwiseArithmetic",
+                    candidate: "BitwiseAnd",
+                    proof: "ConcreteSolverChecked: x % C == x & (C-1)",
+                    rewrite: "Rem by power of two -> And with C-1",
                 },
             },
             func: || {
@@ -42,8 +41,13 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "divide_power_of_two",
                 category: "Arithmetic identities",
                 input_desc: "x / 16",
-                expected: ExpectedKnowledge::NonOptimizable {
-                    reason: "DivideShift definition is Stub-quarantined: obligation is Constant(0)==Constant(0)",
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "BitwiseArithmetic",
+                    concepts: vec!["DividePowerOfTwo"],
+                    representation: "BitwiseArithmetic",
+                    candidate: "ShiftRight",
+                    proof: "ConcreteSolverChecked: x / C == x >> log2(C)",
+                    rewrite: "Div by power of two -> ShiftRight by log2(C)",
                 },
             },
             func: || {

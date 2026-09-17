@@ -64,6 +64,23 @@ impl Cnf {
 
     /// `z <=> a /\ b`
     pub fn and2(&mut self, a: i32, b: i32) -> i32 {
+        // Constant/value folding keeps the CNF small for encodings with
+        // constant operands (e.g. a literal divisor in division).
+        if a == self.t() {
+            return b;
+        }
+        if b == self.t() {
+            return a;
+        }
+        if a == self.f() || b == self.f() {
+            return self.f();
+        }
+        if a == b {
+            return a;
+        }
+        if a == -b {
+            return self.f();
+        }
         let z = self.new_lit();
         self.add_clause([-a, -b, z]);
         self.add_clause([a, -z]);
@@ -73,6 +90,21 @@ impl Cnf {
 
     /// `z <=> a \/ b`
     pub fn or2(&mut self, a: i32, b: i32) -> i32 {
+        if a == self.t() || b == self.t() {
+            return self.t();
+        }
+        if a == self.f() {
+            return b;
+        }
+        if b == self.f() {
+            return a;
+        }
+        if a == b {
+            return a;
+        }
+        if a == -b {
+            return self.t();
+        }
         let z = self.new_lit();
         self.add_clause([a, b, -z]);
         self.add_clause([-a, z]);
@@ -82,6 +114,24 @@ impl Cnf {
 
     /// `z <=> a xor b`
     pub fn xor2(&mut self, a: i32, b: i32) -> i32 {
+        if a == self.t() {
+            return -b;
+        }
+        if b == self.t() {
+            return -a;
+        }
+        if a == self.f() {
+            return b;
+        }
+        if b == self.f() {
+            return a;
+        }
+        if a == b {
+            return self.f();
+        }
+        if a == -b {
+            return self.t();
+        }
         let z = self.new_lit();
         self.add_clause([-a, -b, -z]);
         self.add_clause([a, b, -z]);
@@ -92,6 +142,24 @@ impl Cnf {
 
     /// `z <=> a == b`
     pub fn xnor2(&mut self, a: i32, b: i32) -> i32 {
+        if a == b {
+            return self.t();
+        }
+        if a == -b {
+            return self.f();
+        }
+        if a == self.t() {
+            return b;
+        }
+        if b == self.t() {
+            return a;
+        }
+        if a == self.f() {
+            return -b;
+        }
+        if b == self.f() {
+            return -a;
+        }
         let z = self.new_lit();
         self.add_clause([-a, b, -z]);
         self.add_clause([a, -b, -z]);
@@ -102,6 +170,15 @@ impl Cnf {
 
     /// `z <=> (c ? t : e)`
     pub fn mux(&mut self, c: i32, t: i32, e: i32) -> i32 {
+        if c == self.t() {
+            return t;
+        }
+        if c == self.f() {
+            return e;
+        }
+        if t == e {
+            return t;
+        }
         let z = self.new_lit();
         self.add_clause([-c, -t, z]);
         self.add_clause([-c, t, -z]);

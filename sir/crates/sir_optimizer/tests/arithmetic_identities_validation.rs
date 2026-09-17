@@ -49,14 +49,12 @@ fn build_signed_div_minus_one() -> sir_nodes::Function {
 
 #[test]
 fn validate_arithmetic_identities() {
-    // ADVISOR P0 VERIFIER QUARANTINE: even the unsigned modulo identity
-    // is now gated — the ModuloAndDefinition obligation is a hardcoded
-    // template that never binds the actual divisor/operand (Stub), so it
-    // may not authorize a rewrite. The unsigned rewrite returns when the
-    // definition is upgraded to ConcreteSolverChecked (obligation built
-    // from the actual nodes).
+    // ModuloAnd is ConcreteSolverChecked since 2026-09-17: the unsigned
+    // x % 8 rewrite is authorized (the obligation binds the actual
+    // divisor/operand/width). Signed modulo and signed division still
+    // abstain.
     let benchmarks = vec![
-        ("ModuloPow2_quarantined", build_modulo_power_of_two_unsigned(), false),
+        ("ModuloPow2_unsigned", build_modulo_power_of_two_unsigned(), true),
         // Signed modulo: defined arithmetic, but the mask rewrite is
         // NOT equivalent for negative operands (-1 % 8 = -1 vs
         // -1 & 7 = 7) — must abstain.

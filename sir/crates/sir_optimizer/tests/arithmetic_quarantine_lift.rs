@@ -117,7 +117,8 @@ fn signed_commuted_multiply_shifts_the_dynamic_operand() {
 
 #[test]
 fn divide_power_of_two_stays_quarantined() {
-    // DivideShift (id 101) is still a Stub: the boundary must hold.
+    // DivideShift is ConcreteSolverChecked (2026-09-17): unsigned x / 16
+    // rewrites; a non-power-of-two divisor must still abstain.
     let mut b = Builder::new("div_16", &[("x", Type::u32())], Type::u32());
     let x = b.parameter_index(0).unwrap();
     let c = b.constant(ConstantData::u32(16), Type::u32(), span());
@@ -126,8 +127,19 @@ fn divide_power_of_two_stays_quarantined() {
     let func = b.build();
     let result = optimize(&func);
     assert_eq!(
+        result.rewrites_applied, 1,
+        "unsigned x / 16 must rewrite once DivideShift is lifted"
+    );
+
+    let mut b = Builder::new("div_12", &[("x", Type::u32())], Type::u32());
+    let x = b.parameter_index(0).unwrap();
+    let c = b.constant(ConstantData::u32(12), Type::u32(), span());
+    let div = b.div(x, c, span()).unwrap();
+    b.return_value(div, span()).unwrap();
+    let result = optimize(&b.build());
+    assert_eq!(
         result.rewrites_applied, 0,
-        "DivideShift is still Stub-quarantined; it must not rewrite"
+        "x / 12 has no shift identity and must not rewrite"
     );
 }
 
