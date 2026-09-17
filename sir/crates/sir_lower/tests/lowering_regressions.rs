@@ -987,3 +987,48 @@ fn runtime_search_with_negative_one_sentinel_lowers() {
     );
     assert!(func.return_node.is_some(), "the sentinel path must return");
 }
+
+/// Bool-element runtime search with clang's HIT-on-true header polarity
+/// (`br %trunc, label %merge, label %latch`). The `n == 0` entry guard
+/// also branches back to the header; it must NOT be mistaken for the
+/// latch (v10 p04: the wrong triple made the counter phi look
+/// non-latch-carried and refused a supported shape).
+const RUNTIME_SEARCH_HIT_ON_TRUE: &str = r#"
+define i64 @rt_bool(ptr %0, i64 %1) {
+  %2 = icmp eq i64 %1, 0
+  br i1 %2, label %11, label %3
+
+3:
+  %4 = phi i64 [ %9, %8 ], [ 0, %2 ]
+  %5 = getelementptr inbounds i8, ptr %0, i64 %4
+  %6 = load i8, ptr %5
+  %7 = trunc nuw i8 %6 to i1
+  br i1 %7, label %11, label %8
+
+8:
+  %9 = add nuw i64 %4, 1
+  %10 = icmp eq i64 %9, %1
+  br i1 %10, label %11, label %3
+
+11:
+  %12 = phi i64 [ 0, %2 ], [ %1, %8 ], [ %4, %3 ]
+  %13 = tail call i64 @llvm.umin.i64(i64 %12, i64 %1)
+  ret i64 %13
+}
+"#;
+
+#[test]
+fn hit_on_true_runtime_search_selects_the_real_latch() {
+    let func = lower_function(RUNTIME_SEARCH_HIT_ON_TRUE, "rt_bool")
+        .expect("the hit-on-true runtime search must lower");
+    assert!(
+        matches!(func.params[0].ty, sir_types::Type::Pointer { .. }),
+        "no extent may be fabricated"
+    );
+    let loops = func
+        .arena
+        .iter()
+        .filter(|n| matches!(n.kind, sir_nodes::NodeKind::Loop { .. }))
+        .count();
+    assert_eq!(loops, 1, "one synthesized found-flag loop");
+}

@@ -13,5 +13,5 @@ NATIVE x04_stride4: clean cases=48 rewrites=0
 NATIVE x05_atomic_flags: lower_refused (unsupported: atomic load (ordering semantics not modeled): %10 = load atomic i8, ptr %9 acquire, align 1)
 NATIVE x06_running_max: clean cases=48 rewrites=0
 NATIVE x07_self_recurrence: clean cases=48 rewrites=0
-NATIVE x08_early_exit_write: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: x08_early_exit_write (early-exit search: counter phi is not latch-carried))
-EMITC_SUMMARY clean=9 mismatched=0 lower_refused=7 harness_errors=0
+NATIVE x08_early_exit_write: clean cases=48 rewrites=0
+EMITC_SUMMARY clean=10 mismatched=0 lower_refused=6 harness_errors=0

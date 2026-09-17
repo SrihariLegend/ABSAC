@@ -20,7 +20,7 @@ buffer byte-for-byte.
 
 | Corpus | Clean | Mismatched | Lower-refused | Cases each | Rewrites applied |
 |---|---:|---:|---:|---:|---:|
-| `gate6a/v2_corpus.ll` | 9 | 0 | 7 | 48 | 1 |
+| `gate6a/v2_corpus.ll` | 10 | 0 | 6 | 48 | 1 |
 | `gate6a/v3_corpus.ll` | 17 | 0 | 7 | 48 | 1 |
 | `gate6a/v4_corpus.ll` | 22 | 0 | 2 | 48 | 0 |
 | `gate6a/v5_corpus.ll` | 21 | 0 | 3 | 48 | 1 |
@@ -33,7 +33,14 @@ buffer byte-for-byte.
 | `gate6a/v7_corpus.ll` | 19 | 0 | 5 | 48 | 5 |
 | `gate6a/v8_corpus.ll` | 23 | 0 | 5 | 48 | 8 |
 | `gate6a/v9_corpus.ll` | 25 | 0 | 4 | 48 | 13 |
-| **Total** | **187** | **0** | **64** | — | **54** |
+| `gate6a/v10_corpus.ll` | 17 | 0 | 7 | 48 | 3 |
+| **Total** | **205** | **0** | **70** | — | **57** |
+
+**v10** (2026-09-17): the clamp and identity runtime-search forms lower
+(p01 sentinel n, p02 sentinel -1, p04 bool hit-on-true after the latch-
+selection fix); the entry-guard/latch confusion found by the one-shot
+run is fixed, which also enables v2 `x08_early_exit_write` (pure
+runtime search in its IR). 0 mismatches; 3 native-clean rewrites.
 
 **Runtime-extent search lowering** (2026-09-17): clang's guarded form
 (`n == 0` entry guard, header/latch search, `llvm.umin(phi, n)` clamp

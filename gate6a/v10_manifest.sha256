@@ -1,0 +1,8 @@
+# Gate 6A-v10 sealed corpus manifest (generated before the frozen run).
+# Frozen candidate: HEAD 5027b47 (zero-trip merge-form matching + guard-bound hardening).
+# Classification frozen before evaluation; post-run records live in docs/GATE6A_V10_RESULTS.md.
+5eab869540c843bbe4e5fdb7f9d1703cb911ccd1d48650ee14fad41c584458a9  gate6a/v10_corpus.c
+85ef6ef8ea382becccfcb1f5d390bdbb46005d5f14b4cefc4a483d5ff4cb9580  gate6a/v10_corpus.ll
+5812e698e8a5041c3ec5ed9b81f97e38227d18962cb05c4fd328597cfe62124d  gate6a/v10_expected.csv
+d41b567d7596fbcfe30230564bcfe645d1bdbc7b917b48ce169e89890875da25  gate6a/v10_README.md
+986620419dd38e11cd7f300b942a066e22eb37c51439408d8b92caad72ee033f  sir/crates/sir_benchmarks/src/bin/gate6a_run.rs

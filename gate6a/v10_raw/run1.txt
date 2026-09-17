@@ -1,0 +1,161 @@
+# Gate 6A fresh blind recognition evaluation
+# corpus=gate6a/v10_corpus.ll
+# registry=default; config=OptimizerConfig::default
+Found scalar parameter for PositionSearch: NodeId(1)
+PositionSearch roles assigned: collection=None, scalar=Some(NodeId(1)), result=Some(NodeId(19))
+Found scalar parameter for PositionSearch: NodeId(1)
+PositionSearch roles assigned: collection=None, scalar=Some(NodeId(1)), result=Some(NodeId(19))
+Failed proof for DefinitionId(200): Unknown(NoApplicableBackend)
+
+KERNEL p01_runtime_search_sentinel_n class=P expectation=recognized
+  key_property: runtime search sentinel n (clamp form)
+  observed: lowered=true verify=true truths=9 concepts=["IsZero", "FirstOccurrence", "PredicateMap", "DisjunctiveReduction", "IsZero"] beliefs=2 cands=1 rewrites=0
+  RESULT recognized ["FirstOccurrence"] (PASS)
+Found scalar parameter for PositionSearch: NodeId(1)
+PositionSearch roles assigned: collection=None, scalar=Some(NodeId(1)), result=Some(NodeId(20))
+Found scalar parameter for PositionSearch: NodeId(1)
+PositionSearch roles assigned: collection=None, scalar=Some(NodeId(1)), result=Some(NodeId(20))
+Failed proof for DefinitionId(200): Unknown(NoApplicableBackend)
+
+KERNEL p02_runtime_search_sentinel_neg1 class=P expectation=recognized
+  key_property: runtime search sentinel -1 (identity form)
+  observed: lowered=true verify=true truths=9 concepts=["IsZero", "IsZero", "PredicateMap", "FirstOccurrence", "DisjunctiveReduction"] beliefs=2 cands=1 rewrites=0
+  RESULT recognized ["FirstOccurrence"] (PASS)
+
+KERNEL p03_runtime_search_sentinel_nm1 class=P expectation=recall_gap_known
+  key_property: computed n-1 sentinel (identity, uncertain)
+  observed: lowered=false verify=false truths=0 concepts=[] beliefs=0 cands=0 rewrites=0
+  note: lower: unsupported: loop with a separate latch block (multi-block back-edge) not modeled: p03_runtime_search_sentinel_nm1 (early-exit search: merge does not return the counter)
+  RESULT recall miss (KNOWN OPEN GAP, recorded; lowered=false verified=false)
+
+KERNEL p04_runtime_search_bool class=P expectation=recognized
+  key_property: runtime search over bool elements
+  observed: lowered=false verify=false truths=0 concepts=[] beliefs=0 cands=0 rewrites=0
+  note: lower: unsupported: loop with a separate latch block (multi-block back-edge) not modeled: p04_runtime_search_bool (early-exit search: counter phi is not latch-carried)
+  RESULT RECALL MISS (FAIL): expected ["FirstOccurrence"]; lowered=false verified=false (expected lower=yes verify=yes)
+Found scalar parameter for PositionSearch: NodeId(1)
+PositionSearch roles assigned: collection=None, scalar=Some(NodeId(1)), result=Some(NodeId(20))
+Found scalar parameter for PositionSearch: NodeId(1)
+PositionSearch roles assigned: collection=None, scalar=Some(NodeId(1)), result=Some(NodeId(20))
+Failed proof for DefinitionId(200): Unknown(NoApplicableBackend)
+
+KERNEL p05_runtime_search_do_while class=P expectation=recall_gap_known
+  key_property: do-while runtime search (forced first iteration)
+  observed: lowered=true verify=true truths=8 concepts=["IsZero", "DisjunctiveReduction", "FirstOccurrence", "PredicateMap"] beliefs=2 cands=1 rewrites=0
+  RESULT recall miss (KNOWN OPEN GAP, recorded; lowered=true verified=true)
+
+KERNEL p06_runtime_descending_search class=P expectation=recall_gap_known
+  key_property: descending runtime search
+  observed: lowered=false verify=false truths=0 concepts=[] beliefs=0 cands=0 rewrites=0
+  note: lower: unsupported: loop with a separate latch block (multi-block back-edge) not modeled: p06_runtime_descending_search (early-exit search: merge does not return the counter)
+  RESULT recall miss (KNOWN OPEN GAP, recorded; lowered=false verified=false)
+
+KERNEL p07_search_then_sum class=P expectation=recall_gap_known
+  key_property: search then second loop (composition gap)
+  observed: lowered=false verify=false truths=0 concepts=[] beliefs=0 cands=0 rewrites=0
+  note: lower: TypeMismatch { node: NodeId(2), expected: Pointer { pointee: Integer { width: I8, signed: false, overflow: Wrapping }, mutable: false }, actual: Integer { width: I8, signed: false, overflow: Wrapping } }
+  RESULT recall miss (KNOWN OPEN GAP, recorded; lowered=false verified=false)
+PositionSearch roles assigned: collection=Some(NodeId(0)), scalar=None, result=Some(NodeId(18))
+PositionSearch roles assigned: collection=Some(NodeId(0)), scalar=None, result=Some(NodeId(18))
+Failed proof for DefinitionId(200): Unknown(NoApplicableBackend)
+
+KERNEL p08_const_search_wrong_sentinel class=P expectation=recognized
+  key_property: constant search, sentinel 99 != extent 32 (rewrite refused)
+  observed: lowered=true verify=true truths=24 concepts=["FiniteCollection", "FirstOccurrence", "PredicateMap", "LogicalSequence", "ElementSequence", "DisjunctiveReduction", "IsZero"] beliefs=2 cands=2 rewrites=0
+  RESULT recognized ["FirstOccurrence"] (PASS)
+PositionSearch roles assigned: collection=Some(NodeId(0)), scalar=None, result=Some(NodeId(18))
+PositionSearch roles assigned: collection=Some(NodeId(0)), scalar=None, result=Some(NodeId(18))
+Iteration 1: Branching on candidate candidate#1 with strategy BitScanForward
+
+KERNEL p09_const_search_32 class=P expectation=recognized
+  key_property: constant search extent 32 (rewrite)
+  observed: lowered=true verify=true truths=24 concepts=["ElementSequence", "IsZero", "LogicalSequence", "FirstOccurrence", "FiniteCollection", "DisjunctiveReduction", "PredicateMap"] beliefs=2 cands=2 rewrites=1
+  RESULT recognized ["FirstOccurrence"] (PASS)
+Iteration 1: Branching on candidate candidate#0 with strategy Popcount
+
+KERNEL p10_count_eq_const_64 class=P expectation=recognized
+  key_property: cardinality extent 64 (rewrite)
+  observed: lowered=true verify=true truths=9 concepts=["LogicalSequence", "CardinalityReduction", "PredicateMap", "ElementSequence", "FiniteCollection"] beliefs=1 cands=2 rewrites=1
+  RESULT recognized ["CardinalityReduction"] (PASS)
+Iteration 1: Branching on candidate candidate#0 with strategy Popcount
+
+KERNEL p11_two_loops_const_48 class=P expectation=recognized
+  key_property: two sequential reductions extent 48
+  observed: lowered=true verify=true truths=15 concepts=["LogicalSequence", "PredicateMap", "FiniteCollection", "CardinalityReduction", "ElementSequence", "ElementSequence", "PredicateMap", "LogicalSequence", "FiniteCollection", "SumReduction"] beliefs=2 cands=3 rewrites=1
+  RESULT recognized ["CardinalityReduction"] (PASS)
+
+KERNEL p12_sum_u8_const_96 class=P expectation=recognized
+  key_property: plain sum extent 96 (recognition only)
+  observed: lowered=true verify=true truths=6 concepts=["SumReduction", "LogicalSequence", "PredicateMap", "ElementSequence", "FiniteCollection"] beliefs=1 cands=1 rewrites=0
+  RESULT recognized ["SumReduction"] (PASS)
+
+KERNEL n01_running_max_const class=N expectation=safe_abstain
+  key_property: running max lookalike (X06)
+  observed: lowered=true verify=true truths=5 concepts=["PredicateMap", "FiniteCollection", "ElementSequence", "LogicalSequence"] beliefs=1 cands=0 rewrites=0
+  RESULT safe_abstain (PASS)
+
+KERNEL n02_masked_sum_ternary_const class=N expectation=safe_abstain
+  key_property: ternary threshold sum (D5)
+  observed: lowered=true verify=true truths=8 concepts=["FiniteCollection", "PredicateMap", "LogicalSequence", "ElementSequence"] beliefs=1 cands=0 rewrites=0
+  RESULT safe_abstain (PASS)
+
+KERNEL n03_masked_sum_hi_const class=N expectation=safe_abstain
+  key_property: high-nibble masked sum (D5)
+  observed: lowered=true verify=true truths=6 concepts=["FiniteCollection", "PredicateMap", "LogicalSequence", "ElementSequence", "MappedSumReduction"] beliefs=1 cands=0 rewrites=0
+  RESULT safe_abstain (PASS)
+
+KERNEL n04_volatile_load_const class=N expectation=safe_abstain
+  key_property: volatile loads
+  observed: lowered=true verify=true truths=5 concepts=["PredicateMap", "FiniteCollection", "ElementSequence", "LogicalSequence"] beliefs=1 cands=0 rewrites=0
+  RESULT safe_abstain (PASS)
+
+KERNEL n05_atomic_load_const class=N expectation=safe_abstain
+  key_property: C11 atomic loads
+  observed: lowered=false verify=false truths=0 concepts=[] beliefs=0 cands=0 rewrites=0
+  note: lower: unsupported: atomic load (ordering semantics not modeled): %7 = load atomic i32, ptr %6 monotonic, align 4
+  RESULT safe_abstain (PASS)
+
+KERNEL n06_may_alias_store_const class=N expectation=safe_abstain
+  key_property: may-alias store
+  observed: lowered=false verify=false truths=0 concepts=[] beliefs=0 cands=0 rewrites=0
+  note: lower: TypeMismatch { node: NodeId(5), expected: Pointer { pointee: Unit, mutable: true }, actual: Integer { width: I16, signed: false, overflow: Wrapping } }
+  RESULT safe_abstain (PASS)
+
+KERNEL n07_two_arrays_const class=N expectation=safe_abstain
+  key_property: two-array relation
+  observed: lowered=true verify=true truths=10 concepts=["PredicateMap", "ElementSequence", "FiniteCollection", "LogicalSequence"] beliefs=1 cands=0 rewrites=0
+  RESULT safe_abstain (PASS)
+
+KERNEL n08_nonterminating_reverse class=N expectation=safe_abstain
+  key_property: unsigned reverse search (totality gate)
+  observed: lowered=false verify=false truths=0 concepts=[] beliefs=0 cands=0 rewrites=0
+  note: lower: function has too few blocks for the lowerer
+  RESULT safe_abstain (PASS)
+
+KERNEL n09_early_exit_global_const class=N expectation=safe_abstain
+  key_property: early exit with a global write
+  observed: lowered=false verify=false truths=0 concepts=[] beliefs=0 cands=0 rewrites=0
+  note: lower: unsupported: loop with a separate latch block (multi-block back-edge) not modeled: n09_early_exit_global_const (early-exit search: no header/latch/merge triple)
+  RESULT safe_abstain (PASS)
+
+KERNEL n10_runtime_sum_u16 class=N expectation=contained_abstain
+  key_property: runtime extent sum
+  observed: lowered=true verify=true truths=3 concepts=["IsZero", "SumReduction", "PredicateMap"] beliefs=0 cands=0 rewrites=0
+  recognition recorded (allowed): reduction_concepts=["SumReduction"]
+  RESULT contained (PASS)
+
+KERNEL n11_runtime_count_ge_u32 class=N expectation=contained_abstain
+  key_property: runtime extent cardinality
+  observed: lowered=true verify=true truths=4 concepts=["IsZero", "PredicateMap", "CardinalityReduction"] beliefs=0 cands=0 rewrites=0
+  recognition recorded (allowed): reduction_concepts=["CardinalityReduction"]
+  RESULT contained (PASS)
+
+KERNEL n12_signed_sum_const class=N expectation=contained_abstain
+  key_property: signed accumulation
+  observed: lowered=true verify=true truths=6 concepts=["SumReduction", "ElementSequence", "LogicalSequence", "PredicateMap", "FiniteCollection"] beliefs=1 cands=0 rewrites=0
+  recognition recorded (allowed): reduction_concepts=["SumReduction"]
+  RESULT contained (PASS)
+
+GATE6A_SUMMARY positives=12 recognized=7 recall_misses=1 known_gap_misses=4
+GATE6A_SAFETY negatives=12 contained_rows=3 false_positive_recognitions=0 unsafe_candidates=0 unsafe_rewrites=0
+GATE6A_VERDICT FAIL

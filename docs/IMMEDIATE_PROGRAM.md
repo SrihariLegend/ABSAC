@@ -542,6 +542,19 @@ Gate 6A-v9:  PASSED — fresh held-out generation for the position-
              0 mismatched / 64 lower-refused, 54 rewrites.
              See docs/GATE6A_V9_RESULTS.md.
 
+Gate 6A-v10: FAILED one-shot (preserved) → REMEDIATED on the frozen
+             regression set. Found: the n == 0 entry guard was matched
+             as the latch for hit-on-true headers (bool-element runtime
+             searches were refused as "counter phi not latch-carried").
+             Fix: a latch must be a non-entry block contributing a
+             back-edge phi incoming. Re-run: 8/12 recognized (4 known
+             gaps), 0 false positives / 0 unsafe candidates /
+             0 unsafe rewrites; native 17 clean / 0 mismatched / 7
+             lower-refused, 3 native rewrites. Side effect: v2
+             x08_early_exit_write now lowers (its IR has no store).
+             Cumulative: 205 clean / 0 mismatched / 70 lower-refused,
+             57 rewrites. See docs/GATE6A_V10_RESULTS.md.
+
 Gate 6B:     PASSED — the fusion corpus was sealed before automation
              (gate6b/manifest.sha256, commit 4aedce1) and evaluated
              one-shot with a frozen harness (7ab8edc/2594d1a): 10/10 rows

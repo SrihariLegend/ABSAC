@@ -2003,6 +2003,24 @@ fn lower_early_exit_search(
             if li == hi {
                 continue;
             }
+            // The entry guard also branches back to the header, but it is
+            // not the latch: a latch must be a non-entry block that
+            // contributes a BACK-EDGE incoming to a header phi.
+            if li == 0 {
+                continue;
+            }
+            let contributes_back_edge = h
+                .instructions
+                .iter()
+                .filter(|inst| inst.opcode == "phi")
+                .any(|phi| {
+                    phi_incomings(phi)
+                        .iter()
+                        .any(|(_, label)| label == &l.label)
+                });
+            if !contributes_back_edge {
+                continue;
+            }
             let l_succs = block_successors(l);
             if l_succs.len() != 2 || !l_succs.contains(&h.label) {
                 continue;

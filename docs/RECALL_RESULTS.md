@@ -104,6 +104,25 @@ collection role), and v8 `p14` / v9 `p16` are native-clean with 0
 rewrites (lower-refused totals drop by one in each corpus; cumulative
 187 clean / 0 mismatched / 64 lower-refused).
 
+## v10 held-out data points (2026-09-17)
+
+The v10 generation blind-tested runtime-search variants and found one
+real lowering defect:
+
+- **Entry-guard/latch confusion**: for hit-on-true headers (`br %hit,
+  %merge, %latch`) the `n == 0` entry guard also branches back to the
+  header, so the triple search matched it as the latch and refused a
+  supported bool-element search. A latch must now be a non-entry block
+  contributing a back-edge phi incoming; the fix also enables v2
+  `x08_early_exit_write` (pure runtime search in its IR).
+- **Forms validated**: clamp (sentinel n) and identity (sentinel -1)
+  runtime searches lower and recognize `FirstOccurrence`; the constant
+  search with sentinel 99 recognizes and refuses the rewrite; the
+  computed `n-1` sentinel, do-while, descending, and search-then-loop
+  shapes remain recorded gaps (fail-closed).
+- Cumulative native evidence: 205 clean / 0 mismatched / 70
+  lower-refused, 57 native-clean rewrites.
+
 **Hardening (same day):** the extra zero-trip predecessor is accepted
 only when its guard compares the loop's actual **trip bound** (the
 latch comparison's non-successor operand), not merely the merge's

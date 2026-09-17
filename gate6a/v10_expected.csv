@@ -1,0 +1,25 @@
+kernel	class	expectation	expected_lower	expected_verify	expected_concepts	expected_candidates	expected_rewrites	key_property
+p01_runtime_search_sentinel_n	P	recognized	yes	yes	FirstOccurrence	any	any	runtime search sentinel n (clamp form)
+p02_runtime_search_sentinel_neg1	P	recognized	yes	yes	FirstOccurrence	any	any	runtime search sentinel -1 (identity form)
+p03_runtime_search_sentinel_nm1	P	recall_gap_known	any	any	any	any	any	computed n-1 sentinel (identity, uncertain)
+p04_runtime_search_bool	P	recognized	yes	yes	FirstOccurrence	any	any	runtime search over bool elements
+p05_runtime_search_do_while	P	recall_gap_known	any	any	any	any	any	do-while runtime search (forced first iteration)
+p06_runtime_descending_search	P	recall_gap_known	any	any	any	any	any	descending runtime search
+p07_search_then_sum	P	recall_gap_known	any	any	any	any	any	search then second loop (composition gap)
+p08_const_search_wrong_sentinel	P	recognized	yes	yes	FirstOccurrence	any	any	constant search, sentinel 99 != extent 32 (rewrite refused)
+p09_const_search_32	P	recognized	yes	yes	FirstOccurrence	any	any	constant search extent 32 (rewrite)
+p10_count_eq_const_64	P	recognized	yes	yes	CardinalityReduction	any	any	cardinality extent 64 (rewrite)
+p11_two_loops_const_48	P	recognized	yes	yes	CardinalityReduction	any	any	two sequential reductions extent 48
+p12_sum_u8_const_96	P	recognized	yes	yes	SumReduction	any	any	plain sum extent 96 (recognition only)
+n01_running_max_const	N	safe_abstain	any	any	none	0	0	running max lookalike (X06)
+n02_masked_sum_ternary_const	N	safe_abstain	any	any	none	0	0	ternary threshold sum (D5)
+n03_masked_sum_hi_const	N	safe_abstain	any	any	none	0	0	high-nibble masked sum (D5)
+n04_volatile_load_const	N	safe_abstain	any	any	none	0	0	volatile loads
+n05_atomic_load_const	N	safe_abstain	any	any	none	0	0	C11 atomic loads
+n06_may_alias_store_const	N	safe_abstain	any	any	none	0	0	may-alias store
+n07_two_arrays_const	N	safe_abstain	any	any	none	0	0	two-array relation
+n08_nonterminating_reverse	N	safe_abstain	any	any	none	0	0	unsigned reverse search (totality gate)
+n09_early_exit_global_const	N	safe_abstain	any	any	none	0	0	early exit with a global write
+n10_runtime_sum_u16	N	contained_abstain	any	any	any	0	0	runtime extent sum
+n11_runtime_count_ge_u32	N	contained_abstain	any	any	any	0	0	runtime extent cardinality
+n12_signed_sum_const	N	contained_abstain	any	any	any	0	0	signed accumulation
