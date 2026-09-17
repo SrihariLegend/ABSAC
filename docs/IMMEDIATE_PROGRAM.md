@@ -292,9 +292,13 @@ Remediation D3 (P0A, commit c3ebb54):
        (ConcreteSolverChecked) quarantines SchemaChecked too.
        Gate 4B (three-kernel equivalence) has since been closed — see
        docs/GATE4B_PROOF.md. This entry concerns the quarantined
-       definition obligations of the generic verifier, which remain
-       open (P0A queue item 3): families return when obligations bind
-       actual nodes and discharge concretely (ConcreteSolverChecked).
+       definition obligations of the generic verifier. They remain
+       open (P0A queue item 3) with the first lift landed
+       2026-09-17: obligations can now bind actual nodes
+       (`obligation_bound(candidate, function)`) and be discharged by
+       the bit-blasting ConcreteSolver; MultiplyShift (id 102) is the
+       first ConcreteSolverChecked definition (15 remain Stub). See
+       docs/VERIFIER_AUDIT.md.
   PS002 END-TO-END AUDIT (advisor directive 2, this cycle): the
        SchemaChecked Any candidate on PS002 was NOT a safe independent
        optimization — it was a live semantic corruption caught before
@@ -385,17 +389,14 @@ Remediation D3 (P0A, commit c3ebb54):
        artifact; application checker upgrades pending]; (2) role-map
        plumbing [COMPLETE for the recipes listed above; the
        Popcount table-lookup path and scalar SetIteration path are
-       recorded role-driven exceptions]; (3) upgrade quarantined definitions to
-       ConcreteSolverChecked (obligation from actual pair, mutation-
-       sensitive) starting with the unsigned arithmetic identities;
-       (4) map-then-sum recall, two-loop lowering, accumulator width,
-       C3 freeze, fresh H3; before fusion: seal Gate 6B or independent
-       post-freeze corpus creation. (3) upgrade quarantined definitions to
-       ConcreteSolverChecked (obligation from actual pair, mutation-
-       sensitive) starting with the unsigned arithmetic identities;
-       (4) map-then-sum recall, two-loop lowering, accumulator width,
-       C3 freeze, fresh H3; before fusion: seal Gate 6B or independent
-       post-freeze corpus creation.
+       recorded role-driven exceptions]; (3) upgrade quarantined
+       definitions to ConcreteSolverChecked (obligation from the actual
+       pair, mutation-sensitive) [IN PROGRESS 2026-09-17: the
+       ConcreteSolver backend bit-blasts bound obligations; MultiplyShift
+       is the first lifted definition; ModuloAnd/DivideShift need
+       urem/udiv lowering]; (4) map-then-sum recall, two-loop lowering,
+       accumulator width, C3 freeze, fresh H3; before fusion: seal
+       Gate 6B or independent post-freeze corpus creation.
   ScalarExpression definedness gate (advisor: fail closed NOW, commit
        e62db09): Div/Rem refuse unless the divisor is a constant
        nonzero literal; shifts refuse unless the amount is a constant

@@ -126,6 +126,50 @@ Answers to the binding questions per class:
 4. Only then may the definition's `verification_status` be raised and
    the corresponding recipe re-enabled.
 
+## Quarantine lift — ConcreteSolver backend + MultiplyShift (2026-09-17)
+
+The first lift implements the path above end to end:
+
+- **New `ConcreteSolver` backend** (`backends/concrete_solver.rs`,
+  `VerificationBackend::ConcreteSolver`, cap
+  `ConcreteSolverChecked`). An obligation with a finite domain is
+  lowered into `sir_mech` bitvector terms at the variables' declared
+  widths and discharged by the bit-blasting CDCL solver
+  (`prove_equal`): UNSAT of the negated difference is a proof, a SAT
+  model is re-evaluated and returned as a counterexample, and
+  unsupported shapes / missing domains / solver-budget exhaustion stay
+  Unknown (fail closed). `Verifier::verify` runs this backend first for
+  definitions whose cap requires it and whose domain is finite;
+  everything else keeps the historical symbolic-first order.
+- **Obligations bind the actual function version**:
+  `TransformationDefinition::obligation_bound(candidate, function)`
+  (default = the legacy template, so stubs are unchanged) and
+  `Verifier::build_obligations(..., function)`. A definition reads the
+  candidate's authorized `region_nodes`.
+- **MultiplyShift (id 102) is ConcreteSolverChecked**: the theorem is
+  `x * C == x << log2(C)` with `C` and the width taken from the actual
+  `Mul` node. A pair that cannot be bound (no power-of-two constant, no
+  authorized region) gets a non-identity theorem with no domain and can
+  never be Proven. Tests (`tests/concrete_solver_upgrade.rs`): the
+  correct pair is Proven with ISSUED `ConcreteSolverChecked`; a mutated
+  claim (`x * 8 == x << 4`) is Rejected with a counterexample; a
+  non-power-of-two constant and an unauthorized region are not Proven.
+- **Enabling the definition exposed two latent recipe bugs** (the
+  quarantine had hidden them): the recipe assumed the constant is the
+  RHS, so `32 * x` would have emitted `32 << tzcnt(x)`; and it only
+  parsed unsigned constants, refusing `i32 2`. Both fixed with
+  regression tests (`tests/arithmetic_quarantine_lift.rs`: both operand
+  orders, signed and unsigned, non-power-of-two abstains, DivideShift
+  still quarantined).
+- **Expectations updated**: AR003 is `Optimizes`; the semantic-zoo
+  multiply-by-power-of-two rows expect 1 rewrite; `validate_ba003`
+  asserts the shift-left.
+
+Remaining quarantined: 15 definitions. ModuloAnd and DivideShift need
+`urem`/`udiv` in the solver lowering; ShiftMask and the zero-scan /
+bit-permutation / mask-algebra families need their operations lowered
+into `sir_mech` terms. C3 remains an Any-only freeze.
+
 ## PS002 end-to-end audit (advisor directive, this commit)
 
 The advisor flagged that PS002 (`last_set_bit`) was "legitimate" only by
