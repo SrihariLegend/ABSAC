@@ -208,6 +208,23 @@ Gate 6B:     RESERVED — corpus not yet created; blindness protocol
 6. **Atomic load handling** (X05): probe and decide (refuse loudly
    is acceptable; silent misinterpretation is not).
 
+## Post-remediation re-measurement (2026-09-17)
+
+The frozen one-shot results above are preserved. Re-running the frozen
+corpus with the current code (after the two-loop lowerer landed):
+
+- **W08** — previously `NO / soundness gate (two loops, known)`:
+  now `lowered=true verify=true truths=9` with `CardinalityReduction`,
+  `SumReduction` and `PredicateMap` region truths → harness RESULT
+  **recognized (PASS)**. `cands=0 rewrites=0`: the remaining work is
+  whole-function candidate generation for multi-loop regions, not
+  lowering.
+- The same remediation lifts the v3 and v5 regression sets to 11/12
+  recognized positives (v3 was 10/12, v5 was 10/12) with 0 false
+  positives, 0 unsafe candidates and 0 unsafe rewrites; Gate 6B stays
+  10/10. The two-loop lowering gap is closed; the map-then-sum
+  candidate and the early-exit gep remain open.
+
 ## Files
 
 - `gate6a/v2_corpus.c` / `.ll` — H2 corpus (promotes to regression set D3)

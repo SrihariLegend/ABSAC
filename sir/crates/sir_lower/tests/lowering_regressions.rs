@@ -105,10 +105,13 @@ exit:
 }
 "#;
 
-/// w08_two_reductions / v07_count_then_sum shape: TWO single-block loops
-/// sharing an exit CFG. The lowerer can only emit one loop; this must be an
-/// explicit unsupported refusal, never a half-lowered function without a
-/// Return (previously caught only downstream as MissingReturn).
+/// A shared-exit shape the sequential composer must NOT accept: the
+/// second loop's latch (`outer`) branches back into a block that is also
+/// the first loop's exit, so the per-loop exit walk cannot stop at a
+/// simple conditional guard. This must stay an explicit unsupported
+/// refusal, never a half-lowered function without a Return (previously
+/// caught only downstream as MissingReturn). The w08/p12 sequential
+/// shapes DO lower — see `sequential_two_loops_lower_as_one_function`.
 const TWO_LOOPS_SHARED_EXIT: &str = r#"
 define i64 @two_loops(ptr %b, i64 %n, i8 %x) {
 entry:
@@ -349,6 +352,28 @@ fn sequential_loops_outline_and_lower_per_region() {
             "independent loops over the same buffer must not report dependencies"
         );
     }
+}
+
+/// w08 recall (2026-09-17): the SAME sequential-loop kernel now lowers
+/// WHOLE. The first loop's exit walk stops at the second loop's
+/// conditional guard (emitting the shared exit phis), and the last
+/// loop's exit walk emits the shared exit block and the single return.
+/// `lower_function` runs the SIR verifier, so a MissingReturn or a
+/// malformed composition cannot pass this test.
+#[test]
+fn sequential_two_loops_lower_as_one_function() {
+    let f = lower_function(TWO_LOOP_COUNT_SUM, "two")
+        .expect("sequential two-loop function must lower");
+    let loop_count = f
+        .arena
+        .iter()
+        .filter(|n| matches!(n.kind, sir_nodes::NodeKind::Loop { .. }))
+        .count();
+    assert_eq!(loop_count, 2, "both self-latching loops must be present");
+    assert!(
+        f.return_node.is_some(),
+        "the shared exit/return must be emitted exactly once"
+    );
 }
 
 // ── F6–F8 emitter-closure regressions (native loop emission) ─────────

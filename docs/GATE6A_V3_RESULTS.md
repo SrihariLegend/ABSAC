@@ -136,3 +136,21 @@ and no new false-positive class appeared on the v5 frontier.
 - Recall gaps unchanged and still queued: map-then-sum, two-loop
   lowering; the v3/v4/v5 corpora are regression sets for the next
   generation.
+
+## Post-remediation re-measurement (2026-09-17)
+
+The frozen v5 one-shot result (10/12 recognized, 2 pre-registered
+known gaps) is preserved. With the current code:
+
+- **v5: 11/12 positives recognized, 0 false positives, 0 unsafe
+  candidates, 0 unsafe rewrites — VERDICT PASS.** `p12_two_loops`
+  (known frontend gap) now lowers, verifies and recognizes
+  (`SumReduction` + `ConjunctiveReduction` + `PredicateMap` truths).
+  The remaining known gap is `p11_map_then_sum`, which now derives
+  `MappedSumReduction` (the D5-safe concept) but has no
+  candidate/recipe yet and is scored against the frozen
+  `SumReduction` expectation.
+- **v3: 11/12 recognized** (was 10/12), 0 false-positive
+  recognitions, 0 unsafe candidates/rewrites — PASS.
+- Both re-measurements are remediation runs on frozen regression
+  sets, not new generations.

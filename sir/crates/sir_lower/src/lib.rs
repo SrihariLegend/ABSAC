@@ -1357,6 +1357,27 @@ pub fn lower(text: &str) -> Result<Function, String> {
     //     its header phis were never mapped and lowering died mid-
     //     instruction on "cannot resolve gep index '%N'".
     if self_loop_blocks.len() > 1 {
+        // SEQUENTIAL MULTI-LOOP COMPOSITION (w08 recall). Lower each
+        // self-latching loop in block order:
+        //   - the first loop's exit walk stops at the next loop's
+        //     conditional guard, having emitted the shared exit phis
+        //     (they feed the second loop's pre-header as straight-line
+        //     values);
+        //   - the last loop's exit walk emits the shared exit block and
+        //     the single return.
+        // Any failure (nested loops, unresolved cross-loop values, a
+        // second return) falls back to the historical explicit refusal
+        // — never a partially lowered function.
+        let mut sequential_ok = true;
+        for &lbi in &self_loop_blocks {
+            if lower_loop_function(&ir, lbi, &mut builder, &mut value_map).is_err() {
+                sequential_ok = false;
+                break;
+            }
+        }
+        if sequential_ok && builder.function().return_node.is_some() {
+            return Ok(builder.build());
+        }
         return Err(format!(
             "unsupported: multiple loops sharing an exit CFG (nested/sequential loops) not modeled: {}",
             ir.name

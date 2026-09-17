@@ -434,9 +434,12 @@ Remediation D3 (P0A, commit c3ebb54):
   Still open in D3 (status in docs/RECALL_RESULTS.md): map-then-sum
        recall is closed at recognition (both `x ^ const` and clang's
        reassociated `+1` forms derive MappedSumReduction; a candidate
-       preserving the map is the follow-on). Remaining: two-loop lowering
-       (w08, third corpus hitting the
-       gap), early-exit gep (x08). The w07 "u8/I64 accumulator mismatch"
+       preserving the map is the follow-on). Two-loop LOWERING is
+       CLOSED (2026-09-17): sequential self-latching loops now compose
+       whole-function; w08 lowers+verifies (9 truths), v3 and v5
+       re-measure at 11/12 recognized, 0 unsafe, 6B 10/10. Follow-on:
+       whole-function candidate generation for multi-loop regions
+       (cands=0 today). Remaining: early-exit gep (x08). The w07 "u8/I64 accumulator mismatch"
        is refined to a dynamic-extent limitation: recognition and
        authorization now succeed, but the runtime-length pointer
        collection has no sound fixed-width encoding (no fabricated
