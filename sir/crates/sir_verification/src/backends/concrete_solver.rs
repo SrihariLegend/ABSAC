@@ -148,6 +148,12 @@ fn lower(
         SemanticExpression::Multiply(lhs, rhs) => bin(bv, widths, vars, lhs, rhs, expected, |bv, a, b| {
             bv.mul(a, b)
         }),
+        SemanticExpression::Divide(lhs, rhs) => bin(bv, widths, vars, lhs, rhs, expected, |bv, a, b| {
+            bv.udiv(a, b)
+        }),
+        SemanticExpression::Modulo(lhs, rhs) => bin(bv, widths, vars, lhs, rhs, expected, |bv, a, b| {
+            bv.urem(a, b)
+        }),
         SemanticExpression::BitwiseAnd(lhs, rhs) => {
             bin(bv, widths, vars, lhs, rhs, expected, |bv, a, b| bv.and(a, b))
         }
@@ -225,8 +231,8 @@ fn lower(
             let hi = bv.shl(x, w_minus_k);
             Ok(bv.or(lo, hi))
         }
-        // Collections, division, remainder, popcounts, bit scans and
-        // byte/bit reversals are not modeled by this lowering yet.
+        // Collections, popcounts, bit scans and byte/bit reversals are
+        // not modeled by this lowering yet.
         _ => Err(()),
     }
 }

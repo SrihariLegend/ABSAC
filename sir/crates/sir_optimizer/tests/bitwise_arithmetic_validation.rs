@@ -59,14 +59,10 @@ fn create_ba004_shift_mask() -> sir_nodes::Function {
     b.build()
 }
 
-// ADVISOR P0 VERIFIER QUARANTINE: all four bitwise-arithmetic
-// definitions (ModuloAnd, DivideShift, MultiplyShift, ShiftMask) have
-// Stub obligations — hardcoded theorems that never bind the actual
-// source/candidate operands. None may authorize a rewrite until the
-// obligation is built from the actual nodes and discharged concretely.
-// These tests now assert the quarantine; the identities themselves
-// remain true (for unsigned operands) and are re-enabled by upgrading
-// the definitions to ConcreteSolverChecked.
+// ADVISOR P0 VERIFIER QUARANTINE: ModuloAnd, DivideShift and ShiftMask
+// remain Stub-quarantined (ModuloAnd/DivideShift additionally await a
+// width-efficient division encoding in the solver; ShiftMask's recipe
+// is itself a stub). MultiplyShift is ConcreteSolverChecked.
 
 #[test]
 fn validate_ba001_modulo() {

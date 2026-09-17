@@ -177,8 +177,9 @@ fn build_arithmetic(name: &str, op: &str, divisor: u64, signed: bool) -> ZooProg
     // the actual constant/width and the bit-blasting solver proves
     // `x * C == x << log2(C)` for signed and unsigned bit patterns, so
     // multiply by a power of two rewrites. ModuloAnd, DivideShift and
-    // ShiftMask remain Stub-quarantined (and the full-width shift mask
-    // is undefined), so those expect 0.
+    // ShiftMask remain Stub-quarantined (32-bit divide/remainder SAT
+    // proofs are not yet tractable; the full-width shift mask is
+    // undefined), so those expect 0.
     let expected = if op == "multiply" && divisor.is_power_of_two() {
         1
     } else {

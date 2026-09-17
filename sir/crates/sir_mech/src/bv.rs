@@ -34,6 +34,8 @@ pub enum BinOp {
     Shl,
     Lshr,
     Ashr,
+    Udiv,
+    Urem,
     Ult,
     Ule,
     Eq,
@@ -51,6 +53,8 @@ impl BinOp {
             BinOp::Shl => "<<",
             BinOp::Lshr => ">>u",
             BinOp::Ashr => ">>s",
+            BinOp::Udiv => "/u",
+            BinOp::Urem => "%u",
             BinOp::Ult => "<u",
             BinOp::Ule => "<=u",
             BinOp::Eq => "==",
@@ -198,6 +202,16 @@ impl Bv {
     }
     pub fn ashr(&mut self, a: Term, b: Term) -> Term {
         self.bin(BinOp::Ashr, a, b)
+    }
+
+    /// Unsigned division (SMT-LIB semantics: by zero is all-ones).
+    pub fn udiv(&mut self, a: Term, b: Term) -> Term {
+        self.bin(BinOp::Udiv, a, b)
+    }
+
+    /// Unsigned remainder (SMT-LIB semantics: by zero is the dividend).
+    pub fn urem(&mut self, a: Term, b: Term) -> Term {
+        self.bin(BinOp::Urem, a, b)
     }
     pub fn ult(&mut self, a: Term, b: Term) -> Term {
         self.bin(BinOp::Ult, a, b)
@@ -354,6 +368,26 @@ impl Bv {
                         };
                         (signed >> sh) as u64
                     }
+                    // SMT-LIB bitvector semantics: division by zero is
+                    // all-ones, remainder by zero is the dividend.
+                    BinOp::Udiv => {
+                        let w = self.width(a);
+                        let d = bv & mask(w);
+                        if d == 0 {
+                            mask(w)
+                        } else {
+                            (av & mask(w)) / d
+                        }
+                    }
+                    BinOp::Urem => {
+                        let w = self.width(a);
+                        let d = bv & mask(w);
+                        if d == 0 {
+                            av & mask(w)
+                        } else {
+                            (av & mask(w)) % d
+                        }
+                    }
                     BinOp::Ult => u64::from(av < bv),
                     BinOp::Ule => u64::from(av <= bv),
                     BinOp::Eq => u64::from(av == bv),
@@ -454,6 +488,23 @@ mod tests {
         let x = bv.var(VarId(0), 32);
         let pc = bv.popcount(x);
         assert_eq!(bv.eval(pc, &model(&[(VarId(0), 0xF0F0_00FF)])), 16);
+    }
+
+    #[test]
+    fn eval_udiv_urem_exhaustively_4bit() {
+        let mut bv = Bv::new();
+        let x = bv.var(VarId(0), 4);
+        let y = bv.var(VarId(1), 4);
+        let q = bv.udiv(x, y);
+        let r = bv.urem(x, y);
+        for a in 0u64..16 {
+            for b in 0u64..16 {
+                let m = model(&[(VarId(0), a), (VarId(1), b)]);
+                let (want_q, want_r) = if b == 0 { (15, a) } else { (a / b, a % b) };
+                assert_eq!(bv.eval(q, &m), want_q, "udiv {a}/{b}");
+                assert_eq!(bv.eval(r, &m), want_r, "urem {a}%{b}");
+            }
+        }
     }
 
     #[test]

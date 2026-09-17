@@ -49,7 +49,7 @@ fn multiply_function(width: u32, constant: u64) -> (sir_nodes::Function, sir_typ
     (b.build(), mul)
 }
 
-fn candidate(region_nodes: Vec<sir_types::NodeId>) -> Candidate {
+fn candidate(region_nodes: Vec<sir_types::NodeId>, definition: u64) -> Candidate {
     let mut constraints = HashSet::new();
     constraints.insert(Constraint::FixedLength(64));
     constraints.insert(Constraint::ReadOnly);
@@ -60,7 +60,7 @@ fn candidate(region_nodes: Vec<sir_types::NodeId>) -> Candidate {
         id: CandidateId::new(0),
         region: RegionId::new(0),
         context_id: ContextId::new(0),
-        definition_id: DefinitionId::new(102),
+        definition_id: DefinitionId::new(definition),
         strategy: ImplementationStrategy::ShiftLeft,
         explanation: CandidateExplanation {
             source_concepts: vec![],
@@ -104,7 +104,7 @@ fn bound_multiply_shift_is_concrete_solver_checked() {
         def.verification_status(),
         VerificationStatus::ConcreteSolverChecked
     );
-    let obligation = def.obligation_bound(&candidate(vec![mul]), &func);
+    let obligation = def.obligation_bound(&candidate(vec![mul], 102), &func);
     assert!(
         obligation.domain.is_some(),
         "the bound obligation must carry the operand's finite domain"
@@ -124,7 +124,7 @@ fn bound_multiply_shift_is_concrete_solver_checked() {
 fn mutated_shift_claim_is_rejected_with_a_counterexample() {
     let (func, mul) = multiply_function(32, 8);
     let def = MultiplyShiftDefinition::new(DefinitionId::new(102));
-    let mut obligation = def.obligation_bound(&candidate(vec![mul]), &func);
+    let mut obligation = def.obligation_bound(&candidate(vec![mul], 102), &func);
 
     // MUTATION: claim x * 8 == x << 4 (should be << 3).
     // The binding abstracts the non-constant operand with its node id.
@@ -166,7 +166,7 @@ fn mutated_shift_claim_is_rejected_with_a_counterexample() {
 fn non_power_of_two_constant_cannot_be_proven() {
     let (func, mul) = multiply_function(32, 12);
     let def = MultiplyShiftDefinition::new(DefinitionId::new(102));
-    let obligation = def.obligation_bound(&candidate(vec![mul]), &func);
+    let obligation = def.obligation_bound(&candidate(vec![mul], 102), &func);
     assert!(
         obligation.domain.is_none(),
         "an unbindable pair must not carry a domain"
@@ -184,8 +184,133 @@ fn unauthorized_region_cannot_be_bound() {
     let def = MultiplyShiftDefinition::new(DefinitionId::new(102));
     // Empty authorized region: the multiply exists in the function but
     // was not authorized, so no theorem may be bound to it.
-    let obligation = def.obligation_bound(&candidate(vec![]), &func);
+    let obligation = def.obligation_bound(&candidate(vec![], 102), &func);
     assert!(obligation.domain.is_none());
     let result = Verifier::new().verify(&obligation, &context());
     assert!(!matches!(result, VerificationResult::Proven(_)));
+}
+
+/// `x % C` / `x / C` in an unsigned W-bit function.
+///
+/// These helpers exist for the eventual ModuloAnd/DivideShift lift. That
+/// lift is blocked on proof cost, not on binding: the `urem`/`udiv`
+/// bit-blasting is implemented and tested in `sir_mech`, but a 32-bit
+/// equivalence proof takes tens of seconds with the current CDCL
+/// encoding, so the definitions stay Stub and the tests below pin the
+/// fail-closed behaviour.
+fn pow2_op_function(
+    width: u32,
+    constant: u64,
+    signed: bool,
+    divide: bool,
+) -> (sir_nodes::Function, sir_types::NodeId) {
+    let ty = match (width, signed) {
+        (8, false) => Type::u8(),
+        (16, false) => Type::u16(),
+        (32, false) => Type::u32(),
+        (8, true) => Type::i8(),
+        (16, true) => Type::i16(),
+        (32, true) => Type::i32(),
+        _ => Type::i64(),
+    };
+    let mut b = Builder::new("pow2", &[("x", ty.clone())], ty.clone());
+    let x = b.parameter_index(0).unwrap();
+    let c = b.constant(
+        if signed {
+            ConstantData::i64(constant as i64)
+        } else {
+            ConstantData::u64(constant)
+        },
+        ty.clone(),
+        span(),
+    );
+    let node = if divide {
+        b.div(x, c, span()).unwrap()
+    } else {
+        b.rem(x, c, span()).unwrap()
+    };
+    b.return_value(node, span()).unwrap();
+    (b.build(), node)
+}
+
+#[test]
+fn quarantined_modulo_and_cannot_be_proven() {
+    use sir_verification::definitions::modulo_and::ModuloAndDefinition;
+    let (func, rem) = pow2_op_function(32, 16, false, false);
+    let def = ModuloAndDefinition::new(DefinitionId::new(100));
+    let obligation = def.obligation_bound(&candidate(vec![rem], 100), &func);
+    assert!(
+        obligation.domain.is_none(),
+        "the Stub definition carries no bound domain"
+    );
+    assert!(!matches!(
+        Verifier::new().verify(&obligation, &context()),
+        VerificationResult::Proven(_)
+    ));
+}
+
+#[test]
+fn quarantined_divide_shift_cannot_be_proven() {
+    use sir_verification::definitions::divide_shift::DivideShiftDefinition;
+    let (func, div) = pow2_op_function(32, 8, false, true);
+    let def = DivideShiftDefinition::new(DefinitionId::new(101));
+    let obligation = def.obligation_bound(&candidate(vec![div], 101), &func);
+    assert!(obligation.domain.is_none());
+    assert!(!matches!(
+        Verifier::new().verify(&obligation, &context()),
+        VerificationResult::Proven(_)
+    ));
+}
+
+#[test]
+fn signed_modulo_and_divide_cannot_be_bound() {
+    use sir_verification::definitions::divide_shift::DivideShiftDefinition;
+    use sir_verification::definitions::modulo_and::ModuloAndDefinition;
+    // Signed remainder/division semantics are not the unsigned bitvector
+    // identities: the binding must refuse (no domain), so no proof and
+    // no rewrite can follow.
+    let (func, rem) = pow2_op_function(32, 16, true, false);
+    let def = ModuloAndDefinition::new(DefinitionId::new(100));
+    let obligation = def.obligation_bound(&candidate(vec![rem], 100), &func);
+    assert!(obligation.domain.is_none());
+    assert!(!matches!(
+        Verifier::new().verify(&obligation, &context()),
+        VerificationResult::Proven(_)
+    ));
+
+    let (func, div) = pow2_op_function(32, 8, true, true);
+    let def = DivideShiftDefinition::new(DefinitionId::new(101));
+    let obligation = def.obligation_bound(&candidate(vec![div], 101), &func);
+    assert!(obligation.domain.is_none());
+    assert!(!matches!(
+        Verifier::new().verify(&obligation, &context()),
+        VerificationResult::Proven(_)
+    ));
+}
+
+#[test]
+fn quarantined_modulo_mask_mutation_is_not_proven() {
+    use sir_verification::definitions::modulo_and::ModuloAndDefinition;
+    let (func, rem) = pow2_op_function(32, 16, false, false);
+    let def = ModuloAndDefinition::new(DefinitionId::new(100));
+    let mut obligation = def.obligation_bound(&candidate(vec![rem], 100), &func);
+    let v = VariableId::new(rem.as_u64());
+    // MUTATION: claim x % 16 == x & 14 (should be x & 15).
+    obligation.theorem = Theorem::new(
+        SemanticExpression::Modulo(
+            Box::new(SemanticExpression::Variable(v)),
+            Box::new(SemanticExpression::Constant(ConstantData::u64(16))),
+        ),
+        SemanticExpression::BitwiseAnd(
+            Box::new(SemanticExpression::Variable(v)),
+            Box::new(SemanticExpression::Constant(ConstantData::u64(14))),
+        ),
+    );
+    // The Stub quarantine fires before any backend: the mutated claim is
+    // Unknown(InsufficientAssurance), never Proven.
+    let result = Verifier::new().verify(&obligation, &context());
+    assert!(
+        !matches!(result, VerificationResult::Proven(_)),
+        "a quarantined mutated claim must not be Proven, got {result:?}"
+    );
 }

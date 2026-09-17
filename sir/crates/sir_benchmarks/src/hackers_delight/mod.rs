@@ -20,7 +20,9 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 // divisor or operand — a theorem-shaped stub, not a
                 // proof. The identity itself is true for unsigned x;
                 // re-enabling requires a ConcreteSolverChecked
-                // obligation built from the actual nodes.
+                // obligation built from the actual nodes, which in turn
+                // waits on a width-efficient division encoding (32-bit
+                // urem SAT proofs are minutes-scale today).
                 expected: ExpectedKnowledge::NonOptimizable {
                     reason: "ModuloAnd definition is Stub-quarantined: obligation does not bind actual source/candidate operands",
                 },

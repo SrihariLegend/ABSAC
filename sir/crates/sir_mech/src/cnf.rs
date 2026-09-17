@@ -203,6 +203,13 @@ impl<'a> Encoder<'a> {
                     BinOp::Shl => self.shift_bits(&ab, &bb, ShiftKind::Left),
                     BinOp::Lshr => self.shift_bits(&ab, &bb, ShiftKind::LogicalRight),
                     BinOp::Ashr => self.shift_bits(&ab, &bb, ShiftKind::ArithmeticRight),
+                    // Unsigned division/remainder: restoring division.
+                    // Division by zero yields all-ones and remainder by
+                    // zero the dividend (SMT-LIB bitvector semantics),
+                    // which is exactly what the circuit computes when
+                    // the divisor bits are all zero.
+                    BinOp::Udiv => udivrem_bits(&mut self.cnf, &ab, &bb).0,
+                    BinOp::Urem => udivrem_bits(&mut self.cnf, &ab, &bb).1,
                     BinOp::Ult => vec![ult_bits(&mut self.cnf, &ab, &bb)],
                     BinOp::Ule => {
                         let lt = ult_bits(&mut self.cnf, &ab, &bb);
@@ -391,6 +398,39 @@ fn add_bits(cnf: &mut Cnf, a: &[i32], b: &[i32], cin: i32) -> (Vec<i32>, i32) {
 }
 
 /// Shift-and-add multiplication.
+/// `a - b` at bit level (LSB-first slices of equal width).
+fn sub_bits(cnf: &mut Cnf, a: &[i32], b: &[i32]) -> Vec<i32> {
+    let not_b: Vec<i32> = b.iter().map(|&l| -l).collect();
+    let one = cnf.t();
+    add_bits(cnf, a, &not_b, one).0
+}
+
+/// Restoring unsigned division: returns `(quotient, remainder)` for
+/// LSB-first bit slices of equal width. Division by zero yields
+/// all-ones / the dividend, matching SMT-LIB bitvector semantics.
+fn udivrem_bits(cnf: &mut Cnf, a: &[i32], b: &[i32]) -> (Vec<i32>, Vec<i32>) {
+    let width = a.len();
+    debug_assert_eq!(b.len(), width);
+    let mut rem = vec![cnf.f(); width];
+    let mut quot = vec![cnf.f(); width];
+    for i in (0..width).rev() {
+        // rem = (rem << 1) | a[i]
+        for j in (1..width).rev() {
+            rem[j] = rem[j - 1];
+        }
+        rem[0] = a[i];
+        // ge = rem >= b; the subtraction only lands when it is true.
+        let lt = ult_bits(cnf, &rem, b);
+        let ge = -lt;
+        let diff = sub_bits(cnf, &rem, b);
+        for j in 0..width {
+            rem[j] = cnf.mux(ge, diff[j], rem[j]);
+        }
+        quot[i] = ge;
+    }
+    (quot, rem)
+}
+
 fn mul_bits(cnf: &mut Cnf, a: &[i32], b: &[i32]) -> Vec<i32> {
     let width = a.len();
     let mut acc = vec![cnf.f(); width];

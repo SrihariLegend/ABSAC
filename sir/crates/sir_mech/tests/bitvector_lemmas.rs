@@ -15,6 +15,58 @@ fn assert_valid(r: CheckResult, what: &str) {
     }
 }
 
+#[test]
+fn division_and_remainder_by_power_of_two_match_shift_and_mask() {
+    // Widths are capped at 16 here deliberately: the 32-bit instances
+    // take tens of seconds with the current CDCL encoding, which is the
+    // recorded blocker for lifting ModuloAnd/DivideShift in the
+    // verifier (docs/VERIFIER_AUDIT.md). The identities themselves are
+    // width-uniform; the solver cost is not.
+    for width in [4u32, 8, 16] {
+        let mut bv = Bv::new();
+        let x = bv.var(VarId(0), width);
+        let four = bv.constant(4, width);
+        let two = bv.constant(2, width);
+        let three = bv.constant(3, width);
+        let q = bv.udiv(x, four);
+        let r = bv.urem(x, four);
+        let shifted = bv.lshr(x, two);
+        let masked = bv.and(x, three);
+        assert_valid(prove_equal(&bv, q, shifted), &format!("x/4 == x>>2 at {width}"));
+        assert_valid(prove_equal(&bv, r, masked), &format!("x%4 == x&3 at {width}"));
+    }
+}
+
+#[test]
+fn division_remainder_decomposition_holds() {
+    let mut bv = Bv::new();
+    let x = bv.var(VarId(0), 16);
+    let four = bv.constant(4, 16);
+    let q = bv.udiv(x, four);
+    let r = bv.urem(x, four);
+    let back = bv.mul(q, four);
+    let total = bv.add(back, r);
+    assert_valid(prove_equal(&bv, total, x), "(x/4)*4 + x%4 == x");
+}
+
+#[test]
+fn false_remainder_claim_is_refuted() {
+    let mut bv = Bv::new();
+    let x = bv.var(VarId(0), 8);
+    let three = bv.constant(3, 8);
+    let two = bv.constant(2, 8);
+    let r = bv.urem(x, three);
+    let masked = bv.and(x, two);
+    match prove_equal(&bv, r, masked) {
+        CheckResult::Counterexample(model) => {
+            // The refutation is re-evaluated by the solver; sanity-check
+            // that the model really falsifies the claim.
+            assert_ne!(bv.eval(r, &model), bv.eval(masked, &model));
+        }
+        other => panic!("x%3 == x&2 must be refuted, got {other:?}"),
+    }
+}
+
 /// `pcmpeqb` on one byte: the result byte is 0xFF when equal, 0x00
 /// otherwise. `pmovmskb` extracts its MSB. The per-byte lemma says that
 /// extracted bit is exactly `(x == y)`.

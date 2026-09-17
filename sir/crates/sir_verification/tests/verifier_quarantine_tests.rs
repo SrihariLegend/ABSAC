@@ -73,11 +73,11 @@ fn tautology_obligation(definition: DefinitionId) -> ProofObligation {
 
 #[test]
 fn stub_definition_cannot_prove_a_tautology() {
-    // DefinitionId(101) = DivideShift — a registered Stub whose real
-    // obligation is `Constant(0) == Constant(0)`. We submit an even
-    // stronger obligation: a syntactic tautology. If the verifier
-    // returned Proven for this, the stub quarantine would be broken.
-    let obligation = tautology_obligation(DefinitionId::new(101));
+    // DefinitionId(103) = ShiftMask — a registered Stub (its recipe is
+    // itself still a stub). We submit an even stronger obligation: a
+    // syntactic tautology. If the verifier returned Proven for this,
+    // the stub quarantine would be broken.
+    let obligation = tautology_obligation(DefinitionId::new(103));
     let context = make_context();
     let verifier = Verifier::new();
 
@@ -105,9 +105,9 @@ fn stub_definition_cannot_prove_even_at_minimum_level_stub() {
     // The registry is not directly inspectable from an integration test;
     // quarantine behavior is exercised through verify() in the tautology
     // test below. This test documents the policy floor: the default
-    // minimum is SchemaChecked, so a Stub definition (DivideShift, id
-    // 101) attempting a tautology obligation cannot return Proven.
-    let obligation = tautology_obligation(DefinitionId::new(101));
+    // minimum is SchemaChecked, so a Stub definition (ShiftMask, id
+    // 103) attempting a tautology obligation cannot return Proven.
+    let obligation = tautology_obligation(DefinitionId::new(103));
     let context = make_context();
     let verifier = Verifier::new();
 
@@ -306,11 +306,11 @@ fn mutated_all_theorem_with_wrong_length_is_not_proven() {
 
 #[test]
 fn quarantine_blocks_stub_even_when_obligation_would_trivially_normalize() {
-    // The strongest form of the quarantine test: hand-craft a ModuloAnd
+    // The strongest form of the quarantine test: hand-craft a ShiftMask
     // obligation whose theorem is Equal(x, x) — a syntactic tautology
     // the symbolic backend would prove instantly. The verifier must
     // quarantine it BEFORE any backend runs.
-    let obligation = tautology_obligation(DefinitionId::new(100)); // ModuloAnd = Stub
+    let obligation = tautology_obligation(DefinitionId::new(103)); // ShiftMask = Stub
     let context = make_context();
     let verifier = Verifier::new();
 
@@ -322,7 +322,7 @@ fn quarantine_blocks_stub_even_when_obligation_would_trivially_normalize() {
             ..
         }) => {
             assert_eq!(status, sir_verification::registry::VerificationStatus::Stub);
-            assert_eq!(definition, "Modulo Power of Two to Bitwise AND");
+            assert_eq!(definition, "Shift Sequence to Mask Extract");
         }
         VerificationResult::Proven(_) => {
             panic!("SOUNDNESS: a Stub definition returned Proven for a tautology — quarantine bypassed");
@@ -340,7 +340,7 @@ fn exhaustive_backend_cannot_prove_for_stub_definition() {
         id: ObligationId::new(0),
         region: RegionId::new(0),
         candidate: CandidateId::new(0),
-        definition: DefinitionId::new(101), // DivideShift = Stub
+        definition: DefinitionId::new(103), // ShiftMask = Stub
         theorem: Theorem::new(
             SemanticExpression::Constant(ConstantData::u64(0)),
             SemanticExpression::Constant(ConstantData::u64(0)),
