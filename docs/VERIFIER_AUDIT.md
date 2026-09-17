@@ -165,24 +165,17 @@ The first lift implements the path above end to end:
   multiply-by-power-of-two rows expect 1 rewrite; `validate_ba003`
   asserts the shift-left.
 
-Remaining quarantined: 4 definitions (MultiplyShift, the four
-mask-algebra definitions, ByteSwap, BitReverse, ShiftMask, the two
-rotate definitions and the two zero-count definitions are lifted; see
-below). Their blockers are now recorded
+Remaining quarantined: 2 definitions (the BitScanForward/BitScanReverse
+pair). Everything else is lifted: MultiplyShift, the four mask-algebra
+definitions, ByteSwap, BitReverse, ShiftMask, the two rotate
+definitions, the two zero-count definitions, ModuloAnd and DivideShift.
 precisely:
 
-- **ModuloAnd / DivideShift**: the `urem`/`udiv` bit-blasting is now
-  implemented and tested in `sir_mech` (restoring division; SMT-LIB
-  zero-divisor semantics; EVAL cross-checked exhaustively at 4 bits,
-  SAT-proved identities at 4/8/16 bits), and the verifier lowering can
-  emit them. The lift is blocked on **proof cost**: a single 32-bit
-  `x % C == x & (C-1)` equivalence takes ~20 s with the current CDCL
-  encoding, so an optimizer run over a handful of division candidates
-  takes minutes. Until there is a width-efficient division encoding
-  (constant-divisor circuit or an inductive width lemma), the
-  definitions stay Stub and unsignedness gating / recipe validation is
-  only preparatory. The binding/recipe code and its mutation tests are
-  written and pinned as fail-closed (concrete_solver_upgrade.rs).
+- **ModuloAnd / DivideShift → LIFTED 2026-09-17** (lift 8 below). The
+  `urem`/`udiv` bit-blasting is in `sir_mech` (restoring division,
+  SMT-LIB zero-divisor semantics, exhaustive 4-bit eval cross-check,
+  SAT-proved identities at 4/8/16/32 bits), and the proof-cost blocker
+  was removed by CNF constant folding.
 - **ShiftMask → LIFTED 2026-09-17** (see below).
 - **Mask-algebra (clear/isolate/set lowest bit) → LIFTED 2026-09-17**
   (see the next section).
@@ -204,12 +197,16 @@ The four scan definitions have distinct, now-measured blockers:
 - **BitScanForward / BitScanReverse (200/201)**: their theorems are real
   (`FirstTrue(seq) == ctz(Pack(seq))`, `LastTrue(seq) ==
   clz(Pack(seq))`), but the optimizer generates **zero candidates** for
-  these loops (semantic-zoo ps001, evidence in its iteration record):
-  PositionSearch authorization is deliberately absent from the scalar
-  lists — it needs its own certificate (X06). The solver now supports
+  these loops. The ps001 probe shows why: its region is recognized as a
+  `BooleanCollectionReduction` (Any) whose live-out is the POSITION, not
+  a PositionSearch region — `derive_authorizations` issues **no entry**
+  for it (PositionSearch is deliberately absent from the scalar concept
+  lists and needs its own X06 certificate), so certificate-gated
+  generation produces nothing. The solver now supports
   `LogicalSequence`/`Pack`/`FirstTrue`/`LastTrue` and ctz/clz lowering
-  (added for the zero-count lift), so only the authorization/binding
-  side remains.
+  (added for the zero-count lift), so only the authorization/binding side
+  remains; a regression test pins the zero-candidate state
+  (`ps001_bitscan_stays_blocked_on_position_authorization`).
 - **TrailingZeroCount / LeadingZeroCount (202/203) → LIFTED 2026-09-17**
   (lift 7 below).
 - **Emitter prerequisite (done)**: `TrailingZeros`/`LeadingZeros` now
@@ -251,6 +248,31 @@ The four scan definitions have distinct, now-measured blockers:
   serialized by a mutex — parallel tests racing on `dup2(1)` could leave
   fd 1 on `/dev/null` and swallow later test output (the workspace run
   appeared to lose nine passing tests).
+
+## Quarantine lift 8 — division identities + CNF constant folding (2026-09-17)
+
+- **CNF constant folding**: `Cnf::{and2, or2, xor2, xnor2, mux}` now
+  simplify when an input is the constant-true/false literal (and on
+  equal/opposite pairs). This preserves semantics exactly and collapses
+  the gate chains for constant operands — the divisor in these
+  obligations is always a literal. Measured effect on the solver's
+  identity suite: the 4/8/16/32-bit `x/C == x>>log2 C` and
+  `x%C == x&(C-1)` proofs went from ~44 s (32-bit alone ~20 s per
+  identity) to **0.75 s for the whole suite** including width 32.
+- **ModuloAnd (100) / DivideShift (101) are ConcreteSolverChecked**:
+  the obligations bind the actual `Rem`/`Div` role (divisor constant,
+  operand, width; role/node agreement checked) and prove
+  `x % C == x & (C-1)` / `x / C == x >> log2(C)` for UNSIGNED operands.
+  Signed operands and non-power-of-two divisors carry no domain and are
+  never Proven. Recipes validate the same conditions (the old recipes
+  assumed these without checking) and emit the real mask/shift.
+- **Evidence**: verifier tests for both proofs plus signed/non-power-of-
+  two refusals; semantic-zoo `arith_mod_unsigned_*` /
+  `arith_div_unsigned_*` and AR001/AR002 flip to rewriting; ba001/ba002
+  assert the AND/shift; a native test runs `x % 16` and `x / 8`
+  (0xFFFFFFFF → 15 / 536870911, 0x12345678 → 8 / 38177487).
+- **Count**: 14/16 lifted; only the BitScan pair remains, blocked on
+  PositionSearch (X06) authorization.
 
 ## Quarantine lift 3 — ByteSwap + role-based obligation context (2026-09-17)
 

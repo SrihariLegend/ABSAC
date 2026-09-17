@@ -394,10 +394,9 @@ Remediation D3 (P0A, commit c3ebb54):
        pair, mutation-sensitive) [IN PROGRESS 2026-09-17: the
        ConcreteSolver backend bit-blasts bound obligations; MultiplyShift,
        the four mask-algebra definitions, ByteSwap, BitReverse and
-       ShiftMask, the rotate pair and the two zero-count scans are
-       lifted (12/16); the remaining four are the two division
-       identities (proof cost) and the two bitscan definitions
-       (PositionSearch authorization), each with a recorded blocker;
+       ShiftMask, the rotate pair, the two zero-count scans and the two
+       division identities are lifted (14/16); only the two bitscan
+       definitions remain (PositionSearch/X06 authorization blocker);
        obligations can bind the authorized structural roles
        (`obligation_with_roles` + structural DB in build_obligations);
        instruction-selection emission (Rol/Ror, blsr/blsi/blsmsk,
