@@ -422,9 +422,13 @@ Remediation D3 (P0A, commit c3ebb54):
   Volatile/atomic fail-closed (lowerer): volatile stores and atomic
        loads/stores now refuse loudly with an explicit "unsupported"
        error class (x01, x05) instead of parser accidents.
-  Still open in D3: map-then-sum recall (w03), two-loop lowering (w08,
-       third corpus hitting the gap), u8/I64 accumulator mismatch
-       (w07), early-exit gep (x08). Volatile (x01) and atomic (x05)
+  Still open in D3 (status in docs/RECALL_RESULTS.md): map-then-sum
+       recall (w03), two-loop lowering (w08, third corpus hitting the
+       gap), early-exit gep (x08). The w07 "u8/I64 accumulator mismatch"
+       is refined to a dynamic-extent limitation: recognition and
+       authorization now succeed, but the runtime-length pointer
+       collection has no sound fixed-width encoding (no fabricated
+       extent). Volatile (x01) and atomic (x05)
        are now loud UNSUPPORTED refusals — intentional abstention,
        recorded as unsupported rather than unresolved.
 

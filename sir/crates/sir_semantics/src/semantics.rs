@@ -963,6 +963,49 @@ impl SemanticEngine {
             }
         }
 
+        // Predicate-collection reductions (All/Any/Count/Parity over a
+        // non-boolean array compared against a scalar) carry no
+        // LogicalSequence truth of their own, but they still need a
+        // structural description: without one, `derive_roles` cannot
+        // attach the collection role and inference never forms a
+        // context (the historical w07 "u8/I64 accumulator" recall gap).
+        for (rid, region) in self.db.regions() {
+            let is_predicate_reduction = region.contains(SemanticConcept::CardinalityReduction)
+                || region.contains(SemanticConcept::DisjunctiveReduction)
+                || region.contains(SemanticConcept::ConjunctiveReduction)
+                || region.contains(SemanticConcept::ExclusiveReduction);
+            if !is_predicate_reduction || self.structural_db.region(rid).is_some() {
+                continue;
+            }
+            // Only a DECLARED array extent may become a description: a
+            // runtime-length pointer collection has no fixed-width
+            // encoding, and inventing the historical stub extent would
+            // fabricate a bound the source does not have.
+            let mut inferred_length = None;
+            for &node_id in region.nodes() {
+                let Some(node) = func.get_node(node_id) else {
+                    continue;
+                };
+                if let sir_nodes::NodeKind::ArrayAccess { base, .. } = &node.kind {
+                    if let Some(sir_types::Type::Array { length: array_len, .. }) =
+                        func.get_node(*base).map(|n| &n.ty)
+                    {
+                        inferred_length = Some(*array_len);
+                        break;
+                    }
+                }
+            }
+            let Some(length) = inferred_length else {
+                continue;
+            };
+            let desc = crate::structure::StructuralDescription::new(
+                rid,
+                sir_transform::structures::SourceStructure::DynamicBooleanSequence { length },
+            )
+            .with_constraint(sir_transform::constraints::Constraint::FixedLength(length));
+            self.structural_db.add_description(desc);
+        }
+
         // ── Role derivation ────────────────────────────────────
         // Populate RegionRoles on structural descriptions from
         // recognized semantic concepts. For v0.1, this handles

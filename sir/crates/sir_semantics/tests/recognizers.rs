@@ -8,6 +8,82 @@ use sir_semantics::recognizers::boolean_collection::recognize_boolean_collection
 use sir_semantics::semantics::SemanticEngine;
 use sir_types::{ConstantData, Span, Type};
 
+/// A predicate-collection All reduction over a DECLARED u8 array must
+/// receive a structural description (and the predicate-collection role)
+/// even though it has no LogicalSequence truth of its own — the w07
+/// recall gap. Runtime-length pointer collections must NOT get a
+/// fabricated fixed extent.
+#[test]
+fn predicate_reduction_over_declared_array_gets_a_structure() {
+    let n = 32usize;
+    let elem_ty = Type::u8();
+    let array_ty = Type::Array {
+        element: Box::new(elem_ty.clone()),
+        length: n,
+    };
+    let mut b = Builder::new(
+        "all_ge_declared",
+        &[("vals", array_ty), ("floor_v", elem_ty.clone())],
+        Type::Bool,
+    );
+    let vals = b.parameter_index(0).unwrap();
+    let floor_v = b.parameter_index(1).unwrap();
+    let i_init = b.constant(ConstantData::u64(0), Type::u64(), Span::unknown());
+    let one = b.constant(ConstantData::u64(1), Type::u64(), Span::unknown());
+    let limit = b.constant(ConstantData::u64(n as u64), Type::u64(), Span::unknown());
+    let ok_init = b.constant(ConstantData::Bool(true), Type::Bool, Span::unknown());
+    let elem = b
+        .array_access(vals, i_init, elem_ty, Span::unknown())
+        .unwrap();
+    let ge = b.ge(elem, floor_v, Span::unknown()).unwrap();
+    let next_ok = b.bool_and(ok_init, ge, Span::unknown()).unwrap();
+    let i_next = b.add(i_init, one, Span::unknown()).unwrap();
+    let cond = b.lt(i_init, limit, Span::unknown()).unwrap();
+    let loop_node = b
+        .r#loop(
+            &[elem, ge, next_ok, i_next, cond],
+            cond,
+            &[next_ok, i_next],
+            &[ok_init, i_init],
+            Type::Tuple {
+                elements: vec![Type::Bool, Type::u64()],
+            },
+            Span::unknown(),
+        )
+        .unwrap();
+    let res = b.field_access(loop_node, "0", Type::Bool, Span::unknown()).unwrap();
+    b.return_value(res, Span::unknown()).unwrap();
+    let func = b.build();
+
+    let mut analysis = AnalysisManager::new();
+    analysis.run_all(&func);
+    let mut engine = SemanticEngine::new();
+    engine.derive(&func, analysis.database());
+
+    let region = engine
+        .database()
+        .regions()
+        .find(|(_, r)| r.contains(SemanticConcept::ConjunctiveReduction))
+        .map(|(rid, _)| rid)
+        .expect("ConjunctiveReduction region");
+    let desc = engine
+        .structural_database()
+        .region(region)
+        .expect("predicate reduction needs a structural description");
+    assert_eq!(
+        desc.source_structure,
+        sir_transform::structures::SourceStructure::DynamicBooleanSequence { length: n }
+    );
+    assert!(
+        desc.roles.iter().any(|role| matches!(
+            role,
+            sir_transform::roles::RegionRoles::PredicateCollectionReduction { .. }
+        )),
+        "role must be attached: {:?}",
+        desc.roles
+    );
+}
+
 /// Verify the recognizer is callable with a minimal function and returns
 /// the expected result type.
 #[test]
