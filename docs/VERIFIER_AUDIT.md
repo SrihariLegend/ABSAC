@@ -165,10 +165,25 @@ The first lift implements the path above end to end:
   multiply-by-power-of-two rows expect 1 rewrite; `validate_ba003`
   asserts the shift-left.
 
-Remaining quarantined: 15 definitions. ModuloAnd and DivideShift need
-`urem`/`udiv` in the solver lowering; ShiftMask and the zero-scan /
-bit-permutation / mask-algebra families need their operations lowered
-into `sir_mech` terms. C3 remains an Any-only freeze.
+Remaining quarantined: 15 definitions. Their blockers are now recorded
+precisely:
+
+- **ModuloAnd / DivideShift** need `urem`/`udiv` bit-blasting in the
+  solver lowering, and their obligations/recipes must gate signedness
+  (the unsigned bitvector identities are false for signed division and
+  remainder semantics).
+- **ShiftMask** additionally has a stub *recipe* (`shl(rhs, rhs)`), not
+  just a stub obligation: lifting it requires implementing the mask
+  extraction (`(x << n) >> n → x & ((1 << (W-n)) - 1)`, with n = 0 and
+  n ≥ W handled fail-closed) before any obligation can authorize it.
+- **Zero-scan, bit-permutation (rotate/byteswap/bitreverse) and
+  mask-algebra (clear/isolate/set lowest bit) families** need their
+  operations lowered into `sir_mech` terms (the concrete backend
+  already models the lowest-bit and constant-amount rotate expressions,
+  so those are the next-lower-hanging candidates after the recipes are
+  audited).
+
+C3 remains an Any-only freeze.
 
 ## PS002 end-to-end audit (advisor directive, this commit)
 
