@@ -949,3 +949,41 @@ fn zero_trip_guard_on_a_different_value_is_refused() {
         ),
     }
 }
+
+/// Runtime-extent search with a NON-ZERO no-hit sentinel (`return -1`).
+/// The merge returns the phi unchanged (identity form), so the zero-trip
+/// incoming must equal the sentinel; the guard pins the trip bound to
+/// zero. This shape must lower with the pointer preserved.
+const RUNTIME_SEARCH_NEG1: &str = r#"
+define i64 @runtime_neg1(ptr %0, i64 %1) {
+  %2 = icmp eq i64 %1, 0
+  br i1 %2, label %11, label %3
+
+3:
+  %4 = phi i64 [ %9, %8 ], [ 0, %2 ]
+  %5 = getelementptr inbounds i8, ptr %0, i64 %4
+  %6 = load i8, ptr %5
+  %7 = icmp eq i8 %6, 0
+  br i1 %7, label %8, label %11
+
+8:
+  %9 = add nuw i64 %4, 1
+  %10 = icmp eq i64 %9, %1
+  br i1 %10, label %11, label %3
+
+11:
+  %12 = phi i64 [ -1, %2 ], [ -1, %8 ], [ %4, %3 ]
+  ret i64 %12
+}
+"#;
+
+#[test]
+fn runtime_search_with_negative_one_sentinel_lowers() {
+    let func = lower_function(RUNTIME_SEARCH_NEG1, "runtime_neg1")
+        .expect("the identity-form runtime search must lower");
+    assert!(
+        matches!(func.params[0].ty, sir_types::Type::Pointer { .. }),
+        "no extent may be fabricated for a runtime bound"
+    );
+    assert!(func.return_node.is_some(), "the sentinel path must return");
+}

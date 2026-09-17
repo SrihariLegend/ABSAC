@@ -72,3 +72,7 @@ is native-clean with 0 rewrites; v9 lower-refused drops 5 → 4.
 The zero-trip predecessor validation was subsequently hardened: the
 guard must compare the loop's actual trip bound (not just the merge's
 latch incoming), pinned by a refusal regression test.
+It was then generalized by merge form: identity returns require the
+zero-trip incoming to equal the sentinel (admitting `return -1`
+sentinels), while a `umin` clamp must use the trip bound. The v9 p16
+shape (sentinel = bound = n, clamped) is unaffected.

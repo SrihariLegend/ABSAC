@@ -110,3 +110,12 @@ latch comparison's non-successor operand), not merely the merge's
 latch incoming. A guard on an unrelated value could otherwise let the
 synthesized loop iterate while the source skipped; the new lowerer test
 `zero_trip_guard_on_a_different_value_is_refused` pins the refusal.
+
+**Generalized (same day):** the zero-trip observable is now matched by
+merge form — *identity* (`ret phi`) requires the extra incoming to equal
+the sentinel, while a `umin(phi, bound)` *clamp* requires the clamp
+bound to be the trip bound (the clamp forces zero for any unsigned
+incoming). This admits non-zero no-hit sentinels such as `return -1`
+(identity form) without weakening the guard rule; the new test
+`runtime_search_with_negative_one_sentinel_lowers` pins it. All corpora
+remain 0-mismatch (187 clean / 64 lower-refused, 54 rewrites).

@@ -2119,10 +2119,70 @@ fn lower_early_exit_search(
         .and_then(|i| i.operands.first().cloned())
         .ok_or("early-exit search: merge does not return")?;
 
+    // How the merge turns the phi into the returned value:
+    //   Identity — `ret phi` (the zero-trip observable is the extra
+    //              incoming, so it must equal the sentinel);
+    //   Clamp    — `ret umin(phi, bound)` (the zero-trip observable is
+    //              `umin(x, 0) == 0` for any unsigned x, so the guard
+    //              only has to pin the trip bound to zero).
+    #[derive(Debug)]
+    enum PostForm {
+        Identity,
+        Clamp(String),
+    }
+    let ret_value = strip_type(&ret_operand);
+    let post_form = if ret_value == merge_result {
+        PostForm::Identity
+    } else {
+        let call = m
+            .instructions
+            .iter()
+            .find(|i| {
+                i.opcode == "call"
+                    && i.result
+                        .as_deref()
+                        .map(|r| strip_type(r) == ret_value)
+                        .unwrap_or(false)
+            })
+            .ok_or("early-exit search: merge return is not the phi or a call")?;
+        let raw = call.operands.join(", ");
+        if !raw.contains("llvm.umin") {
+            return Err("early-exit search: merge post-processing is not a umin clamp".into());
+        }
+        let inside = raw
+            .split('(')
+            .nth(1)
+            .unwrap_or("")
+            .trim_end_matches(')');
+        let parts: Vec<String> = inside
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        let phi_seen = parts.iter().any(|p| {
+            p.split_whitespace()
+                .last()
+                .map(|t| t.trim_end_matches(')') == merge_result)
+                .unwrap_or(false)
+        });
+        if !phi_seen {
+            return Err("early-exit search: umin clamp does not consume the merge phi".into());
+        }
+        let bound = parts
+            .iter()
+            .filter_map(|p| p.split_whitespace().last())
+            .map(|t| t.trim_end_matches(')').to_string())
+            .find(|t| *t != merge_result)
+            .ok_or("early-exit search: umin clamp has no bound operand")?;
+        PostForm::Clamp(bound)
+    };
+
     // Extra merge predecessors are only tolerated as the zero-trip entry
-    // guard (`sentinel == 0 -> merge`) whose incoming value is the zero
-    // constant: the synthesized loop's zero-trip output is the sentinel,
-    // which that guard pins to zero.
+    // guard: the predecessor must branch to the merge when the loop's
+    // TRIP BOUND is zero (not some unrelated value), and the observable
+    // on that path must agree with the synthesized loop's zero-trip
+    // output (identity: the incoming equals the sentinel; clamp: the
+    // umin bound is the trip bound, which forces zero either way).
     // icmp operands keep the comparison token in the first operand
     // ("eq i64 %1"), so compare on each operand's value token.
     let value_token = |o: &str| {
@@ -2155,6 +2215,11 @@ fn lower_early_exit_search(
     let Some(latch_bound_str) = latch_bound_str else {
         return Err("early-exit search: latch bound not identifiable".into());
     };
+    if let PostForm::Clamp(bound) = &post_form {
+        if bound != &latch_bound_str {
+            return Err("early-exit search: umin clamp bound is not the trip bound".into());
+        }
+    }
     for (value, label) in &m_incomings {
         if label == &h.label || label == &l.label {
             continue;
@@ -2185,10 +2250,10 @@ fn lower_early_exit_search(
         let guard_matches = p.instructions.iter().any(|inst| {
             inst.opcode == "icmp"
                 && inst.result.as_deref() == Some(p_cond.as_str())
-                && inst.operands.iter().any(|o| {
-                    let t = value_token(o);
-                    t == sentinel_str && t == latch_bound_str
-                })
+                && inst
+                    .operands
+                    .iter()
+                    .any(|o| value_token(o) == latch_bound_str)
                 && inst
                     .operands
                     .iter()
@@ -2198,10 +2263,11 @@ fn lower_early_exit_search(
                             .unwrap_or(false)
                     })
         });
-        let zero_incoming = parse_int_constant(&strip_type(value))
-            .map(|v| v == 0)
-            .unwrap_or(false);
-        if !(p_succs.contains(&m.label) && guard_matches && zero_incoming) {
+        let observable_matches = match &post_form {
+            PostForm::Identity => strip_type(value) == sentinel_str,
+            PostForm::Clamp(_) => true,
+        };
+        if !(p_succs.contains(&m.label) && guard_matches && observable_matches) {
             return Err("early-exit search: unsupported extra merge predecessor".into());
         }
     }
