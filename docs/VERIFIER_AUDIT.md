@@ -165,9 +165,9 @@ The first lift implements the path above end to end:
   multiply-by-power-of-two rows expect 1 rewrite; `validate_ba003`
   asserts the shift-left.
 
-Remaining quarantined: 8 definitions (MultiplyShift, the four
-mask-algebra definitions, ByteSwap, BitReverse and ShiftMask are
-lifted; see below). Their blockers are now recorded
+Remaining quarantined: 6 definitions (MultiplyShift, the four
+mask-algebra definitions, ByteSwap, BitReverse, ShiftMask and the two
+rotate definitions are lifted; see below). Their blockers are now recorded
 precisely:
 
 - **ModuloAnd / DivideShift**: the `urem`/`udiv` bit-blasting is now
@@ -264,16 +264,29 @@ The four scan definitions have distinct, now-measured blockers:
   values (0x01→0x80, 0x0F→0xF0, 0xA5→0xA5, 0→0); the permutation test
   asserts the `Intrinsic(rbit)` selection. Verifier tests cover the
   bound role and the no-role refusal.
-- **Rotate families HELD Stub despite a concrete binding.** The rotate
-  definitions now have role-verified constant-amount obligations
-  (`rotate_bind.rs` re-checks the actual
-  `Or(Shl(x,k), Shr(x,W-k))` source pattern before binding), but the
-  optimizer generates **zero candidates** for `CircularPermutation`
-  regions today — for constant AND variable amounts (pinned by
-  `circular_permutation_generates_no_candidates_today`). The
-  generation/authorization gap is the blocker; flipping the status
-  would authorize nothing. When it is fixed, the rotate definitions
-  are ready to lift.
+- **Rotate families → LIFTED 2026-09-17** (lift 6 below).
+
+## Quarantine lift 6 — rotate pair + constant-amount definedness (2026-09-17)
+
+- **Root cause of the rotate candidate gap**: the scroll-range
+  definedness gate accepted only a *literal* constant shift amount, so
+  the canonical rotate `(x << k) | (x >> (W - k))` — whose amount is the
+  constant expression `W - k` (a `Sub` of literals) — never authorized,
+  the authorization database stayed empty, and certificate-gated
+  generation produced zero candidates. `scalar_expression_is_defined`
+  now evaluates constant add/sub chains (`constant_amount`); variable
+  amounts still refuse, so HD003/BP001 remain definedness-blocked.
+- **RotateLeft (310) / RotateRight (311) are ConcreteSolverChecked**:
+  `rotate_bind.rs` verifies the actual `Or(Shl(x,k), Shr(x,W-k))`
+  source pattern (role operand/direction/amount, both shift constants,
+  `0 < k < W`), and the concrete solver proves the constant-amount
+  identity. Left selects `Rol`, right selects `Ror`; variable-amount
+  obligations carry no domain and are never Proven.
+- **Evidence**: verifier tests cover both directions (Proven with
+  issued ConcreteSolverChecked) and the variable-amount refusal; the
+  optimizer tests assert constant left/right rewrite and Rol/Ror
+  selection plus variable abstention; a native test runs the rewritten
+  `Rol` and checks `0x80000001 → 0xC`, `0x12345678 → 0x91A2B3C0`.
 
 ## Quarantine lift 5 — ShiftMask + real mask-extraction recipe (2026-09-17)
 
