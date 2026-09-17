@@ -165,9 +165,9 @@ The first lift implements the path above end to end:
   multiply-by-power-of-two rows expect 1 rewrite; `validate_ba003`
   asserts the shift-left.
 
-Remaining quarantined: 9 definitions (MultiplyShift, the four
-mask-algebra definitions, ByteSwap and BitReverse are lifted; see
-below). Their blockers are now recorded
+Remaining quarantined: 8 definitions (MultiplyShift, the four
+mask-algebra definitions, ByteSwap, BitReverse and ShiftMask are
+lifted; see below). Their blockers are now recorded
 precisely:
 
 - **ModuloAnd / DivideShift**: the `urem`/`udiv` bit-blasting is now
@@ -182,10 +182,7 @@ precisely:
   definitions stay Stub and unsignedness gating / recipe validation is
   only preparatory. The binding/recipe code and its mutation tests are
   written and pinned as fail-closed (concrete_solver_upgrade.rs).
-- **ShiftMask** additionally has a stub *recipe* (`shl(rhs, rhs)`), not
-  just a stub obligation: lifting it requires implementing the mask
-  extraction (`(x << n) >> n → x & ((1 << (W-n)) - 1)`, with n = 0 and
-  n ≥ W handled fail-closed) before any obligation can authorize it.
+- **ShiftMask → LIFTED 2026-09-17** (see below).
 - **Mask-algebra (clear/isolate/set lowest bit) → LIFTED 2026-09-17**
   (see the next section).
 - **Zero-scan and bit-permutation (rotate/byteswap/bitreverse)
@@ -250,6 +247,22 @@ precisely:
   generation/authorization gap is the blocker; flipping the status
   would authorize nothing. When it is fixed, the rotate definitions
   are ready to lift.
+
+## Quarantine lift 5 — ShiftMask + real mask-extraction recipe (2026-09-17)
+
+- **ShiftMask (103) is ConcreteSolverChecked**: binds the recognized
+  `ArithmeticOperation` role (inner shift-left, constant amount,
+  unsigned operand) and the concrete solver proves
+  `(x << k) >> k == x & ((1 << (W-k)) - 1)` for `0 ≤ k < W`. `k = 0`
+  uses the all-ones mask; signed operands and `k ≥ W` are refused (no
+  domain). 32-bit instances solve instantly (shifts/masks only).
+- **The recipe was a stub** (`mask = shl(rhs, rhs)` — unrelated to the
+  identity). It now validates the region role, the constant amount and
+  the unsigned width, and emits the real mask constant + AND. HD/ba004
+  and the semantic-zoo `arith_mask_unsigned_{2,4,8,16}` rows now
+  rewrite; signed rows and the full-width `k = W` row stay at zero.
+  A native test runs the optimized/emitted form and checks
+  `0xFFFFFFFF → 0x0FFFFFFF`, `0x12345678 → 0x02345678`, `0xF → 0xF`.
 
 ## Quarantine lift 2 — mask algebra + instruction-selection emission (2026-09-17)
 
