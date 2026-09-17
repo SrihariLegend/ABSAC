@@ -139,6 +139,29 @@ The v11 generation blind-tested the repaired early-exit synthesis:
 - Cumulative native evidence: 223 clean / 0 mismatched / 76
   lower-refused, 61 native-clean rewrites.
 
+## Descending search lowering (2026-09-17, follow-up)
+
+clang's pre-decrement search (`for (i = n; i-- > 0;) if (buf[i])
+return i;`) is now lowered: the header's `i == 0` exit becomes the
+continuation (`Gt(i, 0)`), the body's decrement is normalized to
+`Sub(counter, 1)`, and the found index is the SUCCESSOR (the accessed
+value) with the sentinel taken from the merge's header incoming. The
+pre-tested domain covers indices n-1 .. 0 exactly.
+
+Two precision/soundness points are pinned by tests:
+
+- **Direction**: normalizing `Add(counter, -1)` to `Sub` stops the
+  position heuristic from mis-classifying the scan as forward; the
+  descending loop derives `LastOccurrence` and never
+  `FirstOccurrence` (`descending_search_semantics.rs`).
+- **No false authorization**: the exclusive-counter form does not
+  satisfy the reverse totality witness (the access uses the successor,
+  not the carried index), so it mints 0 candidates and applies 0
+  rewrites; v10/v11 p07 move from lower-refused to native-clean.
+
+Cumulative native evidence: 225 clean / 0 mismatched / 74
+lower-refused, 61 rewrites; sanitized runs remain 0-violation.
+
 **Hardening (same day):** the extra zero-trip predecessor is accepted
 only when its guard compares the loop's actual **trip bound** (the
 latch comparison's non-successor operand), not merely the merge's

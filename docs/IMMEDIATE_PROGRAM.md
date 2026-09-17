@@ -565,12 +565,13 @@ Gate 6A-v11: PASSED — fresh held-out generation for the early-exit
              predicates (`!buf[i]`, `== key` with a -1 identity
              sentinel, `!= key` with n, u16 elements) all lower and
              recognize `FirstOccurrence`; constant zero/ordered searches
-             rewrite and run native-clean; computed n-1 / descending
-             searches stay refused and do-while stays a recorded gap.
+             rewrite and run native-clean; computed n-1 stays refused;
+             the descending search now lowers (follow-up) with the
+             correct LastOccurrence truth and no fabricated candidate.
              0 false positives / 0 unsafe candidates / 0 unsafe
-             rewrites; native 18 clean / 0 mismatched / 6 lower-refused,
-             4 native rewrites. Cumulative: 223 clean / 0 mismatched /
-             76 lower-refused, 61 rewrites. See docs/GATE6A_V11_RESULTS.md.
+             rewrites; native 19 clean / 0 mismatched / 5 lower-refused,
+             4 native rewrites. Cumulative: 225 clean / 0 mismatched /
+             74 lower-refused, 61 rewrites. See docs/GATE6A_V11_RESULTS.md.
 
 Gate 6B:     PASSED — the fusion corpus was sealed before automation
              (gate6b/manifest.sha256, commit 4aedce1) and evaluated

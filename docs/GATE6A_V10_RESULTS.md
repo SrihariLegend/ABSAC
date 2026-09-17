@@ -77,6 +77,15 @@ fail-closed.
 
 - Fresh **v11** after the next capability change.
 - Open gaps: runtime-extent reductions, multi-loop + early-exit
-  composition (search-then-loop), do-while and descending runtime
-  searches, computed no-hit sentinels, map-then-sum candidate/recipe,
-  Sum reduction strategy, deliberate non-unit-stride abstention.
+  composition (search-then-loop), computed no-hit sentinels,
+  map-then-sum candidate/recipe, Sum reduction strategy, deliberate
+  non-unit-stride abstention.
+
+### Follow-up (same day): descending search lowering
+
+p07 (`p07_runtime_descending_search`) now lowers: the pre-decrement
+successor is normalized to `Sub(counter, 1)`, the scan derives the
+correct `LastOccurrence` (never `FirstOccurrence`), and the
+exclusive-counter form stays unauthorized with 0 candidates. v10
+native-clean rises 17 → 18 (lower-refused 7 → 6); cumulative native
+evidence 225 clean / 0 mismatched / 74 lower-refused.

@@ -1032,3 +1032,53 @@ fn hit_on_true_runtime_search_selects_the_real_latch() {
         .count();
     assert_eq!(loops, 1, "one synthesized found-flag loop");
 }
+
+/// clang's descending pre-decrement search
+/// (`for (i = n; i-- > 0;) if (buf[i]) return i;`): the header exits at
+/// `i == 0` and the body computes `next = i - 1` (the accessed index).
+/// The synthesis must lower it with the pointer preserved and the
+/// decrement normalized to a real `Sub` (so word-level recognizers see
+/// the scan as REVERSE, not forward).
+const DESCENDING_SEARCH: &str = r#"
+define i64 @desc(ptr %0, i64 %1) {
+  br label %3
+
+3:
+  %4 = phi i64 [ %1, %2 ], [ %7, %6 ]
+  %5 = icmp eq i64 %4, 0
+  br i1 %5, label %11, label %6
+
+6:
+  %7 = add i64 %4, -1
+  %8 = getelementptr inbounds i8, ptr %0, i64 %7
+  %9 = load i8, ptr %8
+  %10 = icmp eq i8 %9, 0
+  br i1 %10, label %3, label %11
+
+11:
+  %12 = phi i64 [ %1, %3 ], [ %7, %6 ]
+  ret i64 %12
+}
+"#;
+
+#[test]
+fn descending_search_lowers_with_a_sub_successor() {
+    let func = lower_function(DESCENDING_SEARCH, "desc")
+        .expect("the descending search must lower");
+    assert!(
+        matches!(func.params[0].ty, sir_types::Type::Pointer { .. }),
+        "no extent may be fabricated"
+    );
+    let loops = func
+        .arena
+        .iter()
+        .filter(|n| matches!(n.kind, sir_nodes::NodeKind::Loop { .. }))
+        .count();
+    assert_eq!(loops, 1, "one synthesized found-flag loop");
+    assert!(
+        func.arena
+            .iter()
+            .any(|n| matches!(n.kind, sir_nodes::NodeKind::Sub { .. })),
+        "the decrement must be normalized to a Sub node"
+    );
+}

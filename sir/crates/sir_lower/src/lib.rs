@@ -2120,9 +2120,6 @@ fn lower_early_exit_search(
     let (Some(from_h), Some(sentinel_str)) = (from_h, sentinel) else {
         return Err("early-exit search: merge phi lacks the H/L incoming pair".into());
     };
-    if from_h != counter_name {
-        return Err("early-exit search: merge does not return the counter".into());
-    }
     let merge_result = m_phi.result.clone().unwrap_or_default();
     // The merge may post-process the phi before returning (clang's
     // runtime-extent search clamps it with `llvm.umin(phi, n)` on the
@@ -2136,6 +2133,265 @@ fn lower_early_exit_search(
         .find(|i| i.opcode == "ret")
         .and_then(|i| i.operands.first().cloned())
         .ok_or("early-exit search: merge does not return")?;
+
+    // icmp operands keep the comparison token in the first operand
+    // ("eq i64 %1"), so compare on each operand's value token.
+    let value_token = |o: &str| {
+        o.split_whitespace()
+            .last()
+            .unwrap_or(o)
+            .trim_end_matches(')')
+            .to_string()
+    };
+
+    // ── Descending (pre-decrement) variant ─────────────────────────
+    // clang lowers `for (i = n; i-- > 0;) if (buf[i]) return i;` as a
+    // header that exits at `i == 0` and a latch/body computing
+    // `next = i - 1` (the accessed index). The merge's header incoming
+    // is the sentinel (the initial counter); its latch incoming is the
+    // successor. Synthesize the loop with `index` updated by the
+    // SUCCESSOR on the first hit and terminate on `!found && i != 0`:
+    // the pre-tested domain covers indices init-1 .. 0 exactly.
+    {
+        let h_succs = block_successors(h);
+        let l_succs = block_successors(l);
+        let successor_name = l.instructions.iter().find_map(|inst| {
+            let (lhs, rhs) = match inst.opcode.as_str() {
+                "sub" => (
+                    strip_type(inst.operands.first()?),
+                    value_token(inst.operands.get(1)?),
+                ),
+                "add" => (
+                    strip_type(inst.operands.first()?),
+                    value_token(inst.operands.get(1)?),
+                ),
+                _ => return None,
+            };
+            if lhs != counter_name {
+                return None;
+            }
+            let step = parse_int_constant(&rhs)?;
+            let is_decrement = (inst.opcode == "sub" && step == 1)
+                || (inst.opcode == "add" && step == -1);
+            if !is_decrement {
+                return None;
+            }
+            inst.result.clone()
+        });
+        let descending = successor_name
+            .as_deref()
+            .map(|succ| strip_type(&sentinel_str) == succ)
+            .unwrap_or(false)
+            && strip_type(&from_h) == strip_type(&init_val)
+            && h_succs.contains(&m.label)
+            && h_succs.contains(&l.label)
+            && l_succs.contains(&m.label)
+            && l_succs.contains(&h.label)
+            && !m_incomings
+                .iter()
+                .any(|(_, label)| label != &h.label && label != &l.label);
+        if descending {
+            let successor_name = successor_name.unwrap();
+            // Pre-header blocks (same rule as the ascending path).
+            for (bi, b) in ir.blocks.iter().enumerate() {
+                if bi >= hi {
+                    break;
+                }
+                if bi == mi || b.instructions.iter().any(|i| i.opcode == "ret") {
+                    continue;
+                }
+                for inst in &b.instructions {
+                    if inst.opcode == "phi" || inst.opcode == "br" || inst.opcode == "ret" {
+                        continue;
+                    }
+                    emit_instruction(inst, builder, value_map, &ir.params, span)?;
+                }
+            }
+            let counter_init = get_node_id(
+                &init_val,
+                value_map,
+                &ir.params,
+                builder,
+                Some(counter_ty.clone()),
+            )
+            .ok_or("early-exit search: cannot resolve the descending counter init")?;
+            let sentinel_node = get_node_id(
+                &from_h,
+                value_map,
+                &ir.params,
+                builder,
+                Some(index_ty.clone()),
+            )
+            .ok_or("early-exit search: cannot resolve the descending sentinel")?;
+            value_map.insert(counter_name.clone(), counter_init);
+            let mut body_nodes: Vec<NodeId> = Vec::new();
+            for inst in h.instructions.iter().chain(l.instructions.iter()) {
+                if inst.opcode == "phi" || inst.opcode == "br" || inst.opcode == "ret" {
+                    continue;
+                }
+                // Normalize clang's `add counter, -1` successor to a real
+                // `Sub(counter, 1)` node: semantically identical, and the
+                // word-level recognizers use the Sub form to classify a
+                // scan as reverse (an Add with -1 would be mistaken for a
+                // forward scan by the position-search heuristic).
+                if inst.result.as_deref() == Some(successor_name.as_str())
+                    && inst.opcode == "add"
+                {
+                    let one = builder.constant(
+                        int_constant_data(&counter_ty, 1),
+                        counter_ty.clone(),
+                        span,
+                    );
+                    let sub = builder
+                        .sub(counter_init, one, span)
+                        .map_err(|e| format!("early-exit search: {:?}", e))?;
+                    body_nodes.push(sub);
+                    value_map.insert(successor_name.clone(), sub);
+                    continue;
+                }
+                if let Some(id) = emit_instruction(inst, builder, value_map, &ir.params, span)? {
+                    body_nodes.push(id);
+                }
+            }
+            let h_cond = get_node_id(
+                &strip_type(&h_br.operands[0]),
+                value_map,
+                &ir.params,
+                builder,
+                None,
+            )
+            .ok_or("early-exit search: cannot resolve the descending exit test")?;
+            let l_cond = get_node_id(
+                &strip_type(&l_br.operands[0]),
+                value_map,
+                &ir.params,
+                builder,
+                None,
+            )
+            .ok_or("early-exit search: cannot resolve the descending hit test")?;
+            // Continue while the header's counter-zero exit test is false.
+            // When the test is `counter == 0`, encode the continuation as
+            // `Gt(counter, 0)` rather than `BoolNot(...)`: they are
+            // equivalent for unsigned counters, and the explicit `Gt` form
+            // keeps the descending scan from matching the FORWARD
+            // found-flag recognizer (whose inclusive-counter model would
+            // otherwise derive a wrong FirstOccurrence truth).
+            let h_exit_on_true = h_succs.first().map(|s| s == &m.label).unwrap_or(false);
+            let continuation = if h_exit_on_true {
+                let counter_zero = {
+                    let function = builder.function();
+                    let is_zero =
+                        |id: NodeId| lower_constant_u64(function, id) == Some(0);
+                    match function.get_node(h_cond).map(|n| &n.kind) {
+                        Some(NodeKind::Eq { lhs, rhs })
+                        | Some(NodeKind::Ne { lhs, rhs }) => {
+                            (*lhs == counter_init && is_zero(*rhs))
+                                || (*rhs == counter_init && is_zero(*lhs))
+                        }
+                        _ => false,
+                    }
+                };
+                if counter_zero {
+                    let zero = builder.constant(
+                        int_constant_data(&counter_ty, 0),
+                        counter_ty.clone(),
+                        span,
+                    );
+                    builder
+                        .gt(counter_init, zero, span)
+                        .map_err(|e| format!("early-exit search: {:?}", e))?
+                } else {
+                    let not = builder
+                        .bool_not(h_cond, span)
+                        .map_err(|e| format!("early-exit search: {:?}", e))?;
+                    body_nodes.push(not);
+                    not
+                }
+            } else if h_succs.get(1).map(|s| s == &m.label).unwrap_or(false) {
+                h_cond
+            } else {
+                return Err("early-exit search: descending header branch is not the exit test".into());
+            };
+            // Hit from the latch branch: continuing on true means hit = !cond.
+            let l_continue_on_true = l_succs.first().map(|s| s == &h.label).unwrap_or(false);
+            let hit = if l_continue_on_true {
+                let not = builder
+                    .bool_not(l_cond, span)
+                    .map_err(|e| format!("early-exit search: {:?}", e))?;
+                body_nodes.push(not);
+                not
+            } else if l_succs.first().map(|s| s == &m.label).unwrap_or(false) {
+                l_cond
+            } else {
+                return Err("early-exit search: descending latch branch is not the hit test".into());
+            };
+            let successor = get_node_id(
+                &successor_name,
+                value_map,
+                &ir.params,
+                builder,
+                None,
+            )
+            .ok_or("early-exit search: cannot resolve the descending successor")?;
+            let found_init = builder.constant(ConstantData::boolean(false), Type::Bool, span);
+            let not_found = builder
+                .bool_not(found_init, span)
+                .map_err(|e| format!("early-exit search: {:?}", e))?;
+            let found_next = builder
+                .bool_or(found_init, hit, span)
+                .map_err(|e| format!("early-exit search: {:?}", e))?;
+            let update = builder
+                .bool_and(hit, not_found, span)
+                .map_err(|e| format!("early-exit search: {:?}", e))?;
+            let index_next = builder
+                .select(update, successor, sentinel_node, span)
+                .map_err(|e| format!("early-exit search: {:?}", e))?;
+            let termination = builder
+                .bool_and(not_found, continuation, span)
+                .map_err(|e| format!("early-exit search: {:?}", e))?;
+            body_nodes.extend([found_next, update, index_next, termination]);
+            let outputs = vec![found_next, index_next, successor];
+            let carried = vec![found_init, sentinel_node, counter_init];
+            let loop_ty = Type::Tuple {
+                elements: vec![Type::Bool, index_ty.clone(), counter_ty.clone()],
+            };
+            let loop_node = builder
+                .r#loop(&body_nodes, termination, &outputs, &carried, loop_ty, span)
+                .map_err(|e| format!("early-exit search loop build: {:?}", e))?;
+            let index_extract = builder
+                .tuple_extract(loop_node, 1, index_ty, span)
+                .map_err(|e| format!("early-exit search: {:?}", e))?;
+            let counter_extract = builder
+                .tuple_extract(loop_node, 2, counter_ty, span)
+                .map_err(|e| format!("early-exit search: {:?}", e))?;
+            value_map.insert(counter_name.clone(), counter_extract);
+            value_map.insert(merge_result.clone(), index_extract);
+            for inst in &m.instructions {
+                if inst.opcode == "phi" || inst.opcode == "ret" {
+                    continue;
+                }
+                emit_instruction(inst, builder, value_map, &ir.params, span)?;
+            }
+            let ret_node = get_node_id(
+                &strip_type(&ret_operand),
+                value_map,
+                &ir.params,
+                builder,
+                None,
+            )
+            .ok_or("early-exit search: cannot resolve the descending return value")?;
+            builder
+                .return_value(ret_node, span)
+                .map_err(|e| format!("early-exit search return: {:?}", e))?;
+            return Ok(());
+        }
+    }
+
+    // The ascending synthesis carries the counter itself as the found
+    // index; the merge's header incoming must be that counter.
+    if strip_type(&from_h) != counter_name {
+        return Err("early-exit search: merge does not return the counter".into());
+    }
 
     // How the merge turns the phi into the returned value:
     //   Identity — `ret phi` (the zero-trip observable is the extra

@@ -33,9 +33,16 @@ buffer byte-for-byte.
 | `gate6a/v7_corpus.ll` | 19 | 0 | 5 | 48 | 5 |
 | `gate6a/v8_corpus.ll` | 23 | 0 | 5 | 48 | 8 |
 | `gate6a/v9_corpus.ll` | 25 | 0 | 4 | 48 | 13 |
-| `gate6a/v10_corpus.ll` | 17 | 0 | 7 | 48 | 3 |
-| `gate6a/v11_corpus.ll` | 18 | 0 | 6 | 48 | 4 |
-| **Total** | **223** | **0** | **76** | — | **61** |
+| `gate6a/v10_corpus.ll` | 18 | 0 | 6 | 48 | 3 |
+| `gate6a/v11_corpus.ll` | 19 | 0 | 5 | 48 | 4 |
+| **Total** | **225** | **0** | **74** | — | **61** |
+
+**Descending searches** (2026-09-17): clang's pre-decrement search
+(`for (i = n; i-- > 0;) if (buf[i]) return i;`) now lowers in v10/v11
+native-clean (the decrement is normalized to `Sub`, so the scan
+classifies as REVERSE: `LastOccurrence`, never `FirstOccurrence`). The
+exclusive-counter form stays unauthorized (the reverse totality witness
+requires the access to use the carried index), so 0 candidates.
 
 **v11** (2026-09-17): runtime searches with unseen polarities and
 predicates (`!buf[i]`, `== key` with `-1`, `!= key` with `n`, u16) all
@@ -149,7 +156,7 @@ This checks the emitted C — including all rewrite code paths — for
 undefined behaviour and memory errors, not just output equality.
 
 Result on the full corpus set (`emitter_native/sanitize/*.txt`,
-48 cases each): **223 clean / 0 mismatched / 76 lower-refused /
+48 cases each): **225 clean / 0 mismatched / 74 lower-refused /
 0 sanitizer violations**. Every native-clean kernel (and every applied
 rewrite) is free of ASan/UBSan diagnostics under this mode.
 

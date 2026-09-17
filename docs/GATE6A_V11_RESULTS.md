@@ -44,6 +44,16 @@ predicates, sentinels and element widths:
   do-while search lowers but derives no `FirstOccurrence` (recorded
   gap).
 
+### Follow-up (same day): descending search lowering
+
+p07 now lowers: the pre-decrement scan is synthesized with a normalized
+`Sub(counter, 1)` successor, the header's `i == 0` exit becomes
+`Gt(i, 0)`, and the scan derives the correct `LastOccurrence` (never
+`FirstOccurrence`). The exclusive-counter form stays unauthorized
+(0 candidates) because the reverse totality witness requires the access
+to use the carried index. v11 native-clean rises 18 → 19
+(lower-refused 6 → 5).
+
 ## Cumulative native evidence
 
 - All corpora: **223 clean / 0 mismatched / 76 lower-refused**, 61
