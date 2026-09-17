@@ -72,6 +72,7 @@ impl fmt::Display for VerificationBackend {
         match self {
             VerificationBackend::Symbolic => write!(f, "Symbolic"),
             VerificationBackend::Exhaustive => write!(f, "Exhaustive"),
+            VerificationBackend::ConcreteSolver => write!(f, "ConcreteSolver"),
         }
     }
 }

@@ -49,6 +49,7 @@ impl crate::VerificationBackend {
         match self {
             VerificationBackend::Symbolic => VerificationStatus::SchemaChecked,
             VerificationBackend::Exhaustive => VerificationStatus::ConcreteSolverChecked,
+            VerificationBackend::ConcreteSolver => VerificationStatus::ConcreteSolverChecked,
         }
     }
 }

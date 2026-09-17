@@ -268,8 +268,11 @@ impl Optimizer {
 
         // ── 5. Verification ───────────────────────────────────
         let verifier = Verifier::new();
-        let obligations_db =
-            verifier.build_obligations(generator.database(), inference.context_database());
+        let obligations_db = verifier.build_obligations(
+            generator.database(),
+            inference.context_database(),
+            function,
+        );
         // Candidate generation is intentionally exploratory, but the
         // configured recipe registry is the execution/freeze boundary.
         // Do not verify or select definitions that cannot be rewritten by

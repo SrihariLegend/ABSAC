@@ -107,16 +107,22 @@ fn validate_ba003_multiply() {
     let mut optimizer = Optimizer::new(OptimizerConfig::default(), default_registry());
     let result = optimizer.optimize(&func);
 
-    // MultiplyShiftDefinition is a trivially-equal stub
-    // (Constant(0)==Constant(0)) — quarantined (advisor P0 audit).
-    assert_eq!(result.rewrites_applied, 0, "MultiplyShift is Stub-quarantined");
+    // MultiplyShiftDefinition is ConcreteSolverChecked since 2026-09-17:
+    // its obligation binds the actual constant (32) and width (32) and
+    // the bit-blasting solver proves `x * 32 == x << 5`, so the rewrite
+    // is authorized. The remaining arithmetic definitions stay
+    // Stub-quarantined.
+    assert_eq!(
+        result.rewrites_applied, 1,
+        "MultiplyShift is concrete-solver checked and must rewrite"
+    );
 
     let has_shl = result
         .function
         .arena
         .iter()
         .any(|n| matches!(n.kind, NodeKind::Shl { .. }));
-    assert!(!has_shl, "Must not rewrite to shift while quarantined");
+    assert!(has_shl, "the authorized rewrite must emit a shift-left");
 }
 
 #[test]

@@ -25,6 +25,7 @@ use sir_generation::generator::CandidateDatabase;
 use sir_transform::context::{TransformationContext, TransformationContextDatabase};
 
 use crate::backends::exhaustive::ExhaustiveVerifier;
+use crate::backends::concrete_solver::ConcreteSolverVerifier;
 use crate::backends::symbolic::SymbolicVerifier;
 use crate::definitions::all::AllDefinition;
 use crate::definitions::any::AnyDefinition;
@@ -85,6 +86,9 @@ pub enum ProofStep {
     },
     /// Exhaustive enumeration covered all inputs.
     ExhaustiveCheck { states_checked: u64 },
+    /// The concrete obligation was bit-blasted and discharged by the
+    /// SAT kernel (sir_mech): UNSAT of the negated difference.
+    SolverCheck { engine: &'static str },
 }
 
 /// Which verification backend discharged a proof.
@@ -92,6 +96,8 @@ pub enum ProofStep {
 pub enum VerificationBackend {
     Symbolic,
     Exhaustive,
+    /// Bit-blasting + SAT over the concrete obligation (sir_mech).
+    ConcreteSolver,
 }
 
 /// The result of attempting to verify a proof obligation.
@@ -278,6 +284,7 @@ impl Verifier {
         &self,
         candidates: &CandidateDatabase,
         contexts: &TransformationContextDatabase,
+        function: &sir_nodes::Function,
     ) -> ProofObligationDatabase {
         let mut db = ProofObligationDatabase::new();
 
@@ -291,7 +298,11 @@ impl Verifier {
             // Find the first context this definition is applicable to
             for _ctx in ctx_list {
                 if let Some(def) = self.registry.find_for(candidate) {
-                    let mut obligation = def.obligation(candidate);
+                    // Bind the obligation to the ACTUAL function version:
+                    // concrete definitions read their constants/widths
+                    // from the authorized region nodes; legacy/stub
+                    // definitions fall back to their template.
+                    let mut obligation = def.obligation_bound(candidate, function);
                     obligation.candidate = candidate.id;
                     obligation.definition = def.id();
                     db.insert(obligation);
@@ -374,17 +385,32 @@ impl Verifier {
             }
 
             VerificationPolicy::Default => {
-                // Try symbolic first
-                let symbolic = SymbolicVerifier::new();
-                match symbolic.verify(obligation) {
-                    VerificationResult::Rejected(reason) => {
-                        return VerificationResult::Rejected(reason);
+                // Definitions that require concrete-solver assurance get
+                // the SAT backends first (their cap is only a cap; the
+                // solver is what issues the level). Everything else keeps
+                // the historical symbolic-first order.
+                let declared_cap = self
+                    .registry
+                    .lookup(obligation.definition)
+                    .map(|def| def.verification_status())
+                    .unwrap_or(VerificationStatus::Stub);
+                if declared_cap >= VerificationStatus::ConcreteSolverChecked
+                    && obligation.domain.is_some()
+                {
+                    match ConcreteSolverVerifier.verify(obligation) {
+                        VerificationResult::Proven(proof) => {
+                            VerificationResult::Proven(proof)
+                        }
+                        VerificationResult::Rejected(reason) => {
+                            return VerificationResult::Rejected(reason);
+                        }
+                        VerificationResult::Unknown(_) => symbolic_then_exhaustive(
+                            obligation,
+                            &self.limits,
+                        ),
                     }
-                    VerificationResult::Unknown(_) => {
-                        // Fall through to exhaustive
-                        ExhaustiveVerifier::new(self.limits.clone()).verify(obligation)
-                    }
-                    proven => proven,
+                } else {
+                    symbolic_then_exhaustive(obligation, &self.limits)
                 }
             }
         };
@@ -520,5 +546,22 @@ impl Verifier {
 impl Default for Verifier {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Historical default backend order: symbolic normalization first,
+/// exhaustive enumeration as the finite-domain fallback. Rejections
+/// short-circuit (a counterexample is never overridden by a later
+/// backend).
+fn symbolic_then_exhaustive(
+    obligation: &ProofObligation,
+    limits: &VerificationLimits,
+) -> VerificationResult {
+    match SymbolicVerifier::new().verify(obligation) {
+        VerificationResult::Rejected(reason) => VerificationResult::Rejected(reason),
+        VerificationResult::Unknown(_) => {
+            ExhaustiveVerifier::new(limits.clone()).verify(obligation)
+        }
+        proven => proven,
     }
 }

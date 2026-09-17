@@ -38,6 +38,24 @@ pub trait TransformationDefinition {
     /// Construct the full proof obligation for a given candidate.
     /// Owns: theorem construction, assumption enumeration, domain specification.
     fn obligation(&self, candidate: &Candidate) -> ProofObligation;
+
+    /// Construct the obligation bound to the ACTUAL function version the
+    /// candidate was authorized against (P0A quarantine lift, advisor
+    /// item 3).
+    ///
+    /// The default keeps legacy/stub definitions unchanged. Definitions
+    /// that declare `ConcreteSolverChecked` override this and must build
+    /// a theorem whose constants/widths come from the candidate's
+    /// authorized region nodes — never a hardcoded template. An
+    /// unbound obligation must be left without a finite domain so no
+    /// backend can discharge it.
+    fn obligation_bound(
+        &self,
+        candidate: &Candidate,
+        _function: &sir_nodes::Function,
+    ) -> ProofObligation {
+        self.obligation(candidate)
+    }
 }
 
 /// Explicit assurance level of a transformation definition's proof

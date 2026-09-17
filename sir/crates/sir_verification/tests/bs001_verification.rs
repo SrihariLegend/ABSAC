@@ -137,8 +137,11 @@ fn run_full_pipeline() -> (Verifier, Vec<(ProofObligation, VerificationResult)>)
 
     // Build the Verifier and create obligations
     let verifier = Verifier::new();
-    let obligations_db =
-        verifier.build_obligations(generator.database(), inference.context_database());
+    let obligations_db = verifier.build_obligations(
+        generator.database(),
+        inference.context_database(),
+        &func,
+    );
 
     assert!(
         obligations_db.len() > 0,

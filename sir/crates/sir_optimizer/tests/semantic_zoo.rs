@@ -172,12 +172,18 @@ fn build_arithmetic(name: &str, op: &str, divisor: u64, signed: bool) -> ZooProg
     // Multiply is legal for both: two's-complement wrapping makes
     // x * 2^k == x << k for every bit pattern.
     //
-    // ADVISOR P0 VERIFIER QUARANTINE: all four bitwise-arithmetic
-    // definitions (ModuloAnd, DivideShift, MultiplyShift, ShiftMask)
-    // have Stub obligations that never bind actual operands — none may
-    // authorize a rewrite. Every arithmetic family entry now expects
-    // 0 rewrites until those definitions are ConcreteSolverChecked.
-    let expected = 0;
+    // ADVISOR P0 VERIFIER QUARANTINE, partially lifted (2026-09-17):
+    // MultiplyShift is now ConcreteSolverChecked — its obligation binds
+    // the actual constant/width and the bit-blasting solver proves
+    // `x * C == x << log2(C)` for signed and unsigned bit patterns, so
+    // multiply by a power of two rewrites. ModuloAnd, DivideShift and
+    // ShiftMask remain Stub-quarantined (and the full-width shift mask
+    // is undefined), so those expect 0.
+    let expected = if op == "multiply" && divisor.is_power_of_two() {
+        1
+    } else {
+        0
+    };
 
     ZooProgram {
         name: name.to_string(),

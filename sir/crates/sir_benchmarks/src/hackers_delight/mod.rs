@@ -59,8 +59,18 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 name: "multiply_power_of_two",
                 category: "Arithmetic identities",
                 input_desc: "x * 32",
-                expected: ExpectedKnowledge::NonOptimizable {
-                    reason: "MultiplyShift definition is Stub-quarantined: obligation is Constant(0)==Constant(0)",
+                // UNQUARANTINED (2026-09-17): MultiplyShift builds its
+                // obligation from the authorized region's actual multiply
+                // node (constant + width) and the concrete bit-blasting
+                // solver proves `x * C == x << log2(C)`; mutation of the
+                // constant or claim is rejected with a counterexample.
+                expected: ExpectedKnowledge::Optimizes {
+                    semantic_domain: "BitwiseArithmetic",
+                    concepts: vec!["MultiplyPowerOfTwo"],
+                    representation: "BitwiseArithmetic",
+                    candidate: "ShiftLeft",
+                    proof: "ConcreteSolverChecked: x * C == x << log2(C) at the actual width",
+                    rewrite: "Mul by power of two -> ShiftLeft by log2(C)",
                 },
             },
             func: || {
