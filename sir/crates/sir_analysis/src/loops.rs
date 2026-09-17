@@ -154,6 +154,20 @@ fn detect_reductions(
 
     for (&carry, &output) in carried_inputs.iter().zip(outputs.iter()) {
         if let Some(output_node) = func.get_node(output) {
+            // Folded additive offset (clang reassociation of
+            // `s += (e + c)`): `output = (carry + c) + e`. The per-
+            // iteration contribution is the ELEMENT; the constant offset
+            // is carried in the chain. Distinct kind so raw-sum
+            // consumers never accept it.
+            if let Some(element) = folded_add_offset(func, &output_node.kind, carry) {
+                reductions.push(ReductionVar {
+                    variable: carry,
+                    reduction_kind: "sum_offset".to_string(),
+                    invariant_value: element,
+                });
+                continue;
+            }
+
             // Check if output node is an associative operation
             // where one operand is the carried input.
             let reduction_kind = match &output_node.kind {
@@ -275,6 +289,37 @@ fn detect_reductions(
     }
 
     reductions
+}
+
+/// `(carry + c) + element` (or the commuted forms): returns the element.
+/// `c` must be a constant literal.
+fn folded_add_offset(
+    func: &Function,
+    kind: &NodeKind,
+    carry: NodeId,
+) -> Option<NodeId> {
+    let NodeKind::Add { lhs, rhs } = kind else {
+        return None;
+    };
+    for (inner_side, element_side) in [(*lhs, *rhs), (*rhs, *lhs)] {
+        let Some(inner) = func.get_node(inner_side) else {
+            continue;
+        };
+        let NodeKind::Add { lhs: a, rhs: b } = &inner.kind else {
+            continue;
+        };
+        let offset_is_constant = if *a == carry {
+            get_constant_u64(func, *b).is_some()
+        } else if *b == carry {
+            get_constant_u64(func, *a).is_some()
+        } else {
+            false
+        };
+        if offset_is_constant {
+            return Some(element_side);
+        }
+    }
+    None
 }
 
 #[cfg(test)]

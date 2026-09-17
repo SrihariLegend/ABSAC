@@ -261,6 +261,64 @@ fn plain_sum_derives_no_mapped_sum() {
     assert_eq!(concept_truths(&func, SemanticConcept::MappedSumReduction), 0);
 }
 
+/// clang's reassociated `s += (e + 1)` shape: the +1 is folded into the
+/// accumulator chain (`tmp = acc + 1; next = tmp + e`). For an additive
+/// sum this is the mapped sum `sum(e + 1)`; it derives
+/// MappedSumReduction and never a raw SumReduction.
+fn build_folded_offset_sum_loop() -> Function {
+    let n = 64usize;
+    let elem_ty = Type::u8();
+    let array_ty = Type::Array {
+        element: Box::new(elem_ty.clone()),
+        length: n,
+    };
+    let span = Span::unknown();
+    let mut b = Builder::new("folded_offset_sum", &[("buf", array_ty)], Type::u64());
+    let buf = b.parameter_index(0).unwrap();
+    let acc0 = b.constant(ConstantData::u64(0), Type::u64(), span);
+    let i0 = b.constant(ConstantData::u64(0), Type::u64(), span);
+    let one = b.constant(ConstantData::u64(1), Type::u64(), span);
+    let bound = b.constant(ConstantData::u64(n as u64), Type::u64(), span);
+    let elem = b.array_access(buf, i0, elem_ty, span).unwrap();
+    let elem64 = b
+        .convert(elem, Type::u64(), ConvertKind::ZeroExtend, span)
+        .unwrap();
+    // clang reassociation: acc + 1 first, then + element.
+    let offset = b.add(acc0, one, span).unwrap();
+    let acc_next = b.add(offset, elem64, span).unwrap();
+    let i_next = b.add(i0, one, span).unwrap();
+    let termination = b.lt(i0, bound, span).unwrap();
+    let loop_node = b
+        .r#loop(
+            &[elem, offset, acc_next, i_next, termination],
+            termination,
+            &[acc_next, i_next],
+            &[acc0, i0],
+            Type::Tuple {
+                elements: vec![Type::u64(), Type::u64()],
+            },
+            span,
+        )
+        .unwrap();
+    let result = b.field_access(loop_node, "0", Type::u64(), span).unwrap();
+    b.return_value(result, span).unwrap();
+    b.build()
+}
+
+#[test]
+fn folded_offset_sum_is_a_mapped_sum_not_a_raw_sum() {
+    let func = build_folded_offset_sum_loop();
+    assert_eq!(
+        concept_truths(&func, SemanticConcept::SumReduction),
+        0,
+        "the folded `acc + 1` chain is not a raw-element sum"
+    );
+    assert!(
+        concept_truths(&func, SemanticConcept::MappedSumReduction) > 0,
+        "clang's reassociated s += (e + 1) must derive MappedSumReduction"
+    );
+}
+
 /// Gate 6A-v3 finding (n08_conditional_sum): a conditional accumulation
 /// was accepted as a raw-element sum. The masked value is not the element,
 /// so SumReduction must not fire for it (Gate 6A-v3 D5 remediation).

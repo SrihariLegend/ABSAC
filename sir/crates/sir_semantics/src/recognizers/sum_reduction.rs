@@ -62,8 +62,15 @@ pub fn recognize_sum_reduction(
                     .iter()
                     .filter(|r| r.reduction_kind == "sum")
                     .collect();
+                // clang reassociated additive offsets carry their own
+                // kind so raw-sum consumers never accept them.
+                let offset_reductions: Vec<_> = loop_fact
+                    .reductions
+                    .iter()
+                    .filter(|r| r.reduction_kind == "sum_offset")
+                    .collect();
 
-                if sum_reductions.len() < 2 {
+                if sum_reductions.len() + offset_reductions.len() < 2 {
                     continue;
                 }
 
@@ -78,13 +85,16 @@ pub fn recognize_sum_reduction(
                 // ── Distinguish Sum from Cardinality ──
                 // For Sum: the invariant_value is a raw value (e.g., zext of a load),
                 // NOT a boolean predicate (Select 1/0, comparison, Convert from Bool).
-                let non_counter_reductions: Vec<_> = sum_reductions
+                let non_counter_reductions: Vec<&sir_analysis::facts::ReductionVar> = sum_reductions
                     .iter()
+                    .copied()
                     .filter(|r| !is_constant_one(func, r.invariant_value))
                     .collect();
 
-                let sum_reductions_only: Vec<_> = non_counter_reductions
+                let sum_reductions_only: Vec<&sir_analysis::facts::ReductionVar> =
+                    non_counter_reductions
                     .iter()
+                    .copied()
                     .filter(|r| !is_boolean_predicate(func, r.invariant_value))
                     .filter(|r| is_raw_element_value(func, r.invariant_value))
                     .collect();
@@ -94,12 +104,20 @@ pub fn recognize_sum_reduction(
                 // legitimate reduction of the mapped values, but it must
                 // NOT be labelled a raw-element SumReduction (D5). It
                 // gets its own concept so no raw-sum consumer accepts it.
-                let mapped_sum_reductions: Vec<_> = non_counter_reductions
+                let mut mapped_sum_reductions: Vec<&sir_analysis::facts::ReductionVar> =
+                    offset_reductions.clone();
+                let explicit_maps: Vec<&sir_analysis::facts::ReductionVar> = non_counter_reductions
                     .iter()
+                    .copied()
                     .filter(|r| !is_boolean_predicate(func, r.invariant_value))
                     .filter(|r| !is_raw_element_value(func, r.invariant_value))
-                    .filter(|r| element_map_source(func, r.invariant_value).is_some())
+                    .filter(|r| {
+                        element_map_source(func, r.invariant_value).is_some()
+                            || folded_additive_offset_map(func, r.invariant_value, r.variable)
+                                .is_some()
+                    })
                     .collect();
+                mapped_sum_reductions.extend(explicit_maps);
 
                 if sum_reductions_only.is_empty() && mapped_sum_reductions.is_empty() {
                     continue;
@@ -212,6 +230,37 @@ fn is_constant_value(func: &Function, id: NodeId) -> bool {
         func.get_node(id).map(|n| &n.kind),
         Some(sir_nodes::NodeKind::Constant(_))
     )
+}
+
+/// clang reassociates `s += (e + c)` into the accumulator chain:
+/// `tmp = acc + c; next = tmp + e`. For an ADDITIVE sum this is the same
+/// reduction (associativity/commutativity of addition), so the mapped
+/// value `e + c` is recoverable. Restricted to `Add` — the identity does
+/// NOT hold for And/Or/Xor accumulator chains.
+fn folded_additive_offset_map(
+    func: &Function,
+    id: NodeId,
+    accumulator: NodeId,
+) -> Option<NodeId> {
+    let node = func.get_node(id)?;
+    let sir_nodes::NodeKind::Add { lhs, rhs } = &node.kind else {
+        return None;
+    };
+    for (offset_side, element_side) in [(*lhs, *rhs), (*rhs, *lhs)] {
+        let Some(offset_node) = func.get_node(offset_side) else {
+            continue;
+        };
+        let sir_nodes::NodeKind::Add { lhs: a, rhs: b } = &offset_node.kind else {
+            continue;
+        };
+        let offset_is_accumulator =
+            (*a == accumulator && is_constant_value(func, *b))
+                || (*b == accumulator && is_constant_value(func, *a));
+        if offset_is_accumulator && is_raw_element_value(func, element_side) {
+            return Some(element_side);
+        }
+    }
+    None
 }
 
 fn collect_loop_body_nodes(kind: &sir_nodes::NodeKind) -> Vec<NodeId> {

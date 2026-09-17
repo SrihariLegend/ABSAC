@@ -423,8 +423,10 @@ Remediation D3 (P0A, commit c3ebb54):
        loads/stores now refuse loudly with an explicit "unsupported"
        error class (x01, x05) instead of parser accidents.
   Still open in D3 (status in docs/RECALL_RESULTS.md): map-then-sum
-       recall — the `x ^ const` form now derives MappedSumReduction, while
-       w03's clang-reassociated `+1` form remains open; two-loop lowering (w08, third corpus hitting the
+       recall is closed at recognition (both `x ^ const` and clang's
+       reassociated `+1` forms derive MappedSumReduction; a candidate
+       preserving the map is the follow-on). Remaining: two-loop lowering
+       (w08, third corpus hitting the
        gap), early-exit gep (x08). The w07 "u8/I64 accumulator mismatch"
        is refined to a dynamic-extent limitation: recognition and
        authorization now succeed, but the runtime-length pointer
