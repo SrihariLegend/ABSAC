@@ -160,12 +160,12 @@ fn historical_last_true_equals_clz_equation_is_refuted() {
 }
 
 #[test]
-fn definition_stays_quarantined_until_application_blockers_close() {
+fn definition_is_lifted_and_ps002_totality_is_the_gate() {
     let def = BitScanReverseDefinition::new(DefinitionId::new(201));
     assert_eq!(
         def.verification_status(),
-        VerificationStatus::Stub,
-        "the LeadingZeros-emitting recipe must not be authorizable yet"
+        VerificationStatus::ConcreteSolverChecked,
+        "the corrected theorem + bsr intrinsic lift the definition"
     );
     let (func, seq) = mask_function(8);
     let structural = structural_with_collection(seq, 8);
@@ -175,8 +175,17 @@ fn definition_stays_quarantined_until_application_blockers_close() {
         &structural,
     );
     let result = Verifier::new().verify(&obligation, &context());
-    assert!(
-        !matches!(result, VerificationResult::Proven(_)),
-        "a Stub-capped definition must never be Proven through the verifier, got {result:?}"
-    );
+    match result {
+        VerificationResult::Proven(proof) => {
+            assert_eq!(proof.backend, VerificationBackend::ConcreteSolver);
+            assert_eq!(
+                proof.assurance,
+                VerificationStatus::ConcreteSolverChecked,
+                "the issued assurance is the checker's, not a declaration"
+            );
+        }
+        other => panic!(
+            "the lifted definition's bound obligation must be Proven, got {other:?}"
+        ),
+    }
 }

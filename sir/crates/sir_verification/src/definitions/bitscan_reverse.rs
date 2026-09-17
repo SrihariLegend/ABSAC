@@ -27,18 +27,15 @@ impl BitScanReverseDefinition {
 
 impl TransformationDefinition for BitScanReverseDefinition {
     fn verification_status(&self) -> VerificationStatus {
-        // HELD STUB (2026-09-17): the theorem is now CORRECT
-        // (`BitScanReverse`, proved by the concrete solver), but the
-        // definition cannot be lifted until the remaining application
-        // blockers are gone: (a) the recipe still emits `LeadingZeros`
-        // — a latent miscompile — so SIR needs a bit-scan-reverse
-        // intrinsic (highest set index, width sentinel for zero) and
-        // the recipe must emit it; (b) the reduction binding's
-        // trip-count contract is forward-only while the reverse search
-        // iterates downward; (c) the PS002 kernel itself is unsound
-        // (unsigned `i >= 0` underflows when nothing matches, so it
-        // never terminates) and a sound reverse kernel is required.
-        VerificationStatus::Stub
+        // LIFTED 2026-09-17: the corrected theorem
+        // `LastTrue(seq) == BitScanReverse(Pack(seq))` is bit-blast
+        // proved, the recipe emits the BitScanReverse intrinsic, and
+        // the authorization layer refuses structurally reverse searches
+        // without an underflow-guard totality witness
+        // (`reverse_search_domain_is_total`) — so the non-terminating
+        // PS002 shape can never reach this definition, while a sound
+        // reverse kernel can.
+        VerificationStatus::ConcreteSolverChecked
     }
 
     fn id(&self) -> DefinitionId {

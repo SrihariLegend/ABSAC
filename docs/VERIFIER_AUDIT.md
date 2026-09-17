@@ -165,11 +165,12 @@ The first lift implements the path above end to end:
   multiply-by-power-of-two rows expect 1 rewrite; `validate_ba003`
   asserts the shift-left.
 
-Remaining quarantined: 1 definition (BitScanReverse). Everything else is
-lifted: MultiplyShift, the four mask-algebra
-definitions, ByteSwap, BitReverse, ShiftMask, the two rotate
-definitions, the two zero-count definitions, ModuloAnd and DivideShift.
-BitScanForward joined them on 2026-09-17 (lift 9 below).
+Remaining quarantined: **0 definitions — all 16 are lifted** as of
+2026-09-17. The other fifteen were lifted earlier (MultiplyShift, the
+four mask-algebra definitions, ByteSwap, BitReverse, ShiftMask, the two
+rotate definitions, the two zero-count definitions, ModuloAnd,
+DivideShift, BitScanForward — lift 9 below). BitScanReverse was the
+last and is lift 10 below.
 precisely:
 
 - **ModuloAnd / DivideShift → LIFTED 2026-09-17** (lift 8 below). The
@@ -196,7 +197,8 @@ precisely:
 The four scan definitions have distinct, now-measured blockers:
 
 - **BitScanForward (200) → LIFTED 2026-09-17** (lift 9 below).
-- **BitScanReverse (201) remains Stub** with three recorded blockers:
+- **BitScanReverse (201) → LIFTED 2026-09-17** (lift 10 below). The
+  historical record of its three blockers:
   (a) the historical obligation `LastTrue(seq) == LeadingZeros(Pack(seq))`
   is **FALSE** — the solver returns the counterexample for an MSB-set
   mask (lhs 63 vs rhs 0). **Corrected 2026-09-17 (semantic half):** the
@@ -208,26 +210,33 @@ The four scan definitions have distinct, now-measured blockers:
   `BitScanReverse(Pack(seq))` instead of `LeadingZeros`; and the
   definition binds the corrected theorem, which the bit-blaster PROVES
   (8-bit fixture) while the historical equation is REJECTED with a
-  counterexample (tests/bitscan_reverse_theorem.rs). The definition
-  stays **Stub** (never Proven through the verifier) because the
-  application blockers are unchanged: (b) **fixed 2026-09-17** — the
+  counterexample (tests/bitscan_reverse_theorem.rs).
+  (b) **fixed 2026-09-17** — the
   recipe no longer emits `LeadingZeros`; SIR now has a
   `BitScanReverse` node kind wired through the builder, printer,
   verifier, rewrite remapping and the emitter
   (`__sir_bsr`/`__sir_bv_bsr`), and the recipe emits it, with a
   clang-native differential (0/1/0x10/MSB → 64/0/4/63) in
   emit_c_native.rs; (c) the reduction binding's trip-count contract is
-  still forward-only (`i < bound`, zero-based), while the reverse
-  search iterates `i = 63 .. 0` — reverse counted-loop trip-count
-  support remains, together with a sound reverse kernel and the status
-  lift (which must move the quarantine tests off definition 201).
+  still forward-only, but it is not the gate for this family:
+  PositionSearch candidates are exempt from the reduction binding, so
+  the reverse direction is instead gated by a dedicated totality
+  witness in the authorization layer
+  (`reverse_search_domain_is_total`): the carried index must start at
+  `extent - 1`, the scanned access must use it, and the termination
+  must contain an underflow guard (`successor < carry` or a mirrored
+  form). The recognizer accepts that underflow-guard form as a reverse
+  search (Lt/Le with the carried induction on the successor side).
   **Additionally,
   the PS002 kernel itself is unsound**: its guard is `i >= 0` on an
   UNSIGNED induction, so when no element matches, `i = 0` is followed by
   `i - 1 = u64::MAX` and the guard remains true forever — the loop does
-  not terminate. Even with a bsr intrinsic, this kernel must not be
-  authorized; a sound reverse corpus kernel (signed index, or a
-  pre-tested `i > 0` loop that still covers index 0) is required first.
+  not terminate. The totality witness refuses exactly this shape: it
+  satisfies neither the underflow guard nor the access/start contract,
+  so PS002 receives no PositionSearch certificate and can never be
+  authorized, even though definition 201 is now lifted. A sound kernel
+  (`i = 63 .. 0` guarded by `successor < carry`) is exercised
+  end-to-end instead — see lift 10 below.
 - **TrailingZeroCount / LeadingZeroCount (202/203) → LIFTED 2026-09-17**
   (lift 7 below).
 - **Emitter prerequisite (done)**: `TrailingZeros`/`LeadingZeros` now
@@ -697,3 +706,56 @@ the recipes (they still scan via `RewriteRegion` accessors) and no
 audit matrix stays honest: the four families remain Open end-to-end
 until a recipe consumes the binding and an application checker issues
 the second artifact.
+
+## Quarantine lift 10 — BitScanReverse + reverse-totality gate (2026-09-17)
+
+- **Corrected theorem**: `LastTrue(seq) == BitScanReverse(Pack(seq))`
+  (highest set index, width sentinel for zero). The historical
+  `LastTrue == LeadingZeros(Pack)` equation was false; the normalizer
+  rule was rewritten from `LastTrueToLeadingZeros` to
+  `LastTrueToBitScanReverse`. `SemanticExpression::BitScanReverse` has
+  interpreter, normalizer and concrete-solver lowering as a reverse
+  found-flag scan (structurally distinct from `LastTrue`'s overwrite
+  fold, so the proof is not reflexive).
+  Tests (`tests/bitscan_reverse_theorem.rs`): the corrected pair is
+  bit-blast PROVEN; the historical equation is REJECTED with a
+  counterexample; the lifted definition's verifier proof carries
+  `ConcreteSolverChecked`.
+- **Intrinsic + emission**: SIR `NodeKind::BitScanReverse` (highest set
+  index, width sentinel) wired through node metadata, verifier typing,
+  analysis, rewrite construction/remapping, printer and builder; the
+  emitter's `__sir_bsr`/`__sir_bv_bsr` follow the width sentinel
+  convention. Native differential: `0/1/0x10/MSB → 64/0/4/63`.
+  The reverse bitscan recipe now emits the intrinsic instead of the
+  latent-miscompile `LeadingZeros`.
+- **Soundness gate (the essential part)**: PositionSearch candidates do
+  not go through the reduction binding, so the reverse direction is
+  gated by a totality witness in `derive_authorizations`:
+  `reverse_successor_pair` + `reverse_search_domain_is_total` require
+  (i) an output `successor = carried - 1`, (ii) an underflow guard
+  conjunct (`successor < carried`, `<=`, or the mirrored `carried >/>=`
+  forms) in the termination, (iii) the scanned access to use the
+  carried index, (iv) the array's fixed non-empty extent, and (v)
+  `carried` starting at `extent - 1`. Any structurally reverse loop
+  without this witness receives no PositionSearch certificate — the
+  PS002 `i >= 0` shape included, so the newly lifted definition cannot
+  reach it. The recognizer was extended to accept the underflow-guard
+  form (carried induction on the successor side of Lt/Le, or the
+  mirrored side of Gt/Ge).
+- **Sound-kernel end-to-end**: `last_set_bit_sound`
+  (`i = 63 .. 0`, guard `successor < carry`, sentinel 64) is recognized,
+  authorized, rewritten to `BitScanReverse` (1 rewrite,
+  `sir_optimizer/tests/positional_search_validation.rs`), emitted, and
+  run under clang: boards {63}, {0}, {5}, {5,40}, {} →
+  **63 / 0 / 5 / 40 / 64**
+  (`sir_benchmarks/tests/emit_c_native.rs`).
+- **Quarantine exemplar**: with all 16 production definitions lifted,
+  the verifier quarantine tests now use a test-only declared-Stub
+  definition (id 998) registered in a local registry; the Stub-never-
+  Proven and checker-issued-assurance properties are unchanged.
+- **Superseded**: the earlier "reverse counted-loop trip-count support
+  in the binding" blocker is not the mechanism used here (PositionSearch
+  bypasses the reduction binding by design); the equivalent guarantee
+  is the authorization-layer totality witness above. The forward-only
+  reduction binding remains a separate, documented limitation for
+  reduction families.

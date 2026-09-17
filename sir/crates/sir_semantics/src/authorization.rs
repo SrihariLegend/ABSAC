@@ -32,7 +32,7 @@ use std::collections::{HashMap, HashSet};
 use sir_analysis::facts::FactDatabase;
 use sir_analysis::graph;
 use sir_nodes::{Function, NodeKind};
-use sir_types::{ConstantData, Effects, NodeId, RegionId};
+use sir_types::{ConstantData, Effects, NodeId, RegionId, Type};
 
 use crate::certificate::{memory_footprint, FootprintCheck};
 use crate::concepts::SemanticConcept;
@@ -897,6 +897,119 @@ fn position_selects_bind_index(func: &Function, region_nodes: &[NodeId]) -> bool
     true
 }
 
+/// A SOUND reverse search must prove its iteration domain: the carried
+/// index starts at `extent - 1`, its successor is `i - 1`, the scanned
+/// access uses the carried index, and the termination contains an
+/// UNDERFLOW GUARD (`successor < carry` / `successor <= carry`, or the
+/// mirrored forms) so the scan stops at index 0 after visiting it.
+///
+/// The PS002 shape (`i >= 0` on an UNSIGNED induction) has no such
+/// guard: when no element matches, `i = 0` is followed by `i - 1 =
+/// u64::MAX`, the guard stays true, and the loop never terminates.
+/// Reverse searches without this witness must not be authorized, even
+/// once the BitScanReverse definition is lifted.
+fn reverse_search_domain_is_total(func: &Function, region_nodes: &[NodeId]) -> bool {
+    let Some((carry, successor, body, termination)) =
+        reverse_successor_pair(func, region_nodes)
+    else {
+        return false;
+    };
+
+    if !contains_underflow_guard(func, termination, carry, successor) {
+        return false;
+    }
+
+    // The scanned access must use the carried index (the position the
+    // select binds), and the array must have a fixed non-empty extent.
+    let mut array = None;
+    for &b in &body {
+        if let Some(NodeKind::ArrayAccess { base, index }) =
+            func.get_node(b).map(|n| &n.kind)
+        {
+            if *index == carry {
+                array = Some(*base);
+            }
+        }
+    }
+    let Some(array) = array else {
+        return false;
+    };
+    let Some(Type::Array { length, .. }) = func.get_node(array).map(|n| &n.ty) else {
+        return false;
+    };
+    if *length == 0 {
+        return false;
+    }
+
+    // Full cover: start at the LAST index of the extent.
+    constant_amount(func, carry) == Some(*length as u64 - 1)
+}
+
+/// The reverse `i - 1` successor contract of the region's loop:
+/// `(carry, successor, body, termination)` when an output is
+/// `Sub(carry, 1)` for a carried input.
+fn reverse_successor_pair(
+    func: &Function,
+    region_nodes: &[NodeId],
+) -> Option<(NodeId, NodeId, Vec<NodeId>, NodeId)> {
+    let loop_id = region_nodes.iter().copied().find(|&n| {
+        matches!(
+            func.get_node(n).map(|node| &node.kind),
+            Some(NodeKind::Loop { .. })
+        )
+    })?;
+    let loop_node = func.get_node(loop_id)?;
+    let NodeKind::Loop {
+        body,
+        termination,
+        outputs,
+        carried_inputs,
+    } = &loop_node.kind
+    else {
+        return None;
+    };
+    for &carry in carried_inputs {
+        for &out in outputs {
+            let Some(NodeKind::Sub { lhs, rhs }) = func.get_node(out).map(|n| &n.kind) else {
+                continue;
+            };
+            if *lhs == carry
+                && matches!(
+                    func.get_node(*rhs).map(|n| &n.kind),
+                    Some(NodeKind::Constant(c)) if c.as_u64() == Some(1)
+                )
+            {
+                return Some((carry, out, body.clone(), *termination));
+            }
+        }
+    }
+    None
+}
+
+/// True when `term` contains a conjunct that guards the reverse
+/// underflow: `successor < carry` / `successor <= carry`, or the
+/// mirrored `carry > successor` / `carry >= successor`.
+fn contains_underflow_guard(
+    func: &Function,
+    term: NodeId,
+    carry: NodeId,
+    successor: NodeId,
+) -> bool {
+    match func.get_node(term).map(|n| &n.kind) {
+        Some(NodeKind::Lt { lhs, rhs }) | Some(NodeKind::Le { lhs, rhs }) => {
+            *lhs == successor && *rhs == carry
+        }
+        Some(NodeKind::Gt { lhs, rhs }) | Some(NodeKind::Ge { lhs, rhs }) => {
+            *lhs == carry && *rhs == successor
+        }
+        Some(NodeKind::BoolAnd { lhs, rhs }) => {
+            contains_underflow_guard(func, *lhs, carry, successor)
+                || contains_underflow_guard(func, *rhs, carry, successor)
+        }
+        _ => false,
+    }
+}
+
 
 /// Derive transformation authorizations for every region of a function.
 ///
@@ -1008,7 +1121,19 @@ pub fn derive_authorizations(
             || region
                 .concepts()
                 .contains(&SemanticConcept::LastOccurrence);
-        if wants_position && position_selects_bind_index(func, &region_nodes) {
+        // A structurally REVERSE search additionally needs the
+        // underflow-guard totality proof. The PS002 shape (`i >= 0` on
+        // an unsigned induction) has no underflow guard: with no match
+        // it wraps to u64::MAX and never terminates, so it must never
+        // be authorized — not even after the BitScanReverse definition
+        // is lifted.
+        let reverse_loop = reverse_successor_pair(func, &region_nodes).is_some();
+        let totality_ok = !reverse_loop
+            || reverse_search_domain_is_total(func, &region_nodes);
+        if wants_position
+            && position_selects_bind_index(func, &region_nodes)
+            && totality_ok
+        {
             for c in position_search_concepts() {
                 if !position_concepts.contains(c) {
                     position_concepts.push(*c);

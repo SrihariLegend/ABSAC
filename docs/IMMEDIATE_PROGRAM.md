@@ -391,28 +391,24 @@ Remediation D3 (P0A, commit c3ebb54):
        Popcount table-lookup path and scalar SetIteration path are
        recorded role-driven exceptions]; (3) upgrade quarantined
        definitions to ConcreteSolverChecked (obligation from the actual
-       pair, mutation-sensitive) [IN PROGRESS 2026-09-17: the
-       ConcreteSolver backend bit-blasts bound obligations; MultiplyShift,
-       the four mask-algebra definitions, ByteSwap, BitReverse and
-       ShiftMask, the rotate pair, the two zero-count scans, the two
-       division identities and BitScanForward are lifted (15/16); only
-       BitScanReverse remains — its SEMANTIC half landed 2026-09-17:
-       the false `LastTrue == clz` theorem is replaced by
+       pair, mutation-sensitive) [COMPLETE 2026-09-17 — 16/16 lifted.
+       The last, BitScanReverse, closed in three parts: (i) the false
+       `LastTrue == clz` theorem replaced by
        `LastTrue == BitScanReverse(Pack)` (new SemanticExpression +
        interpreter + normalizer + concrete-solver lowering; the
        bit-blaster proves the corrected pair and refutes the historical
-       one, tests/bitscan_reverse_theorem.rs). APPLICATION HALF LANDED
-       2026-09-17: SIR gained a `BitScanReverse` node kind (highest set
-       index, width sentinel for zero) through builder/printer/verifier/
-       rewrite remap; the emitter emits `__sir_bsr`/`__sir_bv_bsr`
-       (clang-native differential 0/1/0x10/MSB → 64/0/4/63); the recipe
-       emits it instead of `LeadingZeros`. The definition stays Stub
-       until the remaining blockers close: reverse counted-loop
-       trip-count support in the binding (forward-only today:
-       `i < bound`, zero-based), a sound reverse kernel (the PS002
-       kernel is non-terminating on the all-false input — unsigned
-       `i >= 0` underflows), and the status lift (the quarantine tests
-       must move off definition 201 to a synthetic stub);
+       one); (ii) a SIR `BitScanReverse` node kind (highest set index,
+       width sentinel for zero) through builder/printer/verifier/
+       rewrite remap + emitter `__sir_bsr`/`__sir_bv_bsr`
+       (clang-native differential 0/1/0x10/MSB → 64/0/4/63), with the
+       recipe emitting it instead of `LeadingZeros`; (iii) a
+       reverse-totality witness in `derive_authorizations`
+       (`reverse_search_domain_is_total`: start = extent-1, access uses
+       the carried index, underflow guard `successor < carry`), which
+       refuses the non-terminating PS002 shape while authorizing a
+       sound reverse kernel — recognized, rewritten to BitScanReverse
+       and run natively (63/0/5/40/64). Quarantine tests moved to a
+       test-only Stub exemplar; see docs/VERIFIER_AUDIT.md lift 10];
        obligations can bind the authorized structural roles
        (`obligation_with_roles` + structural DB in build_obligations);
        instruction-selection emission (Rol/Ror, blsr/blsi/blsmsk,

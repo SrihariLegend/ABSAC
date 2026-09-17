@@ -888,6 +888,86 @@ fn rewritten_forward_bitscan_executes_natively() {
     assert_eq!(got, vec!["5", "64"]);
 }
 
+/// SOUND reverse search (BitScanReverse lift): the carried index starts
+/// at 63, its successor is `i - 1`, and the guard is the underflow
+/// check `successor < carry`, so the scan visits 63..0 and stops.
+fn last_set_bit_sound_function() -> sir_nodes::Function {
+    let u64ty = Type::u64();
+    let arr_ty = Type::Array {
+        element: Box::new(Type::Bool),
+        length: 64,
+    };
+    let mut b = Builder::new("last_set_bit_sound", &[("board", arr_ty)], u64ty.clone());
+    let board = b.parameter_index(0).unwrap();
+    let start = b.constant(sir_types::ConstantData::u64(63), u64ty.clone(), Span::unknown());
+    let one = b.constant(sir_types::ConstantData::u64(1), u64ty.clone(), Span::unknown());
+    let sentinel = b.constant(sir_types::ConstantData::u64(64), u64ty.clone(), Span::unknown());
+    let found_init = b.constant(sir_types::ConstantData::Bool(false), Type::Bool, Span::unknown());
+    let elem = b.array_access(board, start, Type::Bool, Span::unknown()).unwrap();
+    let new_found = b.bool_or(found_init, elem, Span::unknown()).unwrap();
+    let not_found_yet = b.bool_not(found_init, Span::unknown()).unwrap();
+    let is_last = b.bool_and(elem, not_found_yet, Span::unknown()).unwrap();
+    let new_index = b.select(is_last, start, sentinel, Span::unknown()).unwrap();
+    let successor = b.sub(start, one, Span::unknown()).unwrap();
+    let not_found = b.bool_not(found_init, Span::unknown()).unwrap();
+    let no_underflow = b.lt(successor, start, Span::unknown()).unwrap();
+    let cond = b.bool_and(not_found, no_underflow, Span::unknown()).unwrap();
+    let loop_node = b
+        .r#loop(
+            &[elem, new_found, not_found_yet, is_last, new_index, successor, not_found, no_underflow, cond],
+            cond,
+            &[new_found, new_index, successor],
+            &[found_init, sentinel, start],
+            Type::Tuple {
+                elements: vec![Type::Bool, u64ty.clone(), u64ty],
+            },
+            Span::unknown(),
+        )
+        .unwrap();
+    let res = b.field_access(loop_node, "1", Type::u64(), Span::unknown()).unwrap();
+    b.return_value(res, Span::unknown()).unwrap();
+    b.build()
+}
+
+#[test]
+fn rewritten_reverse_bitscan_executes_natively() {
+    if !clang_available() {
+        return;
+    }
+    let optimized = optimize_suppressed(&last_set_bit_sound_function());
+    assert_eq!(
+        optimized.rewrites_applied, 1,
+        "a total reverse search must be authorized and rewritten"
+    );
+    let emitted = sir_benchmarks::emit::emit_c(&optimized.function);
+    assert!(
+        emitted.contains("__sir_bsr"),
+        "the rewrite must select BitScanReverse:\n{emitted}"
+    );
+    let main = "    bool a[64] = {0};\n\
+                \x20   a[63] = true;\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)last_set_bit_sound(a));\n\
+                \x20   bool b[64] = {0};\n\
+                \x20   b[0] = true;\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)last_set_bit_sound(b));\n\
+                \x20   bool c[64] = {0};\n\
+                \x20   c[5] = true;\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)last_set_bit_sound(c));\n\
+                \x20   bool d[64] = {0};\n\
+                \x20   d[5] = true;\n\
+                \x20   d[40] = true;\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)last_set_bit_sound(d));\n\
+                \x20   bool e[64] = {0};\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)last_set_bit_sound(e));\n";
+    let Some(stdout) = compile_and_run_emitted(&emitted, main, "last_set_bit_sound") else {
+        return;
+    };
+    // Highest matching index; index 0 is covered; empty uses the length
+    // sentinel 64.
+    let got: Vec<&str> = stdout.lines().collect();
+    assert_eq!(got, vec!["63", "0", "5", "40", "64"]);
+}
+
 /// `(x << 3) | (x >> (32 - 3))` with constant amounts (rotate left).
 fn rotate_left_const_function() -> sir_nodes::Function {
     let ty = Type::u32();

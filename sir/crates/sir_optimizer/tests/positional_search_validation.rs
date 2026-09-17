@@ -134,6 +134,63 @@ pub fn build_ps002_last_set_bit() -> sir_nodes::Function {
     b.build()
 }
 
+/// SOUND reverse search (2026-09-17 BitScanReverse lift): the carried
+/// index starts at `len - 1`, its successor is `i - 1`, and the
+/// termination's bounds conjunct is the underflow guard
+/// `successor < carry` — so the scan visits `len - 1 .. 0` and stops
+/// without unsigned wraparound. This is the shape that may be
+/// authorized; PS002's `i >= 0` is the shape that may not.
+pub fn build_sound_reverse_last_set_bit() -> sir_nodes::Function {
+    let mut b = Builder::new("last_set_bit_sound", &[("board", bool_array(64))], u64_type());
+    let board = b.parameter_index(0).unwrap();
+
+    let start = b.constant(ConstantData::u64(63), u64_type(), unknown());
+    let one = b.constant(ConstantData::u64(1), u64_type(), unknown());
+    let sentinel = b.constant(ConstantData::u64(64), u64_type(), unknown());
+    let found_init = b.constant(ConstantData::boolean(false), bool_type(), unknown());
+
+    let elem = b
+        .array_access(board, start, bool_type(), unknown())
+        .unwrap();
+    let new_found = b.bool_or(found_init, elem, unknown()).unwrap();
+    let not_found_yet = b.bool_not(found_init, unknown()).unwrap();
+    let is_last = b.bool_and(elem, not_found_yet, unknown()).unwrap();
+    let new_index = b.select(is_last, start, sentinel, unknown()).unwrap();
+
+    let successor = b.sub(start, one, unknown()).unwrap();
+    let not_found = b.bool_not(found_init, unknown()).unwrap();
+    let no_underflow = b.lt(successor, start, unknown()).unwrap();
+    let cond = b.bool_and(not_found, no_underflow, unknown()).unwrap();
+
+    let loop_node = b
+        .r#loop(
+            &[
+                elem,
+                new_found,
+                not_found_yet,
+                is_last,
+                new_index,
+                successor,
+                not_found,
+                no_underflow,
+                cond,
+            ],
+            cond,
+            &[new_found, new_index, successor],
+            &[found_init, sentinel, start],
+            Type::Tuple {
+                elements: vec![bool_type(), u64_type(), u64_type()],
+            },
+            unknown(),
+        )
+        .unwrap();
+    let res = b
+        .field_access(loop_node, "1", u64_type(), unknown())
+        .unwrap();
+    b.return_value(res, unknown()).unwrap();
+    b.build()
+}
+
 pub fn build_ps003_trailing_zero_count() -> sir_nodes::Function {
     let mut b = Builder::new("trailing_zero_count", &[("value", u64_type())], u64_type());
     let value = b.parameter_index(0).unwrap();
@@ -259,6 +316,24 @@ fn ps002_last_set_bit_optimizer() {
     assert_eq!(
         result.rewrites_applied, 0,
         "the position live-out is not the accumulator slot; rewrite must refuse"
+    );
+}
+
+#[test]
+fn sound_reverse_search_rewrites_to_bit_scan_reverse() {
+    let func = build_sound_reverse_last_set_bit();
+    let optimizer = Optimizer::new(OptimizerConfig::default(), default_registry());
+    let result = optimizer.optimize(&func);
+    assert_eq!(
+        result.rewrites_applied, 1,
+        "a total reverse search must be authorized and rewritten"
+    );
+    assert!(
+        result.function.arena.iter().any(|n| matches!(
+            n.kind,
+            sir_nodes::NodeKind::BitScanReverse { .. }
+        )),
+        "the rewrite must select the BitScanReverse intrinsic"
     );
 }
 

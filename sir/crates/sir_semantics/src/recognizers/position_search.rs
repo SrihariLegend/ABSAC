@@ -121,11 +121,32 @@ fn detect_found_flag_search(
     }
 
     // Bounds compare the induction carry: first uses < / <= / !=,
-    // last uses > / >= / !=.
+    // last uses > / >= / != — or, for a SOUND reverse search, the
+    // underflow guard `successor < carry` / `successor <= carry`
+    // (mirrored as `carry > successor` / `carry >= successor`), which
+    // stops at index 0 without unsigned wraparound. The direction is
+    // confirmed by the `i ± 1` successor scan below, so carrying the
+    // induction on either side cannot misclassify a forward loop.
     let bounds = func.get_node(bounds_id)?;
     let (idx, forward) = match &bounds.kind {
-        NodeKind::Lt { lhs, .. } | NodeKind::Le { lhs, .. } => (*lhs, true),
-        NodeKind::Gt { lhs, .. } | NodeKind::Ge { lhs, .. } => (*lhs, false),
+        NodeKind::Lt { lhs, rhs } | NodeKind::Le { lhs, rhs } => {
+            if carried_inputs.contains(lhs) {
+                (*lhs, true)
+            } else if carried_inputs.contains(rhs) {
+                (*rhs, false)
+            } else {
+                return None;
+            }
+        }
+        NodeKind::Gt { lhs, rhs } | NodeKind::Ge { lhs, rhs } => {
+            if carried_inputs.contains(lhs) {
+                (*lhs, false)
+            } else if carried_inputs.contains(rhs) {
+                (*rhs, true)
+            } else {
+                return None;
+            }
+        }
         NodeKind::Ne { lhs, rhs } => {
             if carried_inputs.contains(lhs) {
                 (*lhs, true)

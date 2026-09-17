@@ -74,7 +74,7 @@ pub fn benchmarks() -> Vec<BenchmarkDef> {
                 // Stub-quarantined. Honest result: NO rewrite until
                 // ProposalBinding can prove which live-outs are safe.
                 expected: ExpectedKnowledge::NonOptimizable {
-                    reason: "BitScanReverse held Stub: the historical LastTrue == clz(Pack) obligation is FALSE (solver counterexample for an MSB-set mask) and the recipe equally emits clz; a correct lift needs a bit-scan-reverse intrinsic plus reverse trip-count support",
+                    reason: "PS002's `i >= 0` guard is unsigned, so with no match `i = 0` is followed by `i - 1 = u64::MAX` and the loop never terminates. Definition 201 is lifted (BitScanReverse with the corrected LastTrue == bsr(Pack) theorem) but the authorization layer's totality witness refuses this non-terminating shape: no PositionSearch certificate, hence no rewrite. A sound reverse kernel (underflow guard `successor < carry`, start = extent - 1) is authorized and rewritten natively — see VERIFIER_AUDIT lift 10.",
                 },
             },
             func: || {

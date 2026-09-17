@@ -67,19 +67,49 @@ fn tautology_obligation(definition: DefinitionId) -> ProofObligation {
     }
 }
 
+/// TEST-ONLY Stub definition. All 16 production definitions are lifted
+/// (BitScanReverse, id 201, was the last), so the quarantine path needs
+/// a declared-Stub exemplar that is not in the production registry.
+struct TestStubDef;
+
+impl TransformationDefinition for TestStubDef {
+    fn id(&self) -> DefinitionId {
+        DefinitionId::new(998)
+    }
+    fn name(&self) -> &'static str {
+        "test-stub"
+    }
+    fn verification_status(&self) -> VerificationStatus {
+        VerificationStatus::Stub
+    }
+    fn applicability(&self, _candidate: &Candidate) -> bool {
+        true
+    }
+    fn obligation(&self, _candidate: &Candidate) -> ProofObligation {
+        tautology_obligation(DefinitionId::new(998))
+    }
+}
+
+fn stub_registry() -> TransformationRegistry {
+    let mut registry = TransformationRegistry::new();
+    registry.register(Box::new(TestStubDef));
+    registry
+}
+
 // ────────────────────────────────────────────────────────────
 // 1. Quarantine: Stub never returns Proven
 // ────────────────────────────────────────────────────────────
 
 #[test]
 fn stub_definition_cannot_prove_a_tautology() {
-    // DefinitionId(201) = BitScanReverse — the last registered Stub (its
-    // historical LastTrue == clz theorem is false). We submit an even stronger
-    // obligation: a syntactic tautology. If the verifier returned Proven
-    // for this, the stub quarantine would be broken.
-    let obligation = tautology_obligation(DefinitionId::new(201));
+    // A declared-Stub definition (test-only: the production registry has
+    // no Stub definitions left after the BitScanReverse lift). We submit
+    // an even stronger obligation: a syntactic tautology. If the
+    // verifier returned Proven for this, the stub quarantine would be
+    // broken.
+    let obligation = tautology_obligation(DefinitionId::new(998));
     let context = make_context();
-    let verifier = Verifier::new();
+    let verifier = Verifier::new().with_registry(stub_registry());
 
     let result = verifier.verify(&obligation, &context);
     match result {
@@ -105,11 +135,11 @@ fn stub_definition_cannot_prove_even_at_minimum_level_stub() {
     // The registry is not directly inspectable from an integration test;
     // quarantine behavior is exercised through verify() in the tautology
     // test below. This test documents the policy floor: the default
-    // minimum is SchemaChecked, so a Stub definition (BitScanReverse, id
-    // 201) attempting a tautology obligation cannot return Proven.
-    let obligation = tautology_obligation(DefinitionId::new(201));
+    // minimum is SchemaChecked, so a test Stub definition attempting a
+    // tautology obligation cannot return Proven.
+    let obligation = tautology_obligation(DefinitionId::new(998));
     let context = make_context();
-    let verifier = Verifier::new();
+    let verifier = Verifier::new().with_registry(stub_registry());
 
     let result = verifier.verify(&obligation, &context);
     assert!(
@@ -306,13 +336,13 @@ fn mutated_all_theorem_with_wrong_length_is_not_proven() {
 
 #[test]
 fn quarantine_blocks_stub_even_when_obligation_would_trivially_normalize() {
-    // The strongest form of the quarantine test: hand-craft a BitScanReverse
-    // obligation whose theorem is Equal(x, x) — a syntactic tautology
-    // the symbolic backend would prove instantly. The verifier must
-    // quarantine it BEFORE any backend runs.
-    let obligation = tautology_obligation(DefinitionId::new(201)); // BitScanReverse = Stub
+    // The strongest form of the quarantine test: hand-craft a Stub
+    // (test-only) obligation whose theorem is Equal(x, x) — a syntactic
+    // tautology the symbolic backend would prove instantly. The
+    // verifier must quarantine it BEFORE any backend runs.
+    let obligation = tautology_obligation(DefinitionId::new(998));
     let context = make_context();
-    let verifier = Verifier::new();
+    let verifier = Verifier::new().with_registry(stub_registry());
 
     let result = verifier.verify(&obligation, &context);
     match result {
@@ -322,7 +352,7 @@ fn quarantine_blocks_stub_even_when_obligation_would_trivially_normalize() {
             ..
         }) => {
             assert_eq!(status, sir_verification::registry::VerificationStatus::Stub);
-            assert_eq!(definition, "LastTrue to BitScanReverse");
+            assert_eq!(definition, "test-stub");
         }
         VerificationResult::Proven(_) => {
             panic!("SOUNDNESS: a Stub definition returned Proven for a tautology — quarantine bypassed");
@@ -340,7 +370,7 @@ fn exhaustive_backend_cannot_prove_for_stub_definition() {
         id: ObligationId::new(0),
         region: RegionId::new(0),
         candidate: CandidateId::new(0),
-        definition: DefinitionId::new(201), // BitScanReverse = Stub
+        definition: DefinitionId::new(998), // test-only Stub
         theorem: Theorem::new(
             SemanticExpression::Constant(ConstantData::u64(0)),
             SemanticExpression::Constant(ConstantData::u64(0)),
@@ -354,7 +384,8 @@ fn exhaustive_backend_cannot_prove_for_stub_definition() {
         }),
     };
     let context = make_context();
-    let verifier = Verifier::with_policy(VerificationPolicy::ExhaustiveOnly);
+    let verifier = Verifier::with_policy(VerificationPolicy::ExhaustiveOnly)
+        .with_registry(stub_registry());
     let result = verifier.verify(&obligation, &context);
     assert!(
         !matches!(result, VerificationResult::Proven(_)),

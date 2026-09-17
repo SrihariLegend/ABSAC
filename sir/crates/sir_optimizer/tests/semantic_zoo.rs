@@ -464,11 +464,14 @@ pub fn generate_semantic_zoo() -> Vec<ZooProgram> {
         name: "ps002_last_set_bit".to_string(),
         family: Family::PositionSearch,
         function: build_ps002_last_set_bit(),
-        // STILL BLOCKED (2026-09-17): the historical reverse obligation
-        // `LastTrue == LeadingZeros(Pack)` is FALSE (the solver returns
-        // the MSB counterexample), and the recipe equally emits
-        // LeadingZeros; BitScanReverse is held Stub pending a
-        // bit-scan-reverse intrinsic and reverse trip-count support.
+        // STAYS BLOCKED (2026-09-17): the corrected BitScanReverse
+        // definition is lifted, but THIS shape's `i >= 0` guard is
+        // unsigned — with no match `i - 1` wraps to u64::MAX and the
+        // loop never terminates. The authorization totality witness
+        // refuses it (no underflow guard), so nothing may rewrite. The
+        // sound reverse kernel (guard `successor < carry`) is rewritten
+        // and run natively in positional_search_validation.rs /
+        // emit_c_native.rs.
         expected_rewrites: 0,
     });
     zoo.push(ZooProgram {
@@ -720,10 +723,11 @@ fn ps001_bitscan_forward_rewrites() {
 }
 
 #[test]
-fn ps002_bitscan_reverse_stays_blocked() {
-    // The historical reverse correspondence is FALSE (LastTrue is the
-    // highest set index, clz is its complement), so the definition is
-    // held Stub and nothing may rewrite.
+fn ps002_non_terminating_reverse_search_stays_unauthorized() {
+    // The reverse correspondence is now correct (LastTrue is the highest
+    // set index), but this shape's unsigned `i >= 0` guard cannot stop
+    // the scan: the totality witness withholds the PositionSearch
+    // certificate, so nothing may rewrite.
     let optimizer = Optimizer::new(OptimizerConfig::default(), default_registry());
     let result = optimizer.optimize(&build_ps002_last_set_bit());
     assert_eq!(result.rewrites_applied, 0, "ps002 must stay blocked");
