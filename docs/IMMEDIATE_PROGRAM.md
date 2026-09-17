@@ -397,7 +397,9 @@ Remediation D3 (P0A, commit c3ebb54):
        ShiftMask, the rotate pair, the two zero-count scans, the two
        division identities and BitScanForward are lifted (15/16); only
        BitScanReverse remains (false LastTrue==clz theorem caught by the
-       solver; needs a bsr intrinsic + reverse trip-count support);
+       solver; the PS002 kernel is additionally non-terminating on the
+       all-false input — unsigned `i >= 0` underflows; a sound reverse
+       kernel + bsr intrinsic are prerequisites);
        obligations can bind the authorized structural roles
        (`obligation_with_roles` + structural DB in build_obligations);
        instruction-selection emission (Rol/Ror, blsr/blsi/blsmsk,

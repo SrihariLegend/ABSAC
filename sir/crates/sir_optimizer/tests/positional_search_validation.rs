@@ -242,10 +242,17 @@ fn ps001_first_set_bit_optimizer() {
 // Any theorem covers. The pre-audit Any rewrite rebuilt the tuple and
 // silently changed `array_find_last` into "return a constant" —
 // type-valid, structurally verified, semantically destroyed. The
-// authorized-consumer guard now refuses (UnauthorizedLiveOut), and the
-// bitscan path is Stub-quarantined. The honest result is abstention.
+// authorized-consumer guard refuses (UnauthorizedLiveOut), and the
+// bitscan path is held Stub. There is now a THIRD, independent reason:
+// the kernel's reverse scan is not a terminating counted loop on the
+// unsigned induction — when no element matches, `i = 0` is followed by
+// `i - 1 = u64::MAX`, and the guard `i >= 0` is true for every unsigned
+// value, so the loop never exits. The honest result is abstention.
 #[test]
 fn ps002_last_set_bit_optimizer() {
+    // Arithmetic evidence for the non-termination finding:
+    assert_eq!(0u64.wrapping_sub(1), u64::MAX);
+    assert!(u64::MAX >= 0u64, "unsigned `i >= 0` cannot stop the loop");
     let func = build_ps002_last_set_bit();
     let optimizer = Optimizer::new(OptimizerConfig::default(), default_registry());
     let result = optimizer.optimize(&func);

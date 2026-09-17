@@ -204,7 +204,13 @@ The four scan definitions have distinct, now-measured blockers:
   trip-count contract is forward-only (`i < bound`, zero-based), while
   the reverse search iterates `i = 63 .. 0`. A correct lift needs a
   bit-scan-reverse intrinsic (highest set index, width sentinel for
-  zero) plus reverse counted-loop trip-count support.
+  zero) plus reverse counted-loop trip-count support. **Additionally,
+  the PS002 kernel itself is unsound**: its guard is `i >= 0` on an
+  UNSIGNED induction, so when no element matches, `i = 0` is followed by
+  `i - 1 = u64::MAX` and the guard remains true forever — the loop does
+  not terminate. Even with a bsr intrinsic, this kernel must not be
+  authorized; a sound reverse corpus kernel (signed index, or a
+  pre-tested `i > 0` loop that still covers index 0) is required first.
 - **TrailingZeroCount / LeadingZeroCount (202/203) → LIFTED 2026-09-17**
   (lift 7 below).
 - **Emitter prerequisite (done)**: `TrailingZeros`/`LeadingZeros` now
