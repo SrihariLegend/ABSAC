@@ -1,0 +1,16 @@
+### corpus v3
+NATIVE n11_reverse_sum: lower_refused (unsupported: signed icmp 'sgt' (SIR comparison semantics are unsigned-model; signed predicate would mistranslate negative operands): %3 = icmp sgt i64 %1, 0)
+NATIVE n12_atomic_sum: lower_refused (unsupported: atomic load (ordering semantics not modeled): %10 = load atomic i8, ptr %9 monotonic, align 1)
+EMITC_SUMMARY clean=16 mismatched=0 lower_refused=8 harness_errors=0
+### corpus v5
+NATIVE n11_atomic_flags: lower_refused (unsupported: atomic load (ordering semantics not modeled): %10 = load atomic i32, ptr %9 monotonic, align 4)
+NATIVE n12_self_recurrence: clean cases=48
+EMITC_SUMMARY clean=20 mismatched=0 lower_refused=4 harness_errors=0
+### corpus v2
+NATIVE x07_self_recurrence: clean cases=48
+NATIVE x08_early_exit_write: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: x08_early_exit_write)
+EMITC_SUMMARY clean=8 mismatched=0 lower_refused=8 harness_errors=0
+### corpus v4
+NATIVE n11_stride3: clean cases=48
+NATIVE n12_atomic_sum: lower_refused (unsupported: atomic load (ordering semantics not modeled): %10 = load atomic i16, ptr %9 monotonic, align 2)
+EMITC_SUMMARY clean=21 mismatched=0 lower_refused=3 harness_errors=0

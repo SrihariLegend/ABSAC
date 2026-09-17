@@ -1,0 +1,25 @@
+NATIVE p01_count_ge_u16: clean cases=48
+NATIVE p02_sum_u8_u32acc: clean cases=48
+NATIVE p03_all_ne_const: clean cases=48
+NATIVE p04_count_ge_const_u32: clean cases=48
+NATIVE p05_sum_u16_u64acc: clean cases=48
+NATIVE p06_count_ne_u8: clean cases=48
+NATIVE p07_all_eq_u64: clean cases=48
+NATIVE p08_all_ge_u8: clean cases=48
+NATIVE p09_any_or_u8: clean cases=48
+NATIVE p10_count_eq_do_while: clean cases=48
+NATIVE p11_sum_plus_one_u16: clean cases=48
+NATIVE p12_two_reductions: lower_refused (unsupported: multiple loops sharing an exit CFG (nested/sequential loops) not modeled: p12_two_reductions)
+NATIVE n01_sum_i64_nsw: lower_refused (unsupported: signed icmp 'sgt' (SIR comparison semantics are unsigned-model; signed predicate would mistranslate negative operands): %3 = icmp sgt i64 %1, 0)
+NATIVE n02_running_max: lower_refused (unsupported: signed icmp 'sgt' (SIR comparison semantics are unsigned-model; signed predicate would mistranslate negative operands): %4 = icmp sgt i64 %1, 1)
+NATIVE n03_count_equal_pairs: clean cases=48
+NATIVE n04_store_maybe_alias: lower_refused (TypeMismatch { node: NodeId(8), expected: Pointer { pointee: Unit, mutable: true }, actual: Integer { width: I8, signed: false, overflow: Wrapping } })
+NATIVE n05_volatile_load: clean cases=48
+NATIVE n06_stride2: clean cases=48
+NATIVE n07_dynamic_stride: clean cases=48
+NATIVE n08_conditional_sum: clean cases=48
+NATIVE n09_self_recurrence: lower_refused (function has too few blocks for the lowerer)
+NATIVE n10_early_exit_write: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: n10_early_exit_write)
+NATIVE n11_reverse_sum: lower_refused (unsupported: signed icmp 'sgt' (SIR comparison semantics are unsigned-model; signed predicate would mistranslate negative operands): %3 = icmp sgt i64 %1, 0)
+NATIVE n12_atomic_sum: lower_refused (unsupported: atomic load (ordering semantics not modeled): %10 = load atomic i8, ptr %9 monotonic, align 1)
+EMITC_SUMMARY clean=16 mismatched=0 lower_refused=8 harness_errors=0

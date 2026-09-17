@@ -6,7 +6,7 @@ use sir_analysis::manager::AnalysisManager;
 use sir_generation::candidate::Candidate;
 use sir_generation::generator::CandidateGenerator;
 use sir_inference::engine::InferenceEngine;
-use sir_lower::lower;
+use sir_lower::{lower, lower_function};
 use sir_optimizer::{Optimizer, OptimizerConfig};
 use sir_printer::text::TextPrinter;
 use sir_rewrite::registry::default_registry;
@@ -31,7 +31,11 @@ fn main() {
 
     println!("=== Lowering {} ===", ll_path);
 
-    let func = match lower(&ll_text) {
+    let lowered = match args.get(2).map(|name| lower_function(&ll_text, name)) {
+        Some(result) => result,
+        None => lower(&ll_text),
+    };
+    let func = match lowered {
         Ok(f) => f,
         Err(e) => {
             println!("LOWER ERROR: {}", e);

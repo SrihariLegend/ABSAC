@@ -1,0 +1,14 @@
+NATIVE h4b01_any_or_global64: clean cases=24 rewrites=1
+NATIVE h4b02_pred_ge_global128: clean cases=24 rewrites=1
+NATIVE h4b03_pred_ne_const64: clean cases=24 rewrites=1
+NATIVE h4b04_pred_le_global32: clean cases=24 rewrites=1
+NATIVE h4b05_ptr_scan: clean cases=24 rewrites=0
+NATIVE h4b06_volatile_load: clean cases=24 rewrites=0
+NATIVE h4b07_store_in_loop: lower_refused (unsupported call: tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 16 dereferenceable(64) @h4_g_b, i8 %0, i64 64, i1 false), !tbaa !5)
+NATIVE h4b08_two_loops: lower_refused (unsupported: multiple loops sharing an exit CFG (nested/sequential loops) not modeled: h4b08_two_loops)
+NATIVE h4b09_reverse_scan: lower_refused (unsupported: rotated loop exit (back-edge on false) that is not the counted eq-next form (`icmp eq next, bound` with `next = carry + 1`); lowering it as SIR would invert or shift the iteration domain)
+NATIVE h4b10_early_exit: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: h4b10_early_exit)
+NATIVE h4b11_out_param: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: h4b11_out_param)
+NATIVE h4b12_signed_lt_zero: clean cases=24 rewrites=0
+NATIVE h4b13_index_dependent_predicate: lower_refused (unsupported: signed icmp 'sgt' (SIR comparison semantics are unsigned-model; signed predicate would mistranslate negative operands): %11 = icmp sgt i32 %9, %10)
+EMITC_SUMMARY clean=7 mismatched=0 lower_refused=6 harness_errors=0
