@@ -1,0 +1,8 @@
+# Gate 6A-v8 sealed corpus manifest (generated before the frozen run).
+# Frozen candidate: HEAD 6bcf4ba (early-exit lowering + >64 scan identity + sentinel guard).
+# Classification frozen before evaluation; post-run records live in docs/GATE6A_V8_RESULTS.md.
+752297081f4fe64891f01da03c0bbba76830a7e2dd79b8e0382d7b8961f21e65  gate6a/v8_corpus.c
+77106b7cf9a499847d8f32f6aa19f8ad8488962747085f5542da1bf3c4a7e873  gate6a/v8_corpus.ll
+4a55383be4dab7e91d04efe651443a253ba2644e2d42371a870129bda79f3206  gate6a/v8_expected.csv
+a70503a454fd22fa6713039a8c26aa696c93a0817c7fcb37b8c9d3bb0946c7b1  gate6a/v8_README.md
+986620419dd38e11cd7f300b942a066e22eb37c51439408d8b92caad72ee033f  sir/crates/sir_benchmarks/src/bin/gate6a_run.rs

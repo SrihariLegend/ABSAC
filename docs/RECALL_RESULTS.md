@@ -46,3 +46,22 @@ Regression test:
 2. Two-loop lowering: extend the lowerer to stitch sequential Loop
    nodes (the region extractor already bounds the work).
 3. Early-exit loops: model the break/early-return edge explicitly.
+
+## v8 held-out data points (2026-09-17)
+
+The v8 generation tested the early-exit/scan frontier blindly:
+
+- Early-exit searches rewrite at extents 48 (concrete solver), 96/128
+  (u8) and 80 (u16) (symbolic identity, SchemaChecked) — 7 native-clean
+  rewrites in the corpus.
+- **Sentinel guard confirmed**: a sub-range search (48 accesses, 128
+  no-hit result) and a zero-sentinel search are recognized
+  (`FirstOccurrence`, 2 candidates) but apply 0 rewrites; the lowering
+  itself is native-clean.
+- **Predicate discipline confirmed**: a scalar-eq search recognizes but
+  applies 0 rewrites (no implicit-non-zero mask is fabricated).
+- **New recorded limitations**: a runtime-extent search and a
+  *search-then-second-loop* shape are refused at lowering (the counted
+  successor test and the merge-to-continuation composition are not
+  modeled). Multi-loop + early-exit composition is the next frontend
+  item after runtime extents.

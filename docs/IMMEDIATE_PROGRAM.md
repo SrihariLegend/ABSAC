@@ -514,6 +514,18 @@ Gate 6A-v7:  PASSED — the first fresh generation after the v6
              0 mismatched / 57 lower-refused, 31 rewrites.
              See docs/GATE6A_V7_RESULTS.md.
 
+Gate 6A-v8:  PASSED — fresh held-out generation after the early-exit
+             search lowering + >64 scan identity + sentinel guard:
+             searches at extents 48/96/128 (u8) and 80 (u16) all
+             rewrite and run native-clean (7 native rewrites total);
+             the sentinel guard refuses the sub-range and zero-sentinel
+             rewrites; the scalar-eq search is recognized but not
+             rewritten; 0 false positives / 0 unsafe candidates /
+             0 unsafe rewrites; native 22 clean / 0 mismatched / 6
+             lower-refused. Cumulative native sweep: 161 clean /
+             0 mismatched / 61 lower-refused, 40 rewrites.
+             See docs/GATE6A_V8_RESULTS.md.
+
 Gate 6B:     PASSED — the fusion corpus was sealed before automation
              (gate6b/manifest.sha256, commit 4aedce1) and evaluated
              one-shot with a frozen harness (7ab8edc/2594d1a): 10/10 rows

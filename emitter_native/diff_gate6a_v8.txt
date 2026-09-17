@@ -1,0 +1,29 @@
+NATIVE p01_first_set_48: clean cases=48 rewrites=1
+NATIVE p02_first_set_96: clean cases=48 rewrites=1
+NATIVE p03_first_nonzero_u16_80: clean cases=48 rewrites=1
+NATIVE p04_first_eq_key_u8_64: clean cases=48 rewrites=0
+NATIVE p05_first_set_128: clean cases=48 rewrites=1
+NATIVE p06_two_loops_count_sum_const: clean cases=48 rewrites=1
+NATIVE p07_sum_u8_const_112: clean cases=48 rewrites=0
+NATIVE p08_count_ge_const_u8_56: clean cases=48 rewrites=1
+NATIVE p09_count_le_const_u32_72: clean cases=48 rewrites=1
+NATIVE p10_all_ge_const_u16_40: clean cases=48 rewrites=0
+NATIVE p11_map_then_sum_const: clean cases=48 rewrites=0
+NATIVE p12_search_subrange_short: clean cases=48 rewrites=0
+NATIVE p13_search_sentinel_zero: clean cases=48 rewrites=0
+NATIVE p14_runtime_extent_search: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: p14_runtime_extent_search)
+NATIVE p15_do_while_stride3_sum: clean cases=48 rewrites=0
+NATIVE p16_search_then_sum: lower_refused (TypeMismatch { node: NodeId(1), expected: Pointer { pointee: Integer { width: I8, signed: false, overflow: Wrapping }, mutable: false }, actual: Integer { width: I8, signed: false, overflow: Wrapping } })
+NATIVE n01_running_max_const: clean cases=48 rewrites=0
+NATIVE n02_masked_sum_ternary_const: clean cases=48 rewrites=0
+NATIVE n03_masked_sum_hi_const: clean cases=48 rewrites=0
+NATIVE n04_volatile_load_const: clean cases=48 rewrites=0
+NATIVE n05_atomic_fetch_add: lower_refused (unsupported instruction: atomicrmw (raw: %9 = atomicrmw add ptr %0, i32 1 monotonic, align 4))
+NATIVE n06_may_alias_store_const: lower_refused (TypeMismatch { node: NodeId(5), expected: Pointer { pointee: Unit, mutable: true }, actual: Integer { width: I16, signed: false, overflow: Wrapping } })
+NATIVE n07_two_arrays_const: clean cases=48 rewrites=0
+NATIVE n08_nonterminating_reverse: lower_refused (function has too few blocks for the lowerer)
+NATIVE n09_early_exit_global_const: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: n09_early_exit_global_const)
+NATIVE n10_runtime_sum_u16: clean cases=48 rewrites=0
+NATIVE n11_runtime_count_ge_u32: clean cases=48 rewrites=0
+NATIVE n12_signed_sum_const: clean cases=48 rewrites=0
+EMITC_SUMMARY clean=22 mismatched=0 lower_refused=6 harness_errors=0
