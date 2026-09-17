@@ -239,6 +239,23 @@ static uint64_t __sir_rbit(uint64_t x, unsigned w) {
     }
     return r;
 }
+/* tzcnt/lzcnt conventions: zero counts as the full width. */
+static uint64_t __sir_ctz(uint64_t x, unsigned w) {
+    if (x == 0) return w;
+    unsigned r = (w <= 32) ? (unsigned)__builtin_ctz((uint32_t)x)
+                           : (unsigned)__builtin_ctzll(x);
+    return (r < w) ? r : w;
+}
+static uint64_t __sir_clz(uint64_t x, unsigned w) {
+    if (w == 0) return 0;
+    if (x == 0) return w;
+    if (w <= 32) {
+        unsigned r = (unsigned)__builtin_clz((uint32_t)x);
+        return (r > 32 - w) ? (r - (32 - w)) : 0;
+    }
+    unsigned r = (unsigned)__builtin_clzll(x);
+    return (r > 64 - w) ? (r - (64 - w)) : 0;
+}
 "#
 }
 
@@ -468,9 +485,14 @@ fn emit_expr(
                     return format!("__sir_bv_clz({}, {}u)", o, width);
                 }
             }
-            let width = op_node.and_then(|n| int_width(&n.ty)).unwrap_or(32);
-            let builtin = if width <= 32 { "__builtin_clz" } else { "__builtin_clzll" };
-            format!("{}({})", builtin, o)
+            // lzcnt convention: clz(0) = width (the raw builtin is UB for 0).
+            let width = op_node.and_then(|n| int_bits(&n.ty)).unwrap_or(32);
+            format!(
+                "(({})__sir_clz((uint64_t)({}), {}u))",
+                c_type(&node.ty),
+                o,
+                width
+            )
         }
         NodeKind::TrailingZeros { operand } => {
             let o = emit_operand(*operand, func, carrier_map);
@@ -480,9 +502,14 @@ fn emit_expr(
                     return format!("__sir_bv_ctz({}, {}u)", o, width);
                 }
             }
-            let width = op_node.and_then(|n| int_width(&n.ty)).unwrap_or(32);
-            let builtin = if width <= 32 { "__builtin_ctz" } else { "__builtin_ctzll" };
-            format!("{}({})", builtin, o)
+            // tzcnt convention: ctz(0) = width (the raw builtin is UB for 0).
+            let width = op_node.and_then(|n| int_bits(&n.ty)).unwrap_or(32);
+            format!(
+                "(({})__sir_ctz((uint64_t)({}), {}u))",
+                c_type(&node.ty),
+                o,
+                width
+            )
         }
         NodeKind::Eq { lhs, rhs } => {
             let bv = func
@@ -608,7 +635,10 @@ pub fn emit_c(func: &Function) -> String {
 
     // Instruction-selection operations need the rotate/reverse helpers.
     let uses_alu_helpers = func.arena.iter().any(|node| match &node.kind {
-        NodeKind::Rol { .. } | NodeKind::Ror { .. } => true,
+        NodeKind::Rol { .. }
+        | NodeKind::Ror { .. }
+        | NodeKind::TrailingZeros { .. }
+        | NodeKind::LeadingZeros { .. } => true,
         NodeKind::Intrinsic { name, .. } => name == "rbit",
         _ => false,
     });

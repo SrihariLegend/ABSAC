@@ -650,3 +650,50 @@ fn rewritten_shift_mask_executes_natively() {
     let got: Vec<&str> = stdout.lines().collect();
     assert_eq!(got, vec!["268435455", "36984440", "15"]);
 }
+
+fn zero_count_function(name: &str, leading: bool) -> sir_nodes::Function {
+    let ty = Type::u64();
+    let mut b = Builder::new(name, &[("x", ty.clone())], ty.clone());
+    let x = b.parameter_index(0).unwrap();
+    let r = if leading {
+        b.leading_zeros(x, Span::unknown()).unwrap()
+    } else {
+        b.trailing_zeros(x, Span::unknown()).unwrap()
+    };
+    b.return_value(r, Span::unknown()).unwrap();
+    b.build()
+}
+
+#[test]
+fn zero_count_conventions_execute_natively() {
+    for (name, leading, calls, expected) in [
+        (
+            "tz",
+            false,
+            vec!["0ULL", "0x10ULL", "1ULL"],
+            vec!["64", "4", "0"],
+        ),
+        (
+            "lz",
+            true,
+            vec!["0ULL", "1ULL", "0x8000000000000000ULL"],
+            vec!["64", "63", "0"],
+        ),
+    ] {
+        if !clang_available() {
+            return;
+        }
+        let emitted = sir_benchmarks::emit::emit_c(&zero_count_function(name, leading));
+        let mut main = String::new();
+        for input in &calls {
+            main.push_str(&format!(
+                "    printf(\"%llu\\n\", (unsigned long long){name}({input}));\n"
+            ));
+        }
+        let Some(stdout) = compile_and_run_emitted(&emitted, &main, name) else {
+            return;
+        };
+        let got: Vec<&str> = stdout.lines().collect();
+        assert_eq!(got, expected, "{name} zero-count conventions");
+    }
+}
