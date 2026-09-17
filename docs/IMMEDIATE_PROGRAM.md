@@ -523,7 +523,7 @@ Gate 6A-v8:  PASSED — fresh held-out generation after the early-exit
              rewritten; 0 false positives / 0 unsafe candidates /
              0 unsafe rewrites; native 22 clean / 0 mismatched / 6
              lower-refused. Cumulative native sweep: 161 clean /
-             0 mismatched / 61 lower-refused, 40 rewrites.
+             0 mismatched / 61 lower-refused, 41 rewrites.
              See docs/GATE6A_V8_RESULTS.md.
 
 Gate 6B:     PASSED — the fusion corpus was sealed before automation

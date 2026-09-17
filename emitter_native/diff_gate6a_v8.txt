@@ -1,7 +1,7 @@
 NATIVE p01_first_set_48: clean cases=48 rewrites=1
 NATIVE p02_first_set_96: clean cases=48 rewrites=1
 NATIVE p03_first_nonzero_u16_80: clean cases=48 rewrites=1
-NATIVE p04_first_eq_key_u8_64: clean cases=48 rewrites=0
+NATIVE p04_first_eq_key_u8_64: clean cases=48 rewrites=1
 NATIVE p05_first_set_128: clean cases=48 rewrites=1
 NATIVE p06_two_loops_count_sum_const: clean cases=48 rewrites=1
 NATIVE p07_sum_u8_const_112: clean cases=48 rewrites=0

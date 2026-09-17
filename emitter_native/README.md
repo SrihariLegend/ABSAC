@@ -31,8 +31,15 @@ buffer byte-for-byte.
 | `d4/tier_b.ll` | 7 | 0 | 5 | 24 | 4 |
 | `gate6a/v6_corpus.ll` | 17 | 0 | 5 | 48 | 6 |
 | `gate6a/v7_corpus.ll` | 19 | 0 | 5 | 48 | 5 |
-| `gate6a/v8_corpus.ll` | 22 | 0 | 6 | 48 | 7 |
-| **Total** | **161** | **0** | **61** | — | **40** |
+| `gate6a/v8_corpus.ll` | 22 | 0 | 6 | 48 | 8 |
+| **Total** | **161** | **0** | **61** | — | **41** |
+
+**Scalar-predicate searches** (2026-09-17): the position pack helper now
+extracts the hit comparison (`Eq`/`Ne`/ordered, negation-normalized)
+from the loop's position select instead of assuming an implicit
+non-zero predicate, so v8 `p04_first_eq_key_u8_64` rewrites to
+`mask_cmp(Eq, key)` + `ctz` and is native-clean; compound predicates
+are still refused.
 
 **v8** (2026-09-17): early-exit searches at extents 48/96/128 (u8) and
 80 (u16) rewrite natively (≤64 via the concrete solver, >64 via the

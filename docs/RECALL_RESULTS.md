@@ -58,8 +58,13 @@ The v8 generation tested the early-exit/scan frontier blindly:
   no-hit result) and a zero-sentinel search are recognized
   (`FirstOccurrence`, 2 candidates) but apply 0 rewrites; the lowering
   itself is native-clean.
-- **Predicate discipline confirmed**: a scalar-eq search recognizes but
-  applies 0 rewrites (no implicit-non-zero mask is fabricated).
+- **Predicate extraction (follow-up)**: the position pack helper now
+  extracts the hit comparison from the position select instead of
+  assuming implicit non-zero, so the scalar-eq search (`Eq(elem, key)`)
+  rewrites to `mask_cmp(Eq, key)` + `ctz` and is native-clean; negation
+  and swapped ordered operands are normalized, compound predicates are
+  refused. v8 p04 moved from recognized-only to rewritten (8 native
+  rewrites in v8; 41 cumulative).
 - **New recorded limitations**: a runtime-extent search and a
   *search-then-second-loop* shape are refused at lowering (the counted
   successor test and the merge-to-continuation composition are not

@@ -1186,3 +1186,64 @@ fn early_exit_search_rewrites_and_executes_natively() {
     let got: Vec<&str> = stdout.lines().collect();
     assert_eq!(got, vec!["5", "0", "47", "48"]);
 }
+
+/// Scalar-eq early-return search: the recipe extracts the hit predicate
+/// (`Eq(elem, key)`) from the position select and emits
+/// `mask_cmp(..., Eq, key)` + `ctz`, rather than refusing or assuming an
+/// implicit non-zero mask.
+const EQ_SEARCH_32: &str = r#"
+define i64 @first_eq_32(ptr %0, i8 %1) {
+entry:
+  br label %2
+
+2:
+  %3 = phi i64 [ 0, %entry ], [ %8, %7 ]
+  %4 = getelementptr inbounds i8, ptr %0, i64 %3
+  %5 = load i8, ptr %4
+  %6 = icmp eq i8 %5, %1
+  br i1 %6, label %10, label %7
+
+7:
+  %8 = add nuw nsw i64 %3, 1
+  %9 = icmp eq i64 %8, 32
+  br i1 %9, label %10, label %2
+
+10:
+  %11 = phi i64 [ 32, %7 ], [ %3, %2 ]
+  ret i64 %11
+}
+"#;
+
+#[test]
+fn scalar_eq_search_rewrites_with_the_extracted_predicate() {
+    if !clang_available() {
+        return;
+    }
+    let func = sir_lower::lower_function(EQ_SEARCH_32, "first_eq_32")
+        .expect("eq-predicate search must lower");
+    let optimized = optimize_suppressed(&func);
+    assert_eq!(
+        optimized.rewrites_applied, 1,
+        "the bitscan rewrite must use the extracted Eq predicate"
+    );
+    let emitted = sir_benchmarks::emit::emit_c(&optimized.function);
+    assert!(
+        emitted.contains("__sir_mask_cmp") && emitted.contains("__sir_ctz"),
+        "expected a mask compare + ctz rewrite:\n{emitted}"
+    );
+    let main = "    uint8_t a[32] = {0};\n\
+                \x20   a[3] = 7;\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)first_eq_32(a, 7));\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)first_eq_32(a, 9));\n\
+                \x20   uint8_t b[32] = {0};\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)first_eq_32(b, 0));\n\
+                \x20   uint8_t c[32] = {0};\n\
+                \x20   c[31] = 5;\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)first_eq_32(c, 5));\n";
+    let Some(stdout) = compile_and_run_emitted(&emitted, main, "first_eq_32") else {
+        return;
+    };
+    // First index whose byte equals the key; no match returns 32.
+    let got: Vec<&str> = stdout.lines().collect();
+    assert_eq!(got, vec!["3", "32", "0", "31"]);
+}

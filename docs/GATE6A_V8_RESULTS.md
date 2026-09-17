@@ -54,6 +54,18 @@ the sentinel guard, and the integer predicate-collection recipe:
   merge-to-continuation composition are not modeled); stride-3 lowers
   natively but derives no reduction (non-unit stride).
 
+### Follow-up (same day): scalar-predicate searches now rewrite
+
+p04 (`p04_first_eq_key_u8_64`) previously recognized `FirstOccurrence`
+but applied 0 rewrites because the position pack helper only accepted an
+implicit non-zero predicate. The helper now extracts the hit comparison
+from the loop's position select (`hit && !found ? index : sentinel`),
+normalizing negation and swapped ordered operands, and emits the exact
+`ArrayCmpMask` operator and scalar — `Eq(elem, key)` becomes
+`mask_cmp(..., Eq, key)` + `ctz`. p04 now applies 1 rewrite and is
+native-clean 48/48 (`gate6a/v8_raw/run2_eq_search_rewrites.txt`), so v8
+has **8 native-clean rewrites**; compound predicates are still refused.
+
 ## Cumulative native evidence
 
 - All corpora: **161 clean / 0 mismatched / 61 lower-refused**, 40

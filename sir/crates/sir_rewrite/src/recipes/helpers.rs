@@ -225,30 +225,26 @@ pub fn emit_pack_for_position_search(
             );
             Ok((packed, *length))
         }
-        Some(Type::Array { element, length }) => {
-            // Predicate collection: the search hit must be the IMPLICIT
-            // NON-ZERO predicate, verified structurally on the region's
-            // comparison against a zero literal. Any other predicate
-            // (== scalar, != scalar, ordered) has a different mask and is
-            // refused — the PositionSearch role does not carry the op.
-            let element = (**element).clone();
-            if !is_implicit_nonzero_predicate(function, collection, &element) {
-                return Err(RewriteError::RecipeFailed(format!(
-                    "{recipe}: integer collection %{} is not searched with an \
-                     implicit non-zero predicate",
-                    collection.0
-                )));
-            }
-            let zero = zero_of_type(&element).ok_or_else(|| {
-                RewriteError::RecipeFailed(format!(
-                    "{recipe}: no canonical zero for element type {element:?}"
-                ))
-            })?;
-            let zero_node = builder.constant(zero, element, Span::unknown());
+        Some(Type::Array { length, .. }) => {
+            // Predicate collection: the mask must implement EXACTLY the
+            // loop's hit predicate, extracted structurally from the
+            // position select (`hit && !found ? index : sentinel`). The
+            // extraction accepts a single element/scalar comparison and
+            // normalizes negation (`!(elem == k)` -> `Ne`); anything
+            // compound is refused rather than approximated.
+            let (op, scalar) = extract_hit_predicate(function, region, collection).ok_or_else(
+                || {
+                    RewriteError::RecipeFailed(format!(
+                        "{recipe}: collection %{} has no extractable single-comparison \
+                         search predicate",
+                        collection.0
+                    ))
+                },
+            )?;
             let mask = builder.array_cmp_mask(
                 LocalNodeId::new(collection.as_u64()),
-                zero_node,
-                sir_nodes::CmpOperator::Ne,
+                LocalNodeId::new(scalar.as_u64()),
+                op,
                 Span::unknown(),
             );
             Ok((mask, *length))
@@ -260,39 +256,117 @@ pub fn emit_pack_for_position_search(
     }
 }
 
-/// True when the region compares an element of `collection` against a
-/// zero literal (`Eq(elem, 0)` or `Ne(elem, 0)`), i.e. the search hit
-/// is "element is non-zero".
-fn is_implicit_nonzero_predicate(
+/// The loop's position select (`hit && !found ? index : sentinel`)
+/// pins the search predicate: `hit` is the select condition's
+/// non-`found` conjunct, possibly negated. Return the comparison
+/// operator (normalized to the hit polarity) and its scalar operand
+/// when the element is compared directly against a single scalar node.
+fn extract_hit_predicate(
     function: &sir_nodes::Function,
+    region: &RewriteRegion,
     collection: sir_types::NodeId,
-    element_ty: &Type,
-) -> bool {
-    let zero = match zero_of_type(element_ty) {
-        Some(z) => z,
-        None => return false,
-    };
-    let accesses: Vec<sir_types::NodeId> = function
-        .arena
+) -> Option<(sir_nodes::CmpOperator, sir_types::NodeId)> {
+    let loop_node = region
+        .structural
+        .roles
         .iter()
-        .filter_map(|n| match &n.kind {
-            NodeKind::ArrayAccess { base, .. } if *base == collection => Some(n.id),
+        .find_map(|role| match role {
+            sir_transform::roles::RegionRoles::PositionSearch { result, .. } => Some(*result),
             _ => None,
-        })
-        .collect();
-    function.arena.iter().any(|n| {
-        let (lhs, rhs) = match &n.kind {
-            NodeKind::Eq { lhs, rhs } | NodeKind::Ne { lhs, rhs } => (*lhs, *rhs),
-            _ => return false,
+        })?;
+    let NodeKind::Loop {
+        body,
+        carried_inputs,
+        ..
+    } = function.get_node(loop_node).map(|n| &n.kind)?
+    else {
+        return None;
+    };
+    for id in body {
+        let Some(NodeKind::Select {
+            cond, true_val, ..
+        }) = function.get_node(*id).map(|n| &n.kind)
+        else {
+            continue;
         };
-        let is_zero = |id: sir_types::NodeId| {
+        // Only a position select: the taken arm is the carried index.
+        if !carried_inputs.contains(true_val) {
+            continue;
+        }
+        // `cond = hit && !found` (either order).
+        let (lhs, rhs) = match function.get_node(*cond).map(|n| &n.kind) {
+            Some(NodeKind::BoolAnd { lhs, rhs }) => (*lhs, *rhs),
+            _ => continue,
+        };
+        let is_not_found = |candidate: sir_types::NodeId| {
             matches!(
-                function.get_node(id).map(|x| &x.kind),
-                Some(NodeKind::Constant(data)) if *data == zero
+                function.get_node(candidate).map(|n| &n.kind),
+                Some(NodeKind::BoolNot { operand }) if carried_inputs.contains(operand)
             )
         };
-        (accesses.contains(&lhs) && is_zero(rhs)) || (accesses.contains(&rhs) && is_zero(lhs))
-    })
+        let hit = if is_not_found(lhs) {
+            rhs
+        } else if is_not_found(rhs) {
+            lhs
+        } else {
+            continue;
+        };
+        // Normalize negation of the comparison.
+        let (cmp_node, inverted) = match function.get_node(hit).map(|n| &n.kind) {
+            Some(NodeKind::BoolNot { operand }) => (*operand, true),
+            _ => (hit, false),
+        };
+        let (lhs, rhs, op) = match function.get_node(cmp_node).map(|n| &n.kind) {
+            Some(NodeKind::Eq { lhs, rhs }) => (*lhs, *rhs, sir_nodes::CmpOperator::Eq),
+            Some(NodeKind::Ne { lhs, rhs }) => (*lhs, *rhs, sir_nodes::CmpOperator::Ne),
+            Some(NodeKind::Lt { lhs, rhs }) => (*lhs, *rhs, sir_nodes::CmpOperator::Lt),
+            Some(NodeKind::Le { lhs, rhs }) => (*lhs, *rhs, sir_nodes::CmpOperator::Le),
+            Some(NodeKind::Gt { lhs, rhs }) => (*lhs, *rhs, sir_nodes::CmpOperator::Gt),
+            Some(NodeKind::Ge { lhs, rhs }) => (*lhs, *rhs, sir_nodes::CmpOperator::Ge),
+            _ => continue,
+        };
+        let access_lhs = matches!(
+            function.get_node(lhs).map(|n| &n.kind),
+            Some(NodeKind::ArrayAccess { base, .. }) if *base == collection
+        );
+        let access_rhs = matches!(
+            function.get_node(rhs).map(|n| &n.kind),
+            Some(NodeKind::ArrayAccess { base, .. }) if *base == collection
+        );
+        let scalar = if access_lhs {
+            rhs
+        } else if access_rhs {
+            lhs
+        } else {
+            continue;
+        };
+        // A swapped element/scalar comparison flips ordered operators.
+        let op = if access_rhs && !access_lhs {
+            match op {
+                sir_nodes::CmpOperator::Lt => sir_nodes::CmpOperator::Gt,
+                sir_nodes::CmpOperator::Le => sir_nodes::CmpOperator::Ge,
+                sir_nodes::CmpOperator::Gt => sir_nodes::CmpOperator::Lt,
+                sir_nodes::CmpOperator::Ge => sir_nodes::CmpOperator::Le,
+                other => other,
+            }
+        } else {
+            op
+        };
+        let op = if inverted {
+            match op {
+                sir_nodes::CmpOperator::Eq => sir_nodes::CmpOperator::Ne,
+                sir_nodes::CmpOperator::Ne => sir_nodes::CmpOperator::Eq,
+                sir_nodes::CmpOperator::Lt => sir_nodes::CmpOperator::Ge,
+                sir_nodes::CmpOperator::Le => sir_nodes::CmpOperator::Gt,
+                sir_nodes::CmpOperator::Gt => sir_nodes::CmpOperator::Le,
+                sir_nodes::CmpOperator::Ge => sir_nodes::CmpOperator::Lt,
+            }
+        } else {
+            op
+        };
+        return Some((op, scalar));
+    }
+    None
 }
 
 /// Find a `TupleExtract` node that consumes the given tuple value, if any.
