@@ -165,10 +165,11 @@ The first lift implements the path above end to end:
   multiply-by-power-of-two rows expect 1 rewrite; `validate_ba003`
   asserts the shift-left.
 
-Remaining quarantined: 2 definitions (the BitScanForward/BitScanReverse
-pair). Everything else is lifted: MultiplyShift, the four mask-algebra
+Remaining quarantined: 1 definition (BitScanReverse). Everything else is
+lifted: MultiplyShift, the four mask-algebra
 definitions, ByteSwap, BitReverse, ShiftMask, the two rotate
 definitions, the two zero-count definitions, ModuloAnd and DivideShift.
+BitScanForward joined them on 2026-09-17 (lift 9 below).
 precisely:
 
 - **ModuloAnd / DivideShift → LIFTED 2026-09-17** (lift 8 below). The
@@ -194,19 +195,16 @@ precisely:
 
 The four scan definitions have distinct, now-measured blockers:
 
-- **BitScanForward / BitScanReverse (200/201)**: their theorems are real
-  (`FirstTrue(seq) == ctz(Pack(seq))`, `LastTrue(seq) ==
-  clz(Pack(seq))`), but the optimizer generates **zero candidates** for
-  these loops. The ps001 probe shows why: its region is recognized as a
-  `BooleanCollectionReduction` (Any) whose live-out is the POSITION, not
-  a PositionSearch region — `derive_authorizations` issues **no entry**
-  for it (PositionSearch is deliberately absent from the scalar concept
-  lists and needs its own X06 certificate), so certificate-gated
-  generation produces nothing. The solver now supports
-  `LogicalSequence`/`Pack`/`FirstTrue`/`LastTrue` and ctz/clz lowering
-  (added for the zero-count lift), so only the authorization/binding side
-  remains; a regression test pins the zero-candidate state
-  (`ps001_bitscan_stays_blocked_on_position_authorization`).
+- **BitScanForward (200) → LIFTED 2026-09-17** (lift 9 below).
+- **BitScanReverse (201) remains Stub** with three recorded blockers:
+  (a) the historical obligation `LastTrue(seq) == LeadingZeros(Pack(seq))`
+  is **FALSE** — the solver returns the counterexample for an MSB-set
+  mask (lhs 63 vs rhs 0); (b) the recipe equally emits `LeadingZeros`, a
+  latent miscompile the quarantine hid; (c) the reduction binding's
+  trip-count contract is forward-only (`i < bound`, zero-based), while
+  the reverse search iterates `i = 63 .. 0`. A correct lift needs a
+  bit-scan-reverse intrinsic (highest set index, width sentinel for
+  zero) plus reverse counted-loop trip-count support.
 - **TrailingZeroCount / LeadingZeroCount (202/203) → LIFTED 2026-09-17**
   (lift 7 below).
 - **Emitter prerequisite (done)**: `TrailingZeros`/`LeadingZeros` now
@@ -273,6 +271,38 @@ The four scan definitions have distinct, now-measured blockers:
   (0xFFFFFFFF → 15 / 536870911, 0x12345678 → 8 / 38177487).
 - **Count**: 14/16 lifted; only the BitScan pair remains, blocked on
   PositionSearch (X06) authorization.
+
+## Quarantine lift 9 — BitScanForward + found-flag search recognition (2026-09-17)
+
+- **Found-flag search recognition** (`recognizers/position_search.rs`):
+  a new detector covers the PS001/PS002 kernel shape — a carried `found`
+  flag guarded by `!found` in the termination, a carried induction value
+  whose successor is `i ± 1` and an output, a position select whose TRUE
+  arm is that induction value, and a select condition derived from
+  memory and guarded by `!found`. It emits FirstOccurrence (forward) or
+  LastOccurrence (reverse); the X06 check passes because the select
+  binds the index and its condition is a real element test.
+- **Binding/trip-count accept guarded terminations**: `find_counter_bound`
+  and `comparison_is_counter_lt` look through `BoolAnd` conjuncts, and
+  `estimate_trip_count` does the same, so `!found && i < limit` is a
+  counted loop with the array's declared extent.
+- **Engine**: a candidate authorized under the PositionSearch domain no
+  longer requires a reduction binding — that binding correctly refuses
+  the position live-out (outside the reduction theorem), so the engine
+  assembles the region without it. Position recipes consume the
+  authorized PositionSearch role (`emit_pack_for_position_search`) for
+  the collection and extent; this is a recorded exception to the
+  reduction-binding rule, alongside the Popcount table-lookup path.
+- **BitScanForward (200) is ConcreteSolverChecked**: binds the role's
+  boolean-array extent and proves `FirstTrue(seq) == ctz(Pack(seq))`.
+  The recipe now targets the FieldAccess/TupleExtract consumer (the old
+  code only recognized TupleExtract) and emits `TrailingZeros(pack(arr))`.
+- **Evidence**: semantic-zoo ps001 and positional-search PS001 rewrite
+  (trailing-zero selection asserted); a native test runs the rewritten
+  function — first set bit at index 5 returns 5, an empty array returns
+  the sentinel 64. ps002 remains blocked and a regression test pins it;
+  the stub-quarantine tests now use BitScanReverse (201) as the
+  canonical remaining stub.
 
 ## Quarantine lift 3 — ByteSwap + role-based obligation context (2026-09-17)
 
