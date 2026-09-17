@@ -355,16 +355,37 @@ Remediation D3 (P0A, commit c3ebb54):
        Artifact::new(Proof, CheckedApplication) verifies obligation
        linkage + artifact digest, refuses on mismatch, and is the ONLY
        route to mutation for reduction rewrites (RewriteResult carries
-       it). 518/518 green; corpus unchanged (40/50, 0 rewrites). NEXT:
-       All/Parity/Popcount consume the binding; CheckedApplication
-       assurance > SchemaChecked (solver-backed candidate frame);
-       transient-use closure via value-identical replacement is
-       documented but a PHI/select downstream grammar remains open.
-  Remaining P0A queue (advisor order): (1) ProposalBinding [DERIVED,
-       awaiting recipe consumption + application checker]; (2) role-map
-       plumbing so recipes consume the authorized binding instead of
-       rediscovering it (certificate binding vs recipe binding must not
-       be two implementations); (3) upgrade quarantined definitions to
+       it). 518/518 green; corpus unchanged (40/50, 0 rewrites).
+  ALL REDUCTION RECIPES CONSUME THE BINDING (2026-09-17, P0A queue
+       items 1-2 for recipes): the shared helpers (require_binding,
+       binding_target, binding_collection_extent,
+       emit_pack_from_binding) make the authorized ProposalBinding the
+       single source of collection/predicate-op/scalar/observable
+       target for Any, All, Parity, Popcount and the two BitScan
+       recipes. Any's inline logic moved into the shared helpers; the
+       structural emit_pack (which HARDCODED CmpOperator::Gt for
+       predicate collections) is deleted. All/Parity/Popcount now
+       refuse with RecipeFailed when no binding is derived, except the
+       scalar SetIteration path (no binding by design: the engine binds
+       collection reductions only) and Popcount's table-lookup path,
+       which remain role-driven and are recorded exceptions. All over
+       >64-element collections refuses (SIR constants carry one u64;
+       a truncated full mask is never emitted). Tests:
+       sir_optimizer/tests/binding_consumption.rs (All/Parity/Popcount
+       predicate collections rewrite; the mask uses the binding's TRUE
+       Eq, not hardcoded Gt), popcount stale-structural-role refusal,
+       native differential corpora re-verified at 99 clean / 0
+       mismatched / 19 rewrites. NEXT:
+       CheckedApplication assurance > SchemaChecked (solver-backed
+       candidate frame); transient-use closure via value-identical
+       replacement is documented but a PHI/select downstream grammar
+       remains open.
+  Remaining P0A queue (advisor order): (1) ProposalBinding [CONSUMED
+       by all collection reduction recipes + the Any end-to-end
+       artifact; application checker upgrades pending]; (2) role-map
+       plumbing [COMPLETE for the recipes listed above; the
+       Popcount table-lookup path and scalar SetIteration path are
+       recorded role-driven exceptions]; (3) upgrade quarantined definitions to
        ConcreteSolverChecked (obligation from actual pair, mutation-
        sensitive) starting with the unsigned arithmetic identities;
        (4) map-then-sum recall, two-loop lowering, accumulator width,

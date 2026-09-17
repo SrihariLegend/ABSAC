@@ -28,6 +28,14 @@ All/Parity/Popcount are not part of this freeze. Their recipes and theorem
 construction must consume the same `ProposalBinding` before they can enter a
 later freeze.
 
+> **Post-annotation (2026-09-17):** the recipe side of that condition is
+> now met — All/Parity/Popcount (and both BitScan recipes) consume the
+> authorized `ProposalBinding` through shared helpers, and the
+> structural `emit_pack` with its hardcoded `Gt` is deleted (see
+> `docs/IMMEDIATE_PROGRAM.md`). C3 remains an Any-only freeze; widening
+> it is a separate decision covering candidates, theorem obligations,
+> application checks and artifacts.
+
 ## Hardening gates in this freeze
 
 The Any acceptance suite must continue to pass:

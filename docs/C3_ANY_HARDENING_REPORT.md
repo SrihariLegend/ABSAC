@@ -72,3 +72,9 @@ milestone. All/Parity/Popcount remain outside C3 until their recipes,
 candidates, theorem obligations, application checks, and artifacts consume
 the same canonical binding. No Arena/MCTS implementation is introduced by
 this checkpoint.
+
+> **Post-annotation (2026-09-17):** the recipe/candidate side now consumes
+> the canonical binding for All/Parity/Popcount and both BitScan recipes
+> (`docs/IMMEDIATE_PROGRAM.md`); theorem obligations, application checks
+> and artifacts for those families are still to be audited, so the C3
+> freeze boundary is unchanged.

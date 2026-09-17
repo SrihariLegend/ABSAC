@@ -108,9 +108,11 @@ Tier B (10 kernels: 3 P / 7 N), `h4c/raw/run1.txt` + `tbexec1.txt`:
   fixed implementation during authoring; sealed expectations; one-shot
   run; raw archives committed before inspection) is satisfied and
   documented.
-- **Not covered:** All/Parity/Popcount binding generalization,
-  solver-backed application equivalence, LLVM/native execution,
-  performance claims.
+- **Not covered at H4 time:** All/Parity/Popcount binding
+  generalization (closed 2026-09-17: all collection reduction recipes
+  consume the authorized ProposalBinding — docs/IMMEDIATE_PROGRAM.md),
+  solver-backed application equivalence, LLVM/native execution (F6–F8
+  closed 2026-09-17 — docs/EMITTER_F6F8_RESULTS.md), performance claims.
 
 ## Consequences
 
