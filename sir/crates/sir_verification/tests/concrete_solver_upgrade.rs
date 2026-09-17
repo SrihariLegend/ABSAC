@@ -578,7 +578,7 @@ fn rotate_structure_and_function(
 }
 
 #[test]
-fn constant_rotations_bind_but_stay_quarantined() {
+fn bound_constant_rotations_are_concrete_solver_checked() {
     use sir_verification::definitions::rotate_left::RotateLeftDefinition;
     use sir_verification::definitions::rotate_right::RotateRightDefinition;
     for left in [true, false] {
@@ -594,16 +594,13 @@ fn constant_rotations_bind_but_stay_quarantined() {
             obligation.domain.is_some(),
             "constant rotation must bind (left={left})"
         );
-        // The definitions are HELD Stub: no CircularPermutation
-        // candidates are generated today, so the quarantine must still
-        // block even a correctly bound obligation.
-        assert!(
-            !matches!(
-                Verifier::new().verify(&obligation, &context()),
-                VerificationResult::Proven(_)
-            ),
-            "left={left}: the held definition must not authorize anything"
-        );
+        match Verifier::new().verify(&obligation, &context()) {
+            VerificationResult::Proven(proof) => {
+                assert_eq!(proof.backend, VerificationBackend::ConcreteSolver);
+                assert_eq!(proof.assurance, VerificationStatus::ConcreteSolverChecked);
+            }
+            other => panic!("left={left}: expected a concrete-solver proof, got {other:?}"),
+        }
     }
 }
 

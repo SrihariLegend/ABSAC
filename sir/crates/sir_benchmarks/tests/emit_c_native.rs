@@ -697,3 +697,43 @@ fn zero_count_conventions_execute_natively() {
         assert_eq!(got, expected, "{name} zero-count conventions");
     }
 }
+
+/// `(x << 3) | (x >> (32 - 3))` with constant amounts (rotate left).
+fn rotate_left_const_function() -> sir_nodes::Function {
+    let ty = Type::u32();
+    let mut b = Builder::new("rotl3", &[("x", ty.clone())], ty.clone());
+    let x = b.parameter_index(0).unwrap();
+    let three = b.constant(sir_types::ConstantData::u32(3), ty.clone(), Span::unknown());
+    let width = b.constant(sir_types::ConstantData::u32(32), ty.clone(), Span::unknown());
+    let diff = b.sub(width, three, Span::unknown()).unwrap();
+    let shl = b.shl(x, three, Span::unknown()).unwrap();
+    let shr = b.shr(x, diff, Span::unknown()).unwrap();
+    let res = b.bit_or(shl, shr, Span::unknown()).unwrap();
+    b.return_value(res, Span::unknown()).unwrap();
+    b.build()
+}
+
+#[test]
+fn rewritten_constant_rotate_executes_natively() {
+    if !clang_available() {
+        return;
+    }
+    let optimized = optimize_suppressed(&rotate_left_const_function());
+    assert_eq!(
+        optimized.rewrites_applied, 1,
+        "a constant-amount rotate must be authorized by the concrete proof"
+    );
+    let emitted = sir_benchmarks::emit::emit_c(&optimized.function);
+    assert!(
+        emitted.contains("__sir_rotl"),
+        "the rewrite must select Rol:\n{emitted}"
+    );
+    let main = "    printf(\"%llu\\n\", (unsigned long long)rotl3(0x80000001u));\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)rotl3(0x12345678u));\n";
+    let Some(stdout) = compile_and_run_emitted(&emitted, main, "rotl3") else {
+        return;
+    };
+    // rol32(0x80000001, 3) = 0x0C = 12; rol32(0x12345678, 3) = 0x91A2B3C0.
+    let got: Vec<&str> = stdout.lines().collect();
+    assert_eq!(got, vec!["12", "2443359168"]);
+}

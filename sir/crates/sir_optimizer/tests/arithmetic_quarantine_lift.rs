@@ -131,14 +131,11 @@ fn divide_power_of_two_stays_quarantined() {
     );
 }
 
-/// Recorded blocker (2026-09-17): `CircularPermutation` regions infer the
-/// BitPermutation representation but produce ZERO candidates today —
-/// for constant AND variable amounts. Rotate definitions are therefore
-/// held Stub even though their bindings are concrete. When the
-/// generation/authorization gap is fixed, replace this with a rewrite +
-/// native-execution test.
+/// Constant-amount rotations authorize (the definedness gate now
+/// evaluates `W - k` constant expressions) and rewrite to Rol/Ror;
+/// variable amounts stay definedness-blocked.
 #[test]
-fn circular_permutation_generates_no_candidates_today() {
+fn constant_rotate_left_rewrites_and_variable_amount_abstains() {
     let mut b = Builder::new("rotl3", &[("x", Type::u32())], Type::u32());
     let x = b.parameter_index(0).unwrap();
     let three = b.constant(ConstantData::u32(3), Type::u32(), span());
@@ -151,10 +148,9 @@ fn circular_permutation_generates_no_candidates_today() {
     let func = b.build();
     let result = optimize(&func);
     assert_eq!(
-        result.iterations_detail[0].candidates_generated, 0,
-        "constant-amount rotation candidate generation is the recorded blocker"
+        result.rewrites_applied, 1,
+        "a constant-amount rotate must rewrite"
     );
-    assert_eq!(result.rewrites_applied, 0, "held Stub definitions authorize nothing");
 
     // Variable amount (HD003 shape): same zero-candidate outcome.
     let mut b = Builder::new("rotl_k", &[("x", Type::u32()), ("k", Type::u32())], Type::u32());
@@ -167,6 +163,58 @@ fn circular_permutation_generates_no_candidates_today() {
     let res = b.bit_or(shl, shr, span()).unwrap();
     b.return_value(res, span()).unwrap();
     let result = optimize(&b.build());
-    assert_eq!(result.iterations_detail[0].candidates_generated, 0);
-    assert_eq!(result.rewrites_applied, 0);
+    assert_eq!(
+        result.rewrites_applied, 0,
+        "variable amounts stay definedness-blocked"
+    );
+}
+
+#[test]
+fn constant_rotate_right_rewrites() {
+    let mut b = Builder::new("rotl3", &[("x", Type::u32())], Type::u32());
+    let x = b.parameter_index(0).unwrap();
+    let three = b.constant(ConstantData::u32(3), Type::u32(), span());
+    let width = b.constant(ConstantData::u32(32), Type::u32(), span());
+    let diff = b.sub(width, three, span()).unwrap();
+    let shr = b.shr(x, three, span()).unwrap();
+    let shl = b.shl(x, diff, span()).unwrap();
+    let res = b.bit_or(shr, shl, span()).unwrap();
+    b.return_value(res, span()).unwrap();
+    let result = optimize(&b.build());
+    assert_eq!(result.rewrites_applied, 1, "constant rotate-right must rewrite");
+    let has_ror = result
+        .function
+        .arena
+        .iter()
+        .any(|n| matches!(n.kind, sir_nodes::NodeKind::Ror { .. }));
+    assert!(has_ror, "the rewrite must select Ror");
+    let has_rol = result
+        .function
+        .arena
+        .iter()
+        .any(|n| matches!(n.kind, sir_nodes::NodeKind::Rol { .. }));
+    assert!(!has_rol, "a right rotation must not select Rol");
+}
+
+#[test]
+fn constant_rotate_left_selects_rol() {
+    let mut b = Builder::new("rotl3", &[("x", Type::u32())], Type::u32());
+    let x = b.parameter_index(0).unwrap();
+    let three = b.constant(ConstantData::u32(3), Type::u32(), span());
+    let width = b.constant(ConstantData::u32(32), Type::u32(), span());
+    let diff = b.sub(width, three, span()).unwrap();
+    let shl = b.shl(x, three, span()).unwrap();
+    let shr = b.shr(x, diff, span()).unwrap();
+    let res = b.bit_or(shl, shr, span()).unwrap();
+    b.return_value(res, span()).unwrap();
+    let result = optimize(&b.build());
+    assert_eq!(result.rewrites_applied, 1);
+    let kinds: Vec<String> = result
+        .function
+        .arena
+        .iter()
+        .map(|n| format!("{:?}", n.kind).split(' ').next().unwrap().to_string())
+        .collect();
+    assert!(kinds.iter().any(|k| k == "Rol"), "expected Rol, got {kinds:?}");
+    assert!(!kinds.iter().any(|k| k == "Ror"), "left rotation must not select Ror");
 }

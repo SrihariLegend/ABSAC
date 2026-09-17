@@ -195,17 +195,11 @@ fn scalar_expression_is_defined(func: &Function, region_nodes: &[NodeId]) -> Res
             }
             NodeKind::Shl { rhs, .. } | NodeKind::Shr { rhs, .. } => {
                 // A shift is well-constrained only when the amount is a
-                // constant strictly below the operand bit width. Signed
-                // literals decode via i64 (negative → invalid).
-                let amount = match func.get_node(*rhs).map(|n| &n.kind) {
-                    Some(NodeKind::Constant(c)) => match c {
-                        ConstantData::Integer { value, .. } => value.parse::<i64>().ok(),
-                        _ => None,
-                    },
-                    _ => None,
-                }
-                .filter(|a| *a >= 0)
-                .map(|a| a as u64);
+                // constant strictly below the operand bit width. The
+                // amount may be a constant EXPRESSION (the canonical
+                // rotate writes `W - k` as a subtraction of literals);
+                // a variable amount still refuses.
+                let amount = constant_amount(func, *rhs);
                 let width = match &node.ty {
                     sir_types::Type::Integer { width, .. } => width.bits() as u64,
                     _ => 0,
@@ -235,6 +229,29 @@ fn scalar_expression_is_defined(func: &Function, region_nodes: &[NodeId]) -> Res
         }
     }
     Ok(())
+}
+
+/// Statically evaluate an integer amount expression: literals and
+/// constant add/sub chains (the canonical `W - k` rotate amount).
+/// Anything involving a parameter or a non-constant node returns None —
+/// the definedness gate must not guess.
+fn constant_amount(func: &Function, id: NodeId) -> Option<u64> {
+    match &func.get_node(id)?.kind {
+        NodeKind::Constant(data) => data
+            .as_u64()
+            .or_else(|| data.as_i64().and_then(|v| u64::try_from(v).ok())),
+        NodeKind::Add { lhs, rhs } => {
+            let a = constant_amount(func, *lhs)?;
+            let b = constant_amount(func, *rhs)?;
+            Some(a.wrapping_add(b))
+        }
+        NodeKind::Sub { lhs, rhs } => {
+            let a = constant_amount(func, *lhs)?;
+            let b = constant_amount(func, *rhs)?;
+            Some(a.wrapping_sub(b))
+        }
+        _ => None,
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────

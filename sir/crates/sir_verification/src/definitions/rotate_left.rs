@@ -24,13 +24,13 @@ impl RotateLeftDefinition {
 
 impl TransformationDefinition for RotateLeftDefinition {
     fn verification_status(&self) -> VerificationStatus {
-        // HOLD (2026-09-17): the binding below is concrete and
-        // role-verified, but candidate generation produces ZERO
-        // candidates for CircularPermutation today (even for constant
-        // amounts), so lifting the status would authorize nothing. The
-        // upstream generation/authorization gap must be fixed first;
-        // this stays Stub so the quarantine boundary is unchanged.
-        VerificationStatus::Stub
+        // LIFTED (2026-09-17): the definedness gate now evaluates
+        // constant amount expressions (`W - k` from literal constants),
+        // so the canonical rotate authorizes, the role-verified binding
+        // addresses the actual source pattern, and the concrete solver
+        // proves the constant-amount identity. Variable amounts still
+        // refuse (no constant amount ⇒ no domain).
+        VerificationStatus::ConcreteSolverChecked
     }
 
     fn id(&self) -> DefinitionId {

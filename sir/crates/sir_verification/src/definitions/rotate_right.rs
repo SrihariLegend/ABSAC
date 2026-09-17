@@ -22,9 +22,8 @@ impl RotateRightDefinition {
 
 impl TransformationDefinition for RotateRightDefinition {
     fn verification_status(&self) -> VerificationStatus {
-        // HOLD (2026-09-17): see RotateLeftDefinition — concrete binding,
-        // held Stub until CircularPermutation candidates are generated.
-        VerificationStatus::Stub
+        // LIFTED (2026-09-17): see RotateLeftDefinition.
+        VerificationStatus::ConcreteSolverChecked
     }
 
     fn id(&self) -> DefinitionId {
