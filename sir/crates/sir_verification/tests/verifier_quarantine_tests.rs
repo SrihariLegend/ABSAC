@@ -322,7 +322,7 @@ fn quarantine_blocks_stub_even_when_obligation_would_trivially_normalize() {
             ..
         }) => {
             assert_eq!(status, sir_verification::registry::VerificationStatus::Stub);
-            assert_eq!(definition, "LastTrue to LeadingZeroCount");
+            assert_eq!(definition, "LastTrue to BitScanReverse");
         }
         VerificationResult::Proven(_) => {
             panic!("SOUNDNESS: a Stub definition returned Proven for a tautology — quarantine bypassed");

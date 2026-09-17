@@ -688,6 +688,38 @@ fn zero_count_conventions_execute_natively() {
     }
 }
 
+fn bit_scan_reverse_function() -> sir_nodes::Function {
+    let ty = Type::u64();
+    let mut b = Builder::new("bsr", &[("x", ty.clone())], ty.clone());
+    let x = b.parameter_index(0).unwrap();
+    let r = b.bit_scan_reverse(x, Span::unknown()).unwrap();
+    b.return_value(r, Span::unknown()).unwrap();
+    b.build()
+}
+
+#[test]
+fn bit_scan_reverse_convention_executes_natively() {
+    if !clang_available() {
+        return;
+    }
+    let emitted = sir_benchmarks::emit::emit_c(&bit_scan_reverse_function());
+    assert!(
+        emitted.contains("__sir_bsr"),
+        "BitScanReverse must emit the bsr helper:\n{emitted}"
+    );
+    let main = "    printf(\"%llu\\n\", (unsigned long long)bsr(0ULL));\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)bsr(1ULL));\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)bsr(0x10ULL));\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)bsr(0x8000000000000000ULL));\n";
+    let Some(stdout) = compile_and_run_emitted(&emitted, main, "bsr") else {
+        return;
+    };
+    // Highest set index; zero uses the width sentinel; the MSB case is
+    // exactly the historical counterexample (bsr = 63, clz = 0).
+    let got: Vec<&str> = stdout.lines().collect();
+    assert_eq!(got, vec!["64", "0", "4", "63"]);
+}
+
 #[test]
 fn rewritten_zero_count_loops_execute_natively() {
     for (name, leading, calls, expected) in [

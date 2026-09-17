@@ -158,6 +158,7 @@ impl TextPrinter {
             | NodeKind::Popcount { operand }
             | NodeKind::LeadingZeros { operand }
             | NodeKind::TrailingZeros { operand }
+            | NodeKind::BitScanReverse { operand }
             | NodeKind::BoolNot { operand } => write!(w, " {operand}"),
             NodeKind::Select {
                 cond,

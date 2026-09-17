@@ -401,13 +401,18 @@ Remediation D3 (P0A, commit c3ebb54):
        `LastTrue == BitScanReverse(Pack)` (new SemanticExpression +
        interpreter + normalizer + concrete-solver lowering; the
        bit-blaster proves the corrected pair and refutes the historical
-       one, tests/bitscan_reverse_theorem.rs). The definition stays Stub
-       until the application half closes: a bsr SIR intrinsic whose
-       emission is the highest set index (width sentinel for zero), the
-       recipe emitting it (it still emits LeadingZeros — a latent
-       miscompile), reverse counted-loop trip-count support, and a
-       sound reverse kernel (the PS002 kernel is non-terminating on the
-       all-false input — unsigned `i >= 0` underflows);
+       one, tests/bitscan_reverse_theorem.rs). APPLICATION HALF LANDED
+       2026-09-17: SIR gained a `BitScanReverse` node kind (highest set
+       index, width sentinel for zero) through builder/printer/verifier/
+       rewrite remap; the emitter emits `__sir_bsr`/`__sir_bv_bsr`
+       (clang-native differential 0/1/0x10/MSB → 64/0/4/63); the recipe
+       emits it instead of `LeadingZeros`. The definition stays Stub
+       until the remaining blockers close: reverse counted-loop
+       trip-count support in the binding (forward-only today:
+       `i < bound`, zero-based), a sound reverse kernel (the PS002
+       kernel is non-terminating on the all-false input — unsigned
+       `i >= 0` underflows), and the status lift (the quarantine tests
+       must move off definition 201 to a synthetic stub);
        obligations can bind the authorized structural roles
        (`obligation_with_roles` + structural DB in build_obligations);
        instruction-selection emission (Rol/Ror, blsr/blsi/blsmsk,

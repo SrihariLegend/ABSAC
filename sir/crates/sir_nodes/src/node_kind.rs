@@ -83,6 +83,10 @@ pub enum NodeKind {
     LeadingZeros { operand: NodeId },
     /// Count trailing zero bits: `operand.trailing_zeros()`.
     TrailingZeros { operand: NodeId },
+    /// Index of the highest set bit (bit-scan-reverse); returns the
+    /// operand width when the operand is zero (lzcnt-style zero
+    /// convention). NOT the leading-zero count (`LeadingZeros`).
+    BitScanReverse { operand: NodeId },
 
     // ── Data conversion ─────────────────────────────────────
     /// Pack a boolean array into a bitvector.
@@ -206,6 +210,7 @@ impl NodeKind {
             NodeKind::Popcount { .. } => "Popcount",
             NodeKind::LeadingZeros { .. } => "LeadingZeros",
             NodeKind::TrailingZeros { .. } => "TrailingZeros",
+            NodeKind::BitScanReverse { .. } => "BitScanReverse",
             NodeKind::Pack { .. } => "Pack",
             NodeKind::ArrayCmpMask { .. } => "ArrayCmpMask",
             NodeKind::Convert { .. } => "Convert",
@@ -267,6 +272,7 @@ impl NodeKind {
             | NodeKind::Popcount { operand }
             | NodeKind::LeadingZeros { operand }
             | NodeKind::TrailingZeros { operand }
+            | NodeKind::BitScanReverse { operand }
             | NodeKind::BoolNot { operand }
             | NodeKind::Load { ptr: operand }
             | NodeKind::Deallocate { ptr: operand } => vec![*operand],

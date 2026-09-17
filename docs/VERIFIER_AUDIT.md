@@ -210,12 +210,18 @@ The four scan definitions have distinct, now-measured blockers:
   (8-bit fixture) while the historical equation is REJECTED with a
   counterexample (tests/bitscan_reverse_theorem.rs). The definition
   stays **Stub** (never Proven through the verifier) because the
-  application blockers are unchanged: (b) the recipe still emits
-  `LeadingZeros`, a latent miscompile the quarantine hid; (c) the reduction binding's
-  trip-count contract is forward-only (`i < bound`, zero-based), while
-  the reverse search iterates `i = 63 .. 0`. A correct lift needs a
-  bit-scan-reverse intrinsic (highest set index, width sentinel for
-  zero) plus reverse counted-loop trip-count support. **Additionally,
+  application blockers are unchanged: (b) **fixed 2026-09-17** — the
+  recipe no longer emits `LeadingZeros`; SIR now has a
+  `BitScanReverse` node kind wired through the builder, printer,
+  verifier, rewrite remapping and the emitter
+  (`__sir_bsr`/`__sir_bv_bsr`), and the recipe emits it, with a
+  clang-native differential (0/1/0x10/MSB → 64/0/4/63) in
+  emit_c_native.rs; (c) the reduction binding's trip-count contract is
+  still forward-only (`i < bound`, zero-based), while the reverse
+  search iterates `i = 63 .. 0` — reverse counted-loop trip-count
+  support remains, together with a sound reverse kernel and the status
+  lift (which must move the quarantine tests off definition 201).
+  **Additionally,
   the PS002 kernel itself is unsound**: its guard is `i >= 0` on an
   UNSIGNED induction, so when no element matches, `i = 0` is followed by
   `i - 1 = u64::MAX` and the guard remains true forever — the loop does

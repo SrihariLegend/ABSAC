@@ -185,6 +185,13 @@ static uint64_t __sir_bv_clz(sir_bv a, unsigned width) {
     }
     return width;
 }
+static uint64_t __sir_bv_bsr(sir_bv a, unsigned width) {
+    for (unsigned i = 0; i < width && i < 512; i++) {
+        unsigned bit = width - 1 - i;
+        if ((a.w[bit / 64] >> (bit % 64)) & 1u) return bit;
+    }
+    return width;
+}
 static sir_bv __sir_mask_cmp(const uint8_t *base, unsigned n, unsigned elem_bytes,
                              uint64_t scalar, int op) {
     sir_bv r = __sir_bv_zero();
@@ -255,6 +262,20 @@ static uint64_t __sir_clz(uint64_t x, unsigned w) {
     }
     unsigned r = (unsigned)__builtin_clzll(x);
     return (r > 64 - w) ? (r - (64 - w)) : 0;
+}
+/* bit-scan-reverse: highest set index, width sentinel for zero. */
+static uint64_t __sir_bsr(uint64_t x, unsigned w) {
+    if (w == 0) return 0;
+    if (x == 0) return w;
+    unsigned lead;
+    if (w <= 32) {
+        unsigned r = (unsigned)__builtin_clz((uint32_t)x);
+        lead = (r > 32 - w) ? (r - (32 - w)) : 0;
+    } else {
+        unsigned r = (unsigned)__builtin_clzll(x);
+        lead = (r > 64 - w) ? (r - (64 - w)) : 0;
+    }
+    return w - 1 - lead;
 }
 "#
 }
@@ -511,6 +532,23 @@ fn emit_expr(
                 width
             )
         }
+        NodeKind::BitScanReverse { operand } => {
+            let o = emit_operand(*operand, func, carrier_map);
+            let op_node = func.get_node(*operand);
+            if let Some(n) = op_node {
+                if let Type::BitVector { width } = n.ty {
+                    return format!("__sir_bv_bsr({}, {}u)", o, width);
+                }
+            }
+            // bsr convention: highest set index, width sentinel for zero.
+            let width = op_node.and_then(|n| int_bits(&n.ty)).unwrap_or(32);
+            format!(
+                "(({})__sir_bsr((uint64_t)({}), {}u))",
+                c_type(&node.ty),
+                o,
+                width
+            )
+        }
         NodeKind::Eq { lhs, rhs } => {
             let bv = func
                 .get_node(*lhs)
@@ -638,7 +676,8 @@ pub fn emit_c(func: &Function) -> String {
         NodeKind::Rol { .. }
         | NodeKind::Ror { .. }
         | NodeKind::TrailingZeros { .. }
-        | NodeKind::LeadingZeros { .. } => true,
+        | NodeKind::LeadingZeros { .. }
+        | NodeKind::BitScanReverse { .. } => true,
         NodeKind::Intrinsic { name, .. } => name == "rbit",
         _ => false,
     });

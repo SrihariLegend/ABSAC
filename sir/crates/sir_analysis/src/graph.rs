@@ -47,6 +47,7 @@ pub fn dataflow_inputs(kind: &NodeKind) -> Vec<NodeId> {
         | NodeKind::Popcount { operand }
         | NodeKind::LeadingZeros { operand }
         | NodeKind::TrailingZeros { operand }
+        | NodeKind::BitScanReverse { operand }
         | NodeKind::BoolNot { operand } => vec![*operand],
 
         // Pack: wraps an array value.

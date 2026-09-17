@@ -307,7 +307,8 @@ impl<'a> Verifier<'a> {
                 NodeKind::Not { operand }
                 | NodeKind::Popcount { operand }
                 | NodeKind::LeadingZeros { operand }
-                | NodeKind::TrailingZeros { operand } => {
+                | NodeKind::TrailingZeros { operand }
+                | NodeKind::BitScanReverse { operand } => {
                     if let Some(ty) = self.node_type(*operand) {
                         if !ty.is_integer_or_bitvector() {
                             self.errors.push(VerificationError::TypeMismatch {

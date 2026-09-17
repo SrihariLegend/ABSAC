@@ -221,6 +221,23 @@ impl<'a> SubgraphBuilder<'a> {
         )
     }
 
+    /// BitScanReverse (highest set index, width sentinel for zero) with
+    /// an explicit result type.
+    pub fn bit_scan_reverse_typed(
+        &mut self,
+        operand: LocalNodeId,
+        ty: Type,
+        span: Span,
+    ) -> LocalNodeId {
+        self.alloc_node(
+            NodeKind::BitScanReverse {
+                operand: NodeId::new(operand.as_u64()),
+            },
+            ty,
+            span,
+        )
+    }
+
     pub fn shr(&mut self, lhs: LocalNodeId, rhs: LocalNodeId, span: Span) -> LocalNodeId {
         let ty = self.get_type(lhs).unwrap_or(Type::i32());
         self.alloc_node(

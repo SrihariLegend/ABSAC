@@ -41,11 +41,12 @@ impl RewriteRecipe for BitScanReverseRecipe {
         let result = region.result()?;
         let consumer = crate::recipes::helpers::find_tuple_consumer(function, result);
         let target = consumer.map(|(id, _)| id).unwrap_or(result);
-        // NOTE: this currently emits LeadingZeros, which is NOT the
-        // last-true index (the old obligation was false); the definition
-        // is held Stub so this path cannot be authorized. A correct lift
-        // must emit a bit-scan-reverse intrinsic returning the highest
-        // set index (width sentinel for zero).
+        // Emit the bit-scan-reverse intrinsic (highest set index,
+        // width sentinel for zero) — the target the corrected
+        // obligation `LastTrue == BitScanReverse(Pack)` names. The
+        // definition is still held Stub pending reverse counted-loop
+        // trip-count support and a sound reverse kernel, so this path
+        // cannot be authorized yet.
         let mut ty = function
             .get_node(target)
             .map(|n| n.ty.clone())
@@ -57,11 +58,11 @@ impl RewriteRecipe for BitScanReverseRecipe {
                 ty = elements[pos].clone();
             }
         }
-        let lzcnt = builder.leading_zeros_typed(packed, ty, Span::unknown());
+        let bsr = builder.bit_scan_reverse_typed(packed, ty, Span::unknown());
 
         Ok(builder.finish(vec![ReplacementValue {
             old: target,
-            new: lzcnt,
+            new: bsr,
         }]))
     }
 }

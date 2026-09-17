@@ -119,6 +119,7 @@ pub(crate) fn kind_variant_tag(kind: &NodeKind) -> u32 {
         NodeKind::Popcount { .. } => 17,
         NodeKind::LeadingZeros { .. } => 18,
         NodeKind::TrailingZeros { .. } => 19,
+        NodeKind::BitScanReverse { .. } => 24,
         NodeKind::Eq { .. } => 20,
         NodeKind::Ne { .. } => 21,
         NodeKind::Lt { .. } => 22,

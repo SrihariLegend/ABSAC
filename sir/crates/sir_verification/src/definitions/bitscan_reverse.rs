@@ -46,7 +46,7 @@ impl TransformationDefinition for BitScanReverseDefinition {
     }
 
     fn name(&self) -> &'static str {
-        "LastTrue to LeadingZeroCount"
+        "LastTrue to BitScanReverse"
     }
 
     fn applicability(&self, _candidate: &Candidate) -> bool {

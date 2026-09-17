@@ -234,6 +234,9 @@ impl RewriteBuilder {
             NodeKind::TrailingZeros { operand } => NodeKind::TrailingZeros {
                 operand: resolve(operand)?,
             },
+            NodeKind::BitScanReverse { operand } => NodeKind::BitScanReverse {
+                operand: resolve(operand)?,
+            },
             NodeKind::Eq { lhs, rhs } => NodeKind::Eq {
                 lhs: resolve(lhs)?,
                 rhs: resolve(rhs)?,
@@ -456,6 +459,9 @@ impl RewriteBuilder {
                 operand: r(operand),
             },
             NodeKind::TrailingZeros { operand } => NodeKind::TrailingZeros {
+                operand: r(operand),
+            },
+            NodeKind::BitScanReverse { operand } => NodeKind::BitScanReverse {
                 operand: r(operand),
             },
             NodeKind::Eq { lhs, rhs } => NodeKind::Eq {

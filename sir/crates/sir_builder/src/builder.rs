@@ -404,6 +404,18 @@ impl Builder {
         ))
     }
 
+    /// Index of the highest set bit, with the operand width as the zero
+    /// sentinel (bit-scan-reverse).
+    pub fn bit_scan_reverse(&mut self, operand: NodeId, span: Span) -> Result<NodeId, BuildError> {
+        self.expect_integer_or_bitvector(operand)?;
+        Ok(self.alloc_node(
+            NodeKind::BitScanReverse { operand },
+            Type::i32(),
+            Effects::empty(),
+            span,
+        ))
+    }
+
     /// Create a Pack node: packs a boolean array into a bitvector.
     /// The operand must be an Array(Bool) or Slice(Bool) type.
     pub fn array_cmp_mask(
