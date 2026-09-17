@@ -98,8 +98,9 @@ Tier B (10 kernels: 3 P / 7 N), `h4c/raw/run1.txt` + `tbexec1.txt`:
   per-rewrite application pipeline at the SIR level. It is not a
   machine-checked proof of the pipeline (that is what `sir_mech` /
   Gate 4B did for three kernels), not solver-backed application
-  assurance, and not native/LLVM equivalence. Emitter defects F6–F8 and
-  the P0A queue item 3 (`ConcreteSolverChecked` definitions) remain open.
+  assurance, and not native/LLVM equivalence. Emitter defects F6–F8 were
+  closed on 2026-09-17 (docs/EMITTER_F6F8_RESULTS.md); the P0A queue
+  item 3 (`ConcreteSolverChecked` definitions) remains open.
 - **Independence caveat.** The corpus author is the same agent that
   performed the D4/F10 remediation, so this is an
   implementation-blind, spec-driven, pre-registered evaluation — not a

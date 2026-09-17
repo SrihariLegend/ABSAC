@@ -238,8 +238,10 @@ evidence is docs/GATE4B_PROOF.md and `gate4/proof/*.proof.txt`:
   the three development kernels, not about the pipeline in general and
   not about compiled objects. Binding is per artifact (the checker
   re-runs the pipeline and fails loudly on drift); native/LLVM execution
-  of loop sources remains blocked by emitter defects F6–F8
-  (docs/H3_RESULTS.md).
+  of loop sources was blocked by emitter defects F6–F8 at the time of
+  this result (docs/H3_RESULTS.md) — **post-fix (2026-09-17):** F6–F8
+  closed, native clang differential clean on 99 lowered corpus kernels
+  (docs/EMITTER_F6F8_RESULTS.md).
 - **Distinct from per-rewrite application assurance.** The H3/D4
   "Gate 4B.1" pipeline (`CheckedApplication` /
   `EndToEndVerificationArtifact` over the rewrite engine) is a different

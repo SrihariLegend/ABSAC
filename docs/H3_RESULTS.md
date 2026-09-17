@@ -142,7 +142,7 @@ reduction role for accumulators that do not actually accumulate the collection.
 
 | Boundary | Status |
 |----------|--------|
-| LLVM/native execution of committed rewrites | Not obtained. Known emitter defects F6–F8 (post-loop emission order, buffer element-width typing, loop-control polarity/entry-guard) make C-emit of loop sources unsound at HEAD, and Pack/ArrayCmpMask emission is unexercised. SIR-interpreter differential execution is the frozen slice's execution bridge and is what H3 used. |
+| LLVM/native execution of committed rewrites | Not obtained **at H3 time**. Emitter defects F6–F8 (post-loop emission order, buffer element-width typing, loop-control polarity/entry-guard) made C-emit of loop sources unsound, and Pack/ArrayCmpMask emission was unexercised. SIR-interpreter differential execution is the frozen slice's execution bridge and is what H3 used. **Post-fix (2026-09-17):** F6–F8 closed; native clang differential now covers 99 lowered corpus kernels with 0 mismatches (19 committed rewrites) — docs/EMITTER_F6F8_RESULTS.md. |
 | Blind evaluation | Not obtained — authoring required stage-level probing (disclosed above); a genuinely independent H4 is required before sealing Gate 6B (H3 is not reusable as blind evidence). |
 
 ## Strategy interpretation (advisor)

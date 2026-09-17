@@ -94,8 +94,11 @@ Gate 4B.1: PASSED — per-rewrite application pipeline soundness closed
 
 Scope honesty: the three development kernels at SIR level, with an
 explicit trusted base (instruction/memory/front-end models). Not a
-verified compiler, and not native-object equivalence (emitter defects
-F6–F8 remain open). The per-rewrite application pipeline ("Gate 4B.1"
+verified compiler, and not native-object equivalence. The emitter
+defects F6–F8 were closed on 2026-09-17: the SIR → C loop emitter now
+compiles and runs natively against the original IR on 99 lowered corpus
+kernels (0 mismatches, 19 with committed rewrites); see
+docs/EMITTER_F6F8_RESULTS.md. The per-rewrite application pipeline ("Gate 4B.1"
 in H3/D4) was closed separately on 2026-09-16 by the independent H4
 corpus (docs/H4_RESULTS.md); its assurance is SIR-level SchemaChecked,
 not machine-checked. See the scope-honesty section of

@@ -138,8 +138,10 @@ loop.
   at the signed-`icmp` gate. Both are refusals — they cannot cause a false
   fusion — but they are recorded coverage gaps for future recall work.
 - **Not native-object equivalence.** The emitted C is compiled and
-  differentially executed in the harness; no claim is made about ABSAC's
-  broader emitter (defects F6–F8 remain open for loop sources).
+  differentially executed in the harness; the broader loop emitter's
+  F6–F8 defects were closed on 2026-09-17 with its own native clang
+  differential (docs/EMITTER_F6F8_RESULTS.md), which does not change this
+  gate's measurements.
 - **Performance is machine-specific.** Median-of-25 trials × 5000
   iterations, CPU-pinned (core 0), AVX2/SSE2/`-mpopcnt` with
   `clang -O2 -march=native`. Absolute numbers are in `run2.txt`.

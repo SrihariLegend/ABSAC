@@ -136,10 +136,11 @@ mathematical accumulator equality `W32(0,0,n) = S(n,0)` for the C code.
    `SchemaChecked` assurance, not the machine-checked evidence above.
 3. **SIR-level semantics, not native execution.** No claim is made
    about LLVM IR or machine code. Execution evidence for the rewrite
-   path is the SIR interpreter; the C emitter for loop sources has
+   path is the SIR interpreter; the C emitter for loop sources had
    known defects F6–F8 (post-loop emission order, buffer element-width
    typing, loop-control polarity/entry-guard) recorded in
-   docs/H3_RESULTS.md. The Gate 4B kernels do have their emitted C
+   docs/H3_RESULTS.md (closed 2026-09-17 —
+   docs/EMITTER_F6F8_RESULTS.md). The Gate 4B kernels do have their emitted C
    mechanically matched to the committed files, but compiled-object
    equivalence is not established here.
 4. **Trusted instruction, memory and front-end models.** The SDM
