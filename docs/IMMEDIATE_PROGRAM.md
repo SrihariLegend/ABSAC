@@ -482,9 +482,14 @@ Gate 6A-v6:  FAILED one-shot (preserved) → REMEDIATED on the frozen
              lowerer now reconstructs `carry < K + step` (checked) or
              refuses loudly. Re-run on the regression set: 0 false
              positives / 0 unsafe candidates / 0 unsafe rewrites,
-             native 16 clean / 0 mismatched / 6 lower-refused, 4
-             native-clean rewrites. v6 is a regression set; fresh
-             held-out proof needs v7. See docs/GATE6A_V6_RESULTS.md.
+             native 16 clean / 0 mismatched / 6 lower-refused.
+             Follow-up (same day): the sequential composer now skips
+             blocks consumed by earlier loops, so constant-extent
+             promotion works for two-loop kernels; v6 p08 derives 2
+             regions / 15 truths, generates 3 candidates and applies
+             1 native-clean whole-function rewrite (5 native rewrites
+             in v6; 27 total). v6 is a regression set; fresh held-out
+             proof needs v7. See docs/GATE6A_V6_RESULTS.md.
 
 Gate 6B:     PASSED — the fusion corpus was sealed before automation
              (gate6b/manifest.sha256, commit 4aedce1) and evaluated

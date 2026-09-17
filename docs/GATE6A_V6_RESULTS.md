@@ -83,15 +83,30 @@ loudly. Tests: `post_tested_stride_loop_reconstructs_the_forced_iteration`
 |---|---|
 | Positives | 9/10 recognized (p09 early-return is the recorded gap); p10 derives `MappedSumReduction` |
 | Safety | 0 false-positive recognitions, **0 unsafe candidates**, 0 unsafe rewrites; 3/3 contained rows |
-| Native differential | **16 clean / 0 mismatched / 6 lower-refused**; 4 rewrites native-clean (p01/p02/p03 cardinality masks, p07 disjunctive OR) |
+| Native differential | **16 clean / 0 mismatched / 6 lower-refused**; 5 rewrites native-clean (p01/p02/p03 cardinality masks, p07 disjunctive OR, p08 whole-function two-loop count) |
 
-Observations recorded: sums (p04/p05) and the two-loop kernel (p08)
-recognize with 0 candidates (no Sum strategy; whole-function
-multi-loop candidate generation remains open); p10 map-then-sum
+Observations recorded: sums (p04/p05) recognize with 0 candidates (no
+Sum strategy); p08 initially recognized with 0 candidates, and a
+follow-up fix (below) closed that; p10 map-then-sum
 recognizes the D5-safe concept but has no candidate; p09 is refused at
 lowering (early-exit control flow); the unsigned reverse shape (n11) is
 refused at lowering on this C form, complementing the totality-gate
 unit tests.
+
+### Follow-up (same day): whole-function multi-loop candidates
+
+The sequential composer re-emitted loop1's body as straight-line code
+while lowering loop2; the dead duplicate `ArrayAccess` sat outside any
+loop and blocked constant-extent promotion, so p08/w08/p12 regions had
+no structural description and produced 0 candidates. The composer now
+tracks the blocks consumed by already-lowered loops and skips them.
+Result for p08: buffer promoted to `[u8; 48]`, 15 truths, 2 regions,
+**3 candidates and 1 rewrite** — the first whole-function multi-loop
+rewrite, native-clean 48/48 (count loop → mask compare + popcount,
+sum loop unchanged). Regression test:
+`constant_two_loops_promote_and_do_not_duplicate_the_body`.
+Runtime-bound two-loop kernels (w08, v5/v3/v4 p12) still promote
+nothing and stay candidate-free by design.
 
 ## Cross-corpus regression after the fixes
 

@@ -7,6 +7,8 @@
 //! a separate latch block dying on raw resolution errors) — are pinned by
 //! `cargo test`.
 
+use std::collections::HashSet;
+
 use sir_lower::lower_function;
 
 /// A canonical single-block sum scan. Guard: the recognized loop shape must
@@ -737,4 +739,82 @@ fn post_tested_loop_with_runtime_step_is_refused() {
             "unexpected refusal: {e}"
         ),
     }
+}
+
+// ── Multi-loop whole-function promotion / candidate enabler ──
+
+/// Constant-bound two-loop kernel (v6 `p08_two_loops_const` shape):
+/// loop1 counts `buf[i] == key` to 48, loop2 sums `buf[i]` to 48, and
+/// the return combines both. Both accesses are inside a strict counted
+/// loop, so the buffer must promote to `[u8; 48]`. Regression: the
+/// sequential composer used to re-emit loop1's body as straight-line
+/// code while lowering loop2 — that duplicate `ArrayAccess` outside any
+/// loop blocked the promotion, so the whole-function regions produced
+/// no contexts and no candidates.
+const TWO_CONST_LOOPS: &str = r#"
+define i64 @two_const(ptr %0, i8 %1) {
+  br label %3
+
+3:
+  %4 = phi i64 [ 0, %2 ], [ %11, %3 ]
+  %5 = phi i64 [ 0, %2 ], [ %10, %3 ]
+  %6 = getelementptr inbounds i8, ptr %0, i64 %4
+  %7 = load i8, ptr %6
+  %8 = icmp eq i8 %7, %1
+  %9 = zext i1 %8 to i64
+  %10 = add i64 %5, %9
+  %11 = add nuw nsw i64 %4, 1
+  %12 = icmp eq i64 %11, 48
+  br i1 %12, label %15, label %3
+
+13:
+  %14 = xor i64 %21, %10
+  ret i64 %14
+
+15:
+  %16 = phi i64 [ %22, %15 ], [ 0, %3 ]
+  %17 = phi i64 [ %21, %15 ], [ 0, %3 ]
+  %18 = getelementptr inbounds i8, ptr %0, i64 %16
+  %19 = load i8, ptr %18
+  %20 = zext i8 %19 to i64
+  %21 = add i64 %17, %20
+  %22 = add nuw nsw i64 %16, 1
+  %23 = icmp eq i64 %22, 48
+  br i1 %23, label %13, label %15
+}
+"#;
+
+#[test]
+fn constant_two_loops_promote_and_do_not_duplicate_the_body() {
+    let func = lower_function(TWO_CONST_LOOPS, "two_const")
+        .expect("constant two-loop function must lower");
+    assert_eq!(
+        func.params[0].ty,
+        sir_types::Type::Array {
+            element: Box::new(sir_types::Type::u8()),
+            length: 48
+        },
+        "both loop accesses are inside proven constant extents, so the \
+         buffer must promote (the old composer's duplicate blocked this)"
+    );
+    let loop_bodies: HashSet<sir_types::NodeId> = func
+        .arena
+        .iter()
+        .filter_map(|n| match &n.kind {
+            sir_nodes::NodeKind::Loop { body, .. } => Some(body.iter().copied()),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    let outside_accesses = func
+        .arena
+        .iter()
+        .filter(|n| matches!(n.kind, sir_nodes::NodeKind::ArrayAccess { .. }))
+        .filter(|n| !loop_bodies.contains(&n.id))
+        .count();
+    assert!(
+        outside_accesses <= 1,
+        "at most the exit-walk's constant-index access may sit outside a \
+         loop; the composer must not re-emit loop1's body (got {outside_accesses})"
+    );
 }

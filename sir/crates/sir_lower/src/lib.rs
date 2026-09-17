@@ -18,7 +18,7 @@
 //! - Structs, vectors
 //! - Early-exit loops (break with non-trivial value)
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use sir_builder::Builder;
 use sir_nodes::{Function, NodeKind};
@@ -1569,10 +1569,29 @@ pub fn lower(text: &str) -> Result<Function, String> {
         // carriers/outputs) and the native differential gates this
         // path.
         let mut sequential_ok = true;
+        // Blocks consumed by an already-lowered loop must not be emitted
+        // again as straight-line code: the duplicates are dead but they
+        // break the constant-extent promotion's "every access is inside
+        // a proven loop" proof (v6 p08/w08/p12 had an outside-loop
+        // duplicate of the first loop's ArrayAccess, so the buffer was
+        // never promoted and the whole-function regions produced no
+        // candidates).
+        let mut consumed_blocks: HashSet<String> = HashSet::new();
         for &lbi in &self_loop_blocks {
-            if lower_loop_function(&ir, lbi, &mut builder, &mut value_map).is_err() {
+            if lower_loop_function(
+                &ir,
+                lbi,
+                &mut builder,
+                &mut value_map,
+                &consumed_blocks,
+            )
+            .is_err()
+            {
                 sequential_ok = false;
                 break;
+            }
+            if let Some(block) = ir.blocks.get(lbi) {
+                consumed_blocks.insert(block.label.clone());
             }
         }
         if sequential_ok && builder.function().return_node.is_some() {
@@ -1610,7 +1629,13 @@ pub fn lower(text: &str) -> Result<Function, String> {
     let loop_block_idx = self_loop_blocks.first().copied();
 
     let result = match loop_block_idx {
-        Some(lbi) => lower_loop_function(&ir, lbi, &mut builder, &mut value_map),
+        Some(lbi) => lower_loop_function(
+            &ir,
+            lbi,
+            &mut builder,
+            &mut value_map,
+            &HashSet::new(),
+        ),
         None => lower_straight_line(&ir, &mut builder, &mut value_map),
     };
 
@@ -1905,6 +1930,7 @@ fn lower_loop_function(
     loop_idx: usize,
     builder: &mut Builder,
     value_map: &mut HashMap<String, NodeId>,
+    skip_blocks: &HashSet<String>,
 ) -> Result<(), String> {
     let span = Span::unknown();
 
@@ -1952,6 +1978,9 @@ fn lower_loop_function(
         for (bi, b) in ir.blocks.iter().enumerate() {
             if bi >= loop_idx {
                 break;
+            }
+            if skip_blocks.contains(&b.label) {
+                continue;
             }
             if Some(b.label.clone()) == loop_exit_label {
                 continue;

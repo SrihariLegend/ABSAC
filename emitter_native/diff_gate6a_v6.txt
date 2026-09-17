@@ -5,7 +5,7 @@ NATIVE p04_sum_u8_const_u64: clean cases=48 rewrites=0
 NATIVE p05_sum_u16_const_u32: clean cases=48 rewrites=0
 NATIVE p06_all_ne_const_u8: clean cases=48 rewrites=0
 NATIVE p07_any_or_const_u32: clean cases=48 rewrites=1
-NATIVE p08_two_loops_const: clean cases=48 rewrites=0
+NATIVE p08_two_loops_const: clean cases=48 rewrites=1
 NATIVE p09_first_set_const: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: p09_first_set_const)
 NATIVE p10_map_then_sum_const: clean cases=48 rewrites=0
 NATIVE n01_runtime_sum_u8: clean cases=48 rewrites=0

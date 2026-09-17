@@ -29,16 +29,17 @@ buffer byte-for-byte.
 | `h4b/tier_b.ll` | 7 | 0 | 6 | 24 | 4 |
 | `h4c/tier_b.ll` | 6 | 0 | 4 | 24 | 3 |
 | `d4/tier_b.ll` | 7 | 0 | 5 | 24 | 4 |
-| `gate6a/v6_corpus.ll` | 16 | 0 | 6 | 48 | 4 |
-| **Total** | **119** | **0** | **51** | — | **26** |
+| `gate6a/v6_corpus.ll` | 16 | 0 | 6 | 48 | 5 |
+| **Total** | **119** | **0** | **51** | — | **27** |
 
 The **v6 generation** was created 2026-09-17 after the F6–F8 emitter
 fixes and the multi-loop/constant-extent work, and evaluated one-shot:
 this harness caught a real lowering bug (`n06_stride4_const`, a
 post-tested do-while lowered as pre-tested: 48/48 mismatches; raw
 failure preserved in `gate6a/v6_raw/run1_native_failure.txt`). After the
-fix the v6 run is 16 clean / 0 mismatched / 6 lower-refused with 4
-native-clean rewrites. See docs/GATE6A_V6_RESULTS.md.
+fix the v6 run is 16 clean / 0 mismatched / 6 lower-refused with 5
+native-clean rewrites (including the whole-function two-loop kernel
+`p08_two_loops_const`). See docs/GATE6A_V6_RESULTS.md.
 
 Re-measured 2026-09-17 (final): constant-extent buffer promotion adds
 native-clean rewrites for v2 `w06_count_mismatch_const`, v3
