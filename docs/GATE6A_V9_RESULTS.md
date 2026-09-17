@@ -69,3 +69,6 @@ entry/merge-clamp form handled by the found-flag synthesis (the
 `n == 0` predecessor is validated). The pointer is preserved, the
 extent is not fabricated, the candidate proof fails, and the function
 is native-clean with 0 rewrites; v9 lower-refused drops 5 → 4.
+The zero-trip predecessor validation was subsequently hardened: the
+guard must compare the loop's actual trip bound (not just the merge's
+latch incoming), pinned by a refusal regression test.

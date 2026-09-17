@@ -103,3 +103,10 @@ fabricated — FirstOccurrence derives, the candidate proof fails (no
 collection role), and v8 `p14` / v9 `p16` are native-clean with 0
 rewrites (lower-refused totals drop by one in each corpus; cumulative
 187 clean / 0 mismatched / 64 lower-refused).
+
+**Hardening (same day):** the extra zero-trip predecessor is accepted
+only when its guard compares the loop's actual **trip bound** (the
+latch comparison's non-successor operand), not merely the merge's
+latch incoming. A guard on an unrelated value could otherwise let the
+synthesized loop iterate while the source skipped; the new lowerer test
+`zero_trip_guard_on_a_different_value_is_refused` pins the refusal.

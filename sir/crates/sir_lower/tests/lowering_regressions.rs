@@ -911,3 +911,41 @@ fn runtime_extent_search_lowers_without_fabricating_an_extent() {
     assert_eq!(loops, 1, "one synthesized found-flag loop");
     assert!(func.return_node.is_some(), "the clamped index must be returned");
 }
+
+/// A zero-trip guard on a value OTHER than the loop's trip bound must be
+/// refused: the synthesized loop would iterate while the source skipped
+/// (the sentinel/latch-incoming check alone is not enough).
+const MISMATCHED_GUARD_SEARCH: &str = r#"
+define i64 @mismatched_guard(ptr %0, i64 %1, i64 %2) {
+  %3 = icmp eq i64 %2, 0
+  br i1 %3, label %12, label %4
+
+4:
+  %5 = phi i64 [ %10, %9 ], [ 0, %2 ]
+  %6 = getelementptr inbounds i8, ptr %0, i64 %5
+  %7 = load i8, ptr %6
+  %8 = icmp eq i8 %7, 0
+  br i1 %8, label %9, label %12
+
+9:
+  %10 = add nuw i64 %5, 1
+  %11 = icmp eq i64 %10, %1
+  br i1 %11, label %12, label %4
+
+12:
+  %13 = phi i64 [ 0, %2 ], [ %1, %9 ], [ %5, %4 ]
+  %14 = tail call i64 @llvm.umin.i64(i64 %13, i64 %1)
+  ret i64 %14
+}
+"#;
+
+#[test]
+fn zero_trip_guard_on_a_different_value_is_refused() {
+    match lower_function(MISMATCHED_GUARD_SEARCH, "mismatched_guard") {
+        Ok(_) => panic!("a guard on a non-bound value must not lower"),
+        Err(e) => assert!(
+            e.contains("separate latch block") || e.contains("unsupported"),
+            "unexpected refusal: {e}"
+        ),
+    }
+}

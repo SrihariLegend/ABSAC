@@ -2123,6 +2123,38 @@ fn lower_early_exit_search(
     // guard (`sentinel == 0 -> merge`) whose incoming value is the zero
     // constant: the synthesized loop's zero-trip output is the sentinel,
     // which that guard pins to zero.
+    // icmp operands keep the comparison token in the first operand
+    // ("eq i64 %1"), so compare on each operand's value token.
+    let value_token = |o: &str| {
+        o.split_whitespace()
+            .last()
+            .unwrap_or(o)
+            .trim_end_matches(')')
+            .to_string()
+    };
+    // The latch's bound operand: the non-successor side of its
+    // comparison. The zero-trip guard must compare THIS value, not merely
+    // the merge's latch incoming (otherwise a guard on one value with a
+    // different trip bound would let the synthesized loop iterate while
+    // the source skipped).
+    let latch_successor = l
+        .instructions
+        .iter()
+        .find_map(|inst| (inst.opcode == "add").then(|| inst.result.clone()).flatten());
+    let latch_bound_str = latch_successor.as_ref().and_then(|succ| {
+        l.instructions
+            .iter()
+            .find(|inst| inst.opcode == "icmp")
+            .and_then(|inst| {
+                inst.operands
+                    .iter()
+                    .map(|o| value_token(o))
+                    .find(|t| t != succ)
+            })
+    });
+    let Some(latch_bound_str) = latch_bound_str else {
+        return Err("early-exit search: latch bound not identifiable".into());
+    };
     for (value, label) in &m_incomings {
         if label == &h.label || label == &l.label {
             continue;
@@ -2150,22 +2182,13 @@ fn lower_early_exit_search(
             .ok_or("early-exit search: merge predecessor has no branch")?;
         let p_succs = block_successors(p);
         let p_cond = strip_type(&p_br.operands[0]);
-        // icmp operands keep the comparison token in the first operand
-        // ("eq i64 %1"), so compare on each operand's value token.
-        let value_token = |o: &str| {
-            o.split_whitespace()
-                .last()
-                .unwrap_or(o)
-                .trim_end_matches(')')
-                .to_string()
-        };
         let guard_matches = p.instructions.iter().any(|inst| {
             inst.opcode == "icmp"
                 && inst.result.as_deref() == Some(p_cond.as_str())
-                && inst
-                    .operands
-                    .iter()
-                    .any(|o| value_token(o) == sentinel_str)
+                && inst.operands.iter().any(|o| {
+                    let t = value_token(o);
+                    t == sentinel_str && t == latch_bound_str
+                })
                 && inst
                     .operands
                     .iter()
