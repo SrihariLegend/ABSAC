@@ -152,3 +152,9 @@ Result on the full corpus set (`emitter_native/sanitize/*.txt`,
 48 cases each): **223 clean / 0 mismatched / 76 lower-refused /
 0 sanitizer violations**. Every native-clean kernel (and every applied
 rewrite) is free of ASan/UBSan diagnostics under this mode.
+
+The **Gate 6B fusion corpus** was re-evaluated under the same mode
+(`gate6b_run ... --sanitize`, output
+`emitter_native/sanitize/gate6b.txt`): **pass=10 fail=0** with no
+sanitizer diagnostics, so the fused emission path is also ASan/UBSan
+clean. The standard (non-sanitized) 6B run remains 10/10.

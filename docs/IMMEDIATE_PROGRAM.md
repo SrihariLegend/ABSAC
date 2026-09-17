@@ -101,7 +101,9 @@ kernels (0 mismatches, 19 with committed rewrites); see
 docs/EMITTER_F6F8_RESULTS.md. The native bridge also has a
 sanitizer-instrumented mode (`emit_c_diff --sanitize`, ASan+UBSan):
 the full corpus set is 223 clean / 0 mismatched / 0 sanitizer
-violations. The per-rewrite application pipeline ("Gate 4B.1"
+violations, and the Gate 6B fusion corpus re-runs 10/10 under
+`gate6b_run --sanitize` with no diagnostics. The per-rewrite
+application pipeline ("Gate 4B.1"
 in H3/D4) was closed separately on 2026-09-16 by the independent H4
 corpus (docs/H4_RESULTS.md); its assurance is SIR-level SchemaChecked,
 not machine-checked. See the scope-honesty section of

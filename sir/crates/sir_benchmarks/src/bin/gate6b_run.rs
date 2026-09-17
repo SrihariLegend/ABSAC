@@ -69,21 +69,32 @@ fn print_regions(regions: &[RegionPlan]) {
     }
 }
 
-fn compile_and_run(driver: &str, work: &Path) -> Result<(String, i32), String> {
+fn compile_and_run(driver: &str, work: &Path, sanitize: bool) -> Result<(String, i32), String> {
     std::fs::create_dir_all(work).map_err(|e| format!("mkdir: {e}"))?;
     let c_path = work.join("driver.c");
     let exe_path = work.join("driver");
     std::fs::write(&c_path, driver).map_err(|e| format!("write driver: {e}"))?;
-    let out = Command::new("clang")
-        .args([
-            "-O2",
-            "-march=native",
-            "-mavx2",
-            "-msse4.2",
-            "-mpopcnt",
-            "-std=c11",
-            "-D_GNU_SOURCE",
-        ])
+    let mut clang = Command::new("clang");
+    clang.args([
+        "-O2",
+        "-march=native",
+        "-mavx2",
+        "-msse4.2",
+        "-mpopcnt",
+        "-std=c11",
+        "-D_GNU_SOURCE",
+    ]);
+    if sanitize {
+        // Extend the native differential to the fusion corpus with
+        // ASan+UBSan; any diagnostic fails the row instead of comparing
+        // outputs from undefined behaviour.
+        clang.args([
+            "-fsanitize=address,undefined",
+            "-fno-sanitize-recover=all",
+            "-g",
+        ]);
+    }
+    let out = clang
         .arg(&c_path)
         .arg("-o")
         .arg(&exe_path)
@@ -99,6 +110,24 @@ fn compile_and_run(driver: &str, work: &Path) -> Result<(String, i32), String> {
     let run = Command::new(&exe_path)
         .output()
         .map_err(|e| format!("run: {e}"))?;
+    if sanitize {
+        let stderr = String::from_utf8_lossy(&run.stderr).to_string();
+        if stderr.contains("runtime error:")
+            || stderr.contains("AddressSanitizer")
+            || stderr.contains("UndefinedBehaviorSanitizer")
+        {
+            let reason = stderr
+                .lines()
+                .find(|l| {
+                    l.contains("runtime error:")
+                        || l.contains("AddressSanitizer")
+                        || l.contains("UndefinedBehaviorSanitizer")
+                })
+                .unwrap_or("sanitizer report")
+                .to_string();
+            return Err(format!("sanitizer: {reason}"));
+        }
+    }
     Ok((
         String::from_utf8_lossy(&run.stdout).to_string(),
         run.status.code().unwrap_or(-1),
@@ -110,6 +139,7 @@ fn main() {
     let mut corpus = String::new();
     let mut expectations_path = String::new();
     let mut only_kernel: Option<String> = None;
+    let mut sanitize = false;
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -125,6 +155,10 @@ fn main() {
                 only_kernel = args.get(i + 1).cloned();
                 i += 2;
             }
+            "--sanitize" => {
+                sanitize = true;
+                i += 1;
+            }
             other => {
                 eprintln!("unknown argument '{other}'");
                 std::process::exit(2);
@@ -132,7 +166,9 @@ fn main() {
         }
     }
     if corpus.is_empty() || expectations_path.is_empty() {
-        eprintln!("usage: gate6b_run --corpus <corpus.ll> --expectations <expected.csv> [--kernel <name>]");
+        eprintln!(
+            "usage: gate6b_run --corpus <corpus.ll> --expectations <expected.csv> [--kernel <name>] [--sanitize]"
+        );
         std::process::exit(2);
     }
 
@@ -144,6 +180,9 @@ fn main() {
     println!("# Gate 6B fusion evaluation");
     println!("# corpus={corpus}");
     println!("# apparatus: gate6b_run + extract_loop_regions + plan derivation + composition + emitter");
+    if sanitize {
+        println!("# sanitize=address,undefined");
+    }
 
     let mut pass = 0usize;
     let mut fail = 0usize;
@@ -274,7 +313,7 @@ fn main() {
             }
         };
         let work = work_root.join(&kernel);
-        match compile_and_run(&driver, &work) {
+        match compile_and_run(&driver, &work, sanitize) {
             Ok((stdout, code)) => {
                 for line in stdout.lines() {
                     println!("  {line}");

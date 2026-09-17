@@ -145,3 +145,12 @@ loop.
 - **Performance is machine-specific.** Median-of-25 trials × 5000
   iterations, CPU-pinned (core 0), AVX2/SSE2/`-mpopcnt` with
   `clang -O2 -march=native`. Absolute numbers are in `run2.txt`.
+
+## Sanitizer follow-up (2026-09-17)
+
+The fusion harness gained a `--sanitize` mode (ASan+UBSan,
+`-fno-sanitize-recover=all`; any diagnostic fails the row). Re-running
+the sealed corpus under it gives **pass=10 fail=0** with no sanitizer
+diagnostics (`emitter_native/sanitize/gate6b.txt`), so the fused
+emission path is free of undefined behaviour/memory errors in addition
+to being differential-clean. The standard run remains 10/10.
