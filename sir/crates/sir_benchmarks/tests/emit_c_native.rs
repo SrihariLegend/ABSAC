@@ -1123,3 +1123,66 @@ fn sequential_two_loops_execute_natively() {
         "loop2 must start from loop1's output and the combine must read both"
     );
 }
+
+/// clang's early-return search CFG (header/latch/merge) for a 48-element
+/// buffer. The lowerer synthesizes the canonical found-flag loop, the
+/// scans recognizer derives FirstOccurrence, the bit-blaster proves the
+/// obligation (extent <= 64), and the forward bitscan recipe rewrites it
+/// to `ctz(pack)`. Native differential against the original IR shape.
+const EARLY_EXIT_SEARCH_48: &str = r#"
+define i64 @first_set_48(ptr %0) {
+  br label %2
+
+2:
+  %3 = phi i64 [ 0, %1 ], [ %8, %7 ]
+  %4 = getelementptr inbounds i8, ptr %0, i64 %3
+  %5 = load i8, ptr %4
+  %6 = icmp eq i8 %5, 0
+  br i1 %6, label %7, label %10
+
+7:
+  %8 = add nuw nsw i64 %3, 1
+  %9 = icmp eq i64 %8, 48
+  br i1 %9, label %10, label %2
+
+10:
+  %11 = phi i64 [ 48, %7 ], [ %3, %2 ]
+  ret i64 %11
+}
+"#;
+
+#[test]
+fn early_exit_search_rewrites_and_executes_natively() {
+    if !clang_available() {
+        return;
+    }
+    let func = sir_lower::lower_function(EARLY_EXIT_SEARCH_48, "first_set_48")
+        .expect("early-exit search must lower");
+    let optimized = optimize_suppressed(&func);
+    assert_eq!(
+        optimized.rewrites_applied, 1,
+        "the forward bitscan rewrite must be authorized for a <= 64 extent"
+    );
+    let emitted = sir_benchmarks::emit::emit_c(&optimized.function);
+    assert!(
+        emitted.contains("__sir_ctz"),
+        "the rewrite must select TrailingZeros:\n{emitted}"
+    );
+    let main = "    uint8_t a[48] = {0};\n\
+                \x20   a[5] = 7;\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)first_set_48(a));\n\
+                \x20   uint8_t b[48] = {0};\n\
+                \x20   b[0] = 1;\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)first_set_48(b));\n\
+                \x20   uint8_t c[48] = {0};\n\
+                \x20   c[47] = 1;\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)first_set_48(c));\n\
+                \x20   uint8_t d[48] = {0};\n\
+                \x20   printf(\"%llu\\n\", (unsigned long long)first_set_48(d));\n";
+    let Some(stdout) = compile_and_run_emitted(&emitted, main, "first_set_48") else {
+        return;
+    };
+    // First non-zero index; all-zero returns the length sentinel 48.
+    let got: Vec<&str> = stdout.lines().collect();
+    assert_eq!(got, vec!["5", "0", "47", "48"]);
+}

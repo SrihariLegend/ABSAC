@@ -207,21 +207,83 @@ pub fn emit_pack_for_position_search(
                 "{recipe}: no PositionSearch collection role"
             ))
         })?;
-    let length = match function.get_node(collection).map(|n| &n.ty) {
-        Some(Type::Array { element, length }) if **element == Type::Bool => *length,
-        _ => {
-            return Err(RewriteError::RecipeFailed(format!(
-                "{recipe}: collection %{} is not a fixed-length boolean array",
-                collection.0
-            )))
+    match function.get_node(collection).map(|n| &n.ty) {
+        Some(Type::Array { element, length }) if **element == Type::Bool => {
+            let packed = builder.pack(
+                LocalNodeId::new(collection.as_u64()),
+                *length,
+                Span::unknown(),
+            );
+            Ok((packed, *length))
         }
+        Some(Type::Array { element, length }) => {
+            // Predicate collection: the search hit must be the IMPLICIT
+            // NON-ZERO predicate, verified structurally on the region's
+            // comparison against a zero literal. Any other predicate
+            // (== scalar, != scalar, ordered) has a different mask and is
+            // refused — the PositionSearch role does not carry the op.
+            let element = (**element).clone();
+            if !is_implicit_nonzero_predicate(function, collection, &element) {
+                return Err(RewriteError::RecipeFailed(format!(
+                    "{recipe}: integer collection %{} is not searched with an \
+                     implicit non-zero predicate",
+                    collection.0
+                )));
+            }
+            let zero = zero_of_type(&element).ok_or_else(|| {
+                RewriteError::RecipeFailed(format!(
+                    "{recipe}: no canonical zero for element type {element:?}"
+                ))
+            })?;
+            let zero_node = builder.constant(zero, element, Span::unknown());
+            let mask = builder.array_cmp_mask(
+                LocalNodeId::new(collection.as_u64()),
+                zero_node,
+                sir_nodes::CmpOperator::Ne,
+                Span::unknown(),
+            );
+            Ok((mask, *length))
+        }
+        _ => Err(RewriteError::RecipeFailed(format!(
+            "{recipe}: collection %{} is not a fixed-length collection",
+            collection.0
+        ))),
+    }
+}
+
+/// True when the region compares an element of `collection` against a
+/// zero literal (`Eq(elem, 0)` or `Ne(elem, 0)`), i.e. the search hit
+/// is "element is non-zero".
+fn is_implicit_nonzero_predicate(
+    function: &sir_nodes::Function,
+    collection: sir_types::NodeId,
+    element_ty: &Type,
+) -> bool {
+    let zero = match zero_of_type(element_ty) {
+        Some(z) => z,
+        None => return false,
     };
-    let packed = builder.pack(
-        LocalNodeId::new(collection.as_u64()),
-        length,
-        Span::unknown(),
-    );
-    Ok((packed, length))
+    let accesses: Vec<sir_types::NodeId> = function
+        .arena
+        .iter()
+        .filter_map(|n| match &n.kind {
+            NodeKind::ArrayAccess { base, .. } if *base == collection => Some(n.id),
+            _ => None,
+        })
+        .collect();
+    function.arena.iter().any(|n| {
+        let (lhs, rhs) = match &n.kind {
+            NodeKind::Eq { lhs, rhs } | NodeKind::Ne { lhs, rhs } => (*lhs, *rhs),
+            _ => return false,
+        };
+        let is_zero = |id: sir_types::NodeId| {
+            matches!(
+                function.get_node(id).map(|x| &x.kind),
+                Some(NodeKind::Constant(data)) if *data == zero
+            )
+        };
+        (accesses.contains(&lhs) && is_zero(rhs)) || (accesses.contains(&rhs) && is_zero(lhs))
+    })
 }
 
 /// Find a `TupleExtract` node that consumes the given tuple value, if any.

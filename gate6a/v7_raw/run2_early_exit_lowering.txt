@@ -1,0 +1,151 @@
+# Gate 6A fresh blind recognition evaluation
+# corpus=gate6a/v7_corpus.ll
+# registry=default; config=OptimizerConfig::default
+
+KERNEL p01_sum_u8_const_100 class=P expectation=recognized
+  key_property: u8 sum into u64, constant bound 100
+  observed: lowered=true verify=true truths=6 concepts=["FiniteCollection", "PredicateMap", "SumReduction", "LogicalSequence", "ElementSequence"] beliefs=1 cands=1 rewrites=0
+  RESULT recognized ["SumReduction"] (PASS)
+Iteration 1: Branching on candidate candidate#0 with strategy Popcount
+
+KERNEL p02_count_le_const_u16 class=P expectation=recognized
+  key_property: u16 <= predicate, constant bound 72
+  observed: lowered=true verify=true truths=9 concepts=["FiniteCollection", "CardinalityReduction", "PredicateMap", "ElementSequence", "LogicalSequence"] beliefs=1 cands=2 rewrites=1
+  RESULT recognized ["CardinalityReduction"] (PASS)
+Iteration 1: Branching on candidate candidate#0 with strategy Popcount
+
+KERNEL p03_count_ne_const_u32 class=P expectation=recognized
+  key_property: u32 != predicate, constant bound 36
+  observed: lowered=true verify=true truths=9 concepts=["LogicalSequence", "PredicateMap", "FiniteCollection", "CardinalityReduction", "ElementSequence"] beliefs=1 cands=2 rewrites=1
+  RESULT recognized ["CardinalityReduction"] (PASS)
+Iteration 1: Branching on candidate candidate#1 with strategy All
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: accumulator identity is not the recurrence's monoid identity")
+
+KERNEL p04_all_ge_const_u8 class=P expectation=recognized
+  key_property: all >= predicate, constant bound 48
+  observed: lowered=true verify=true truths=9 concepts=["ConjunctiveReduction", "PredicateMap", "ElementSequence", "FiniteCollection", "LogicalSequence"] beliefs=1 cands=2 rewrites=0
+  RESULT recognized ["ConjunctiveReduction"] (PASS)
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+
+KERNEL p05_any_or_const_u16 class=P expectation=recognized
+  key_property: raw-element OR, constant bound 80
+  observed: lowered=true verify=true truths=5 concepts=["DisjunctiveReduction", "LogicalSequence", "ElementSequence", "FiniteCollection", "PredicateMap"] beliefs=1 cands=2 rewrites=1
+  RESULT recognized ["DisjunctiveReduction"] (PASS)
+
+KERNEL p06_do_while_stride2_sum class=P expectation=recall_gap_known
+  key_property: post-tested do-while stride 2 (reconstruct or refuse; native fidelity)
+  observed: lowered=true verify=true truths=1 concepts=["PredicateMap"] beliefs=0 cands=0 rewrites=0
+  RESULT recall miss (KNOWN OPEN GAP, recorded; lowered=true verified=true)
+Iteration 1: Branching on candidate candidate#3 with strategy Popcount
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+Rewrite failed: RecipeFailed("Any: integer collection without a certified element predicate: the recurrence does not reduce the raw elements")
+Iteration 2: Branching on candidate candidate#2 with strategy Any
+Rewrite failed: RecipeFailed("Any: integer collection without a certified element predicate: the recurrence does not reduce the raw elements")
+
+KERNEL p07_three_loops_const class=P expectation=recognized
+  key_property: three sequential loops over one constant extent
+  observed: lowered=true verify=true truths=20 concepts=["DisjunctiveReduction", "LogicalSequence", "PredicateMap", "FiniteCollection", "ElementSequence", "PredicateMap", "LogicalSequence", "FiniteCollection", "CardinalityReduction", "ElementSequence", "FiniteCollection", "PredicateMap", "SumReduction", "LogicalSequence", "ElementSequence"] beliefs=3 cands=5 rewrites=1
+  RESULT recognized ["SumReduction"] (PASS)
+Iteration 1: Branching on candidate candidate#1 with strategy Popcount
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: counted loop does not cover the complete collection extent")
+
+KERNEL p08_two_loops_mixed_const class=P expectation=recognized
+  key_property: two loops, different constant extents (max view)
+  observed: lowered=true verify=true truths=15 concepts=["CardinalityReduction", "ElementSequence", "PredicateMap", "LogicalSequence", "LogicalSequence", "ElementSequence", "SumReduction", "FiniteCollection", "PredicateMap"] beliefs=2 cands=2 rewrites=0
+  RESULT recognized ["CardinalityReduction"] (PASS)
+PositionSearch roles assigned: collection=Some(NodeId(0)), scalar=None, result=Some(NodeId(18))
+PositionSearch roles assigned: collection=Some(NodeId(0)), scalar=None, result=Some(NodeId(18))
+Failed proof for DefinitionId(200): Unknown(NoApplicableBackend)
+
+KERNEL p09_first_set_early_return class=P expectation=recall_gap_known
+  key_property: early-return first-set search (early-exit gap)
+  observed: lowered=true verify=true truths=24 concepts=["DisjunctiveReduction", "LogicalSequence", "FiniteCollection", "PredicateMap", "FirstOccurrence", "IsZero", "ElementSequence"] beliefs=2 cands=2 rewrites=0
+  RESULT recall miss (KNOWN OPEN GAP, recorded; lowered=true verified=true)
+
+KERNEL p10_map_then_sum_const class=P expectation=recall_gap_known
+  key_property: map-then-sum over a constant extent (candidate gap)
+  observed: lowered=true verify=true truths=6 concepts=["PredicateMap", "LogicalSequence", "FiniteCollection", "MappedSumReduction", "ElementSequence"] beliefs=1 cands=0 rewrites=0
+  RESULT recognized ["MappedSumReduction"] (PASS)
+
+KERNEL p11_do_while_stride8_sum class=P expectation=recall_gap_known
+  key_property: post-tested do-while stride 8 (reconstruct or refuse; native fidelity)
+  observed: lowered=true verify=true truths=1 concepts=["PredicateMap"] beliefs=0 cands=0 rewrites=0
+  RESULT recall miss (KNOWN OPEN GAP, recorded; lowered=true verified=true)
+
+KERNEL n01_runtime_sum_u16 class=N expectation=contained_abstain
+  key_property: runtime extent: recognition allowed, no candidate
+  observed: lowered=true verify=true truths=3 concepts=["SumReduction", "PredicateMap", "IsZero"] beliefs=0 cands=0 rewrites=0
+  recognition recorded (allowed): reduction_concepts=["SumReduction"]
+  RESULT contained (PASS)
+
+KERNEL n02_runtime_count_le_u32 class=N expectation=contained_abstain
+  key_property: runtime extent cardinality: no candidate
+  observed: lowered=true verify=true truths=4 concepts=["CardinalityReduction", "PredicateMap", "IsZero"] beliefs=0 cands=0 rewrites=0
+  recognition recorded (allowed): reduction_concepts=["CardinalityReduction"]
+  RESULT contained (PASS)
+
+KERNEL n03_signed_sum_const class=N expectation=contained_abstain
+  key_property: signed induction/icmp: must refuse
+  observed: lowered=true verify=true truths=6 concepts=["LogicalSequence", "SumReduction", "PredicateMap", "FiniteCollection", "ElementSequence"] beliefs=1 cands=0 rewrites=0
+  recognition recorded (allowed): reduction_concepts=["SumReduction"]
+  RESULT contained (PASS)
+
+KERNEL n04_runtime_step_do_while class=N expectation=contained_abstain
+  key_property: unguarded post-tested runtime step: refuse loudly
+  observed: lowered=false verify=false truths=0 concepts=[] beliefs=0 cands=0 rewrites=0
+  note: lower: unsupported: unguarded successor-tested loop (`next` compared to the bound with a true back-edge and no pre-loop `n == 0` exit); SIR loops are pre-tested, so a do-while's first forced iteration cannot be represented: n04_runtime_step_do_while
+  recognition recorded (allowed): reduction_concepts=[]
+  RESULT contained (PASS)
+
+KERNEL n05_masked_sum_ternary_const class=N expectation=safe_abstain
+  key_property: ternary threshold sum (D5 class)
+  observed: lowered=true verify=true truths=8 concepts=["FiniteCollection", "LogicalSequence", "ElementSequence", "PredicateMap"] beliefs=1 cands=0 rewrites=0
+  RESULT safe_abstain (PASS)
+
+KERNEL n06_running_max_const class=N expectation=safe_abstain
+  key_property: running max lookalike (X06 class)
+  observed: lowered=true verify=true truths=5 concepts=["ElementSequence", "PredicateMap", "LogicalSequence", "FiniteCollection"] beliefs=1 cands=0 rewrites=0
+  RESULT safe_abstain (PASS)
+
+KERNEL n07_masked_sum_hi_const class=N expectation=safe_abstain
+  key_property: high-nibble masked sum (D5 class)
+  observed: lowered=true verify=true truths=6 concepts=["LogicalSequence", "ElementSequence", "MappedSumReduction", "PredicateMap", "FiniteCollection"] beliefs=1 cands=0 rewrites=0
+  RESULT safe_abstain (PASS)
+
+KERNEL n08_volatile_load_const class=N expectation=safe_abstain
+  key_property: volatile loads (effects)
+  observed: lowered=true verify=true truths=5 concepts=["ElementSequence", "FiniteCollection", "PredicateMap", "LogicalSequence"] beliefs=1 cands=0 rewrites=0
+  RESULT safe_abstain (PASS)
+
+KERNEL n09_atomic_fetch_add class=N expectation=safe_abstain
+  key_property: C11 atomic read-modify-write
+  observed: lowered=false verify=false truths=0 concepts=[] beliefs=0 cands=0 rewrites=0
+  note: lower: unsupported instruction: atomicrmw (raw: %9 = atomicrmw add ptr %0, i32 1 monotonic, align 4)
+  RESULT safe_abstain (PASS)
+
+KERNEL n10_may_alias_store_const class=N expectation=safe_abstain
+  key_property: may-alias store inside a constant-extent loop
+  observed: lowered=false verify=false truths=0 concepts=[] beliefs=0 cands=0 rewrites=0
+  note: lower: TypeMismatch { node: NodeId(5), expected: Pointer { pointee: Unit, mutable: true }, actual: Integer { width: I16, signed: false, overflow: Wrapping } }
+  RESULT safe_abstain (PASS)
+
+KERNEL n11_two_arrays_const class=N expectation=safe_abstain
+  key_property: two-array relation (footprint completeness)
+  observed: lowered=true verify=true truths=10 concepts=["ElementSequence", "FiniteCollection", "PredicateMap", "LogicalSequence"] beliefs=1 cands=0 rewrites=0
+  RESULT safe_abstain (PASS)
+
+KERNEL n12_nonterminating_reverse class=N expectation=safe_abstain
+  key_property: unsigned `i >= 0` reverse search (totality gate)
+  observed: lowered=false verify=false truths=0 concepts=[] beliefs=0 cands=0 rewrites=0
+  note: lower: function has too few blocks for the lowerer
+  RESULT safe_abstain (PASS)
+
+KERNEL n13_early_exit_global_const class=N expectation=safe_abstain
+  key_property: early exit with a global side effect
+  observed: lowered=false verify=false truths=0 concepts=[] beliefs=0 cands=0 rewrites=0
+  note: lower: unsupported: loop with a separate latch block (multi-block back-edge) not modeled: n13_early_exit_global_const
+  RESULT safe_abstain (PASS)
+
+GATE6A_SUMMARY positives=11 recognized=8 recall_misses=0 known_gap_misses=3
+GATE6A_SAFETY negatives=13 contained_rows=4 false_positive_recognitions=0 unsafe_candidates=0 unsafe_rewrites=0
+GATE6A_VERDICT PASS

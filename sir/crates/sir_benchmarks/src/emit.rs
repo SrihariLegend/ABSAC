@@ -420,6 +420,15 @@ fn emit_expr(
         NodeKind::Or { lhs, rhs } => {
             format!("({} | {})", emit_operand(*lhs, func, carrier_map), emit_operand(*rhs, func, carrier_map))
         }
+        NodeKind::BoolAnd { lhs, rhs } => {
+            format!("({} && {})", emit_operand(*lhs, func, carrier_map), emit_operand(*rhs, func, carrier_map))
+        }
+        NodeKind::BoolOr { lhs, rhs } => {
+            format!("({} || {})", emit_operand(*lhs, func, carrier_map), emit_operand(*rhs, func, carrier_map))
+        }
+        NodeKind::BoolNot { operand } => {
+            format!("(!{})", emit_operand(*operand, func, carrier_map))
+        }
         NodeKind::Xor { lhs, rhs } => {
             format!("({} ^ {})", emit_operand(*lhs, func, carrier_map), emit_operand(*rhs, func, carrier_map))
         }

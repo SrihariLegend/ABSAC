@@ -114,17 +114,17 @@ impl BitScanForwardDefinition {
     }
 }
 
-/// The recognized PositionSearch collection and its declared boolean
-/// extent (length ≤ 64 for the solver).
+/// The recognized PositionSearch collection and its declared extent
+/// (length ≤ 64 for the solver). Predicate collections are integer
+/// arrays; the obligation's sequence is the predicate results, so only
+/// the extent is needed.
 pub(crate) fn position_collection_length(
     function: &sir_nodes::Function,
     structural: &StructuralDescription,
 ) -> Option<usize> {
     let collection = collection_id(structural)?;
     match function.get_node(collection).map(|n| &n.ty) {
-        Some(Type::Array { element, length }) if **element == Type::Bool && *length > 0 && *length <= 64 => {
-            Some(*length)
-        }
+        Some(Type::Array { length, .. }) if *length > 0 && *length <= 64 => Some(*length),
         _ => None,
     }
 }

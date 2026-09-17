@@ -108,6 +108,15 @@ sum loop unchanged). Regression test:
 Runtime-bound two-loop kernels (w08, v5/v3/v4 p12) still promote
 nothing and stay candidate-free by design.
 
+### Follow-up 2 (same day): early-exit search lowering
+
+p09 (`p09_first_set_const`, extent 96) now lowers: the header/latch/
+merge CFG is synthesized into the canonical found-flag SIR loop, the
+buffer promotes to `[u8; 96]`, `FirstOccurrence` derives, and the
+native differential is clean. The 96-element extent exceeds the
+64-bit solver cap, so it stays unrewritten; the ≤64 rewrite chain is
+covered by the 48-element `emit_c_native` test.
+
 ## Cross-corpus regression after the fixes
 
 - Native sweep over v2/v3/v4/v5/h3/h4/h4b/h4c/d4 unchanged:

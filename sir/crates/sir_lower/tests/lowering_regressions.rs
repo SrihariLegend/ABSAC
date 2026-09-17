@@ -818,3 +818,50 @@ fn constant_two_loops_promote_and_do_not_duplicate_the_body() {
          loop; the composer must not re-emit loop1's body (got {outside_accesses})"
     );
 }
+
+/// clang's early-return search CFG (header/latch/merge) must lower into
+/// the canonical found-flag SIR loop instead of being refused, and the
+/// buffer must promote (the counter bound is a conjunct of the
+/// termination `!found && i < 48`).
+const EARLY_EXIT_SEARCH: &str = r#"
+define i64 @first_set(ptr %0) {
+  br label %2
+
+2:
+  %3 = phi i64 [ 0, %1 ], [ %8, %7 ]
+  %4 = getelementptr inbounds i8, ptr %0, i64 %3
+  %5 = load i8, ptr %4
+  %6 = icmp eq i8 %5, 0
+  br i1 %6, label %7, label %10
+
+7:
+  %8 = add nuw nsw i64 %3, 1
+  %9 = icmp eq i64 %8, 48
+  br i1 %9, label %10, label %2
+
+10:
+  %11 = phi i64 [ 48, %7 ], [ %3, %2 ]
+  ret i64 %11
+}
+"#;
+
+#[test]
+fn early_exit_search_lowers_to_a_found_flag_loop() {
+    let func = lower_function(EARLY_EXIT_SEARCH, "first_set")
+        .expect("the header/latch/merge search CFG must lower");
+    assert_eq!(
+        func.params[0].ty,
+        sir_types::Type::Array {
+            element: Box::new(sir_types::Type::u8()),
+            length: 48
+        },
+        "the counter bound is a termination conjunct; promotion must see it"
+    );
+    let loops = func
+        .arena
+        .iter()
+        .filter(|n| matches!(n.kind, sir_nodes::NodeKind::Loop { .. }))
+        .count();
+    assert_eq!(loops, 1, "the early exit is modeled inside one SIR loop");
+    assert!(func.return_node.is_some(), "the index must be returned");
+}

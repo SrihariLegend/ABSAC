@@ -29,9 +29,18 @@ buffer byte-for-byte.
 | `h4b/tier_b.ll` | 7 | 0 | 6 | 24 | 4 |
 | `h4c/tier_b.ll` | 6 | 0 | 4 | 24 | 3 |
 | `d4/tier_b.ll` | 7 | 0 | 5 | 24 | 4 |
-| `gate6a/v6_corpus.ll` | 16 | 0 | 6 | 48 | 5 |
-| `gate6a/v7_corpus.ll` | 18 | 0 | 6 | 48 | 4 |
-| **Total** | **137** | **0** | **57** | — | **31** |
+| `gate6a/v6_corpus.ll` | 17 | 0 | 5 | 48 | 5 |
+| `gate6a/v7_corpus.ll` | 19 | 0 | 5 | 48 | 4 |
+| **Total** | **139** | **0** | **55** | — | **31** |
+
+Re-measured after **early-exit search lowering** (2026-09-17): v6/v7
+`p09` header/latch/merge search CFGs lower via found-flag synthesis and
+are native-clean (extents 96/80), so each moves from lower-refused to
+clean. Their extents exceed the 64-bit solver cap, so they stay
+unrewritten; a 48-element early-exit search rewrites to `ctz(pack)` and
+runs natively (5/0/47/48) in the `emit_c_native` test. Landing this
+also fixed emitter gaps for `BoolAnd`/`BoolOr`/`BoolNot` (previously
+silent `0`).
 
 **v7** (2026-09-17) is the first fresh generation after the v6
 remediation: post-tested do-whiles at strides 2 and 8 are natively

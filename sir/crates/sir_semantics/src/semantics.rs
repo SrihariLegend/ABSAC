@@ -1489,10 +1489,11 @@ impl SemanticEngine {
                         }
                     }
                     if let NodeKind::Parameter { .. } = &node.kind {
-                        if let Type::Array { element, .. } = &node.ty {
-                            if matches!(element.as_ref(), &Type::Bool) {
-                                collection = Some(node.id);
-                            }
+                        if let Type::Array { .. } = &node.ty {
+                            // Predicate collections (integer elements with a
+                            // predicate map) are search collections too; the
+                            // bitscan obligation needs only the extent.
+                            collection = Some(node.id);
                         } else if matches!(node.ty, Type::Integer { .. }) {
                             println!("Found scalar parameter for PositionSearch: {:?}", node.id);
                             scalar = Some(node.id); // Hacky for v0.1

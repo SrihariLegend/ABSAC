@@ -758,21 +758,35 @@ fn strict_counted_bound(
     if !successor_seen {
         return None;
     }
-    let bound = match func.get_node(termination).map(|n| &n.kind) {
-        Some(NodeKind::Lt { lhs, rhs }) | Some(NodeKind::Ne { lhs, rhs })
-            if *lhs == counter =>
-        {
-            lower_constant_u64(func, *rhs)?
-        }
-        Some(NodeKind::Le { lhs, rhs }) if *lhs == counter => {
-            lower_constant_u64(func, *rhs)?.checked_add(1)?
-        }
-        _ => return None,
-    };
+    // The counter comparison may be a CONJUNCT of the termination: the
+    // synthesized early-exit search loop terminates on
+    // `!found && i < BOUND`. Conjuncts only shrink the iteration domain,
+    // so a proven counter bound still bounds every access.
+    let bound = find_counter_bound_conjunct(func, termination, counter)?;
     if bound == 0 {
         return None;
     }
     Some(bound)
+}
+
+/// The constant bound of a `counter < K` / `counter != K` /
+/// `counter <= K` comparison appearing anywhere in a conjunction.
+fn find_counter_bound_conjunct(func: &Function, term: NodeId, counter: NodeId) -> Option<u64> {
+    match func.get_node(term).map(|n| &n.kind) {
+        Some(NodeKind::Lt { lhs, rhs }) | Some(NodeKind::Ne { lhs, rhs })
+            if *lhs == counter =>
+        {
+            lower_constant_u64(func, *rhs)
+        }
+        Some(NodeKind::Le { lhs, rhs }) if *lhs == counter => {
+            lower_constant_u64(func, *rhs)?.checked_add(1)
+        }
+        Some(NodeKind::BoolAnd { lhs, rhs }) => {
+            find_counter_bound_conjunct(func, *lhs, counter)
+                .or_else(|| find_counter_bound_conjunct(func, *rhs, counter))
+        }
+        _ => None,
+    }
 }
 
 /// Promote `Pointer` parameters to `Array { element, length: K }` when
@@ -1620,10 +1634,19 @@ pub fn lower(text: &str) -> Result<Function, String> {
         })
     });
     if self_loop_blocks.is_empty() && back_edge_exists {
-        return Err(format!(
-            "unsupported: loop with a separate latch block (multi-block back-edge) not modeled: {}",
-            ir.name
-        ));
+        // EARLY-EXIT SEARCH LOWERING (v7 p09 recall): clang's
+        // `for (i…) if (a[i]) return i;` is a header/latch/merge CFG
+        // rather than a self-latching block. Synthesize the canonical
+        // found-flag SIR loop so the scans recognizer and bitscan
+        // recipes apply; any mismatch falls back to the historical
+        // refusal (never a partial or guessed lowering).
+        return match lower_early_exit_search(&ir, &mut builder, &mut value_map) {
+            Ok(()) => Ok(builder.build()),
+            Err(_) => Err(format!(
+                "unsupported: loop with a separate latch block (multi-block back-edge) not modeled: {}",
+                ir.name
+            )),
+        };
     }
 
     let loop_block_idx = self_loop_blocks.first().copied();
@@ -1922,6 +1945,319 @@ fn has_entry_guard(ir: &IrFunction, loop_block_idx: usize) -> bool {
                 .iter()
                 .any(|op| op.trim() == "0" || op.trim().ends_with(" 0"))
     })
+}
+
+/// Parse a phi instruction's `[ value, %label ]` pairs.
+fn phi_incomings(inst: &Instruction) -> Vec<(String, String)> {
+    let combined = inst.operands.join(", ");
+    let mut out = Vec::new();
+    for segment in combined.split('[').skip(1) {
+        let body = segment.split(']').next().unwrap_or("");
+        let mut parts = body.split(',').map(|s| s.trim().to_string());
+        if let (Some(value), Some(label)) = (parts.next(), parts.next()) {
+            if !value.is_empty() && !label.is_empty() {
+                out.push((value, label.trim().trim_start_matches('%').to_string()));
+            }
+        }
+    }
+    out
+}
+
+/// Lower clang's early-return search loop into the canonical found-flag
+/// SIR loop:
+///
+/// ```text
+///   H: %i = phi [init, …], [%next, %L]
+///      <element load / test>            ; cond true = no hit, continue
+///      br %cond, %L, %M                 ; false = hit -> early exit
+///   L: %next = add %i, 1
+///      %done = icmp eq %next, BOUND
+///      br %done, %M, %H
+///   M: %r = phi [sentinel, %L], [%i, %H]
+///      ret %r
+/// ```
+///
+/// The synthesized loop carries `(found, index, i)` and exits when found
+/// or the counter reaches BOUND; `index` starts at the sentinel and is
+/// updated by the first hit, reproducing `%r` exactly. Any shape
+/// mismatch is an error and the caller keeps the historical refusal.
+fn lower_early_exit_search(
+    ir: &IrFunction,
+    builder: &mut Builder,
+    value_map: &mut HashMap<String, NodeId>,
+) -> Result<(), String> {
+    let span = Span::unknown();
+
+    // 1. Header H with a latch L that branches back to H; H and L share
+    //    the merge block M.
+    let mut triple: Option<(usize, usize, usize)> = None;
+    'outer: for (hi, h) in ir.blocks.iter().enumerate() {
+        if !h.instructions.iter().any(|i| i.opcode == "phi") {
+            continue;
+        }
+        let h_succs = block_successors(h);
+        if h_succs.len() != 2 {
+            continue;
+        }
+        for (li, l) in ir.blocks.iter().enumerate() {
+            if li == hi {
+                continue;
+            }
+            let l_succs = block_successors(l);
+            if l_succs.len() != 2 || !l_succs.contains(&h.label) {
+                continue;
+            }
+            let Some(m_label) = h_succs.iter().find(|s| **s != l.label) else {
+                continue;
+            };
+            if !l_succs.contains(m_label) {
+                continue;
+            }
+            let Some(&mi) = ir.block_map.get(m_label) else {
+                continue;
+            };
+            triple = Some((hi, li, mi));
+            break 'outer;
+        }
+    }
+    let (hi, li, mi) = triple.ok_or("early-exit search: no header/latch/merge triple")?;
+    let h = &ir.blocks[hi];
+    let l = &ir.blocks[li];
+    let m = &ir.blocks[mi];
+    let h_br = h
+        .instructions
+        .iter()
+        .rev()
+        .find(|i| i.opcode == "br")
+        .ok_or("early-exit search: header has no branch")?;
+    let l_br = l
+        .instructions
+        .iter()
+        .rev()
+        .find(|i| i.opcode == "br")
+        .ok_or("early-exit search: latch has no branch")?;
+    if h_br.operands.len() < 3 || l_br.operands.len() < 3 {
+        return Err("early-exit search: expected conditional branches".into());
+    }
+
+    // 2. Exactly one counter phi in H, carried by L.
+    let h_phis: Vec<&Instruction> = h
+        .instructions
+        .iter()
+        .filter(|i| i.opcode == "phi")
+        .collect();
+    if h_phis.len() != 1 {
+        return Err("early-exit search: expected one header phi".into());
+    }
+    let h_phi = h_phis[0];
+    let counter_name = h_phi
+        .result
+        .clone()
+        .ok_or("early-exit search: header phi without result")?;
+    let counter_ty_str = h_phi
+        .operands
+        .first()
+        .and_then(|o| o.split_whitespace().next())
+        .unwrap_or("i64");
+    let counter_ty = parse_type(counter_ty_str).ok_or("early-exit search: bad counter type")?;
+    let h_incomings = phi_incomings(h_phi);
+    let init_val = h_incomings
+        .iter()
+        .find(|(_, label)| label != &l.label)
+        .map(|(v, _)| v.clone());
+    let next_val = h_incomings
+        .iter()
+        .find(|(_, label)| label == &l.label)
+        .map(|(v, _)| v.clone());
+    let (Some(init_val), Some(_next_val)) = (init_val, next_val) else {
+        return Err("early-exit search: counter phi is not latch-carried".into());
+    };
+
+    // 3. Merge phi: incoming from H is the counter, incoming from L is
+    //    the sentinel; the merge block just returns the phi.
+    let m_phis: Vec<&Instruction> = m
+        .instructions
+        .iter()
+        .filter(|i| i.opcode == "phi")
+        .collect();
+    if m_phis.len() != 1 {
+        return Err("early-exit search: expected one merge phi".into());
+    }
+    let m_phi = m_phis[0];
+    let merge_ty_str = m_phi
+        .operands
+        .first()
+        .and_then(|o| o.split_whitespace().next())
+        .unwrap_or("i64");
+    let index_ty = parse_type(merge_ty_str).ok_or("early-exit search: bad merge type")?;
+    let m_incomings = phi_incomings(m_phi);
+    let from_h = m_incomings
+        .iter()
+        .find(|(_, label)| label == &h.label)
+        .map(|(v, _)| strip_type(v));
+    let sentinel = m_incomings
+        .iter()
+        .find(|(_, label)| label == &l.label)
+        .map(|(v, _)| strip_type(v));
+    let (Some(from_h), Some(sentinel_str)) = (from_h, sentinel) else {
+        return Err("early-exit search: merge phi lacks the H/L incoming pair".into());
+    };
+    if from_h != counter_name {
+        return Err("early-exit search: merge does not return the counter".into());
+    }
+    let merge_result = m_phi.result.clone().unwrap_or_default();
+    let returns_phi = m.instructions.iter().any(|i| {
+        i.opcode == "ret"
+            && i.operands
+                .first()
+                .map(|o| strip_type(o) == merge_result)
+                .unwrap_or(false)
+    });
+    if !returns_phi {
+        return Err("early-exit search: merge does not return its phi".into());
+    }
+
+    // 4. Pre-header blocks (everything before H, except the merge).
+    for (bi, b) in ir.blocks.iter().enumerate() {
+        if bi >= hi {
+            break;
+        }
+        if bi == mi || b.instructions.iter().any(|i| i.opcode == "ret") {
+            continue;
+        }
+        for inst in &b.instructions {
+            if inst.opcode == "phi" || inst.opcode == "br" || inst.opcode == "ret" {
+                continue;
+            }
+            emit_instruction(inst, builder, value_map, &ir.params, span)?;
+        }
+    }
+
+    // 5. Carried initial values.
+    let counter_init = get_node_id(
+        &init_val,
+        value_map,
+        &ir.params,
+        builder,
+        Some(counter_ty.clone()),
+    )
+    .ok_or("early-exit search: cannot resolve the counter initial value")?;
+    let sentinel_node = get_node_id(
+        &sentinel_str,
+        value_map,
+        &ir.params,
+        builder,
+        Some(index_ty.clone()),
+    )
+    .ok_or("early-exit search: cannot resolve the merge sentinel")?;
+    value_map.insert(counter_name.clone(), counter_init);
+
+    // 6. Emit H's and L's body instructions; the counter phi resolves to
+    //    the carried index.
+    let mut body_nodes: Vec<NodeId> = Vec::new();
+    for inst in h.instructions.iter().chain(l.instructions.iter()) {
+        if inst.opcode == "phi" || inst.opcode == "br" || inst.opcode == "ret" {
+            continue;
+        }
+        if let Some(id) = emit_instruction(inst, builder, value_map, &ir.params, span)? {
+            body_nodes.push(id);
+        }
+    }
+
+    // 7. Branch polarities.
+    let h_succs = block_successors(h);
+    let hit_on_true = h_succs.first().map(|s| s == &m.label).unwrap_or(false);
+    if hit_on_true && h_succs.get(1).map(|s| s != &l.label).unwrap_or(true) {
+        return Err("early-exit search: header branch is not hit-exit".into());
+    }
+    if !hit_on_true && h_succs.first().map(|s| s != &l.label).unwrap_or(true) {
+        return Err("early-exit search: header branch is not hit-exit".into());
+    }
+    let h_cond = get_node_id(
+        &strip_type(&h_br.operands[0]),
+        value_map,
+        &ir.params,
+        builder,
+        None,
+    )
+    .ok_or("early-exit search: cannot resolve the header condition")?;
+    let hit = if hit_on_true {
+        h_cond
+    } else {
+        let not = builder
+            .bool_not(h_cond, span)
+            .map_err(|e| format!("early-exit search: {:?}", e))?;
+        body_nodes.push(not);
+        not
+    };
+
+    let l_succs = block_successors(l);
+    if l_succs.first().map(|s| s != &m.label).unwrap_or(true)
+        || l_succs.get(1).map(|s| s != &h.label).unwrap_or(true)
+    {
+        return Err("early-exit search: latch is not the counted exit-on-true form".into());
+    }
+    let l_cond = get_node_id(
+        &strip_type(&l_br.operands[0]),
+        value_map,
+        &ir.params,
+        builder,
+        None,
+    )
+    .ok_or("early-exit search: cannot resolve the latch condition")?;
+    let (carry, bound) = rotated_counted_domain(builder, l_cond, &[counter_init])
+        .ok_or("early-exit search: latch is not a counted successor test")?;
+
+    // 8. Synthesize the found-flag recurrence.
+    let found_init = builder.constant(ConstantData::boolean(false), Type::Bool, span);
+    let not_found = builder
+        .bool_not(found_init, span)
+        .map_err(|e| format!("early-exit search: {:?}", e))?;
+    let found_next = builder
+        .bool_or(found_init, hit, span)
+        .map_err(|e| format!("early-exit search: {:?}", e))?;
+    let update = builder
+        .bool_and(hit, not_found, span)
+        .map_err(|e| format!("early-exit search: {:?}", e))?;
+    let index_next = builder
+        .select(update, counter_init, sentinel_node, span)
+        .map_err(|e| format!("early-exit search: {:?}", e))?;
+    let successor = l
+        .instructions
+        .iter()
+        .find_map(|inst| (inst.opcode == "add").then(|| inst.result.clone()).flatten())
+        .ok_or("early-exit search: no latch successor")?;
+    let successor = get_node_id(&successor, value_map, &ir.params, builder, None)
+        .ok_or("early-exit search: cannot resolve the latch successor")?;
+    let domain = builder
+        .lt(carry, bound, span)
+        .map_err(|e| format!("early-exit search: {:?}", e))?;
+    let termination = builder
+        .bool_and(not_found, domain, span)
+        .map_err(|e| format!("early-exit search: {:?}", e))?;
+    body_nodes.extend([found_next, update, index_next, domain, termination]);
+
+    // 9. Build the loop and return the index output.
+    let outputs = vec![found_next, index_next, successor];
+    let carried = vec![found_init, sentinel_node, counter_init];
+    let loop_ty = Type::Tuple {
+        elements: vec![Type::Bool, index_ty.clone(), counter_ty.clone()],
+    };
+    let loop_node = builder
+        .r#loop(&body_nodes, termination, &outputs, &carried, loop_ty, span)
+        .map_err(|e| format!("early-exit search loop build: {:?}", e))?;
+    let index_extract = builder
+        .tuple_extract(loop_node, 1, index_ty, span)
+        .map_err(|e| format!("early-exit search: {:?}", e))?;
+    let counter_extract = builder
+        .tuple_extract(loop_node, 2, counter_ty, span)
+        .map_err(|e| format!("early-exit search: {:?}", e))?;
+    value_map.insert(counter_name, counter_extract);
+    value_map.insert(merge_result, index_extract);
+    builder
+        .return_value(index_extract, span)
+        .map_err(|e| format!("early-exit search return: {:?}", e))?;
+    Ok(())
 }
 
 /// Lower a function with a detected loop.

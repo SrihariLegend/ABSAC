@@ -446,9 +446,16 @@ Remediation D3 (P0A, commit c3ebb54):
        Also native-clean: constant-extent buffer
        promotion (pointer → `[T; K]` when every access is within a
        proven constant loop extent) rewrites w06/p04/p07 natively
-       (24/24 each; 22 native rewrites total, 0 mismatches). Remaining:
-       runtime-extent reductions, multi-loop emitter + lowering,
-       early-exit gep (x08). The w07 "u8/I64 accumulator mismatch"
+       (24/24 each). Early-exit search lowering is CLOSED for the
+       canonical header/latch/merge CFG (2026-09-17): the lowerer
+       synthesizes the found-flag SIR loop, FirstOccurrence derives, and
+       the bitscan recipes apply — v6/v7 p09 lower and are native-clean
+       (extents 96/80); a <=64 extent rewrites to ctz natively
+       (5/0/47/48); >64 extents stay unrewritten (64-bit solver cap).
+       The emitter also gained BoolAnd/BoolOr/BoolNot emission, a
+       silent-0 gap the native differential caught while landing this.
+       Remaining: >64-bit solver domains, runtime-extent reductions,
+       map-then-sum candidate, Sum strategy. The w07 "u8/I64 accumulator mismatch"
        is refined to a dynamic-extent limitation: recognition and
        authorization now succeed, but the runtime-length pointer
        collection has no sound fixed-width encoding (no fabricated
