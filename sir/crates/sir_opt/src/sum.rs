@@ -126,20 +126,15 @@ fn recognize_loop(
         find_element_access(function, element.invariant_value, counter.variable)?;
     let map_expression = element.invariant_value;
     let base_node = function.get_node(base)?;
-    let (element_ty, extent) = match &base_node.ty {
-        Type::Array { element, length } => {
-            if fact.trip_count != Some(*length as u64) {
-                return None;
-            }
-            (element.as_ref().clone(), *length)
-        }
-        Type::Pointer { .. } => {
-            let extent = fact.trip_count? as usize;
-            (function.get_node(element_access)?.ty.clone(), extent)
-        }
-        _ => return None,
+    let Type::Array {
+        element: array_element,
+        length,
+    } = &base_node.ty
+    else {
+        return None;
     };
-    if extent == 0 || extent > MAX_UNROLL {
+    let extent = *length;
+    if extent == 0 || extent > MAX_UNROLL || fact.trip_count != Some(extent as u64) {
         return None;
     }
     let _internal_result = *outputs.get(position)?;
@@ -164,7 +159,7 @@ fn recognize_loop(
         collection: base,
         extent,
         index_ty,
-        element_ty,
+        element_ty: array_element.as_ref().clone(),
         accumulator_ty,
         map_expression,
         element_access,

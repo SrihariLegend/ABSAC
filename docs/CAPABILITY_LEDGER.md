@@ -45,7 +45,7 @@ recovery path is recorded here.**
 | definition | family | current status |
 |---|---|---|
 | 200–203 | bitscan/scan | 200 and 402 shapes ported; reverse/zero-count/scalar variants missing |
-| 400/401 | sums/mapped sums | fixed-extent, multi-loop, pointer-base, and conditional/masked maps ported; folded-offset/runtime shapes missing |
+| 400/401 | sums/mapped sums | fixed-extent, multi-loop, and conditional/masked maps ported; folded-offset/runtime shapes missing |
 | 402 | byte search | equality/u8 fixed-extent ported; runtime bounds missing |
 | 0 | popcount/cardinality | comparison-predicate count ported; bool-pack/Kernighan path missing |
 | 4 | Any | integer OR reduction ported; bool-pack path missing |
@@ -305,8 +305,7 @@ have now been restored into current `sir_mech` and tested.
   1.25× no-hit but 0.82× early-hit; `emit_c_diff
   --allow-runtime-search` opts in. Base-14 default drops 78 → 75
   rewrites (all clean), opt-in restores 78; fuzz stays 129.
-- **2026-09-19 — conditional/masked sums**: sum recognition now accepts
-  pointer bases with a constant trip count, and the map re-instantiator
+- **2026-09-19 — conditional/masked sums**: the map re-instantiator
   covers comparisons, boolean ops, and `Select`. v16/v10 conditional and
   masked sums rewrite; base-14 default rises 75 → 82 (opt-in 85) and
   fuzz rises 129 → 208, all differential-clean on native and AArch64.
