@@ -3935,24 +3935,40 @@ fn emit_instruction(
             let ptr_str = strip_type(&inst.operands[1]);
             let ptr = get_node_id(&ptr_str, value_map, params, builder, None)
                 .ok_or(format!("cannot resolve load ptr '{}'", ptr_str))?;
-
-            // If the load is volatile, mark the node with VOLATILE effect
+            let loaded_ty = operand_type(&inst.operands[0])
+                .unwrap_or_else(|| builder.function().get_node(ptr).map(|n| n.ty.clone()).unwrap_or(Type::u8()));
+            let ptr_kind = builder
+                .function()
+                .get_node(ptr)
+                .map(|node| node.kind.clone())
+                .ok_or("load pointer node missing")?;
+            // Create a distinct read node. A GEP result may also be a
+            // store destination; reusing it as the loaded value would tie
+            // the two roles together (and break lvalue emission).
+            let read = match ptr_kind {
+                NodeKind::ArrayAccess { base, index } => builder
+                    .array_access(base, index, loaded_ty, span)
+                    .map_err(|e| format!("{:?}", e))?,
+                _ if builder
+                    .function()
+                    .get_node(ptr)
+                    .is_some_and(|node| node.ty.is_pointer_like()) =>
+                {
+                    let index_ty = Type::u64();
+                    let zero = builder.constant(ConstantData::u64(0), index_ty, span);
+                    builder
+                        .array_access(ptr, zero, loaded_ty, span)
+                        .map_err(|e| format!("{:?}", e))?
+                }
+                _ => ptr,
+            };
             if is_volatile {
-                builder.add_effects(ptr, Effects::VOLATILE);
+                builder.add_effects(read, Effects::VOLATILE);
             }
-
-            // If the pointer came from a getelementptr, we already have it
-            // as a node. We model load-from-GEP as ArrayAccess.
-            // But if the GEP produced a node, the load just uses that node's
-            // result type. We need to model this as the GEP result being
-            // the loaded value.
-            // Actually, in our model, getelementptr+load is collapsed into
-            // ArrayAccess. The GEP node IS the array access, and the load
-            // just passes through its result.
             if let Some(name) = result_name {
-                value_map.insert(name, ptr);
+                value_map.insert(name, read);
             }
-            Ok(Some(ptr))
+            Ok(Some(read))
         }
 
         "getelementptr" => {
@@ -3997,13 +4013,47 @@ fn emit_instruction(
         }
 
         "store" => {
-            // Memory writes are not emitted yet. Lowering them to Store
-            // nodes and letting the emitter ignore them would silently
-            // drop side effects, so refuse until write emission exists.
-            Err(format!(
-                "unsupported: memory store (write semantics not emitted): {}",
-                inst.raw
-            ))
+            if inst.operands.len() < 2 {
+                return Err(format!("store needs value + ptr: {}", inst.raw));
+            }
+            if inst.raw.contains("volatile") {
+                return Err(format!(
+                    "unsupported: volatile store (observable occurrence/ordering semantics): {}",
+                    inst.raw
+                ));
+            }
+            if inst.raw.contains("atomic") {
+                return Err(format!(
+                    "unsupported: atomic store (ordering semantics not modeled): {}",
+                    inst.raw
+                ));
+            }
+            let val_str = strip_type(&inst.operands[0]);
+            let ptr_str = strip_type(&inst.operands[1]);
+            let val = get_node_id(&val_str, value_map, params, builder, None)
+                .ok_or(format!("cannot resolve store value '{}'", val_str))?;
+            let ptr = get_node_id(&ptr_str, value_map, params, builder, None)
+                .ok_or(format!("cannot resolve store ptr '{}'", ptr_str))?;
+            let pointer_like = builder
+                .function()
+                .get_node(ptr)
+                .is_some_and(|node| node.ty.is_pointer_like());
+            let array_lvalue = builder
+                .function()
+                .get_node(ptr)
+                .is_some_and(|node| matches!(node.kind, NodeKind::ArrayAccess { .. }));
+            if !(pointer_like || array_lvalue) {
+                return Err(format!(
+                    "unsupported: store destination is neither a pointer nor an array element: {}",
+                    inst.raw
+                ));
+            }
+            let node_id = builder
+                .store(ptr, val, span)
+                .map_err(|e| format!("{:?}", e))?;
+            // Return the Unit-typed Store so loop builders include it in
+            // the body; it has no SSA result, so callers must not map it.
+            Ok(Some(node_id))
         }
 
         "br" | "ret" | "phi" => {

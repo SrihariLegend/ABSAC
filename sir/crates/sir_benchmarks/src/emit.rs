@@ -130,6 +130,21 @@ pub fn c_type(ty: &Type) -> String {
     }
 }
 
+/// Signed C type of the same width, used as the mid-cast for
+/// `SignExtend` so the extension is arithmetic rather than zero-fill.
+fn signed_c_type(ty: &Type) -> String {
+    match ty {
+        Type::Integer { width, .. } => match width {
+            sir_types::IntegerWidth::I8 => "int8_t".to_string(),
+            sir_types::IntegerWidth::I16 => "int16_t".to_string(),
+            sir_types::IntegerWidth::I32 => "int32_t".to_string(),
+            sir_types::IntegerWidth::I64 => "int64_t".to_string(),
+            sir_types::IntegerWidth::I128 => "int64_t".to_string(),
+        },
+        other => c_type(other),
+    }
+}
+
 /// Element size in bytes (bitvectors/aggregates have none).
 fn int_byte_width(ty: &Type) -> Option<u32> {
     match ty {
@@ -483,20 +498,27 @@ fn emit_pure_expr_into(
             out.push(')');
             true
         }
-        NodeKind::Convert { operand, kind, .. } => match kind {
-            sir_nodes::ConvertKind::ZeroExtend
-            | sir_nodes::ConvertKind::SignExtend
-            | sir_nodes::ConvertKind::Truncate => {
-                out.push_str("((");
-                out.push_str(&c_type(&node.ty));
-                out.push_str(") ");
+        NodeKind::Convert { operand, kind, .. } => {
+            out.push_str("((");
+            out.push_str(&c_type(&node.ty));
+            out.push_str(") (");
+            if matches!(kind, sir_nodes::ConvertKind::SignExtend) {
+                out.push('(');
+                out.push_str(&signed_c_type(&func.get_node(*operand).unwrap().ty));
+                out.push_str(") (");
+                if !rec(out, *operand) {
+                    return false;
+                }
+                out.push_str("))");
+            } else {
                 if !rec(out, *operand) {
                     return false;
                 }
                 out.push(')');
-                true
             }
-        },
+            out.push(')');
+            true
+        }
         NodeKind::Eq { lhs, rhs } => binary(out, *lhs, " == ", *rhs),
         NodeKind::Ne { lhs, rhs } => binary(out, *lhs, " != ", *rhs),
         NodeKind::Lt { lhs, rhs } => binary(out, *lhs, " < ", *rhs),
@@ -602,6 +624,50 @@ fn live_node_ids(func: &Function) -> HashSet<NodeId> {
         }
     }
     live
+}
+
+/// Nodes used as store destinations. These must be emitted inline as
+/// lvalues, never materialized as read values.
+fn store_target_ids(func: &Function) -> HashSet<NodeId> {
+    let mut targets = HashSet::new();
+    for node in func.arena.iter() {
+        if let NodeKind::Store { ptr, .. } = &node.kind {
+            if func
+                .get_node(*ptr)
+                .is_some_and(|target| matches!(target.kind, NodeKind::ArrayAccess { .. }))
+            {
+                targets.insert(*ptr);
+            }
+        }
+    }
+    targets
+}
+
+/// Parameters written through by a Store, directly or via an ArrayAccess
+/// lvalue. C emission must not declare them `const`.
+fn store_mutated_params(func: &Function) -> HashSet<NodeId> {
+    let mut mutated = HashSet::new();
+    for node in func.arena.iter() {
+        let NodeKind::Store { ptr, .. } = &node.kind else {
+            continue;
+        };
+        let mut stack = vec![*ptr];
+        let mut seen = HashSet::new();
+        while let Some(id) = stack.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            let Some(node) = func.get_node(id) else {
+                continue;
+            };
+            if matches!(node.kind, NodeKind::Parameter { .. }) {
+                mutated.insert(id);
+            } else {
+                stack.extend(node.kind.input_nodes());
+            }
+        }
+    }
+    mutated
 }
 
 /// True when the node graph reads memory (loads or array accesses). Used to
@@ -1305,13 +1371,36 @@ fn emit_expr(
                 emit_operand(*index, func, carrier_map)
             )
         }
+        NodeKind::Store { ptr, value } => {
+            let target = if func
+                .get_node(*ptr)
+                .is_some_and(|node| matches!(node.kind, NodeKind::ArrayAccess { .. }))
+            {
+                emit_expr(func.get_node(*ptr).expect("store target"), func, carrier_map)
+            } else {
+                format!("*({})", emit_operand(*ptr, func, carrier_map))
+            };
+            let value = emit_operand(*value, func, carrier_map);
+            format!("({target} = {value})")
+        }
         NodeKind::Convert { operand, kind, .. } => {
             // Emit the appropriate C cast. For zero-extend/truncate, use (target_type)value.
             let o = emit_operand(*operand, func, carrier_map);
             let target_c = c_type(&node.ty);
             match kind {
+                sir_nodes::ConvertKind::SignExtend => {
+                    let source_ty = func
+                        .get_node(*operand)
+                        .map(|source| source.ty.clone())
+                        .unwrap_or_else(|| node.ty.clone());
+                    format!(
+                        "(({}) (({}) ({})))",
+                        target_c,
+                        signed_c_type(&source_ty),
+                        o
+                    )
+                }
                 sir_nodes::ConvertKind::ZeroExtend
-                | sir_nodes::ConvertKind::SignExtend
                 | sir_nodes::ConvertKind::Truncate => {
                     format!("(({}) {})", target_c, o)
                 }
@@ -1466,6 +1555,7 @@ pub fn emit_c(func: &Function) -> String {
 
     // Function signature
     let ret_c = c_type(&func.return_ty);
+    let mutated_params = store_mutated_params(func);
     let params: Vec<String> = func
         .params
         .iter()
@@ -1477,9 +1567,20 @@ pub fn emit_c(func: &Function) -> String {
             } else {
                 p.name.clone()
             };
-            if let Type::Array { element, .. } = &p.ty {
+            let mutated = mutated_params.contains(&NodeId::new(i as u64));
+            if let Type::Pointer { pointee, .. } = &p.ty {
+                if mutated {
+                    format!("{} *{}", c_type(pointee), pname)
+                } else {
+                    format!("const {} *{}", c_type(pointee), pname)
+                }
+            } else if let Type::Array { element, .. } = &p.ty {
                 // Arrays decay to pointers in C function params
-                format!("const {} *{}", c_type(element), pname)
+                if mutated {
+                    format!("{} *{}", c_type(element), pname)
+                } else {
+                    format!("const {} *{}", c_type(element), pname)
+                }
             } else {
                 format!("{} {}", c_type(&p.ty), pname)
             }
@@ -1501,6 +1602,7 @@ pub fn emit_c(func: &Function) -> String {
             return_node = Some(node);
         }
     }
+    let store_targets = store_target_ids(func);
 
     if !loops.is_empty() {
         // SEQUENTIAL MULTI-LOOP COMPOSITION (2026-09-17): emit each loop
@@ -1539,6 +1641,7 @@ pub fn emit_c(func: &Function) -> String {
                         | NodeKind::Loop { .. }
                         | NodeKind::Constant(_)
                 ) && !loop_ids.contains(&node.id)
+                    && !store_targets.contains(&node.id)
             })
             .map(|node| node.id)
             .collect();
@@ -1566,7 +1669,7 @@ pub fn emit_c(func: &Function) -> String {
                 !matches!(
                     node.kind,
                     NodeKind::Parameter { .. } | NodeKind::Return { .. } | NodeKind::Loop { .. }
-                )
+                ) && !store_targets.contains(&node.id)
             })
             .map(|node| node.id)
             .collect();
@@ -1633,6 +1736,7 @@ fn emit_loop(
         } => (body, *termination, outputs, carried_inputs),
         _ => return HashSet::new(),
     };
+    let store_targets = store_target_ids(func);
 
     // Build carrier map: each carried input maps to the loop's output
     // variable o{ordinal}_{index} (namespaced for sequential loops). The
@@ -1699,10 +1803,20 @@ fn emit_loop(
         // explicit pre-test form.
         out.push_str("    while (1) {\n");
         for id in topo_order(&[termination], &term_set, func) {
+            if store_targets.contains(&id) {
+                emitted.insert(id);
+                continue;
+            }
             let node = func.get_node(id).expect("arena node");
             let ty = c_type(&node.ty);
             let expr = emit_expr(node, func, &carrier_map);
-            let _ = write!(out, "        {} v{} = {};\n", ty, id.as_u64(), expr);
+            if node.ty == Type::Unit {
+                if !node.effects.is_pure() {
+                    let _ = write!(out, "        (void)({expr});\n");
+                }
+            } else {
+                let _ = write!(out, "        {} v{} = {};\n", ty, id.as_u64(), expr);
+            }
             emitted.insert(id);
         }
         let term_expr = format!("v{}", termination.as_u64());
@@ -1714,10 +1828,19 @@ fn emit_loop(
         if !emitted.insert(id) {
             continue;
         }
+        if store_targets.contains(&id) {
+            continue;
+        }
         let node = func.get_node(id).expect("arena node");
         let ty = c_type(&node.ty);
         let expr = emit_expr(node, func, &carrier_map);
-        let _ = write!(out, "        {} v{} = {};\n", ty, id.as_u64(), expr);
+        if node.ty == Type::Unit {
+            if !node.effects.is_pure() {
+                let _ = write!(out, "        (void)({expr});\n");
+            }
+        } else {
+            let _ = write!(out, "        {} v{} = {};\n", ty, id.as_u64(), expr);
+        }
     }
 
     // Assign outputs: the outputs are the carriers, so this both records the

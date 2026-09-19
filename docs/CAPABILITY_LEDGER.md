@@ -405,6 +405,17 @@ have now been restored into current `sir_mech` and tested.
   No existing clean corpus function changes (they were already refused
   or store-free); this closes a latent miscompile class. Write emission
   is now an explicit lowering-breadth item.
+- **2026-09-20 — memory write emission**: stores through direct pointer
+  parameters and `ArrayAccess` lvalues now lower and emit correctly.
+  Loads create a distinct read node so a GEP used as a store target is
+  not materialized as a value; store targets are inlined as lvalues.
+  Mutability-aware parameter emission drops `const` where a store
+  writes. `SignExtend` now casts through the signed source type instead
+  of zero-extending. Verified by scalar/array store fixtures, v8
+  `n06_may_alias_store_const`, Embench `vec_mpy1` and `mac`, all
+  differential- and sanitizer-clean on native and AArch64. Base-14
+  clean rises 221 → 230 with rewrites stable at 128; external Embench
+  clean rises 6 → 8.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

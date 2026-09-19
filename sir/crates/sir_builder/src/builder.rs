@@ -562,7 +562,11 @@ impl Builder {
 
     pub fn store(&mut self, ptr: NodeId, value: NodeId, span: Span) -> Result<NodeId, BuildError> {
         let ptr_ty = self.get_type(ptr)?;
-        if !ptr_ty.is_pointer_like() {
+        let array_lvalue = self
+            .function()
+            .get_node(ptr)
+            .is_some_and(|node| matches!(node.kind, NodeKind::ArrayAccess { .. }));
+        if !(ptr_ty.is_pointer_like() || array_lvalue) {
             return Err(BuildError::TypeMismatch {
                 node: ptr,
                 expected: Type::Pointer {
@@ -571,6 +575,16 @@ impl Builder {
                 },
                 actual: ptr_ty,
             });
+        }
+        if array_lvalue {
+            let value_ty = self.get_type(value)?;
+            if value_ty != ptr_ty {
+                return Err(BuildError::TypeMismatch {
+                    node: value,
+                    expected: ptr_ty,
+                    actual: value_ty,
+                });
+            }
         }
         Ok(self.alloc_node(
             NodeKind::Store { ptr, value },

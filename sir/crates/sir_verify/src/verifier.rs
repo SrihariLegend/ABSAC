@@ -518,15 +518,37 @@ impl<'a> Verifier<'a> {
                     }
                 }
 
-                // Store: ptr must be pointer-like.
-                NodeKind::Store { ptr, .. } => {
-                    if let Some(ty) = self.node_type(*ptr) {
-                        if !ty.is_pointer_like() {
-                            self.errors
-                                .push(VerificationError::InvalidPointerOperation {
+                // Store: a pointer-like destination or an ArrayAccess
+                // lvalue whose element type matches the stored value.
+                NodeKind::Store { ptr, value } => {
+                    let pointer_like = self
+                        .node_type(*ptr)
+                        .is_some_and(|ty| ty.is_pointer_like());
+                    let array_lvalue = self
+                        .func
+                        .arena
+                        .get(*ptr)
+                        .is_some_and(|node| matches!(node.kind, NodeKind::ArrayAccess { .. }));
+                    if !(pointer_like || array_lvalue) {
+                        if let Some(ty) = self.node_type(*ptr) {
+                            self.errors.push(VerificationError::InvalidPointerOperation {
+                                node: node.id,
+                                actual: ty,
+                            });
+                        }
+                    } else if array_lvalue {
+                        if let (Some(value_ty), Some(target_ty)) =
+                            (self.node_type(*value), self.node_type(*ptr))
+                        {
+                            if value_ty != target_ty {
+                                self.errors.push(VerificationError::TypeMismatch {
                                     node: node.id,
-                                    actual: ty,
+                                    kind: node.kind.clone(),
+                                    input_index: 1,
+                                    expected: target_ty,
+                                    actual: value_ty,
                                 });
+                            }
                         }
                     }
                 }
