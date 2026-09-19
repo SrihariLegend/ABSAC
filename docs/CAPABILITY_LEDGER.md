@@ -337,6 +337,11 @@ have now been restored into current `sir_mech` and tested.
   followed by memchr measured parity on the early hit (78,766ns vs
   78,840ns) but 0.86× on the no-hit case (92,010ns vs 79,016ns); it was
   reverted. Plain runtime memchr plus profile/opt-in control stays.
+- **2026-09-19 — void return emission**: Unit literals now emit
+  `((void)0)`, pure Unit-typed nodes are not declared as variables, and
+  void functions emit `return;`. Embench edn rises to 2 clean functions
+  with 0 harness errors; crc32 remains blocked by an unrelated missing
+  `rand_beebs` symbol. Internal v6/v8 results are unchanged.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

@@ -341,6 +341,7 @@ fn constant_literal(data: &ConstantData, ty: &Type) -> String {
             let v = data.as_u64().unwrap_or(0);
             format!("((sir_bv){{ .w = {{ (uint64_t){}ULL }} }})", v)
         }
+        Type::Unit => "((void)0)".to_string(),
         _ => "0".to_string(),
     }
 }
@@ -1445,9 +1446,16 @@ pub fn emit_c(func: &Function) -> String {
         let empty_map = HashMap::new();
         for id in topo_order(&post, &post_set, func) {
             let node = func.get_node(id).expect("arena node");
+            if node.ty == Type::Unit && node.effects.is_pure() {
+                continue;
+            }
             let ty = c_type(&node.ty);
             let expr = emit_expr(node, func, &empty_map);
-            let _ = write!(out, "    {} v{} = {};\n", ty, id.as_u64(), expr);
+            if node.ty == Type::Unit {
+                let _ = write!(out, "    (void)({expr});\n");
+            } else {
+                let _ = write!(out, "    {} v{} = {};\n", ty, id.as_u64(), expr);
+            }
         }
     } else {
         // No loop: emit all non-parameter, non-return nodes as statements
@@ -1466,9 +1474,16 @@ pub fn emit_c(func: &Function) -> String {
         let empty_map = HashMap::new();
         for id in topo_order(&all, &all_set, func) {
             let node = func.get_node(id).expect("arena node");
+            if node.ty == Type::Unit && node.effects.is_pure() {
+                continue;
+            }
             let ty = c_type(&node.ty);
             let expr = emit_expr(node, func, &empty_map);
-            let _ = write!(out, "    {} v{} = {};\n", ty, id.as_u64(), expr);
+            if node.ty == Type::Unit {
+                let _ = write!(out, "    (void)({expr});\n");
+            } else {
+                let _ = write!(out, "    {} v{} = {};\n", ty, id.as_u64(), expr);
+            }
         }
     }
 
@@ -1476,8 +1491,12 @@ pub fn emit_c(func: &Function) -> String {
     if let Some(ret) = return_node {
         if let NodeKind::Return { value } = &ret.kind {
             let empty_map = std::collections::HashMap::new();
-            let ret_expr = emit_operand(*value, func, &empty_map);
-            let _ = write!(out, "    return {};\n", ret_expr);
+            if func.return_ty == Type::Unit {
+                let _ = write!(out, "    return;\n");
+            } else {
+                let ret_expr = emit_operand(*value, func, &empty_map);
+                let _ = write!(out, "    return {};\n", ret_expr);
+            }
         }
     }
 
