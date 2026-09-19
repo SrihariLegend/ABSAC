@@ -50,7 +50,7 @@ recovery path is recorded here.**
 | 0 | popcount/cardinality | comparison-predicate count ported; bool-pack/Kernighan path missing |
 | 4 | Any | integer OR reduction ported; bool-pack path missing |
 | 5 | All | integer AND-chain ported; bool-pack path missing |
-| 6 | parity | **missing** (old path never fired in gate corpora) |
+| 6 | parity | **restored (XOR-reduction path)** as `sir_opt::parity`; `HEAD` bitset/pack/popcount path still to mine |
 | 100–103 | arithmetic | **missing** |
 | 300–303 | mask algebra | dropped as measured-neutral |
 | 310–313 | permutations | **missing** |
@@ -121,12 +121,12 @@ Non-goals:
 | crates / binaries | 19 / 23 | 9 / 1 |
 | build warnings | 47 | 0 |
 | verification definitions | 24 | 7 |
-| rewrite recipes | 21 | 5 families |
+| rewrite recipes | 21 | 6 families |
 | semantics recognizers | 23 | 5 family modules |
-| test files / test LOC | 63 / 15,217 | 22 tests + restored kernel tests |
+| test files / test LOC | 63 / 15,217 | **9 tests**, case bodies under `tests/cases/` |
 | `sir_mech` proof kernel | LCF kernel + `arith.rs` + induction proof; 38 tests pass | restored, 28 `sir_mech` tests pass |
 | corpora known | v1–v11 | v2–v14, v16 (v12–v20 added in session) |
-| corpus result | v1–v11: 0 mismatched | 221 clean / 76 rewrites / 0 mismatched |
+| corpus result | v1–v11: 0 mismatched | 14 corpora: 221 clean / 59 rewrites / 0 mismatched; with fuzz v17–v19b: 761 clean / 187 rewrites / 0 mismatched |
 
 Corpus comparison on `HEAD`’s own v1–v11: clean/mismatch counts are
 **identical** between `HEAD` and current on every corpus. On the
@@ -139,6 +139,29 @@ quantifier-free integer linear arithmetic (`sir_mech/src/arith.rs`).
 There was **no array theory and no quantifier support** (runtime-pointer
 library search was blocked on exactly that). The kernel and arithmetic
 have now been restored into current `sir_mech` and tested.
+
+## Progress log
+
+- **2026-09-19 — H0 safety**: workspace mirror `recovery.git` holds
+  `head` (`2cae1fd`) and `current`; current includes the lean core,
+  restored kernel/arith, parity, and the consolidated test suite.
+- **2026-09-19 — H1 tests**: workspace-wide test count is **9**
+  (`cargo test --workspace`: 9 passed / 0 failed / 0 ignored), with no
+  coverage dropped: proof cases, all six families, the z3 kernel
+  differential, the patch gate, and the end-to-end corpus harness.
+- **2026-09-19 — H1 gate**: fixed a real gate hole — `return_node` was
+  not remapped by patch replacements, and a missing return operand was
+  not reported as a dangling reference.
+- **2026-09-19 — H2 first mine**: parity definition 6 ported from
+  `HEAD`'s exclusive-reduction semantics as an XOR-reduction `Family`;
+  `xor_laws` discharged by `sir_mech`.
+- **2026-09-19 — H1 measured retention**: `emit_c_diff
+  --measured-retain` times baseline and optimized code and reports
+  `EMITRETAIN retain=base|new` plus `retained_base`. It immediately
+  retained the baseline for inequality search at extent 64 (82ns vs
+  244ns); definition 200's select chain is now gated to short extents
+  until a cost model exists. Base-14 rewrites fell 76 → 59 with zero
+  mismatches: the removed rewrites were not measured wins.
 
 ## Reference commands
 

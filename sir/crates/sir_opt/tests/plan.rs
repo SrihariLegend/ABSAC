@@ -46,7 +46,7 @@ mod cases {
     pub mod search {
         include!("cases/search_slice.rs");
         pub fn run() {
-            fixed_extent_inequality_search_builds_select_chain();
+            fixed_extent_inequality_search_is_retained_only_when_measured_faster();
         }
     }
     pub mod sum {

@@ -14,6 +14,7 @@ fn corpus_harness_reports_no_mismatches() {
     let output = Command::new(binary)
         .arg(&corpus)
         .args(["--cases", "1", "--function", "p03_count_lt_const_u32"])
+        .arg("--measured-retain")
         .arg("--workdir")
         .arg(&workdir)
         .output()
@@ -27,6 +28,10 @@ fn corpus_harness_reports_no_mismatches() {
     assert!(
         stdout.contains("mismatched=0"),
         "corpus must stay differential-clean:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("EMITRETAIN"),
+        "measured-retention decision must be reported:\n{stdout}"
     );
     let _ = std::fs::remove_dir_all(&workdir);
 }

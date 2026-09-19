@@ -36,6 +36,12 @@ pub(crate) fn apply_one(
     facts: &sir_analysis::facts::FactDatabase,
 ) -> Option<(Function, u64)> {
     let plan = recognize(function, facts)?;
+    // Measured retention: at extent 64 the unrolled select chain lost to
+    // the baseline loop (82ns vs 244ns in the timing harness). Keep it
+    // only for short extents until a predictive cost model exists.
+    if plan.definition == 200 && plan.extent > 16 {
+        return None;
+    }
     if !prove::first_match_laws(plan.extent as u32, plan.index_width) {
         return None;
     }

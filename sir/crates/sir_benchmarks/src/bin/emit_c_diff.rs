@@ -865,11 +865,17 @@ fn run_function(
     }
 }
 
+fn ns_value(line: &str, key: &str) -> Option<u64> {
+    let prefix = format!("{key}=");
+    line.split_whitespace()
+        .find_map(|token| token.strip_prefix(&prefix)?.parse().ok())
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!(
-            "usage: emit_c_diff <corpus.ll> [--cases N] [--workdir DIR] [--function NAME] [--sanitize] [--cc clang|gcc] [--time] [--time-reps N] [--time-baseline] [--time-fill V]"
+            "usage: emit_c_diff <corpus.ll> [--cases N] [--workdir DIR] [--function NAME] [--sanitize] [--cc clang|gcc] [--time] [--time-reps N] [--time-baseline] [--measured-retain] [--time-fill V]"
         );
         std::process::exit(2);
     }
@@ -880,6 +886,7 @@ fn main() {
     let mut sanitize = false;
     let mut time_mode = false;
     let mut time_baseline = false;
+    let mut measured_retain = false;
     let mut time_fill: Option<u8> = None;
     let mut time_reps = 200_000usize;
     let mut cc = "clang".to_string();
@@ -909,6 +916,11 @@ fn main() {
             "--time-baseline" => {
                 time_mode = true;
                 time_baseline = true;
+                i += 1;
+            }
+            "--measured-retain" => {
+                time_mode = true;
+                measured_retain = true;
                 i += 1;
             }
             "--time-reps" if i + 1 < args.len() => {
@@ -954,6 +966,7 @@ fn main() {
     let mut refused = 0usize;
     let mut errors = 0usize;
     let mut violations = 0usize;
+    let mut retained_base = 0usize;
     for name in function_names(&ll) {
         if let Some(only) = &only {
             if &name != only {
@@ -981,7 +994,25 @@ fn main() {
                         time_fill,
                         &cc,
                     ) {
-                        Ok((line, _)) => println!("{line}"),
+                        Ok((line, _)) => {
+                            println!("{line}");
+                            if measured_retain {
+                                let ref_ns = ns_value(&line, "ref_ns");
+                                let new_ns = ns_value(&line, "new_ns");
+                                let retain = match (ref_ns, new_ns) {
+                                    (Some(base), Some(new)) if new > base => {
+                                        retained_base += 1;
+                                        "base"
+                                    }
+                                    _ => "new",
+                                };
+                                println!(
+                                    "EMITRETAIN {name} retain={retain} ref_ns={} new_ns={}",
+                                    ref_ns.unwrap_or(0),
+                                    new_ns.unwrap_or(0)
+                                );
+                            }
+                        }
                         Err(reason) => {
                             println!("EMITTIME {name} error={reason}");
                             errors += 1;
@@ -1017,8 +1048,13 @@ fn main() {
         println!("# sanitize=address,undefined");
         println!("EMITC_SANITIZE violations={violations}");
     }
+    let retention = if measured_retain {
+        format!(" retained_base={retained_base}")
+    } else {
+        String::new()
+    };
     println!(
-        "EMITC_SUMMARY clean={clean} mismatched={mismatched} lower_refused={refused} harness_errors={errors}"
+        "EMITC_SUMMARY clean={clean} mismatched={mismatched} lower_refused={refused} harness_errors={errors}{retention}"
     );
     std::process::exit(if mismatched == 0 && errors == 0 && violations == 0 {
         0

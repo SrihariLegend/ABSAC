@@ -197,12 +197,34 @@ Phase 1 progress:
 
 - **Family registry landed.** `sir_opt::family` defines `Family`,
   `Applied`, `with_facts`, and a five-entry registry (search, count,
-  Any, All, Sum cover definitions 0/4/5/200/400/401/402). The driver now
-  runs the registry to a fixed point; adding a family is one module plus
-  one registry entry. The existing family modules expose
+  Any, All, Sum, Parity cover definitions 0/4/5/6/200/400/401/402). The
+  driver now runs the registry to a fixed point; adding a family is one
+  module plus one registry entry. The existing family modules expose
   `apply_one(function, facts)`.
+- **Kernel and arithmetic restored.** `sir_mech` recovered the LCF
+  kernel (`replay`, induction) and quantifier-free integer linear
+  arithmetic from `HEAD`; the induction proof and arithmetic contracts
+  run in the consolidated suite.
+- **Parity family 6 mined from `HEAD`.** The XOR-reduction path
+  recognizes a counted exclusive reduction, discharges `xor_laws` with
+  `sir_mech`, and emits a straight-line XOR chain. The `HEAD`
+  bitset/pack/popcount path remains for Phase 2.
+- **Test discipline.** The workspace suite is **9 tests** (9 passed /
+  0 failed / 0 ignored), with case bodies under `tests/cases/`; no
+  coverage was dropped, and the z3 differential now batches its queries
+  into one solver invocation.
 - **Post-patch structural gate restored.** `patch::apply` runs
   `sir_verify::Verifier`; malformed SIR is rejected before emission.
+  The consolidated suite found and fixed two gate holes: patch
+  replacements did not remap `return_node`, and a missing return
+  operand was not reported as a dangling reference.
+- **Measured retention restored as a tool.** `emit_c_diff
+  --measured-retain` times both variants, reports `retain=base|new`,
+  and counts retained baselines. Its first finding was a regression:
+  inequality search at extent 64 was 82ns baseline vs 244ns unrolled,
+  so definition 200 is now gated to short extents until a predictive
+  cost model exists. Base-14 rewrites fell 76 → 59 with zero
+  mismatches — the removed rewrites were unmeasured, not wins.
 - **Third-party kernel cross-check restored.** A z3 differential
   (`tests/z3_kernel_differential.rs`) generates random bitvector
   equivalences, decides them with `sir_mech`, and cross-checks each
@@ -211,9 +233,11 @@ Phase 1 progress:
   from the CNF model and `decode_model` panicked; the decoder now maps
   them to zero, which is a valid model for an unconstrained variable.
 
-Phase 1 status: **15,944 LOC, 9 crates, 22 passed / 0 failed / 2
-ignored**, 14-corpus **76 rewrites / 221 clean / 0 mismatched / 0 harness
-errors**.
+Phase 1 status: **19,662 LOC, 9 crates, 9 passed / 0 failed / 0
+ignored**, 14-corpus **59 rewrites / 221 clean / 0 mismatched / 0
+harness errors**, and fuzz corpora v17–v19b **128 rewrites / 540 clean /
+0 mismatched** (761 clean total). The LOC guide is a guide, not a
+target; the restored kernel/arith is ~2.3k of the increase.
 
 Remaining Phase 1 work: measured-retention policy in the driver
 (`allow` hook is in place), replayable proof records, and conservative
@@ -223,7 +247,7 @@ plan-bound application gates (live-outs, frames, memory bases).
 Priority by measured value:
 1. Kernighan bitset popcount (14–17×).
 2. Runtime-bound search/memchr (contract-backed).
-3. Parity and the remaining reductions.
+3. Parity (XOR path done) and the remaining reductions.
 4. Arithmetic bit hacks (mod/div/mul/shiftmask).
 5. Mask algebra and permutations.
 6. Set algebra and other neutral families only if a corpus needs them.
