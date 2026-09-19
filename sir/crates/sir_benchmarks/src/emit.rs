@@ -26,6 +26,12 @@ pub fn c_global_name(name: &str) -> String {
     out
 }
 
+fn c_local_name(name: &str) -> String {
+    name.chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .collect()
+}
+
 /// Post-order DFS over dataflow inputs restricted to `in_set`.
 ///
 /// Emission order must follow the dataflow graph, not arena order: the
@@ -1518,6 +1524,7 @@ fn emit_expr(
             emit_operand(*index, func, carrier_map)
         ),
         NodeKind::Global { name } => c_global_name(name),
+        NodeKind::LocalAlloca { name, .. } => c_local_name(name),
         NodeKind::Store { ptr, value } => {
             let target = if func
                 .get_node(*ptr)
@@ -1805,6 +1812,26 @@ pub fn emit_c(func: &Function) -> String {
 
     let name = func.name.split("::").last().unwrap_or(&func.name);
     let _ = write!(out, "{} {}({}) {{\n", ret_c, name, params.join(", "));
+
+    let mut locals: Vec<(&str, usize, usize)> = func
+        .arena
+        .iter()
+        .filter_map(|node| match &node.kind {
+            NodeKind::LocalAlloca { name, size, align } => {
+                Some((name.as_str(), *size, (*align).max(1)))
+            }
+            _ => None,
+        })
+        .collect();
+    locals.sort_by_key(|(name, _, _)| *name);
+    locals.dedup_by_key(|(name, _, _)| *name);
+    for (name, size, align) in locals {
+        let _ = writeln!(
+            out,
+            "    _Alignas({align}) uint8_t {}[{size}];",
+            c_local_name(name)
+        );
+    }
 
     // Find Loop nodes (execution order = ascending id) and the Return.
     let loops: Vec<&Node> = func

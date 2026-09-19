@@ -1620,6 +1620,22 @@ fn int_constant_data(ty: &Type, val: u64) -> ConstantData {
     }
 }
 
+fn type_size(ty: &Type) -> Option<usize> {
+    match ty {
+        Type::Bool => Some(1),
+        Type::Integer { width, .. } => Some(match width {
+            IntegerWidth::I8 => 1,
+            IntegerWidth::I16 => 2,
+            IntegerWidth::I32 => 4,
+            IntegerWidth::I64 => 8,
+            IntegerWidth::I128 => 16,
+        }),
+        Type::Pointer { .. } => Some(8),
+        Type::Array { element, length } => Some(type_size(element)? * length),
+        _ => None,
+    }
+}
+
 /// Reconstruct the pre-tested SIR domain of clang's UNGUARDED post-tested
 /// (do-while) carry-compare loop, or return None when it cannot be
 /// proven.
@@ -5411,6 +5427,49 @@ fn emit_instruction(
             Ok(Some(node_id))
         }
 
+        "alloca" => {
+            let type_str = inst
+                .operands
+                .first()
+                .map(|operand| operand.trim())
+                .ok_or(format!("alloca type missing: {}", inst.raw))?;
+            if inst
+                .operands
+                .get(1)
+                .is_some_and(|count| !count.trim_start().starts_with("align"))
+            {
+                return Err(format!(
+                    "unsupported: dynamic alloca count: {}",
+                    inst.raw
+                ));
+            }
+            let ty = if type_str.starts_with('[') {
+                gep_source_array_type(&inst.raw)
+                    .ok_or(format!("unsupported alloca type: {}", inst.raw))?
+            } else {
+                parse_type(type_str)
+                    .ok_or(format!("unsupported alloca type: {}", inst.raw))?
+            };
+            let size = type_size(&ty)
+                .ok_or(format!("unsupported alloca layout: {}", inst.raw))?;
+            let align = inst
+                .raw
+                .split("align")
+                .nth(1)
+                .and_then(|rest| rest.split_whitespace().next())
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(1);
+            let result_name =
+                result_name.ok_or(format!("alloca without result: {}", inst.raw))?;
+            let name = format!(
+                "__sir_local_{}",
+                result_name.trim_start_matches('%').replace('.', "_")
+            );
+            let node_id = builder.local_alloca(name, size, align.max(1), span);
+            value_map.insert(result_name, node_id);
+            Ok(Some(node_id))
+        }
+
         "store" => {
             if inst.operands.len() < 2 {
                 return Err(format!("store needs value + ptr: {}", inst.raw));
@@ -5428,7 +5487,8 @@ fn emit_instruction(
                 ));
             }
             let val_str = strip_type(&inst.operands[0]);
-            let val = get_node_id(&val_str, value_map, params, builder, None)
+            let value_ty = operand_type(&inst.operands[0]);
+            let val = get_node_id(&val_str, value_map, params, builder, value_ty)
                 .ok_or(format!("cannot resolve store value '{}'", val_str))?;
             let ptr = if let Some((name, element, index)) =
                 inline_global_gep(&inst.operands[1])

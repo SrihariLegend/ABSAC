@@ -261,6 +261,30 @@ impl Builder {
         )
     }
 
+    /// Address of a fixed-size stack buffer.
+    pub fn local_alloca(
+        &mut self,
+        name: impl Into<String>,
+        size: usize,
+        align: usize,
+        span: Span,
+    ) -> NodeId {
+        let ty = Type::Pointer {
+            pointee: Box::new(Type::u8()),
+            mutable: true,
+        };
+        self.alloc_node(
+            NodeKind::LocalAlloca {
+                name: name.into(),
+                size,
+                align,
+            },
+            ty,
+            Effects::empty(),
+            span,
+        )
+    }
+
     // ── Arithmetic (binary) ─────────────────────────────────
 
     fn binary_arith(

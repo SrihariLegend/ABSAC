@@ -17,7 +17,10 @@ use std::collections::{HashSet, VecDeque};
 /// arguments — IS a dataflow edge.
 pub fn dataflow_inputs(kind: &NodeKind) -> Vec<NodeId> {
     match kind {
-        NodeKind::Constant(_) | NodeKind::Parameter { .. } | NodeKind::Global { .. } => vec![],
+        NodeKind::Constant(_)
+        | NodeKind::Parameter { .. }
+        | NodeKind::Global { .. }
+        | NodeKind::LocalAlloca { .. } => vec![],
 
         // Binary: two operands.
         NodeKind::Add { lhs, rhs }

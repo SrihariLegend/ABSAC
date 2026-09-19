@@ -43,6 +43,8 @@ pub enum NodeKind {
     Parameter { index: usize },
     /// Address of a named global (byte-addressed base).
     Global { name: String },
+    /// Address of a fixed-size stack buffer (`alloca`).
+    LocalAlloca { name: String, size: usize, align: usize },
 
     // ── Arithmetic (binary) ─────────────────────────────────
     /// Integer or floating-point addition: `lhs + rhs`.
@@ -198,6 +200,7 @@ impl NodeKind {
             NodeKind::Constant(_) => "Constant",
             NodeKind::Parameter { .. } => "Parameter",
             NodeKind::Global { .. } => "Global",
+            NodeKind::LocalAlloca { .. } => "LocalAlloca",
             NodeKind::Add { .. } => "Add",
             NodeKind::Sub { .. } => "Sub",
             NodeKind::Mul { .. } => "Mul",
@@ -254,6 +257,7 @@ impl NodeKind {
             NodeKind::Constant(_) => vec![],
             NodeKind::Parameter { .. } => vec![],
             NodeKind::Global { .. } => vec![],
+            NodeKind::LocalAlloca { .. } => vec![],
             NodeKind::Add { lhs, rhs }
             | NodeKind::Sub { lhs, rhs }
             | NodeKind::Mul { lhs, rhs }

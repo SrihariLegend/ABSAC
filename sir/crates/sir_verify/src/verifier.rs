@@ -199,7 +199,10 @@ impl<'a> Verifier<'a> {
     fn check_types(&mut self) {
         for node in &self.func.arena {
             match &node.kind {
-                NodeKind::Constant(_) | NodeKind::Parameter { .. } | NodeKind::Global { .. } => {
+                NodeKind::Constant(_)
+                | NodeKind::Parameter { .. }
+                | NodeKind::Global { .. }
+                | NodeKind::LocalAlloca { .. } => {
                     // No inputs to check.
                 }
 

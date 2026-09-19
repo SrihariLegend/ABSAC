@@ -502,6 +502,21 @@ have now been restored into current `sir_mech` and tested.
   540 / 360 / 0, and the external Embench counts are unchanged (19);
   this is a prerequisite for the blocked benchmark wrappers rather
   than a new clean function by itself.
+- **2026-09-20 — fixed-size `alloca`**: constant-size stack buffers
+  lower to a typed `LocalAlloca` base and emit `_Alignas(N) uint8_t
+  name[size];` locals; variable-size allocas fail closed. A focused
+  buffer fixture (memset + runtime index store/load) exposed and fixed a
+  latent store-typing bug: literal stores were typed `u64` instead of
+  their declared width, which wrote eight bytes through an `i8` lvalue.
+  The fixture is now clean on native, AArch64, and sanitizers; base-14
+  stays 230 / 128 / 0 on both targets, fuzz stays 540 / 360 / 0, and
+  external counts are unchanged (19). Alloca is a prerequisite for
+  statemate `verify_benchmark` and edn `jpegdct`.
+- **2026-09-20 — rejected separate-latch loop builder**: an experimental
+  block-engine loop builder was measured against statemate `FH_DU` and
+  `verify_benchmark`. It reached the next real blockers (local calls in
+  `FH_DU`; rotated loop entry in `verify_benchmark`) but produced no
+  clean function, so it was reverted rather than kept as bloat.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
