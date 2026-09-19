@@ -4084,6 +4084,20 @@ fn emit_instruction(
                     return Err(format!("funnel amount out of range: {}", inst.raw));
                 }
                 let k = builder.constant(int_constant_data(&ty, amount as u64), ty.clone(), span);
+                // `fshl(x, x, k)` / `fshr(x, x, k)` are scalar rotates;
+                // keep the direct SIR op instead of a shift/or chain.
+                if a == b {
+                    let node_id = if callee.contains("llvm.fshl") {
+                        builder.rol(a, k, span)
+                    } else {
+                        builder.ror(a, k, span)
+                    }
+                    .map_err(|e| format!("{:?}", e))?;
+                    if let Some(name) = result_name {
+                        value_map.insert(name, node_id);
+                    }
+                    return Ok(Some(node_id));
+                }
                 // The bit-permutation recognizer matches clang's canonical
                 // `(x << k) | (x >> (w - k))` shape, where the second amount
                 // is a `Sub(width_constant, k)` node rather than a folded
@@ -4117,22 +4131,11 @@ fn emit_instruction(
                 return Ok(Some(node_id));
             }
             if callee.contains("llvm.bswap") || callee.contains("llvm.bitreverse") {
-                // Clang emits a single intrinsic for byte swap / bit reverse.
-                // Lower it into the canonical masked-swap stage chain that
-                // `recognize_masked_shift_swaps` + `CombinePermutations`
-                // compose into ByteSwap / BitReverse.
+                // Clang emits a single intrinsic for byte swap / bit
+                // reverse. Keep it as a direct SIR intrinsic: the emitter
+                // selects `__builtin_bswap*` / the rbit helper, which is
+                // strictly cheaper than expanding to a shift/mask chain.
                 let raw = inst.operands.join(", ");
-                let callee_name = raw
-                    .split('@')
-                    .nth(1)
-                    .and_then(|rest| rest.split('(').next())
-                    .unwrap_or(callee);
-                let width = callee_name
-                    .rsplit('.')
-                    .next()
-                    .and_then(|suffix| suffix.strip_prefix('i'))
-                    .and_then(|digits| digits.parse::<u32>().ok())
-                    .ok_or_else(|| format!("unsupported permutation width: {}", inst.raw))?;
                 let inside = intrinsic_arguments(&raw)
                     .ok_or_else(|| format!("malformed permutation call: {}", inst.raw))?;
                 let operand = inside.split(',').next().map(str::trim).unwrap_or("");
@@ -4142,42 +4145,16 @@ fn emit_instruction(
                     .and_then(parse_type)
                     .ok_or_else(|| format!("unsupported permutation type: {}", inst.raw))?;
                 let x_str = strip_type(operand);
-                let mut current = get_node_id(&x_str, value_map, params, builder, Some(ty.clone()))
+                let x = get_node_id(&x_str, value_map, params, builder, Some(ty.clone()))
                     .ok_or(format!("cannot resolve permutation operand '{}'", x_str))?;
-                // Both byte swap and bit reverse are alternating-bit-block
-                // stages: for shift s, exchange every block of s bits with
-                // the block s positions above it.
-                let first_shift = if callee.contains("llvm.bswap") { 8 } else { 1 };
-                let mut shift = first_shift;
-                while shift < width {
-                    let block = (1u64 << shift) - 1;
-                    let mut mask = 0u64;
-                    let mut bit = 0u32;
-                    while bit < width {
-                        mask |= block << bit;
-                        bit += shift * 2;
-                    }
-                    let mask_node =
-                        builder.constant(int_constant_data(&ty, mask), ty.clone(), span);
-                    let shift_node =
-                        builder.constant(int_constant_data(&ty, shift as u64), ty.clone(), span);
-                    let low = builder
-                        .bit_and(current, mask_node, span)
-                        .map_err(|e| format!("{:?}", e))?;
-                    let shl = builder
-                        .shl(low, shift_node, span)
-                        .map_err(|e| format!("{:?}", e))?;
-                    let shr = builder
-                        .shr(current, shift_node, span)
-                        .map_err(|e| format!("{:?}", e))?;
-                    let high = builder
-                        .bit_and(shr, mask_node, span)
-                        .map_err(|e| format!("{:?}", e))?;
-                    current = builder
-                        .bit_or(shl, high, span)
-                        .map_err(|e| format!("{:?}", e))?;
-                    shift *= 2;
-                }
+                let name = if callee.contains("llvm.bswap") {
+                    "bswap"
+                } else {
+                    "rbit"
+                };
+                let current = builder
+                    .intrinsic(name, &[x], ty, Effects::empty(), span)
+                    .map_err(|e| format!("{:?}", e))?;
                 if let Some(name) = result_name {
                     value_map.insert(name, current);
                 }

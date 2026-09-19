@@ -254,6 +254,13 @@ have now been restored into current `sir_mech` and tested.
   External Embench probes drop one refusal each (crc32 5 → 4, edn
   12 → 11); globals, allocas, external calls, and multi-loop CFG remain
   the ceiling.
+- **2026-09-19 — direct permutation lowering**: `llvm.bswap`,
+  `llvm.bitreverse`, and same-operand `llvm.fshl`/`llvm.fshr` are kept
+  as direct SIR `bswap`/`rbit`/`Rol`/`Ror` ops instead of expanding to
+  shift/mask chains. This removed ~50 lines of lowerer code; v16 stays
+  differential- and sanitizer-clean. At `-O1` clang already selected the
+  same machine instructions, so this is an IR-quality/leanness win, not
+  a wall-time claim.
 
 ## Reference commands
 
