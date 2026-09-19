@@ -451,8 +451,8 @@ have now been restored into current `sir_mech` and tested.
   which exceeds the 4096-path cap); external Embench clean rises 8 → 14.
   Base-14 stays 230 / 128 / 0 on native and AArch64, fuzz stays
   540 / 360 / 0, and sanitizers report no violations.
-  Remaining blocker in this class: `generic_FH_TUERMODUL_CTRL` exceeds
-  the 4096-path enumeration cap.
+  `generic_FH_TUERMODUL_CTRL` was the measured blocker here; the
+  block-level join engine below resolves it.
 - **2026-09-20 — pointer-valued GEPs and mixed-width access**: GEP
   results used as pointer values (phi incoming, another GEP's base,
   select/compare/call operand) lower to a pointer-typed `PointerOffset`;
