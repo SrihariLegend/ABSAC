@@ -124,7 +124,7 @@ Non-goals:
 | rewrite recipes | 21 | 6 families |
 | semantics recognizers | 23 | 5 family modules |
 | test files / test LOC | 63 / 15,217 | **9 tests**, case bodies under `tests/cases/` |
-| `sir_mech` proof kernel | LCF kernel + `arith.rs` + induction proof; 38 tests pass | restored, 28 `sir_mech` tests pass |
+| `sir_mech` proof kernel | LCF kernel + `arith.rs` + induction proof; 38 tests pass | restored; 28 proof cases run under 5 `sir_mech` tests |
 | corpora known | v1–v11 | v2–v14, v16 (v12–v20 added in session) |
 | corpus result | v1–v11: 0 mismatched | 14 corpora: 221 clean / 59 rewrites / 0 mismatched; with fuzz v17–v19b: 761 clean / 187 rewrites / 0 mismatched |
 
