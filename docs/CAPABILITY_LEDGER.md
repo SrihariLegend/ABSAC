@@ -342,6 +342,13 @@ have now been restored into current `sir_mech` and tested.
   void functions emit `return;`. Embench edn rises to 2 clean functions
   with 0 harness errors; crc32 remains blocked by an unrelated missing
   `rand_beebs` symbol. Internal v6/v8 results are unchanged.
+- **2026-09-19 — harness section GC**: reference IR is compiled with
+  `-ffunction-sections -fdata-sections` and linked with
+  `-Wl,--gc-sections`, so unrelated functions with undefined symbols no
+  longer break every function in a module. External clean counts:
+  crc32 0 → 2 and statemate 0 → 1; all four Embench probes now report
+  zero harness errors. Base-14 native/AArch64 stays 83 rewrites with
+  zero mismatches; v8 sanitize is clean.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

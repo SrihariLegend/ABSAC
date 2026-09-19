@@ -644,7 +644,14 @@ fn compile_harness(
         if extra_is_ir {
             let object = extra.with_extension("o");
             let mut clang = Command::new("clang");
-            clang.args([opt_flag.as_str(), "-w", "-falign-functions=64", "-c"]);
+            clang.args([
+                opt_flag.as_str(),
+                "-w",
+                "-falign-functions=64",
+                "-ffunction-sections",
+                "-fdata-sections",
+                "-c",
+            ]);
             clang.args(sanitizer_args);
             if cross {
                 clang.arg("--target=aarch64-linux-gnu");
@@ -671,6 +678,7 @@ fn compile_harness(
             opt_flag.as_str(),
             "-w",
             "-falign-functions=64",
+            "-Wl,--gc-sections",
         ]);
         if cross {
             gcc.arg("-static");
@@ -689,6 +697,9 @@ fn compile_harness(
             opt_flag.as_str(),
             "-w",
             "-falign-functions=64",
+            "-ffunction-sections",
+            "-fdata-sections",
+            "-Wl,--gc-sections",
             "-o",
             exe.to_str().unwrap(),
         ]);
