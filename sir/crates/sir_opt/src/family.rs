@@ -9,7 +9,7 @@ use sir_analysis::facts::FactDatabase;
 use sir_analysis::manager::AnalysisManager;
 use sir_nodes::Function;
 
-use crate::{all, any, count, search, sum};
+use crate::{all, any, count, parity, search, sum};
 
 /// One successful family rewrite.
 pub struct Applied {
@@ -120,6 +120,22 @@ impl Family for SumFamily {
     }
 }
 
+struct ParityFamily;
+impl Family for ParityFamily {
+    fn name(&self) -> &'static str {
+        "parity"
+    }
+    fn definitions(&self) -> &'static [u64] {
+        &[6]
+    }
+    fn apply_one(&self, function: &Function, facts: &FactDatabase) -> Option<Applied> {
+        Some(Applied {
+            function: parity::apply_one(function, facts)?,
+            definition: 6,
+        })
+    }
+}
+
 /// Built-in family registry. Adding a family is one module plus one
 /// entry here.
 pub fn registry() -> Vec<Box<dyn Family>> {
@@ -129,5 +145,6 @@ pub fn registry() -> Vec<Box<dyn Family>> {
         Box::new(AnyFamily),
         Box::new(AllFamily),
         Box::new(SumFamily),
+        Box::new(ParityFamily),
     ]
 }

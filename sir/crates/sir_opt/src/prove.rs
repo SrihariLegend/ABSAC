@@ -132,3 +132,35 @@ pub fn and_laws(width: u32) -> bool {
         CheckResult::Valid
     )
 }
+
+/// Prove the bitwise-XOR monoid laws used by the unrolled parity
+/// reduction: associativity, identity zero, and self-inverse.
+pub fn xor_laws(width: u32) -> bool {
+    if width == 0 || width > 64 {
+        return false;
+    }
+    let mut bv = Bv::with_capacity(64);
+    let a = bv.var(VarId(0), width);
+    let b = bv.var(VarId(1), width);
+    let c = bv.var(VarId(2), width);
+    let ab = bv.xor(a, b);
+    let left = bv.xor(ab, c);
+    let bc = bv.xor(b, c);
+    let right = bv.xor(a, bc);
+    if !matches!(sir_mech::prove_equal(&bv, left, right), CheckResult::Valid) {
+        return false;
+    }
+    let zero = bv.zero(width);
+    let a_xor_zero = bv.xor(a, zero);
+    if !matches!(
+        sir_mech::prove_equal(&bv, a_xor_zero, a),
+        CheckResult::Valid
+    ) {
+        return false;
+    }
+    let self_xor = bv.xor(a, a);
+    matches!(
+        sir_mech::prove_equal(&bv, self_xor, zero),
+        CheckResult::Valid
+    )
+}

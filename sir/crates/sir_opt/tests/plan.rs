@@ -37,6 +37,12 @@ mod cases {
             fixed_extent_byte_search_uses_library_primitive();
         }
     }
+    pub mod parity {
+        include!("cases/parity_slice.rs");
+        pub fn run() {
+            fixed_extent_xor_reduction_unrolls();
+        }
+    }
     pub mod search {
         include!("cases/search_slice.rs");
         pub fn run() {
@@ -76,6 +82,7 @@ fn families_rewrite_and_prove() {
     cases::any::run();
     cases::count::run();
     cases::memchr::run();
+    cases::parity::run();
     cases::search::run();
     cases::sum::run();
     cases::registry::run();
