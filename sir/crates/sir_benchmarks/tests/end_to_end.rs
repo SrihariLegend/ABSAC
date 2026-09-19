@@ -13,7 +13,14 @@ fn corpus_harness_reports_no_mismatches() {
     let workdir = std::env::temp_dir().join(format!("sir_e2e_{}", std::process::id()));
     let output = Command::new(binary)
         .arg(&corpus)
-        .args(["--cases", "1", "--function", "p03_count_lt_const_u32"])
+        .args([
+            "--cases",
+            "1",
+            "--function",
+            "p03_count_lt_const_u32",
+            "--allow-defs",
+            "0",
+        ])
         .arg("--measured-retain")
         .arg("--workdir")
         .arg(&workdir)

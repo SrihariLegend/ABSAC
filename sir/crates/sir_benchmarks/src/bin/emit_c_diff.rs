@@ -19,8 +19,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 
 static ALLOW_RUNTIME_SEARCH: AtomicBool = AtomicBool::new(false);
+static ALLOW_DEFS: OnceLock<Vec<u64>> = OnceLock::new();
 
 /// Function names defined in the module (`define ... @name(`).
 fn function_names(ll: &str) -> Vec<String> {
@@ -718,7 +720,9 @@ struct RunResult {
 
 /// Run the single-pass optimizer.
 fn optimize(func: &Function) -> RunResult {
-    let result = if ALLOW_RUNTIME_SEARCH.load(Ordering::Relaxed) {
+    let result = if let Some(definitions) = ALLOW_DEFS.get() {
+        sir_opt::optimize(func, &|definition| definitions.contains(&definition))
+    } else if ALLOW_RUNTIME_SEARCH.load(Ordering::Relaxed) {
         sir_opt::optimize(func, &sir_opt::family::allow_all)
     } else {
         sir_opt::optimize(func, &sir_opt::family::allow_profiled)
@@ -953,7 +957,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!(
-            "usage: emit_c_diff <corpus.ll> [--cases N] [--workdir DIR] [--function NAME] [--sanitize] [--cc clang|gcc] [--target native|aarch64] [--allow-runtime-search] [--time] [--time-reps N] [--time-baseline] [--measured-retain] [--time-fill V]"
+            "usage: emit_c_diff <corpus.ll> [--cases N] [--workdir DIR] [--function NAME] [--sanitize] [--cc clang|gcc] [--target native|aarch64] [--allow-runtime-search] [--allow-defs LIST] [--time] [--time-reps N] [--time-baseline] [--measured-retain] [--time-fill V]"
         );
         std::process::exit(2);
     }
@@ -1005,6 +1009,14 @@ fn main() {
             "--allow-runtime-search" => {
                 ALLOW_RUNTIME_SEARCH.store(true, Ordering::Relaxed);
                 i += 1;
+            }
+            "--allow-defs" if i + 1 < args.len() => {
+                let definitions: Vec<u64> = args[i + 1]
+                    .split(',')
+                    .filter_map(|value| value.trim().parse().ok())
+                    .collect();
+                let _ = ALLOW_DEFS.set(definitions);
+                i += 2;
             }
             "--time-reps" if i + 1 < args.len() => {
                 time_reps = args[i + 1].parse().unwrap_or(200_000);

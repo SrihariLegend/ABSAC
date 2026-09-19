@@ -240,8 +240,10 @@ harness errors**, and fuzz corpora v17–v19b **240 rewrites / 540 clean /
 target; the restored kernel/arith is ~2.3k of the increase.
 
 Remaining Phase 1 work: replayable proof records and the full
-predictive retention model (the measured-retention default now refuses
-runtime-dependent definition 403; live-out/frame gates have v0).
+predictive retention model. `--measured-retain` plus `--allow-defs`
+now supports exact per-definition retention decisions; the default
+policy refuses runtime-dependent definition 403; live-out/frame gates
+have v0.
 
 Phase 1 evidence update: the left-fold proof trim brought the sum
 pipeline to **7.19M instructions** (budget 9.4M) and the workspace suite

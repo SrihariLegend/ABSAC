@@ -317,6 +317,15 @@ have now been restored into current `sir_mech` and tested.
   predicates over narrower elements. Base-14 82 → 83 rewrites (86
   opt-in), fuzz 208 → 240, all differential-clean on native and
   AArch64; sanitizers clean. Measured wins: 3.12× and 3.43×.
+- **2026-09-19 — measured-retention definition control**: `emit_c_diff
+  --allow-defs LIST` restricts the driver to an exact definition set,
+  so a `--measured-retain` run can be turned into a profile decision.
+  The e2e test covers it; the default policy (runtime search 403
+  refused) is unchanged.
+- **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
+  encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
+  is still pipeline-infeasible; the experiment was reverted. Production
+  widths still need the kernel induction proof.
 
 ## Reference commands
 
