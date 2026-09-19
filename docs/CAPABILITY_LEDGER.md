@@ -552,6 +552,14 @@ have now been restored into current `sir_mech` and tested.
   Base-14 is unchanged end to end (its equality searches are extents
   48+), and tests, base-14 native/AArch64, fuzz, external, and
   sanitizers all stay green at 230 / 131 / 0, 540 / 360 / 0, and 19.
+- **2026-09-20 — reproduction runner**: `sir/scripts/verify.sh`
+  (`fast` / `full`) runs the workspace tests, base-14 native and
+  AArch64, fuzz native and AArch64, external Embench, and sanitizers,
+  failing on any mismatch or harness error, and writes a
+  `manifest.sha256` covering source and corpus files. `full` passes:
+  9 tests, base-14 230 / 131 / 0 on both targets, fuzz
+  540 / 360 / 0, external 19 clean, and zero sanitizer violations
+  (98-file manifest).
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
