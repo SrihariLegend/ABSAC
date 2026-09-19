@@ -560,6 +560,11 @@ have now been restored into current `sir_mech` and tested.
   9 tests, base-14 230 / 131 / 0 on both targets, fuzz
   540 / 360 / 0, external 19 clean, and zero sanitizer violations
   (98-file manifest).
+- **2026-09-20 — rejected speculative separate-latch lowering**: a
+  builder-fork wrapper around the separate-latch builder produced no
+  external or fuzz gains and mis-lowered one base-14 function
+  (230 / 131 / 0 → 229 / 131 / 1), so both the fork plumbing and the
+  generalized loop path were reverted.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
