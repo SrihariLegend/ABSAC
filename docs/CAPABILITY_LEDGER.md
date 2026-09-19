@@ -565,6 +565,11 @@ have now been restored into current `sir_mech` and tested.
   external or fuzz gains and mis-lowered one base-14 function
   (230 / 131 / 0 → 229 / 131 / 1), so both the fork plumbing and the
   generalized loop path were reverted.
+- **2026-09-20 — `llvm.expect`**: branch-hint intrinsics (including
+  `expect.with.probability`) lower as identity on their value operand.
+  A handcrafted IR fixture is differential-clean on native, AArch64, and
+  sanitizers; the fast reproduction runner stays green and corpus counts
+  are unchanged (no corpus currently exercises the intrinsic).
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

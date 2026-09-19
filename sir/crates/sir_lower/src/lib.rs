@@ -5941,6 +5941,29 @@ fn emit_instruction(
                 }
                 return Ok(Some(node_id));
             }
+            if callee.contains("llvm.expect") {
+                // Branch hints have no runtime semantics: the intrinsic
+                // value is its first argument.
+                let inside = call_arguments(inst)
+                    .ok_or_else(|| format!("malformed expect call: {}", inst.raw))?;
+                let parts = split_operands(&inside);
+                let Some(first) = parts.first() else {
+                    return Err(format!("llvm.expect without value: {}", inst.raw));
+                };
+                let value_ty = operand_type(first);
+                let value = get_node_id(
+                    &strip_type(first),
+                    value_map,
+                    params,
+                    builder,
+                    value_ty,
+                )
+                .ok_or(format!("cannot resolve expect value: {}", inst.raw))?;
+                if let Some(name) = result_name {
+                    value_map.insert(name, value);
+                }
+                return Ok(Some(value));
+            }
             Err(format!("unsupported call: {}", inst.raw))
         }
 
