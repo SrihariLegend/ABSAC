@@ -451,6 +451,9 @@ have now been restored into current `sir_mech` and tested.
   which exceeds the 4096-path cap); external Embench clean rises 8 → 14.
   Base-14 stays 230 / 128 / 0 on native and AArch64, fuzz stays
   540 / 360 / 0, and sanitizers report no violations.
+  Remaining blockers in this class: `generic_FH_TUERMODUL_CTRL` exceeds
+  the 4096-path enumeration cap, and edn `iir1` needs byte-offset
+  pointer reinterpretation (mixed `i8` GEP / `i64` store).
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
