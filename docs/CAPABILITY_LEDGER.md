@@ -292,6 +292,13 @@ have now been restored into current `sir_mech` and tested.
   `__builtin_popcount`. At `-O1` the timing fixture shows parity because
   clang already selects popcount, so this is a capability slice, not a
   speed claim.
+- **2026-09-19 — Kernighan H3 cost evidence**: the single-step identity
+  `popcount(x & (x-1)) = popcount(x) - 1` was measured by SAT at
+  8/16/32/64 bits: 5ms / 134ms / 1.5s / 53s. Even the step lemma is too
+  slow at production widths, so 32/64 still need a bit-level/kernel
+  induction proof rather than SAT. The i16 slice is now a canonical
+  corpus (`gate6a/v21_popcount16.ll`): 1 clean rewrite on native,
+  AArch64, and sanitizers.
 
 ## Reference commands
 
