@@ -371,6 +371,11 @@ have now been restored into current `sir_mech` and tested.
   all differential-clean on native and AArch64 and sanitizer-clean.
   Small-bound harness timing is parity; the win is capability/ILP at
   large bounds.
+- **2026-09-20 — residual sample updated**: after runtime sum/count,
+  v19b’s no-rewrite count drops **134 → 67**. The remainder is mostly
+  loop-free single-expression functions or unsupported domains
+  (signed DSP, globals, allocas, nested CFG), so further rewrite gains
+  need H3 theory/lowering work rather than another reduction helper.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
