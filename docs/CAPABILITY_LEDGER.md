@@ -51,7 +51,7 @@ recovery path is recorded here.**
 | 4 | Any | integer OR reduction ported; bool-pack path missing |
 | 5 | All | integer AND-chain ported; bool-pack path missing |
 | 6 | parity | **restored (XOR-reduction path)** as `sir_opt::parity`; `HEAD` bitset/pack/popcount path still to mine |
-| 100–103 | arithmetic | **missing** |
+| 100–102 | arithmetic | **restored** as `sir_opt::arithmetic` (divide→shift, modulo→mask, multiply→shift); 103 shift-mask still missing |
 | 300–303 | mask algebra | dropped as measured-neutral |
 | 310–313 | permutations | **missing** |
 | set algebra | — | **missing** |
@@ -121,12 +121,12 @@ Non-goals:
 | crates / binaries | 19 / 23 | 9 / 1 |
 | build warnings | 47 | 0 |
 | verification definitions | 24 | 7 |
-| rewrite recipes | 21 | 6 families |
+| rewrite recipes | 21 | 7 families |
 | semantics recognizers | 23 | 5 family modules |
 | test files / test LOC | 63 / 15,217 | **9 tests**, case bodies under `tests/cases/` |
 | `sir_mech` proof kernel | LCF kernel + `arith.rs` + induction proof; 38 tests pass | restored; 28 proof cases run under 5 `sir_mech` tests |
 | corpora known | v1–v11 | v2–v14, v16 (v12–v20 added in session) |
-| corpus result | v1–v11: 0 mismatched | 14 corpora: 221 clean / 62 rewrites / 0 mismatched; with fuzz v17–v19b: 761 clean / 190 rewrites / 0 mismatched |
+| corpus result | v1–v11: 0 mismatched | 14 corpora: 221 clean / 75 rewrites / 0 mismatched; with fuzz v17–v19b: 761 clean / 203 rewrites / 0 mismatched |
 
 Corpus comparison on `HEAD`’s own v1–v11: clean/mismatch counts are
 **identical** between `HEAD` and current on every corpus. On the
@@ -230,6 +230,13 @@ have now been restored into current `sir_mech` and tested.
   zero mismatches, but most real functions are still `lower_refused`
   (globals, allocas, external calls, multi-loop/nested CFG). This is the
   concrete evidence for the next lowering-breadth workstream.
+- **2026-09-19 — H2 arithmetic families 100–102**: unsigned
+  power-of-two division, remainder, and multiplication now lower to
+  shifts/masks, each discharged by `sir_mech` at the operand width.
+  v12/v13 went from zero rewrites to 7/6, base-14 rose 62 → 75 with
+  zero mismatches, and AArch64 matches native. This also required the
+  patch applier to rewrite values inside `Loop` bodies (`replace_in_kind`
+  gained the Loop container arm).
 
 ## Reference commands
 

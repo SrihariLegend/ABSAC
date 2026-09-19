@@ -130,3 +130,54 @@ pub fn xor_laws(width: u32) -> bool {
         CheckResult::Valid
     )
 }
+
+/// Unsigned division by a constant power of two is a logical shift.
+pub fn divide_pow2_laws(width: u32, shift: u32) -> bool {
+    if width == 0 || width > 64 || shift == 0 || shift >= width {
+        return false;
+    }
+    let mut bv = Bv::with_capacity(64);
+    let x = bv.var(VarId(0), width);
+    let divisor = bv.constant(1u64 << shift, width);
+    let shift_amount = bv.constant(u64::from(shift), width);
+    let divided = bv.udiv(x, divisor);
+    let shifted = bv.lshr(x, shift_amount);
+    matches!(
+        sir_mech::prove_equal(&bv, divided, shifted),
+        CheckResult::Valid
+    )
+}
+
+/// Unsigned remainder by a constant power of two is a low-bit mask.
+pub fn modulo_pow2_laws(width: u32, shift: u32) -> bool {
+    if width == 0 || width > 64 || shift == 0 || shift >= width {
+        return false;
+    }
+    let mut bv = Bv::with_capacity(64);
+    let x = bv.var(VarId(0), width);
+    let divisor = bv.constant(1u64 << shift, width);
+    let mask = bv.constant((1u64 << shift) - 1, width);
+    let remainder = bv.urem(x, divisor);
+    let masked = bv.and(x, mask);
+    matches!(
+        sir_mech::prove_equal(&bv, remainder, masked),
+        CheckResult::Valid
+    )
+}
+
+/// Multiplication by a constant power of two is a left shift.
+pub fn multiply_pow2_laws(width: u32, shift: u32) -> bool {
+    if width == 0 || width > 64 || shift == 0 || shift >= width {
+        return false;
+    }
+    let mut bv = Bv::with_capacity(64);
+    let x = bv.var(VarId(0), width);
+    let factor = bv.constant(1u64 << shift, width);
+    let shift_amount = bv.constant(u64::from(shift), width);
+    let multiplied = bv.mul(x, factor);
+    let shifted = bv.shl(x, shift_amount);
+    matches!(
+        sir_mech::prove_equal(&bv, multiplied, shifted),
+        CheckResult::Valid
+    )
+}

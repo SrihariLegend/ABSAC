@@ -19,6 +19,12 @@ mod cases {
             fixed_extent_all_and_chain_unrolls();
         }
     }
+    pub mod arithmetic {
+        include!("cases/arithmetic_slice.rs");
+        pub fn run() {
+            pow2_arithmetic_rewrites_to_shifts_and_masks();
+        }
+    }
     pub mod any {
         include!("cases/any_slice.rs");
         pub fn run() {
@@ -86,6 +92,7 @@ fn families_rewrite_and_prove() {
     assert!(sir_opt::prove::first_match_laws(8, 8));
 
     cases::all::run();
+    cases::arithmetic::run();
     cases::any::run();
     cases::count::run();
     cases::memchr::run();

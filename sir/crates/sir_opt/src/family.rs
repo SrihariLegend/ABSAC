@@ -9,7 +9,7 @@ use sir_analysis::facts::FactDatabase;
 use sir_analysis::manager::AnalysisManager;
 use sir_nodes::Function;
 
-use crate::{all, any, count, parity, search, sum};
+use crate::{all, any, arithmetic, count, parity, search, sum};
 
 /// One successful family rewrite.
 pub struct Applied {
@@ -48,6 +48,23 @@ impl Family for SearchFamily {
     }
     fn apply_one(&self, function: &Function, facts: &FactDatabase) -> Option<Applied> {
         let (function, definition) = search::apply_one(function, facts)?;
+        Some(Applied {
+            function,
+            definition,
+        })
+    }
+}
+
+struct ArithmeticFamily;
+impl Family for ArithmeticFamily {
+    fn name(&self) -> &'static str {
+        "arithmetic"
+    }
+    fn definitions(&self) -> &'static [u64] {
+        &[100, 101, 102]
+    }
+    fn apply_one(&self, function: &Function, facts: &FactDatabase) -> Option<Applied> {
+        let (function, definition) = arithmetic::apply_one(function, facts)?;
         Some(Applied {
             function,
             definition,
@@ -140,6 +157,7 @@ impl Family for ParityFamily {
 /// entry here.
 pub fn registry() -> Vec<Box<dyn Family>> {
     vec![
+        Box::new(ArithmeticFamily),
         Box::new(SearchFamily),
         Box::new(CountFamily),
         Box::new(AnyFamily),

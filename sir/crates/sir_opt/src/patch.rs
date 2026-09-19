@@ -268,6 +268,17 @@ fn replace_in_kind(kind: &NodeKind, old: NodeId, new: NodeId) -> Option<NodeKind
             name: name.clone(),
             args: args.iter().map(r).collect(),
         },
+        NodeKind::Loop {
+            body,
+            termination,
+            outputs,
+            carried_inputs,
+        } => NodeKind::Loop {
+            body: body.iter().map(r).collect(),
+            termination: r(termination),
+            outputs: outputs.iter().map(r).collect(),
+            carried_inputs: carried_inputs.iter().map(r).collect(),
+        },
         _ => return None,
     })
 }

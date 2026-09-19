@@ -7,6 +7,7 @@
 
 pub mod all;
 pub mod any;
+pub mod arithmetic;
 pub mod count;
 pub mod family;
 pub mod optimize;
@@ -18,6 +19,7 @@ pub mod sum;
 
 pub use all::optimize_all;
 pub use any::optimize_any;
+pub use arithmetic::optimize_arithmetic;
 pub use count::optimize_count;
 pub use optimize::optimize;
 pub use parity::optimize_parity;
