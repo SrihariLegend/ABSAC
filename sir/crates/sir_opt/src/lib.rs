@@ -15,6 +15,7 @@ pub mod parity;
 pub mod patch;
 pub mod popcount;
 pub mod prove;
+pub mod runtime_sum;
 pub mod search;
 pub mod sum;
 
@@ -25,5 +26,6 @@ pub use count::optimize_count;
 pub use optimize::optimize;
 pub use parity::optimize_parity;
 pub use popcount::optimize_popcount;
+pub use runtime_sum::optimize_runtime_sum;
 pub use search::{optimize_memchr, optimize_search};
 pub use sum::{optimize_sum, optimize_sum_with_definition};

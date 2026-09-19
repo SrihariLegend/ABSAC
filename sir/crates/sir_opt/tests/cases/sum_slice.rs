@@ -87,3 +87,24 @@ fn conditional_sum_over_pointer_unrolls() {
         "conditional map must be re-instantiated per index"
     );
 }
+
+fn runtime_bound_sum_uses_helper() {
+    let ll = std::fs::read_to_string("../../../gate6a/v19b_fuzz_corpus.ll").expect("corpus");
+    let function = sir_lower::lower_function(&ll, "f001").expect("lower");
+    let optimized =
+        sir_opt::optimize_runtime_sum(&function).expect("runtime sum must optimize");
+    assert!(
+        optimized.arena.iter().any(|node| matches!(
+            &node.kind,
+            sir_nodes::NodeKind::Intrinsic { name, .. } if name == "sir_sum_u32"
+        )),
+        "runtime sum must use the u32 helper"
+    );
+    assert!(
+        !optimized
+            .arena
+            .iter()
+            .any(|node| matches!(node.kind, sir_nodes::NodeKind::Loop { .. })),
+        "runtime sum loop must be replaced"
+    );
+}

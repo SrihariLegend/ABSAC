@@ -1,6 +1,6 @@
 fn registry_exposes_expected_families_and_definitions() {
     let families = sir_opt::family::registry();
-    assert_eq!(families.len(), 8, "one entry per optimization family");
+    assert_eq!(families.len(), 9, "one entry per optimization family");
     let mut definitions: Vec<u64> = families
         .iter()
         .flat_map(|family| family.definitions().iter().copied())
@@ -8,7 +8,7 @@ fn registry_exposes_expected_families_and_definitions() {
     definitions.sort_unstable();
     assert_eq!(
         definitions,
-        vec![0, 4, 5, 6, 7, 100, 101, 102, 103, 200, 400, 401, 402, 403]
+        vec![0, 4, 5, 6, 7, 100, 101, 102, 103, 200, 400, 401, 402, 403, 404]
     );
 }
 

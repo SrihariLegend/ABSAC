@@ -233,9 +233,9 @@ Phase 1 progress:
   from the CNF model and `decode_model` panicked; the decoder now maps
   them to zero, which is a valid model for an unconstrained variable.
 
-Phase 1 status: **20,892 LOC, 9 crates, 9 passed / 0 failed / 0
-ignored**, 14-corpus **83 rewrites / 221 clean / 0 mismatched / 0
-harness errors**, and fuzz corpora v17–v19b **240 rewrites / 540 clean /
+Phase 1 status: **21,483 LOC, 9 crates, 9 passed / 0 failed / 0
+ignored**, 14-corpus **105 rewrites / 221 clean / 0 mismatched / 0
+harness errors**, and fuzz corpora v17–v19b **296 rewrites / 540 clean /
 0 mismatched** (761 clean total). The LOC guide is a guide, not a
 target; the restored kernel/arith is ~2.3k of the increase.
 
@@ -264,7 +264,8 @@ Priority by measured value:
    proof. Bounded SAT unrolling only scales to 16 bits (8/16 =
    8ms/285ms; 32 = 35.6s; 64 infeasible), so the production 32/64 path
    remains an explicit H3 kernel-induction task.
-2. Runtime-bound search/memchr (contract-backed) — the runtime-bound
+2. Runtime-bound reductions/search (contract-backed) — runtime sums are
+   restored as definition 404; runtime search is
    found-flag shape now lowers and rewrites to `sir_memchr`; measured
    no-hit 1.25× but early-hit 0.82×, so predictive retention is the
    remaining piece.

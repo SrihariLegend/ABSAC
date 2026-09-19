@@ -46,6 +46,7 @@ recovery path is recorded here.**
 |---|---|---|
 | 200–203 | bitscan/scan | 200 and 402 shapes ported; reverse/zero-count/scalar variants missing |
 | 400/401 | sums/mapped sums | fixed-extent, multi-loop, and conditional/masked maps ported; folded-offset/runtime shapes missing |
+| 404 | runtime sum | contract-backed four-accumulator helper for unknown bounds; standalone 1.7–1.9× at N=4096 |
 | 402 | byte search | equality/u8 fixed-extent ported; runtime bounds missing |
 | 0 | popcount/cardinality | comparison-predicate count ported; bool-pack/Kernighan path missing |
 | 4 | Any | generic pure-map OR reduction (conditional/zero-extended predicates); measured 3.12–3.43× |
@@ -127,7 +128,7 @@ Non-goals:
 | test files / test LOC | 63 / 15,217 | **9 tests**, case bodies under `tests/cases/` |
 | `sir_mech` proof kernel | LCF kernel + `arith.rs` + induction proof; 38 tests pass | restored; 28 proof cases run under 5 `sir_mech` tests |
 | corpora known | v1–v11 | v2–v14, v16 (v12–v20 added in session) |
-| corpus result | v1–v11: 0 mismatched | 14 corpora default: 221 clean / 83 rewrites / 0 mismatched (86 with runtime search opt-in); with fuzz v17–v19b: 761 clean / 323 rewrites / 0 mismatched |
+| corpus result | v1–v11: 0 mismatched | 14 corpora default: 221 clean / 105 rewrites / 0 mismatched (108 with runtime search opt-in); with fuzz v17–v19b: 761 clean / 401 rewrites / 0 mismatched |
 
 Corpus comparison on `HEAD`’s own v1–v11: clean/mismatch counts are
 **identical** between `HEAD` and current on every corpus. On the
@@ -355,6 +356,13 @@ have now been restored into current `sir_mech` and tested.
   proof model refuses. Runtime reduction contracts or vectorized helpers
   are the next family opportunity (H2/H4), not another fixed-extent
   recognizer.
+- **2026-09-20 — runtime-bound sum (404)**: unknown-bound
+  `acc += zext(a[i])` loops now lower to a four-accumulator helper
+  (u8/u16/u32/u64 element types). Base-14 83 → 105 rewrites, fuzz
+  240 → 296, all differential-clean on native and AArch64 and
+  sanitizer-clean. The helper is 1.7–1.9× faster standalone at N=4096;
+  the harness timing driver uses small bounds, where it measures parity,
+  so no harness speed claim.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

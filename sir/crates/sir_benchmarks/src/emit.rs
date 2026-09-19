@@ -1081,6 +1081,24 @@ fn emit_expr(
                     len
                 )
             }
+            "sir_sum_u8" | "sir_sum_u16" | "sir_sum_u32" | "sir_sum_u64"
+                if args.len() == 2 =>
+            {
+                let base = emit_operand(args[0], func, carrier_map);
+                let len = emit_operand(args[1], func, carrier_map);
+                let (helper, element) = match name.as_str() {
+                    "sir_sum_u8" => ("__sir_sum_u8", "uint8_t"),
+                    "sir_sum_u16" => ("__sir_sum_u16", "uint16_t"),
+                    "sir_sum_u32" => ("__sir_sum_u32", "uint32_t"),
+                    _ => ("__sir_sum_u64", "uint64_t"),
+                };
+                format!(
+                    "(({}){helper}((const {element} *)({}), (uint64_t)({})))",
+                    c_type(&node.ty),
+                    base,
+                    len
+                )
+            }
             other => format!("__sir_unsupported_intrinsic_{}()", sanitize_ident(other)),
         },
         NodeKind::Popcount { operand } => {
@@ -1361,6 +1379,32 @@ pub fn emit_c(func: &Function) -> String {
              \x20   return hit ? (uint64_t)((const uint8_t *)hit - base) : n;\n\
              }\n",
         );
+        out.push('\n');
+    }
+    for (intrinsic, element, helper) in [
+        ("sir_sum_u8", "uint8_t", "__sir_sum_u8"),
+        ("sir_sum_u16", "uint16_t", "__sir_sum_u16"),
+        ("sir_sum_u32", "uint32_t", "__sir_sum_u32"),
+        ("sir_sum_u64", "uint64_t", "__sir_sum_u64"),
+    ] {
+        let used = func
+            .arena
+            .iter()
+            .any(|node| matches!(&node.kind, NodeKind::Intrinsic { name, .. } if name == intrinsic));
+        if !used {
+            continue;
+        }
+        out.push_str(&format!(
+            "/* Runtime-bound wrapping sum: four accumulators for ILP. */\n\
+             static uint64_t {helper}(const {element} *a, uint64_t n) {{\n\
+             \x20   uint64_t s0 = 0, s1 = 0, s2 = 0, s3 = 0, i = 0;\n\
+             \x20   for (; i + 4 <= n; i += 4) {{\n\
+             \x20       s0 += a[i]; s1 += a[i + 1]; s2 += a[i + 2]; s3 += a[i + 3];\n\
+             \x20   }}\n\
+             \x20   for (; i < n; i++) s0 += a[i];\n\
+             \x20   return s0 + s1 + s2 + s3;\n\
+             }}\n"
+        ));
         out.push('\n');
     }
 
