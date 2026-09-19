@@ -327,6 +327,16 @@ have now been restored into current `sir_mech` and tested.
   `def allow` lines (e.g. count definition 0 measured 322ns → 154ns and
   wrote `0 1`). Feed the file back through `--allow-defs` to compile
   with a measured definition set; the e2e test covers the write.
+- **2026-09-19 — retention profile input**: `--profile-in PATH` reads
+  the `def allow` file directly and restricts the driver to its allowed
+  definitions. Verified end to end: a profile containing `0 1` keeps the
+  count rewrite and excludes runtime definition 403. The
+  measurement → profile → compile loop is now closed; only the
+  predictive model remains.
+- **2026-09-19 — one-byte hybrid rejected**: a `base[0]` fast path
+  followed by memchr measured parity on the early hit (78,766ns vs
+  78,840ns) but 0.86× on the no-hit case (92,010ns vs 79,016ns); it was
+  reverted. Plain runtime memchr plus profile/opt-in control stays.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

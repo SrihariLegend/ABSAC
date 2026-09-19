@@ -960,7 +960,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!(
-            "usage: emit_c_diff <corpus.ll> [--cases N] [--workdir DIR] [--function NAME] [--sanitize] [--cc clang|gcc] [--target native|aarch64] [--allow-runtime-search] [--allow-defs LIST] [--profile-out PATH] [--time] [--time-reps N] [--time-baseline] [--measured-retain] [--time-fill V]"
+            "usage: emit_c_diff <corpus.ll> [--cases N] [--workdir DIR] [--function NAME] [--sanitize] [--cc clang|gcc] [--target native|aarch64] [--allow-runtime-search] [--allow-defs LIST] [--profile-in PATH] [--profile-out PATH] [--time] [--time-reps N] [--time-baseline] [--measured-retain] [--time-fill V]"
         );
         std::process::exit(2);
     }
@@ -1024,6 +1024,24 @@ fn main() {
             }
             "--profile-out" if i + 1 < args.len() => {
                 profile_out = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--profile-in" if i + 1 < args.len() => {
+                let path = &args[i + 1];
+                let Ok(text) = fs::read_to_string(path) else {
+                    eprintln!("cannot read profile {path}");
+                    std::process::exit(2);
+                };
+                let definitions: Vec<u64> = text
+                    .lines()
+                    .filter_map(|line| {
+                        let mut parts = line.split_whitespace();
+                        let definition = parts.next()?.parse().ok()?;
+                        let allow = parts.next()?;
+                        (allow != "0").then_some(definition)
+                    })
+                    .collect();
+                let _ = ALLOW_DEFS.set(definitions);
                 i += 2;
             }
             "--time-reps" if i + 1 < args.len() => {
