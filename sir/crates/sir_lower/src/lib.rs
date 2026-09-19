@@ -5833,7 +5833,10 @@ fn emit_instruction(
                     }
                 }
             }
-            if callee.contains("llvm.memset") || callee.contains("llvm.memcpy") {
+            if callee.contains("llvm.memset")
+                || callee.contains("llvm.memcpy")
+                || callee.contains("llvm.memmove")
+            {
                 let inside = call_arguments(inst)
                     .ok_or_else(|| format!("malformed memset/memcpy call: {}", inst.raw))?;
                 let parts: Vec<String> = split_operands(&inside);
@@ -5841,6 +5844,7 @@ fn emit_instruction(
                     return Err(format!("memset/memcpy needs 3 operands: {}", inst.raw));
                 }
                 let is_memset = callee.contains("llvm.memset");
+                let is_memmove = callee.contains("llvm.memmove");
                 let volatile = parts
                     .get(3)
                     .map(|flag| strip_type(flag) == "true")
@@ -5886,9 +5890,14 @@ fn emit_instruction(
                         .ok_or_else(|| {
                             format!("cannot resolve memcpy src: {}", inst.raw)
                         })?;
+                    let name = if is_memmove {
+                        "sir_memmove"
+                    } else {
+                        "sir_memcpy"
+                    };
                     builder
                         .intrinsic(
-                            "sir_memcpy",
+                            name,
                             &[dst, src, length],
                             Type::Unit,
                             Effects::READ_MEMORY | Effects::WRITE_MEMORY,

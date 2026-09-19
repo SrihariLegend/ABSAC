@@ -502,6 +502,11 @@ have now been restored into current `sir_mech` and tested.
   540 / 360 / 0, and the external Embench counts are unchanged (19);
   this is a prerequisite for the blocked benchmark wrappers rather
   than a new clean function by itself.
+- **2026-09-20 — `llvm.memmove`**: overlap-safe copies lower through
+  the same attribute-aware intrinsic path and emit `memmove`; the
+  focused fixture covers an inline-GEP destination with overlapping
+  source. Clean on native, AArch64, and sanitizers with base-14 and
+  fuzz unchanged.
 - **2026-09-20 — fixed-size `alloca`**: constant-size stack buffers
   lower to a typed `LocalAlloca` base and emit `_Alignas(N) uint8_t
   name[size];` locals; variable-size allocas fail closed. A focused
@@ -517,6 +522,18 @@ have now been restored into current `sir_mech` and tested.
   `verify_benchmark`. It reached the next real blockers (local calls in
   `FH_DU`; rotated loop entry in `verify_benchmark`) but produced no
   clean function, so it was reverted rather than kept as bloat.
+- **2026-09-20 — PolyBench held-out baseline**: ten kernels were
+  compiled with clang `-O1 -fno-inline -fno-vectorize` (atax, bicg, mvt,
+  gemver, gesummv, gemm, syr2k, jacobi-1d/2d, fdtd-2d). Every kernel
+  function is refused; the universal blocker is nested (or
+  nested+sequential) loop structure, with secondary blockers in
+  `main`/`init_array` (allocation calls, floating point, external I/O).
+  No shallow wins exist in this suite: nested-loop support is the
+  prerequisite. A dominance-based back-edge rewrite plus separate-latch
+  extension was measured against this suite and base-14; it produced no
+  new clean PolyBench function and regressed base-14 to 189/122/1, so it
+  was reverted (the focused rotated loop was already clean in the
+  committed baseline).
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

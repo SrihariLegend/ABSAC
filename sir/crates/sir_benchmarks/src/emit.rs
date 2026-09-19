@@ -1248,6 +1248,15 @@ fn emit_expr(
                     dst, src, len
                 )
             }
+            "sir_memmove" if args.len() == 3 => {
+                let dst = emit_operand(args[0], func, carrier_map);
+                let src = emit_operand(args[1], func, carrier_map);
+                let len = emit_operand(args[2], func, carrier_map);
+                format!(
+                    "memmove((void *)({}), (const void *)({}), (size_t)({}))",
+                    dst, src, len
+                )
+            }
             "sir_sdiv" | "sir_srem" if args.len() == 2 => {
                 let a = emit_operand(args[0], func, carrier_map);
                 let b = emit_operand(args[1], func, carrier_map);
