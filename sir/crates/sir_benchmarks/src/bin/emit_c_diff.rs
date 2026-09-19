@@ -51,7 +51,6 @@ struct GlobalDecl {
     name: String,
     ty: String,
     size: usize,
-    zero_initialized: bool,
 }
 
 /// Byte size of an LLVM integer/array/pointer type; `None` for shapes
@@ -62,6 +61,23 @@ fn llvm_type_size(ty: &str) -> Option<usize> {
         let inner = ty.strip_prefix('[')?.strip_suffix(']')?;
         let (length, element) = inner.split_once('x')?;
         Some(length.trim().parse::<usize>().ok()? * llvm_type_size(element)?)
+    } else if let Some(inner) = ty.strip_prefix("<{").and_then(|t| t.strip_suffix("}>")) {
+        let mut total = 0usize;
+        let mut depth = 0usize;
+        let mut start = 0usize;
+        for (index, ch) in inner.char_indices() {
+            match ch {
+                '[' | '{' | '<' => depth += 1,
+                ']' | '}' | '>' => depth = depth.saturating_sub(1),
+                ',' if depth == 0 => {
+                    total += llvm_type_size(&inner[start..index])?;
+                    start = index + 1;
+                }
+                _ => {}
+            }
+        }
+        total += llvm_type_size(&inner[start..])?;
+        Some(total)
     } else if let Some(bits) = ty.strip_prefix('i') {
         Some(bits.parse::<usize>().ok()?.div_ceil(8))
     } else if ty == "ptr" {
@@ -73,6 +89,31 @@ fn llvm_type_size(ty: &str) -> Option<usize> {
     } else {
         None
     }
+}
+
+/// Split an LLVM type token from the rest of a global definition,
+/// respecting nested `[...]` and `<{...}>` shapes.
+fn split_llvm_type(text: &str) -> Option<(&str, &str)> {
+    let text = text.trim();
+    let (open, close) = if text.starts_with('[') {
+        ('[', ']')
+    } else if text.starts_with("<{") {
+        ('<', '>')
+    } else {
+        return text.split_once(char::is_whitespace);
+    };
+    let mut depth = 0usize;
+    for (index, ch) in text.char_indices() {
+        if ch == open {
+            depth += 1;
+        } else if ch == close {
+            depth -= 1;
+            if depth == 0 {
+                return Some((&text[..=index], text[index + 1..].trim()));
+            }
+        }
+    }
+    None
 }
 
 fn global_decls(ll: &str) -> Vec<GlobalDecl> {
@@ -88,33 +129,22 @@ fn global_decls(ll: &str) -> Vec<GlobalDecl> {
             continue;
         }
         let rest = line[eq + 1..].trim();
-        let external = rest.starts_with("external");
-        let Some(global_at) = rest.find("global ") else {
+        let Some((global_at, keyword_len)) = rest
+            .find("global ")
+            .map(|at| (at, "global ".len()))
+            .or_else(|| rest.find("constant ").map(|at| (at, "constant ".len())))
+        else {
             continue;
         };
-        let after = &rest[global_at + "global ".len()..];
-        let (ty, init) = if after.starts_with('[') {
-            let Some(close) = after.find(']') else { continue };
-            (&after[..=close], after[close + 1..].trim())
-        } else {
-            match after.split_once(char::is_whitespace) {
-                Some((ty, init)) => (ty, init.trim()),
-                None => (after, ""),
-            }
+        let after = &rest[global_at + keyword_len..];
+        let Some((ty, _init)) = split_llvm_type(after) else {
+            continue;
         };
         let size = llvm_type_size(ty).unwrap_or(0);
-        let initializer = init.split(',').next().unwrap_or("").trim();
-        let zero_initialized = external
-            || initializer.is_empty()
-            || initializer == "zeroinitializer"
-            || initializer == "0"
-            || initializer == "0.0"
-            || initializer == "null";
         out.push(GlobalDecl {
             name: name.to_string(),
             ty: ty.to_string(),
             size,
-            zero_initialized,
         });
     }
     out
@@ -211,12 +241,6 @@ fn unsupported_global_use(ll: &str, name: &str) -> Option<String> {
         let Some(decl) = decls.iter().find(|decl| decl.name == referenced) else {
             continue;
         };
-        if !decl.zero_initialized {
-            return Some(format!(
-                "unsupported: global @{} has a non-zero initializer",
-                referenced
-            ));
-        }
         if decl.size == 0 || decl.size > (1 << 20) {
             return Some(format!(
                 "unsupported: global @{} has unsupported size {}",
@@ -703,9 +727,6 @@ fn inject_globals(driver: &mut String, ll: &str, name: &str) {
         let Some(g) = globals.iter().find(|g| g.name == referenced) else {
             continue;
         };
-        if !g.zero_initialized {
-            continue;
-        }
         if g.size == 0 || g.size > (1 << 20) {
             continue;
         }

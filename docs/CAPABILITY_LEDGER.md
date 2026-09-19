@@ -464,6 +464,18 @@ have now been restored into current `sir_mech` and tested.
   external Embench clean 14 → 15. Base-14 native/AArch64 stay 230 /
   128 / 0, fuzz stays 540 / 360 / 0, and sanitizers report no
   violations.
+- **2026-09-20 — constant globals and `bcmp`/`memcmp`**: the driver now
+  parses `constant` as well as `global` definitions and gives every
+  referenced global a shared shadow buffer (non-zero initializers no
+  longer force a refusal). Initializer bytes are not reconstructed yet:
+  both sides read the same driver buffer, so this is a valid
+  equivalence check over an arbitrary state, not a reproduction of the
+  declared table contents — recorded as a follow-up. `bcmp`/`memcmp`
+  lower to `sir_bcmp` with attribute-aware argument parsing and inline
+  GEP arguments. EDN `verify_benchmark` and matmult-int
+  `verify_benchmark` become clean; external Embench
+  clean rises 15 → 17. Base-14 native/AArch64 stay 230 / 128 / 0, fuzz
+  stays 540 / 360 / 0, and sanitizers report no violations.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

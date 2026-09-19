@@ -5165,6 +5165,68 @@ fn emit_instruction(
                     }
                 }
             }
+            if callee.contains("@bcmp") || callee.contains("@memcmp") {
+                let raw = inst.operands.join(", ");
+                let open = raw
+                    .find('(')
+                    .ok_or_else(|| format!("malformed bcmp/memcmp call: {}", inst.raw))?;
+                let close = raw
+                    .rfind(')')
+                    .ok_or_else(|| format!("malformed bcmp/memcmp call: {}", inst.raw))?;
+                let inside = &raw[open + 1..close];
+                let parts: Vec<String> = split_operands(inside);
+                if parts.len() < 3 {
+                    return Err(format!("bcmp/memcmp needs 3 operands: {}", inst.raw));
+                }
+                let resolve_pointer = |operand: &str,
+                                       value_map: &mut HashMap<String, NodeId>,
+                                       builder: &mut Builder|
+                 -> Option<NodeId> {
+                    if let Some((name, element, index)) = inline_global_gep(operand) {
+                        let base = resolve_global(&name, value_map, builder, span);
+                        let index = builder.constant(
+                            ConstantData::u64(index),
+                            Type::u64(),
+                            span,
+                        );
+                        return builder
+                            .pointer_offset(base, index, element, span)
+                            .ok();
+                    }
+                    let token = operand
+                        .split_whitespace()
+                        .rev()
+                        .find(|token| token.starts_with('@') || token.starts_with('%'))?
+                        .trim_end_matches(|ch| ch == ')' || ch == ',');
+                    get_node_id(token, value_map, params, builder, None)
+                };
+                let a = resolve_pointer(&parts[0], value_map, builder)
+                    .ok_or_else(|| format!("cannot resolve bcmp lhs: {}", inst.raw))?;
+                let b = resolve_pointer(&parts[1], value_map, builder)
+                    .ok_or_else(|| format!("cannot resolve bcmp rhs: {}", inst.raw))?;
+                let length_str = strip_type(&parts[2]);
+                let length = get_node_id(
+                    &length_str,
+                    value_map,
+                    params,
+                    builder,
+                    Some(Type::u64()),
+                )
+                .ok_or(format!("cannot resolve bcmp length '{}'", length_str))?;
+                let node_id = builder
+                    .intrinsic(
+                        "sir_bcmp",
+                        &[a, b, length],
+                        Type::u32(),
+                        Effects::READ_MEMORY,
+                        span,
+                    )
+                    .map_err(|e| format!("{:?}", e))?;
+                if let Some(name) = result_name {
+                    value_map.insert(name, node_id);
+                }
+                return Ok(Some(node_id));
+            }
             Err(format!("unsupported call: {}", inst.raw))
         }
 

@@ -1212,6 +1212,18 @@ fn emit_expr(
                     len
                 )
             }
+            "sir_bcmp" if args.len() == 3 => {
+                let a = emit_operand(args[0], func, carrier_map);
+                let b = emit_operand(args[1], func, carrier_map);
+                let len = emit_operand(args[2], func, carrier_map);
+                format!(
+                    "(({})__sir_bcmp((const void *)({}), (const void *)({}), (uint64_t)({})))",
+                    c_type(&node.ty),
+                    a,
+                    b,
+                    len
+                )
+            }
             "sir_sum_u8" | "sir_sum_u16" | "sir_sum_u32" | "sir_sum_u64"
                 if args.len() == 2 =>
             {
@@ -1604,6 +1616,19 @@ pub fn emit_c(func: &Function) -> String {
              \x20   if (n == 0) return 0;\n\
              \x20   const void *hit = memchr((const void *)base, key, (size_t)n);\n\
              \x20   return hit ? (uint64_t)((const uint8_t *)hit - base) : n;\n\
+             }\n",
+        );
+        out.push('\n');
+    }
+    let uses_bcmp = func
+        .arena
+        .iter()
+        .any(|node| matches!(&node.kind, NodeKind::Intrinsic { name, .. } if name == "sir_bcmp"));
+    if uses_bcmp {
+        out.push_str(
+            "/* bcmp/memcmp primitive. */\n\
+             static int32_t __sir_bcmp(const void *a, const void *b, uint64_t n) {\n\
+             \x20   return (int32_t)memcmp(a, b, (size_t)n);\n\
              }\n",
         );
         out.push('\n');
