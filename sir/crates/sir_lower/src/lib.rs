@@ -150,6 +150,57 @@ fn collect_global_refs(text: &str) -> Vec<String> {
     out
 }
 
+/// GEP results that are used as pointer values (phi incoming, another
+/// GEP's base, select/compare/call/return operand) rather than only being
+/// consumed by a load/store. Only these need a pointer-typed node; the
+/// rest keep the recognizer-friendly `ArrayAccess` form.
+fn escaping_gep_results(ir: &IrFunction) -> HashSet<String> {
+    let gep_names: HashSet<String> = ir
+        .blocks
+        .iter()
+        .flat_map(|block| block.instructions.iter())
+        .filter(|inst| inst.opcode == "getelementptr")
+        .filter_map(|inst| inst.result.clone())
+        .collect();
+    let mut escaping = HashSet::new();
+    for block in &ir.blocks {
+        for inst in &block.instructions {
+            match inst.opcode.as_str() {
+                "phi" => {
+                    for (value, _) in phi_incomings(inst) {
+                        let value = strip_type(&value);
+                        if gep_names.contains(&value) {
+                            escaping.insert(value);
+                        }
+                    }
+                }
+                "getelementptr" if inst.operands.len() >= 2 => {
+                    let base = strip_type(&inst.operands[1]);
+                    if gep_names.contains(&base) {
+                        escaping.insert(base);
+                    }
+                }
+                "select" | "icmp" | "call" | "ret" => {
+                    for operand in &inst.operands {
+                        let value = strip_type(&operand_value_token(operand));
+                        if gep_names.contains(&value) {
+                            escaping.insert(value);
+                        }
+                    }
+                }
+                "store" if !inst.operands.is_empty() => {
+                    let value = strip_type(&inst.operands[0]);
+                    if gep_names.contains(&value) {
+                        escaping.insert(value);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    escaping
+}
+
 /// Fold a constant `getelementptr (SRC, ptr @name, ..., i64 idx)`
 /// operand into `(global, element type, index)`.
 fn inline_global_gep(operand: &str) -> Option<(String, Type, u64)> {
@@ -1151,6 +1202,7 @@ pub fn lower(text: &str) -> Result<Function, String> {
         let node_id = builder.global(gname.clone(), Span::unknown());
         value_map.insert(gname, node_id);
     }
+    builder.set_escaping_geps(escaping_gep_results(&ir));
 
     // Acyclic switch CFGs are lowered by path enumeration: branch guards
     // become Select conditions, and constant global accesses become
@@ -4727,9 +4779,23 @@ fn emit_instruction(
             let index = get_node_id(&index_str, value_map, params, builder, None)
                 .ok_or(format!("cannot resolve gep index '{}'", index_str))?;
 
-            let node_id = builder
-                .array_access(base, index, elem_ty, span)
-                .map_err(|e| format!("{:?}", e))?;
+            let base_is_pointer = builder
+                .function()
+                .get_node(base)
+                .is_some_and(|node| node.ty.is_pointer_like());
+            let escaping = inst
+                .result
+                .as_ref()
+                .is_some_and(|name| builder.gep_escapes(name));
+            let node_id = if inst.operands.len() == 3 && base_is_pointer && escaping {
+                builder
+                    .pointer_offset(base, index, elem_ty, span)
+                    .map_err(|e| format!("{:?}", e))?
+            } else {
+                builder
+                    .array_access(base, index, elem_ty, span)
+                    .map_err(|e| format!("{:?}", e))?
+            };
 
             if let Some(name) = result_name {
                 value_map.insert(name, node_id);
@@ -4785,7 +4851,34 @@ fn emit_instruction(
                 ));
             }
             let (target, stored) = if array_lvalue {
-                (ptr, val)
+                let value_ty = builder
+                    .function()
+                    .get_node(val)
+                    .map(|node| node.ty.clone())
+                    .ok_or("store value node missing")?;
+                let element_ty = builder
+                    .function()
+                    .get_node(ptr)
+                    .map(|node| node.ty.clone())
+                    .ok_or("store destination node missing")?;
+                if element_ty != value_ty {
+                    // A GEP in source-element units (often i8) feeding a
+                    // wider store: reinterpret at the same address.
+                    let NodeKind::ArrayAccess { base, index } = builder
+                        .function()
+                        .get_node(ptr)
+                        .map(|node| node.kind.clone())
+                        .ok_or("store destination node missing")?
+                    else {
+                        return Err(format!("store destination missing: {}", inst.raw));
+                    };
+                    let access = builder
+                        .array_access(base, index, value_ty, span)
+                        .map_err(|e| format!("{:?}", e))?;
+                    (access, val)
+                } else {
+                    (ptr, val)
+                }
             } else {
                 let value_ty = builder
                     .function()

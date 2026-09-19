@@ -451,9 +451,19 @@ have now been restored into current `sir_mech` and tested.
   which exceeds the 4096-path cap); external Embench clean rises 8 → 14.
   Base-14 stays 230 / 128 / 0 on native and AArch64, fuzz stays
   540 / 360 / 0, and sanitizers report no violations.
-  Remaining blockers in this class: `generic_FH_TUERMODUL_CTRL` exceeds
-  the 4096-path enumeration cap, and edn `iir1` needs byte-offset
-  pointer reinterpretation (mixed `i8` GEP / `i64` store).
+  Remaining blocker in this class: `generic_FH_TUERMODUL_CTRL` exceeds
+  the 4096-path enumeration cap.
+- **2026-09-20 — pointer-valued GEPs and mixed-width access**: GEP
+  results used as pointer values (phi incoming, another GEP's base,
+  select/compare/call operand) lower to a pointer-typed `PointerOffset`;
+  GEPs consumed only by loads/stores keep the recognizer-friendly
+  `ArrayAccess` form (base-14 rewrites stay 128). `ArrayAccess`
+  emission now reinterprets element width through the source pointer
+  (`((T *)(p + i))[0]`), and loop-carrier preheader dependencies are
+  emitted before carrier declarations. EDN `iir1` becomes clean;
+  external Embench clean 14 → 15. Base-14 native/AArch64 stay 230 /
+  128 / 0, fuzz stays 540 / 360 / 0, and sanitizers report no
+  violations.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

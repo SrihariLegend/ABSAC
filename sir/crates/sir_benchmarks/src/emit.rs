@@ -579,6 +579,18 @@ fn emit_pure_expr_into(
             out.push(']');
             true
         }
+        NodeKind::PointerOffset { base, index } => {
+            out.push('(');
+            if !rec(out, *base) {
+                return false;
+            }
+            out.push_str(" + ");
+            if !rec(out, *index) {
+                return false;
+            }
+            out.push(')');
+            true
+        }
         _ => false,
     }
 }
@@ -1419,16 +1431,34 @@ fn emit_expr(
         }
         NodeKind::ArrayAccess { base, index } => {
             let base_expr = emit_operand(*base, func, carrier_map);
-            if func
-                .get_node(*base)
-                .is_some_and(|node| matches!(node.kind, NodeKind::Global { .. }))
-            {
+            let base_node = func.get_node(*base);
+            if base_node.is_some_and(|base| matches!(base.kind, NodeKind::Global { .. })) {
                 format!(
                     "(({} *)({}))[{}]",
                     c_type(&node.ty),
                     base_expr,
                     emit_operand(*index, func, carrier_map)
                 )
+            } else if let Some(Type::Pointer { pointee, .. }) =
+                base_node.map(|base| &base.ty)
+            {
+                if pointee.as_ref() != &node.ty {
+                    // The GEP is in source-element units while the access
+                    // width differs (e.g. an i8 GEP feeding an i64 load):
+                    // scale through the source pointer, then reinterpret.
+                    format!(
+                        "(({} *)({} + {}))[0]",
+                        c_type(&node.ty),
+                        base_expr,
+                        emit_operand(*index, func, carrier_map)
+                    )
+                } else {
+                    format!(
+                        "{}[{}]",
+                        base_expr,
+                        emit_operand(*index, func, carrier_map)
+                    )
+                }
             } else {
                 format!(
                     "{}[{}]",
@@ -1437,6 +1467,11 @@ fn emit_expr(
                 )
             }
         }
+        NodeKind::PointerOffset { base, index } => format!(
+            "({} + {})",
+            emit_operand(*base, func, carrier_map),
+            emit_operand(*index, func, carrier_map)
+        ),
         NodeKind::Global { name } => c_global_name(name),
         NodeKind::Store { ptr, value } => {
             let target = if func
@@ -1696,20 +1731,44 @@ pub fn emit_c(func: &Function) -> String {
         // loop's result. Nodes that belong to any loop are excluded from
         // the post-loop straight-line emission.
         let mut loop_ids: HashSet<NodeId> = HashSet::new();
-        for (ordinal, loop_n) in loops.iter().enumerate() {
-            let emitted_ids = emit_loop(loop_n, func, &mut out, ordinal);
-            loop_ids.extend(emitted_ids);
+        let mut carried_seeds: Vec<NodeId> = Vec::new();
+        for loop_n in &loops {
             if let NodeKind::Loop {
                 body,
                 termination,
                 outputs,
-                ..
+                carried_inputs,
             } = &loop_n.kind
             {
                 loop_ids.extend(body.iter().copied());
                 loop_ids.insert(*termination);
                 loop_ids.extend(outputs.iter().copied());
+                carried_seeds.extend(carried_inputs.iter().copied());
             }
+        }
+        // Carrier initializers may read preheader loads (e.g. a loop-carried
+        // pointer initialized from a loaded i16). Those statements must be
+        // emitted before the carrier declarations, not in the post-loop pass.
+        let pre_set = dependency_closure(&carried_seeds, func, &loop_ids);
+        let prelude: Vec<NodeId> = pre_set
+            .iter()
+            .copied()
+            .filter(|id| !store_targets.contains(id) && func.get_node(*id).is_some())
+            .collect();
+        let empty_map = HashMap::new();
+        for id in topo_order(&prelude, &pre_set, func) {
+            let node = func.get_node(id).expect("arena node");
+            let expr = emit_expr(node, func, &empty_map);
+            if node.ty == Type::Unit {
+                let _ = write!(out, "    (void)({expr});\n");
+            } else {
+                let _ = write!(out, "    {} v{} = {};\n", c_type(&node.ty), id.as_u64(), expr);
+            }
+            loop_ids.insert(id);
+        }
+        for (ordinal, loop_n) in loops.iter().enumerate() {
+            let emitted_ids = emit_loop(loop_n, func, &mut out, ordinal);
+            loop_ids.extend(emitted_ids);
         }
         // Emit remaining non-loop, non-parameter, non-return nodes AFTER the
         // loops (e.g., TupleExtract that reads loop outputs), in dataflow

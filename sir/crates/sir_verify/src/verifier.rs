@@ -601,6 +601,27 @@ impl<'a> Verifier<'a> {
                     }
                     let _ = base;
                 }
+                NodeKind::PointerOffset { base, index } => {
+                    if let Some(ty) = self.node_type(*base) {
+                        if !ty.is_pointer_like() {
+                            self.errors.push(VerificationError::InvalidPointerOperation {
+                                node: node.id,
+                                actual: ty,
+                            });
+                        }
+                    }
+                    if let Some(ty) = self.node_type(*index) {
+                        if !ty.is_integer_or_bitvector() {
+                            self.errors.push(VerificationError::TypeMismatch {
+                                node: node.id,
+                                kind: node.kind.clone(),
+                                input_index: 1,
+                                expected: Type::i32(),
+                                actual: ty,
+                            });
+                        }
+                    }
+                }
                 
                 NodeKind::TupleExtract { tuple, index } => {
                     if let Some(ty) = self.node_type(*tuple) {

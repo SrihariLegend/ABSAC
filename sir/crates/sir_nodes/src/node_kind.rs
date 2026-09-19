@@ -153,6 +153,8 @@ pub enum NodeKind {
     FieldAccess { base: NodeId, field: String },
     /// Access an element of an array or slice by index.
     ArrayAccess { base: NodeId, index: NodeId },
+    /// Advance a pointer by `index` elements of its pointee type.
+    PointerOffset { base: NodeId, index: NodeId },
     /// Extract an element from a tuple by index.
     TupleExtract { tuple: NodeId, index: usize },
     /// Construct a tuple value from its elements (tuple-typed result rebuilds).
@@ -233,6 +235,7 @@ impl NodeKind {
             NodeKind::Deallocate { .. } => "Deallocate",
             NodeKind::FieldAccess { .. } => "FieldAccess",
             NodeKind::ArrayAccess { .. } => "ArrayAccess",
+            NodeKind::PointerOffset { .. } => "PointerOffset",
             NodeKind::TupleExtract { .. } => "TupleExtract",
             NodeKind::Tuple { .. } => "Tuple",
             NodeKind::Call { .. } => "Call",
@@ -292,6 +295,7 @@ impl NodeKind {
             NodeKind::Allocate { count, .. } => vec![*count],
             NodeKind::FieldAccess { base, .. } => vec![*base],
             NodeKind::ArrayAccess { base, index } => vec![*base, *index],
+            NodeKind::PointerOffset { base, index } => vec![*base, *index],
             NodeKind::TupleExtract { tuple, .. } => vec![*tuple],
             NodeKind::Tuple { elements } => elements.clone(),
             NodeKind::Call { callee, args } => {

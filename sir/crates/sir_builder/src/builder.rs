@@ -27,6 +27,7 @@ use crate::BuildError;
 pub struct Builder {
     func: Function,
     next_id: u64,
+    escaping_geps: std::collections::HashSet<String>,
 }
 
 impl Builder {
@@ -58,7 +59,20 @@ impl Builder {
         Self {
             func,
             next_id,
+            escaping_geps: std::collections::HashSet::new(),
         }
+    }
+
+    /// Record GEP results that must stay pointer-valued (used by phis,
+    /// other GEPs, selects, calls, or comparisons) rather than folded
+    /// into an immediate memory access.
+    pub fn set_escaping_geps(&mut self, names: std::collections::HashSet<String>) {
+        self.escaping_geps = names;
+    }
+
+    /// Whether a GEP result is used as a pointer value.
+    pub fn gep_escapes(&self, name: &str) -> bool {
+        self.escaping_geps.contains(name)
     }
 
     // ── Accessors ───────────────────────────────────────────
@@ -640,6 +654,41 @@ impl Builder {
         Ok(self.alloc_node(
             NodeKind::ArrayAccess { base, index },
             element_ty,
+            Effects::empty(),
+            span,
+        ))
+    }
+
+    /// Advance a pointer by `index` elements of `pointee`.
+    pub fn pointer_offset(
+        &mut self,
+        base: NodeId,
+        index: NodeId,
+        pointee: Type,
+        span: Span,
+    ) -> Result<NodeId, BuildError> {
+        self.expect_integer(index)?;
+        let base_ty = self.get_type(base)?;
+        if !base_ty.is_pointer_like() {
+            return Err(BuildError::TypeMismatch {
+                node: base,
+                expected: Type::Pointer {
+                    pointee: Box::new(Type::Unit),
+                    mutable: true,
+                },
+                actual: base_ty,
+            });
+        }
+        let mutable = match base_ty {
+            Type::Pointer { mutable, .. } => mutable,
+            _ => true,
+        };
+        Ok(self.alloc_node(
+            NodeKind::PointerOffset { base, index },
+            Type::Pointer {
+                pointee: Box::new(pointee),
+                mutable,
+            },
             Effects::empty(),
             span,
         ))
