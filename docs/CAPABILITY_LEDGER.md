@@ -277,6 +277,11 @@ have now been restored into current `sir_mech` and tested.
   they have no runtime semantics, and keeping them blocked otherwise
   ordinary functions. Embench statemate drops from 12 to 11 refusals;
   base-14 is unchanged at 78 rewrites with zero mismatches.
+- **2026-09-19 — H3 case-split rejected**: replacing the single
+  symbolic first-match query with 65 per-first-index implication
+  queries was measured at **537M instructions** vs **29.6M** for the
+  original query, and was reverted. The memchr proof budget still needs
+  a genuine induction/kernel proof, not naive case splitting.
 
 ## Reference commands
 
