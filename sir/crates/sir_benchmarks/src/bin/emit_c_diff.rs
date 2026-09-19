@@ -515,7 +515,7 @@ fn time_function(
     fill: Option<u8>,
     cc: &str,
     target: &str,
-) -> Result<(String, usize), String> {
+) -> Result<(String, Vec<u64>), String> {
     let func =
         lower_function(ll, name).map_err(|e| e.lines().last().unwrap_or(&e).trim().to_string())?;
     let Some((ir_ret, ir_params)) = ir_signature(ll, name) else {
@@ -606,7 +606,7 @@ fn time_function(
         .find(|l| l.starts_with("EMITTIME"))
         .map(|s| s.to_string())
         .ok_or_else(|| "no EMITTIME line".to_string())?;
-    Ok((line, optimized.rewrites_applied))
+    Ok((line, optimized.definitions))
 }
 /// Compile the differential/timing harness with the selected C compiler.
 ///
@@ -716,6 +716,7 @@ fn compile_harness(
 struct RunResult {
     function: Function,
     rewrites_applied: usize,
+    definitions: Vec<u64>,
 }
 
 /// Run the single-pass optimizer.
@@ -729,18 +730,20 @@ fn optimize(func: &Function) -> RunResult {
     };
     if let Some((function, rewrites, definitions)) = result {
         if std::env::var_os("SIR_OPT_TRACE").is_some() {
-            for definition in definitions {
+            for definition in &definitions {
                 eprintln!("SIR_OPT {} def={definition}", func.name);
             }
         }
         RunResult {
             function,
             rewrites_applied: rewrites,
+            definitions,
         }
     } else {
         RunResult {
             function: func.clone(),
             rewrites_applied: 0,
+            definitions: Vec::new(),
         }
     }
 }
@@ -957,7 +960,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!(
-            "usage: emit_c_diff <corpus.ll> [--cases N] [--workdir DIR] [--function NAME] [--sanitize] [--cc clang|gcc] [--target native|aarch64] [--allow-runtime-search] [--allow-defs LIST] [--time] [--time-reps N] [--time-baseline] [--measured-retain] [--time-fill V]"
+            "usage: emit_c_diff <corpus.ll> [--cases N] [--workdir DIR] [--function NAME] [--sanitize] [--cc clang|gcc] [--target native|aarch64] [--allow-runtime-search] [--allow-defs LIST] [--profile-out PATH] [--time] [--time-reps N] [--time-baseline] [--measured-retain] [--time-fill V]"
         );
         std::process::exit(2);
     }
@@ -969,6 +972,7 @@ fn main() {
     let mut time_mode = false;
     let mut time_baseline = false;
     let mut measured_retain = false;
+    let mut profile_out: Option<PathBuf> = None;
     let mut time_fill: Option<u8> = None;
     let mut time_reps = 200_000usize;
     let mut cc = "clang".to_string();
@@ -1016,6 +1020,10 @@ fn main() {
                     .filter_map(|value| value.trim().parse().ok())
                     .collect();
                 let _ = ALLOW_DEFS.set(definitions);
+                i += 2;
+            }
+            "--profile-out" if i + 1 < args.len() => {
+                profile_out = Some(PathBuf::from(&args[i + 1]));
                 i += 2;
             }
             "--time-reps" if i + 1 < args.len() => {
@@ -1072,6 +1080,8 @@ fn main() {
     let mut errors = 0usize;
     let mut violations = 0usize;
     let mut retained_base = 0usize;
+    let mut retention_profile: std::collections::BTreeMap<u64, bool> =
+        std::collections::BTreeMap::new();
     for name in function_names(&ll) {
         if let Some(only) = &only {
             if &name != only {
@@ -1101,7 +1111,7 @@ fn main() {
                         &cc,
                         &target,
                     ) {
-                        Ok((line, _)) => {
+                        Ok((line, definitions)) => {
                             println!("{line}");
                             if measured_retain {
                                 let ref_ns = ns_value(&line, "ref_ns");
@@ -1118,6 +1128,13 @@ fn main() {
                                     ref_ns.unwrap_or(0),
                                     new_ns.unwrap_or(0)
                                 );
+                                let retained = retain == "new";
+                                for definition in definitions {
+                                    retention_profile
+                                        .entry(definition)
+                                        .and_modify(|allow| *allow &= retained)
+                                        .or_insert(retained);
+                                }
                             }
                         }
                         Err(reason) => {
@@ -1154,6 +1171,20 @@ fn main() {
     if sanitize {
         println!("# sanitize=address,undefined");
         println!("EMITC_SANITIZE violations={violations}");
+    }
+    if measured_retain {
+        let mut profile = String::new();
+        for (definition, allow) in &retention_profile {
+            let allow = u8::from(*allow);
+            println!("EMITPROFILE def={definition} allow={allow}");
+            profile.push_str(&format!("{definition} {allow}\n"));
+        }
+        if let Some(path) = &profile_out {
+            if let Err(error) = fs::write(path, profile) {
+                eprintln!("cannot write profile {}: {error}", path.display());
+                errors += 1;
+            }
+        }
     }
     let retention = if measured_retain {
         format!(" retained_base={retained_base}")

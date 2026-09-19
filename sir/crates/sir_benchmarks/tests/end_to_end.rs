@@ -11,6 +11,7 @@ fn corpus_harness_reports_no_mismatches() {
         env!("CARGO_MANIFEST_DIR")
     );
     let workdir = std::env::temp_dir().join(format!("sir_e2e_{}", std::process::id()));
+    let profile = std::env::temp_dir().join(format!("sir_e2e_{}.profile", std::process::id()));
     let output = Command::new(binary)
         .arg(&corpus)
         .args([
@@ -22,6 +23,8 @@ fn corpus_harness_reports_no_mismatches() {
             "0",
         ])
         .arg("--measured-retain")
+        .arg("--profile-out")
+        .arg(&profile)
         .arg("--workdir")
         .arg(&workdir)
         .output()
@@ -40,5 +43,10 @@ fn corpus_harness_reports_no_mismatches() {
         stdout.contains("EMITRETAIN"),
         "measured-retention decision must be reported:\n{stdout}"
     );
+    assert!(
+        stdout.contains("EMITPROFILE") && profile.exists(),
+        "retention profile must be written:\n{stdout}"
+    );
     let _ = std::fs::remove_dir_all(&workdir);
+    let _ = std::fs::remove_file(&profile);
 }

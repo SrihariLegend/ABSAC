@@ -322,6 +322,11 @@ have now been restored into current `sir_mech` and tested.
   so a `--measured-retain` run can be turned into a profile decision.
   The e2e test covers it; the default policy (runtime search 403
   refused) is unchanged.
+- **2026-09-19 — retention profile output**: `--measured-retain
+  --profile-out PATH` now aggregates per-definition decisions and writes
+  `def allow` lines (e.g. count definition 0 measured 322ns → 154ns and
+  wrote `0 1`). Feed the file back through `--allow-defs` to compile
+  with a measured definition set; the e2e test covers the write.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

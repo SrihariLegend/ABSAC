@@ -240,8 +240,9 @@ harness errors**, and fuzz corpora v17–v19b **240 rewrites / 540 clean /
 target; the restored kernel/arith is ~2.3k of the increase.
 
 Remaining Phase 1 work: replayable proof records and the full
-predictive retention model. `--measured-retain` plus `--allow-defs`
-now supports exact per-definition retention decisions; the default
+predictive retention model. `--measured-retain` plus `--profile-out`
+and `--allow-defs` now supports measured per-definition retention
+decisions; the default
 policy refuses runtime-dependent definition 403; live-out/frame gates
 have v0.
 
