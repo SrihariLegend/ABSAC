@@ -534,6 +534,16 @@ have now been restored into current `sir_mech` and tested.
   new clean PolyBench function and regressed base-14 to 189/122/1, so it
   was reverted (the focused rotated loop was already clean in the
   committed baseline).
+- **2026-09-20 — runtime dispatch for `memchr` (H4)**: the emitted
+  helper scans the first 16 bytes inline and falls back to vectorized
+  `memchr` for the tail. Microbenchmark (N = 4096, 100k reps, ns/op):
+  early hit scalar 1.25 / vector 1.55 / hybrid 1.27; mid hit 2.71 /
+  1.55 / 2.80; no hit 542 / 16.6 / 16.8. This removes the measured
+  early-hit regression (0.82×) while keeping the no-hit win, so
+  `allow_profiled` now enables definition 403 by default. A focused
+  runtime-search fixture rewrites cleanly; base-14 rises 128 → 131
+  rewrites with 230 clean / 0 mismatched on native and AArch64, fuzz
+  stays 540 / 360 / 0, and v10 plus the fixture are sanitizer-clean.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

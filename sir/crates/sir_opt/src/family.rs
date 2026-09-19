@@ -40,12 +40,13 @@ pub fn allow_all(_definition: u64) -> bool {
     true
 }
 
-/// Default policy when no predictive profile exists: runtime-dependent
-/// rewrites stay off. Definition 403 (runtime `memchr`) measured 1.25×
-/// on no-hit inputs but 0.82× on early-hit inputs, so it is opt-in until
-/// the cost model can choose per call.
-pub fn allow_profiled(definition: u64) -> bool {
-    definition != 403
+/// Default policy when no predictive profile exists. Runtime search
+/// (definition 403) is now safe to enable statically: the emitted helper
+/// dispatches a 16-byte inline head scan before falling back to
+/// vectorized `memchr`, removing the measured early-hit regression while
+/// keeping the no-hit win.
+pub fn allow_profiled(_definition: u64) -> bool {
+    true
 }
 
 struct SearchFamily;

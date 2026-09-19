@@ -1660,10 +1660,17 @@ pub fn emit_c(func: &Function) -> String {
         .any(|node| matches!(&node.kind, NodeKind::Intrinsic { name, .. } if name == "sir_memchr"));
     if uses_memchr {
         out.push_str(
-            "/* memchr-style bounded search: first index of key below n, or n. */\n\
+            "/* memchr-style bounded search: first index of key below n, or n.\n\
+             \x20  The first bytes are scanned inline so early hits avoid the\n\
+             \x20  call/setup cost of a vectorized memchr; later hits still get\n\
+             \x20  the vectorized scan. */\n\
              static uint64_t __sir_memchr(const uint8_t *base, int key, uint64_t n) {\n\
              \x20   if (n == 0) return 0;\n\
-             \x20   const void *hit = memchr((const void *)base, key, (size_t)n);\n\
+             \x20   uint64_t head = n < 16 ? n : 16;\n\
+             \x20   for (uint64_t i = 0; i < head; i++)\n\
+             \x20       if (base[i] == (uint8_t)key) return i;\n\
+             \x20   if (n <= 16) return n;\n\
+             \x20   const void *hit = memchr((const void *)(base + 16), key, (size_t)(n - 16));\n\
              \x20   return hit ? (uint64_t)((const uint8_t *)hit - base) : n;\n\
              }\n",
         );
