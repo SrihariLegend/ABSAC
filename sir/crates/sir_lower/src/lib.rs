@@ -806,6 +806,7 @@ fn strip_type(operand: &str) -> String {
         .replace("zeroext ", "")
         .replace("signext ", "")
         .replace("disjoint ", "")
+        .replace("exact ", "")
         .replace("inbounds ", "")
         .replace("nuw ", "")
         .replace("nsw ", "")
@@ -1302,6 +1303,17 @@ fn detect_linear_chain(ir: &IrFunction) -> Option<Vec<(usize, usize)>> {
             return None;
         }
     }
+    for &(_, header) in &edges {
+        for inst in &ir.blocks[header].instructions {
+            if inst.opcode != "phi" {
+                continue;
+            }
+            match inst.operands.first().and_then(|operand| operand_type(operand)) {
+                Some(Type::Integer { .. }) => {}
+                _ => return None,
+            }
+        }
+    }
     for (index, &(latch, header)) in edges.iter().enumerate() {
         let terminator = ir.blocks[latch]
             .instructions
@@ -1360,6 +1372,17 @@ fn detect_nested_two_level(ir: &IrFunction) -> Option<NestedShape> {
     let (inner_latch, inner) = edges[1];
     if inner_latch != inner {
         return None;
+    }
+    for header in [outer, inner] {
+        for inst in &ir.blocks[header].instructions {
+            if inst.opcode != "phi" {
+                continue;
+            }
+            match inst.operands.first().and_then(|operand| operand_type(operand)) {
+                Some(Type::Integer { .. }) => {}
+                _ => return None,
+            }
+        }
     }
     if outer >= inner || inner > outer_latch {
         return None;
@@ -2025,6 +2048,104 @@ fn type_size(ty: &Type) -> Option<usize> {
         Type::Array { element, length } => Some(type_size(element)? * length),
         _ => None,
     }
+}
+
+fn type_width(ty: &Type) -> Option<u32> {
+    match ty {
+        Type::Integer { width, .. } => Some(match width {
+            IntegerWidth::I8 => 8,
+            IntegerWidth::I16 => 16,
+            IntegerWidth::I32 => 32,
+            IntegerWidth::I64 => 64,
+            IntegerWidth::I128 => 128,
+        }),
+        _ => None,
+    }
+}
+
+/// Guard an `exact` operation: the source is poison when the exactness
+/// condition fails, so any defined value is a valid refinement. Return
+/// zero on failure.
+fn apply_exact_guard(
+    builder: &mut Builder,
+    opcode: &str,
+    lhs: NodeId,
+    rhs: NodeId,
+    result: NodeId,
+    span: Span,
+) -> Result<NodeId, String> {
+    let ty = builder
+        .function()
+        .get_node(lhs)
+        .map(|node| node.ty.clone())
+        .ok_or("exact guard: missing lhs")?;
+    let width = type_width(&ty).ok_or("exact guard: non-integer operand")?;
+    let zero = builder.constant(int_constant_data(&ty, 0), ty.clone(), span);
+    let guard = match opcode {
+        "shl" | "lshr" | "ashr" => {
+            let amount = builder
+                .function()
+                .get_node(rhs)
+                .and_then(|node| match &node.kind {
+                    NodeKind::Constant(data) => data.as_u64(),
+                    _ => None,
+                })
+                .ok_or("exact shift requires a constant amount")?;
+            if amount == 0 {
+                return Ok(result);
+            }
+            if amount >= width as u64 {
+                return Ok(zero);
+            }
+            let mask: u128 = if opcode == "shl" {
+                let kept = width as u128 - amount as u128;
+                ((1u128 << kept) - 1) << amount
+            } else {
+                (1u128 << amount) - 1
+            };
+            let mask_node =
+                builder.constant(ConstantData::u64(mask as u64), ty.clone(), span);
+            let masked = builder
+                .bit_and(lhs, mask_node, span)
+                .map_err(|e| format!("{:?}", e))?;
+            builder
+                .eq(masked, zero, span)
+                .map_err(|e| format!("{:?}", e))?
+        }
+        "udiv" | "sdiv" => {
+            let remainder = if opcode == "sdiv" {
+                builder
+                    .intrinsic(
+                        "sir_srem",
+                        &[lhs, rhs],
+                        ty.clone(),
+                        Effects::empty(),
+                        span,
+                    )
+                    .map_err(|e| format!("{:?}", e))?
+            } else {
+                builder
+                    .rem(lhs, rhs, span)
+                    .map_err(|e| format!("{:?}", e))?
+            };
+            let remainder_zero = builder
+                .eq(remainder, zero, span)
+                .map_err(|e| format!("{:?}", e))?;
+            let rhs_zero = builder
+                .eq(rhs, zero, span)
+                .map_err(|e| format!("{:?}", e))?;
+            let rhs_nonzero = builder
+                .bool_not(rhs_zero, span)
+                .map_err(|e| format!("{:?}", e))?;
+            builder
+                .bool_and(rhs_nonzero, remainder_zero, span)
+                .map_err(|e| format!("{:?}", e))?
+        }
+        _ => return Ok(result),
+    };
+    builder
+        .select(guard, result, zero, span)
+        .map_err(|e| format!("{:?}", e))
 }
 
 /// Reconstruct the pre-tested SIR domain of clang's UNGUARDED post-tested
@@ -3735,6 +3856,9 @@ fn lower_loop_chain(
             .tuple_extract(loop_node, slot, phi.ty.clone(), span)
             .map_err(|e| format!("nested chain: {:?}", e))?;
         value_map.insert(phi.result.clone(), extract);
+        // Parent latch blocks may reference the child's successor value
+        // directly; that value is the child loop's final output.
+        value_map.insert(strip_type(&phi.next), extract);
     }
     Ok(())
 }
@@ -5826,20 +5950,15 @@ fn emit_instruction(
             if inst.operands.len() < 2 {
                 return Err(format!("{} needs 2 operands: {}", inst.opcode, inst.raw));
             }
-            // `exact` means poison if the division has a remainder —
-            // poison semantics are unmodeled; fail closed (advisor
-            // arithmetic-flags directive).
-            if inst.raw.contains(" exact ")
+            // `exact` means poison when bits/remainders are lost. Model
+            // the poison as an arbitrary defined value: guard the normal
+            // operation and fall back to zero when the exactness
+            // condition does not hold.
+            let exact = inst.raw.contains(" exact ")
                 && matches!(
                     inst.opcode.as_str(),
                     "udiv" | "sdiv" | "lshr" | "ashr" | "shl"
-                )
-            {
-                return Err(format!(
-                    "unsupported: 'exact' division/shift flag (poison-on-inexact semantics not modeled): {}",
-                    inst.raw
-                ));
-            }
+                );
             // Extract the type from the first operand (e.g., "i8 %10" → i8)
             let op_type = operand_type(&inst.operands[0]);
             let lhs_str = strip_type(&inst.operands[0]);
@@ -5924,6 +6043,12 @@ fn emit_instruction(
                     .rem(lhs, rhs, span)
                     .map_err(|e| format!("{:?}", e))?,
                 _ => unreachable!(),
+            };
+
+            let node_id = if exact {
+                apply_exact_guard(builder, inst.opcode.as_str(), lhs, rhs, node_id, span)?
+            } else {
+                node_id
             };
 
             // ── Preserve LLVM operation flags (X02, Gate 6A-v2) ──

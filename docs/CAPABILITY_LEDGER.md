@@ -604,6 +604,17 @@ have now been restored into current `sir_mech` and tested.
   cases native/AArch64 and sanitizer-clean; external Embench clean rises
   22 → 23. `verify.sh full` passes with base-14 at 230 / 131 / 0 and
   fuzz at 540 / 360 / 0.
+- **2026-09-20 — exact arithmetic and nested-scope hardening**: `exact`
+  shifts/divisions with constant amounts get a guard (poison becomes a
+  defined zero fallback), and `exact`/`disjoint` qualifiers are
+  stripped. The chain builder maps child successor values to the child
+  loop's extracts, and the emitter hoists each child's parent-scoped
+  dependencies at its body-order position. Integer-phi gating excludes
+  pointer-carrying nests (`jpegdct`) so they fail closed instead of
+  mis-lowering. Focused `ashr exact`/`lshr exact` fixtures are clean on
+  native, AArch64, and sanitizers; `verify.sh full` passes with
+  external Embench at 23 clean, base-14 at 230 / 131 / 0, and fuzz at
+  540 / 360 / 0.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

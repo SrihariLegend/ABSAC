@@ -2102,6 +2102,39 @@ fn emit_loop(
         })
         .collect();
     let nested_set: HashSet<NodeId> = nested_loops.iter().copied().collect();
+    let mut nested_deps: HashMap<NodeId, HashSet<NodeId>> = HashMap::new();
+    for &loop_id in &nested_loops {
+        let Some(node) = func.get_node(loop_id) else {
+            continue;
+        };
+        let mut private: HashSet<NodeId> = HashSet::from([loop_id]);
+        let roots = node.kind.input_nodes();
+        private.extend(roots.iter().copied());
+        loop {
+            let mut changed = false;
+            for candidate in func.arena.iter() {
+                if private.contains(&candidate.id) {
+                    continue;
+                }
+                if candidate
+                    .kind
+                    .input_nodes()
+                    .iter()
+                    .any(|dependency| private.contains(dependency))
+                {
+                    changed |= private.insert(candidate.id);
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        let deps: HashSet<NodeId> = dependency_closure(&roots, func, &carried_set)
+            .difference(&private)
+            .copied()
+            .collect();
+        nested_deps.insert(loop_id, deps);
+    }
 
     if try_emit_first_occurrence(
         loop_node,
@@ -2180,6 +2213,12 @@ fn emit_loop(
     for id in body.iter().copied() {
         if nested_set.contains(&id) {
             if let Some(node) = func.get_node(id) {
+                if let Some(deps) = nested_deps.get(&id) {
+                    let seeds: Vec<NodeId> = deps.iter().copied().collect();
+                    for dependency in topo_order(&seeds, deps, func) {
+                        emit_statement(dependency, &mut emitted, out);
+                    }
+                }
                 let ordinal = loop_ordinal(func, id);
                 let child_pre = emitted.clone();
                 emitted.extend(emit_loop(
