@@ -15,6 +15,7 @@ struct CountPlan {
     accumulator_ty: Type,
     invariant: NodeId,
     element_access: NodeId,
+    carry_first: bool,
 }
 
 pub fn optimize_count(function: &Function) -> Option<Function> {
@@ -49,8 +50,8 @@ pub(crate) fn apply_one(
                 &mut nodes,
                 &mut next,
                 NodeKind::Add {
-                    lhs: NodeId::new(acc),
-                    rhs: NodeId::new(value),
+                    lhs: NodeId::new(if plan.carry_first { acc } else { value }),
+                    rhs: NodeId::new(if plan.carry_first { value } else { acc }),
                 },
                 plan.accumulator_ty.clone(),
                 Effects::empty(),
@@ -114,6 +115,15 @@ fn recognize_loop(
     let reduction = fact.reductions.iter().find(|reduction| {
         reduction.reduction_kind == "sum" && reduction.invariant_value != counter.invariant_value
     })?;
+    if !is_zero(function, reduction.variable) {
+        return None;
+    }
+    let position = carried_inputs.iter().position(|id| *id == reduction.variable)?;
+    let output = *outputs.get(position)?;
+    let carry_first = !matches!(
+        &function.get_node(output)?.kind,
+        NodeKind::Add { lhs, .. } if *lhs == reduction.invariant_value
+    );
     let invariant = reduction.invariant_value;
     let NodeKind::Convert {
         operand,
@@ -140,7 +150,6 @@ fn recognize_loop(
         return None;
     }
     let _ = element;
-    let position = carried_inputs.iter().position(|id| *id == reduction.variable)?;
     let _internal = outputs.get(position)?;
     let target = function
         .arena
@@ -161,6 +170,7 @@ fn recognize_loop(
         accumulator_ty: function.get_node(reduction.variable)?.ty.clone(),
         invariant,
         element_access,
+        carry_first,
     })
 }
 
@@ -303,6 +313,14 @@ fn is_one(function: &Function, id: NodeId) -> bool {
     matches!(
         function.get_node(id).map(|node| &node.kind),
         Some(NodeKind::Constant(ConstantData::Integer { value, .. })) if value == "1"
+    )
+}
+
+fn is_zero(function: &Function, id: NodeId) -> bool {
+    matches!(
+        function.get_node(id).map(|node| &node.kind),
+        Some(NodeKind::Constant(ConstantData::Integer { value, .. }))
+            if value.trim_start_matches(['+', '-']).trim_start_matches('0').is_empty()
     )
 }
 

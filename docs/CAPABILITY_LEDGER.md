@@ -162,6 +162,22 @@ have now been restored into current `sir_mech` and tested.
   244ns); definition 200's select chain is now gated to short extents
   until a cost model exists. Base-14 rewrites fell 76 → 59 with zero
   mismatches: the removed rewrites were not measured wins.
+- **2026-09-19 — H1 gate hardening**: added a live-out check (a
+  replaced node must have no remaining references after use rewriting),
+  initial-value gates for sum/Any/count (zero accumulators), and a
+  zero-offset gate for folded `sum_offset` shapes.
+- **2026-09-19 — H1 family-level z3**: the z3 differential now also
+  checks the sum/Any/All/XOR identities and the first-match scan
+  contract directly, in the same single solver invocation as the 80
+  random kernel queries.
+- **2026-09-19 — H1 proof-cost fix**: the family chains are left folds
+  in loop order, so associativity and commutativity proofs were
+  unnecessary. Trimming to the needed identity laws (with operand order
+  matched exactly) cut the sum pipeline from **3.82B to 7.19M
+  instructions** — within the 9.4M budget. The memchr pipeline is
+  **29.6M** vs the 4.4M budget; the first-match scan equivalence still
+  dominates and needs an induction/kernel proof or a cached lemma
+  (H3).
 
 ## Reference commands
 

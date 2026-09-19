@@ -15,6 +15,7 @@ struct AnyPlan {
     accumulator_ty: Type,
     expression: NodeKind,
     element_access: NodeId,
+    carry_first: bool,
 }
 
 pub fn optimize_any(function: &Function) -> Option<Function> {
@@ -56,8 +57,8 @@ pub(crate) fn apply_one(
                 &mut nodes,
                 &mut next,
                 NodeKind::Or {
-                    lhs: NodeId::new(acc),
-                    rhs: NodeId::new(value),
+                    lhs: NodeId::new(if plan.carry_first { acc } else { value }),
+                    rhs: NodeId::new(if plan.carry_first { value } else { acc }),
                 },
                 plan.accumulator_ty.clone(),
             ),
@@ -121,6 +122,15 @@ fn recognize_loop(
         .reductions
         .iter()
         .find(|reduction| reduction.reduction_kind == "bitwise_or")?;
+    if !is_zero(function, reduction.variable) {
+        return None;
+    }
+    let position = carried_inputs.iter().position(|id| *id == reduction.variable)?;
+    let output = *outputs.get(position)?;
+    let carry_first = !matches!(
+        &function.get_node(output)?.kind,
+        NodeKind::Or { lhs, .. } if *lhs == reduction.invariant_value
+    );
     let expression = function.get_node(reduction.invariant_value)?.kind.clone();
     let access = match &expression {
         NodeKind::ArrayAccess { .. } => reduction.invariant_value,
@@ -152,7 +162,6 @@ fn recognize_loop(
     if **element != accumulator_ty {
         return None;
     }
-    let position = carried_inputs.iter().position(|id| *id == reduction.variable)?;
     let _internal = outputs.get(position)?;
     let target = function
         .arena
@@ -173,6 +182,7 @@ fn recognize_loop(
         accumulator_ty,
         expression,
         element_access: access,
+        carry_first,
     })
 }
 
@@ -234,6 +244,14 @@ fn is_one(function: &Function, id: NodeId) -> bool {
     matches!(
         function.get_node(id).map(|node| &node.kind),
         Some(NodeKind::Constant(ConstantData::Integer { value, .. })) if value == "1"
+    )
+}
+
+fn is_zero(function: &Function, id: NodeId) -> bool {
+    matches!(
+        function.get_node(id).map(|node| &node.kind),
+        Some(NodeKind::Constant(ConstantData::Integer { value, .. }))
+            if value.trim_start_matches(['+', '-']).trim_start_matches('0').is_empty()
     )
 }
 

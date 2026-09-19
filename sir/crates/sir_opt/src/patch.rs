@@ -39,6 +39,18 @@ pub fn apply(function: &Function, patch: &Patch) -> Option<Function> {
             rewritten.return_node = map.get(local_id).copied();
         }
     }
+    // Live-out gate: after use rewriting and return remapping, the
+    // replaced node must no longer be referenced anywhere. If it is,
+    // some use site was not covered and the patch fails closed.
+    for (old, _) in &patch.replacements {
+        if rewritten
+            .arena
+            .iter()
+            .any(|node| node.kind.input_nodes().contains(old))
+        {
+            return None;
+        }
+    }
     sweep(&mut rewritten);
     // Post-patch structural gate: a patch that produces malformed SIR
     // (dangling references, bad loop shape, type violation, cycles) is

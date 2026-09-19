@@ -18,6 +18,7 @@ struct SumPlan {
     map_expression: NodeId,
     element_access: NodeId,
     definition: u64,
+    carry_first: bool,
 }
 
 /// Optimize a fixed-extent raw-element sum loop into a straight-line
@@ -105,6 +106,22 @@ fn recognize_loop(
             (reduction.reduction_kind == "sum" || reduction.reduction_kind == "sum_offset")
                 && reduction.invariant_value != counter.invariant_value
         })?;
+    if !is_zero(function, element.variable) {
+        return None;
+    }
+    let position = carried_inputs.iter().position(|id| *id == element.variable)?;
+    let output = *outputs.get(position)?;
+    if element.reduction_kind == "sum_offset"
+        && !folded_offset_is_zero(function, output, element.variable)
+    {
+        return None;
+    }
+    // Match the loop's operand order exactly; the identity laws cover
+    // either orientation, so no commutativity proof is needed.
+    let carry_first = !matches!(
+        &function.get_node(output)?.kind,
+        NodeKind::Add { lhs, .. } if *lhs == element.invariant_value
+    );
     let (element_access, base, index) =
         find_element_access(function, element.invariant_value, counter.variable)?;
     let map_expression = element.invariant_value;
@@ -120,7 +137,6 @@ fn recognize_loop(
     if extent == 0 || extent > MAX_UNROLL || fact.trip_count != Some(extent as u64) {
         return None;
     }
-    let position = carried_inputs.iter().position(|id| *id == element.variable)?;
     let _internal_result = *outputs.get(position)?;
     // The live target is the tuple projection that exports this output
     // slot; the internal output id is replaced by the projection's
@@ -147,6 +163,7 @@ fn recognize_loop(
         accumulator_ty,
         map_expression,
         element_access,
+        carry_first,
         definition: if is_raw_map(function, map_expression, element_access) {
             400
         } else {
@@ -194,8 +211,8 @@ fn build_patch(function: &Function, plan: &SumPlan) -> Option<Patch> {
                 &mut nodes,
                 &mut next,
                 NodeKind::Add {
-                    lhs: NodeId::new(acc),
-                    rhs: NodeId::new(value),
+                    lhs: NodeId::new(if plan.carry_first { acc } else { value }),
+                    rhs: NodeId::new(if plan.carry_first { value } else { acc }),
                 },
                 plan.accumulator_ty.clone(),
                 Effects::empty(),
@@ -326,6 +343,42 @@ fn is_one(function: &Function, id: NodeId) -> bool {
         function.get_node(id).map(|node| &node.kind),
         Some(NodeKind::Constant(ConstantData::Integer { value, .. })) if value == "1"
     )
+}
+
+fn is_zero(function: &Function, id: NodeId) -> bool {
+    matches!(
+        function.get_node(id).map(|node| &node.kind),
+        Some(NodeKind::Constant(ConstantData::Integer { value, .. }))
+            if value.trim_start_matches(['+', '-']).trim_start_matches('0').is_empty()
+    )
+}
+
+fn folded_offset_is_zero(function: &Function, output: NodeId, carry: NodeId) -> bool {
+    let Some(node) = function.get_node(output) else {
+        return false;
+    };
+    let NodeKind::Add { lhs, rhs } = &node.kind else {
+        return false;
+    };
+    for inner in [*lhs, *rhs] {
+        let Some(inner) = function.get_node(inner) else {
+            continue;
+        };
+        let NodeKind::Add { lhs, rhs } = &inner.kind else {
+            continue;
+        };
+        let offset = if *lhs == carry {
+            Some(*rhs)
+        } else if *rhs == carry {
+            Some(*lhs)
+        } else {
+            None
+        };
+        if let Some(offset) = offset {
+            return is_zero(function, offset);
+        }
+    }
+    false
 }
 
 fn type_bits(ty: &Type) -> Option<u32> {

@@ -19,6 +19,7 @@ struct ParityPlan {
     accumulator_ty: Type,
     expression: NodeId,
     element_access: NodeId,
+    carry_first: bool,
 }
 
 pub fn optimize_parity(function: &Function) -> Option<Function> {
@@ -61,8 +62,8 @@ pub(crate) fn apply_one(
                 &mut nodes,
                 &mut next,
                 NodeKind::Xor {
-                    lhs: NodeId::new(acc),
-                    rhs: NodeId::new(value),
+                    lhs: NodeId::new(if plan.carry_first { acc } else { value }),
+                    rhs: NodeId::new(if plan.carry_first { value } else { acc }),
                 },
                 plan.accumulator_ty.clone(),
                 Effects::empty(),
@@ -128,6 +129,11 @@ fn recognize_loop(
         .iter()
         .find(|reduction| reduction.reduction_kind == "bitwise_xor")?;
     let position = carried_inputs.iter().position(|id| *id == reduction.variable)?;
+    let output = *outputs.get(position)?;
+    let carry_first = !matches!(
+        &function.get_node(output)?.kind,
+        NodeKind::Xor { lhs, .. } if *lhs == reduction.invariant_value
+    );
     // XOR identity: the loop must start from zero, or the family would
     // have to fold the initial value in.
     if !is_zero(function, carried_inputs[position]) {
@@ -164,6 +170,7 @@ fn recognize_loop(
         accumulator_ty,
         expression,
         element_access,
+        carry_first,
     })
 }
 

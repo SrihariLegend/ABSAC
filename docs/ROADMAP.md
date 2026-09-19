@@ -243,6 +243,12 @@ Remaining Phase 1 work: measured-retention policy in the driver
 (`allow` hook is in place), replayable proof records, and conservative
 plan-bound application gates (live-outs, frames, memory bases).
 
+Phase 1 evidence update: the left-fold proof trim brought the sum
+pipeline to **7.19M instructions** (budget 9.4M) and the workspace suite
+to **~7s**. The memchr pipeline is still **29.6M** against a 4.4M
+budget; the first-match scan equivalence is the remaining proof-cost
+item and is slated for the induction/kernel work in H3.
+
 ### Phase 2 — Restore high-value families (≤22k LOC)
 Priority by measured value:
 1. Kernighan bitset popcount (14–17×).

@@ -89,13 +89,11 @@ fn z3_binary() -> Option<PathBuf> {
     vendored.exists().then_some(vendored)
 }
 
-fn z3_batch(z3: &Path, queries: &[(u32, String, String)]) -> Option<Vec<Option<bool>>> {
+fn z3_batch(z3: &Path, queries: &[(String, String, String)]) -> Option<Vec<Option<bool>>> {
     let mut script = String::new();
-    for (width, lhs, rhs) in queries {
+    for (declarations, lhs, rhs) in queries {
         script.push_str("(reset)\n");
-        for index in 0..3 {
-            script.push_str(&format!("(declare-const x{index} (_ BitVec {width}))\n"));
-        }
+        script.push_str(declarations);
         script.push_str(&format!("(assert (not (= {lhs} {rhs})))\n(check-sat)\n"));
     }
     let path = std::env::temp_dir().join(format!(
@@ -119,6 +117,66 @@ fn z3_batch(z3: &Path, queries: &[(u32, String, String)]) -> Option<Vec<Option<b
     )
 }
 
+fn law_queries() -> Vec<(String, String, String)> {
+    let mut queries = Vec::new();
+    for width in [8u32, 16, 32, 64] {
+        let declarations = (0..3)
+            .map(|index| format!("(declare-const x{index} (_ BitVec {width}))\n"))
+            .collect::<String>();
+        let zero = format!("(_ bv0 {width})");
+        let ones = if width == 64 {
+            format!("#x{:016x}", u64::MAX)
+        } else {
+            format!("(_ bv{} {width})", (1u64 << width) - 1)
+        };
+        let mut push = |lhs: String, rhs: String| {
+            queries.push((declarations.clone(), lhs, rhs));
+        };
+        push(
+            "(bvadd (bvadd x0 x1) x2)".into(),
+            "(bvadd x0 (bvadd x1 x2))".into(),
+        );
+        push(format!("(bvadd x0 {zero})"), "x0".into());
+        push(
+            "(bvor (bvor x0 x1) x2)".into(),
+            "(bvor x0 (bvor x1 x2))".into(),
+        );
+        push(format!("(bvor x0 {zero})"), "x0".into());
+        push("(bvor x0 x1)".into(), "(bvor x1 x0)".into());
+        push(
+            "(bvand (bvand x0 x1) x2)".into(),
+            "(bvand x0 (bvand x1 x2))".into(),
+        );
+        push(format!("(bvand x0 {ones})"), "x0".into());
+        push(
+            "(bvxor (bvxor x0 x1) x2)".into(),
+            "(bvxor x0 (bvxor x1 x2))".into(),
+        );
+        push(format!("(bvxor x0 {zero})"), "x0".into());
+        push(format!("(bvxor x0 x0)"), zero);
+    }
+
+    // The first-match contract: the found-flag scan and the
+    // reverse-overwrite scan agree on an 8-element predicate.
+    let declarations = (0..8)
+        .map(|index| format!("(declare-const b{index} (_ BitVec 1))\n"))
+        .collect::<String>();
+    let mut forward = "(_ bv8 8)".to_string();
+    let mut found = "(_ bv0 1)".to_string();
+    for index in 0..8 {
+        let position = format!("(_ bv{index} 8)");
+        let take = format!("(= (bvand (bvnot {found}) b{index}) (_ bv1 1))");
+        forward = format!("(ite {take} {position} {forward})");
+        found = format!("(bvor {found} b{index})");
+    }
+    let mut reverse = "(_ bv8 8)".to_string();
+    for index in (0..8).rev() {
+        reverse = format!("(ite (= b{index} (_ bv1 1)) (_ bv{index} 8) {reverse})");
+    }
+    queries.push((declarations, forward, reverse));
+    queries
+}
+
 fn kernel_agrees_with_z3_on_random_bitvector_equivalences() {
     let Some(z3) = z3_binary() else {
         eprintln!("z3 unavailable — skipping kernel differential");
@@ -126,6 +184,7 @@ fn kernel_agrees_with_z3_on_random_bitvector_equivalences() {
     };
     let mut rng = Rng(0x5EED_1234_5678_9ABC);
     let mut kernels = Vec::new();
+    let mut widths = Vec::new();
     let mut queries = Vec::new();
     for iteration in 0..80 {
         let width = [8u32, 16, 32, 64][iteration % 4];
@@ -144,16 +203,27 @@ fn kernel_agrees_with_z3_on_random_bitvector_equivalences() {
             CheckResult::Unknown(_) => None,
         };
         kernels.push(kernel);
-        queries.push((width, lhs_smt, rhs_smt));
+        widths.push(width);
+        let declarations = (0..3)
+            .map(|index| format!("(declare-const x{index} (_ BitVec {width}))\n"))
+            .collect::<String>();
+        queries.push((declarations, lhs_smt, rhs_smt));
     }
+    let random_len = queries.len();
+    queries.extend(law_queries());
     let Some(external) = z3_batch(&z3, &queries) else {
         panic!("z3 batch failed");
     };
-    assert_eq!(external.len(), kernels.len(), "one z3 verdict per query");
+    assert_eq!(external.len(), queries.len(), "one z3 verdict per query");
     let mut agreements = 0usize;
     let mut decided = 0usize;
-    for (index, (kernel, external)) in kernels.iter().zip(external.iter()).enumerate() {
-        let (width, lhs, rhs) = &queries[index];
+    for (index, (kernel, external)) in kernels
+        .iter()
+        .zip(external.iter().take(random_len))
+        .enumerate()
+    {
+        let width = widths[index];
+        let (_, lhs, rhs) = &queries[index];
         match (kernel, external) {
             (Some(kernel), Some(external)) => {
                 decided += 1;
@@ -170,4 +240,12 @@ fn kernel_agrees_with_z3_on_random_bitvector_equivalences() {
         agreements >= 10,
         "cross-check must decide a useful number of cases, got {agreements} of {decided}"
     );
+    for (index, verdict) in external.iter().enumerate().skip(random_len) {
+        assert_eq!(
+            *verdict,
+            Some(true),
+            "family law query {index} was not proved by z3: {}",
+            queries[index].1
+        );
+    }
 }
