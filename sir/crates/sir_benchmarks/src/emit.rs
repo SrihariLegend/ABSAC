@@ -358,11 +358,11 @@ fn constant_literal(data: &ConstantData, ty: &Type) -> String {
             }
         }
         Type::Bool => {
-            if data.as_u64().unwrap_or(0) != 0 {
-                "true".to_string()
-            } else {
-                "false".to_string()
-            }
+            let value = match data {
+                ConstantData::Bool(value) => *value,
+                other => other.as_u64().unwrap_or(0) != 0,
+            };
+            if value { "true".to_string() } else { "false".to_string() }
         }
         Type::BitVector { .. } => {
             let v = data.as_u64().unwrap_or(0);

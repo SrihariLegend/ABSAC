@@ -430,7 +430,12 @@ fn build_driver(
             continue;
         }
         let cname = emit::c_global_name(&g.name);
-        global_reset.push_str(&format!("        memset({cname}, 0, {});\n", g.size));
+        global_reset.push_str(&format!(
+            "        memset({cname}, 0, {});\n\
+             \x20       {{ uint64_t gs = 0x9E3779B97F4A7C15ULL ^ (uint64_t)t ^ {i}ULL;\n\
+             \x20         for (int j = 0; j < {}; j++) {{ gs ^= gs << 13; gs ^= gs >> 7; gs ^= gs << 17; {cname}[j] = (uint8_t)(gs >> 32); }} }}\n",
+            g.size, g.size
+        ));
         global_snapshot.push_str(&format!(
             "        static uint8_t __snap{i}[{}]; memcpy(__snap{i}, {cname}, {});\n",
             g.size, g.size

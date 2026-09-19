@@ -438,6 +438,19 @@ have now been restored into current `sir_mech` and tested.
   functions with global side effects are therefore no longer vacuously
   "clean": statemate `interface`/`init` pass with all global bytes
   compared on native, AArch64, and sanitizers.
+- **2026-09-20 — acyclic global CFG + `switch`**: multi-line `switch`
+  case lists are folded into one terminator, and acyclic functions whose
+  memory is entirely constant-global accesses go through a predicated
+  path engine (branch guards become `Select` conditions; writes merge by
+  path condition). Differential globals are seeded with deterministic
+  bytes so non-default switch cases execute. Two correctness bugs
+  surfaced and were fixed: `Bool(true)` constants emitted as `false`
+  (`as_u64` has no Bool arm), and scalar global stores were emitted
+  through a `uint8_t *` (one byte instead of the stored width). Embench
+  statemate clean rises 1 → 6 (all but `generic_FH_TUERMODUL_CTRL`,
+  which exceeds the 4096-path cap); external Embench clean rises 8 → 14.
+  Base-14 stays 230 / 128 / 0 on native and AArch64, fuzz stays
+  540 / 360 / 0, and sanitizers report no violations.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

@@ -415,6 +415,15 @@ fn parse_function(text: &str) -> Result<IrFunction, String> {
 
         // Collect the full instruction (handle multi-line via trailing commas)
         let mut inst_text = line.to_string();
+        // `switch` case lists are printed across lines; fold them into one
+        // instruction so the CFG walker sees the complete terminator.
+        if inst_text.contains("switch ") && inst_text.contains('[') && !inst_text.contains(']') {
+            while i + 1 < lines.len() && !inst_text.contains(']') {
+                i += 1;
+                inst_text.push(' ');
+                inst_text.push_str(lines[i].trim());
+            }
+        }
         while inst_text.ends_with(',') && !inst_text.contains('=') && i + 1 < lines.len() {
             i += 1;
             let next = lines[i].trim();
@@ -1141,6 +1150,16 @@ pub fn lower(text: &str) -> Result<Function, String> {
     for gname in collect_global_refs(&text) {
         let node_id = builder.global(gname.clone(), Span::unknown());
         value_map.insert(gname, node_id);
+    }
+
+    // Acyclic switch CFGs are lowered by path enumeration: branch guards
+    // become Select conditions, and constant global accesses become
+    // predicated memory states. Loop functions and non-constant memory
+    // operands stay with the existing (fail-closed) machinery.
+    if !has_back_edge && ir.blocks.len() > 1 && acyclic_global_memory_cfg(&ir) {
+        let return_ty = builder.function().return_ty.clone();
+        return lower_switch_cfg(&ir, &mut builder, value_map, return_ty)
+            .map(|_| builder.build());
     }
 
     // Detect loop structure: find the back-edge block (the one that branches to itself or to a predecessor)
@@ -3676,6 +3695,602 @@ fn lower_loop_function(
     Ok(())
 }
 
+/// A constant global memory location: symbol + element type + element index.
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct MemLoc {
+    global: String,
+    ty: Type,
+    index: u64,
+}
+
+#[derive(Clone)]
+struct SwitchPath {
+    cond: NodeId,
+    ret: Option<NodeId>,
+    writes: Vec<(MemLoc, NodeId)>,
+}
+
+struct SwitchState {
+    block: usize,
+    incoming: Option<usize>,
+    values: HashMap<String, NodeId>,
+    memory: HashMap<MemLoc, NodeId>,
+    written: Vec<MemLoc>,
+    cond: NodeId,
+}
+
+struct SwitchLowerer<'a> {
+    ir: &'a IrFunction,
+    builder: &'a mut Builder,
+    span: Span,
+    true_cond: NodeId,
+    false_cond: NodeId,
+    gep_locs: HashMap<String, MemLoc>,
+    global_elem: HashMap<String, Type>,
+    initial_loads: HashMap<MemLoc, NodeId>,
+    paths: Vec<SwitchPath>,
+}
+
+impl<'a> SwitchLowerer<'a> {
+    fn cond_and(&mut self, a: NodeId, b: NodeId) -> Result<NodeId, String> {
+        if a == self.false_cond || b == self.false_cond {
+            return Ok(self.false_cond);
+        }
+        if a == self.true_cond {
+            return Ok(b);
+        }
+        if b == self.true_cond {
+            return Ok(a);
+        }
+        self.builder
+            .bool_and(a, b, self.span)
+            .map_err(|e| format!("switch CFG: {:?}", e))
+    }
+
+    fn cond_not(&mut self, a: NodeId) -> Result<NodeId, String> {
+        if a == self.true_cond {
+            return Ok(self.false_cond);
+        }
+        if a == self.false_cond {
+            return Ok(self.true_cond);
+        }
+        self.builder
+            .bool_not(a, self.span)
+            .map_err(|e| format!("switch CFG: {:?}", e))
+    }
+
+    fn note_loc(&mut self, name: String, ty: Type, index: u64) -> Result<MemLoc, String> {
+        if let Some(previous) = self.global_elem.get(&name) {
+            if previous != &ty {
+                return Err(format!(
+                    "switch CFG: global @{} accessed with mixed element types",
+                    name
+                ));
+            }
+        } else {
+            self.global_elem.insert(name.clone(), ty.clone());
+        }
+        Ok(MemLoc { global: name, ty, index })
+    }
+
+    fn resolve_loc(&mut self, operand: &str, access_ty: &Type) -> Result<MemLoc, String> {
+        if let Some((name, ty, index)) = inline_global_gep(operand) {
+            return self.note_loc(name, ty, index);
+        }
+        let base = strip_type(operand);
+        if let Some(loc) = self.gep_locs.get(&base) {
+            return Ok(loc.clone());
+        }
+        if let Some(name) = base.strip_prefix('@') {
+            return self.note_loc(name.to_string(), access_ty.clone(), 0);
+        }
+        Err(format!(
+            "switch CFG: non-global memory operand '{}'",
+            operand
+        ))
+    }
+
+    fn record_gep(&mut self, inst: &Instruction) -> Result<(), String> {
+        if inst.operands.len() < 3 {
+            return Err(format!("switch CFG: malformed GEP: {}", inst.raw));
+        }
+        let source = inst.operands[0]
+            .trim_start_matches("inbounds")
+            .trim();
+        let element = if source.starts_with('[') {
+            match gep_source_array_type(&inst.raw) {
+                Some(Type::Array { element, .. }) => *element,
+                _ => return Err(format!("switch CFG: malformed GEP type: {}", inst.raw)),
+            }
+        } else {
+            parse_type(source).ok_or_else(|| format!("unsupported GEP type: {}", inst.raw))?
+        };
+        let base = strip_type(&inst.operands[1]);
+        let index_str = if inst.operands.len() >= 4 {
+            strip_type(inst.operands.last().unwrap())
+        } else {
+            strip_type(&inst.operands[2])
+        };
+        let index = parse_int_constant(&index_str)
+            .filter(|index| *index >= 0)
+            .ok_or_else(|| format!("switch CFG: non-constant GEP index: {}", inst.raw))?
+            as u64;
+        let name = if let Some(name) = base.strip_prefix('@') {
+            name.to_string()
+        } else if let Some(loc) = self.gep_locs.get(&base) {
+            loc.global.clone()
+        } else {
+            return Ok(());
+        };
+        let loc = self.note_loc(name, element, index)?;
+        if let Some(result) = &inst.result {
+            self.gep_locs.insert(result.clone(), loc);
+        }
+        Ok(())
+    }
+
+    fn initial_load(
+        &mut self,
+        loc: &MemLoc,
+        seed: &HashMap<String, NodeId>,
+    ) -> Result<NodeId, String> {
+        if let Some(id) = self.initial_loads.get(loc) {
+            return Ok(*id);
+        }
+        let global = seed
+            .get(&loc.global)
+            .copied()
+            .or_else(|| {
+                get_node_id(
+                    &format!("@{}", loc.global),
+                    seed,
+                    &self.ir.params,
+                    self.builder,
+                    None,
+                )
+            })
+            .ok_or(format!("switch CFG: unknown global @{}", loc.global))?;
+        let index = self
+            .builder
+            .constant(ConstantData::u64(loc.index), Type::u64(), self.span);
+        let access = self
+            .builder
+            .array_access(global, index, loc.ty.clone(), self.span)
+            .map_err(|e| format!("switch CFG: {:?}", e))?;
+        // `ArrayAccess` is both the lvalue and the current-value read in
+        // the existing lowering; the initial memory state is the location
+        // itself (stores are emitted after all path selections).
+        self.initial_loads.insert(loc.clone(), access);
+        Ok(access)
+    }
+
+    fn push_successor(
+        &mut self,
+        stack: &mut Vec<SwitchState>,
+        state: &SwitchState,
+        label: &str,
+        cond: NodeId,
+    ) -> Result<(), String> {
+        if cond == self.false_cond {
+            return Ok(());
+        }
+        let Some(block) = self.ir.block_map.get(label).copied() else {
+            return Err(format!("switch CFG: unknown block %{}", label));
+        };
+        stack.push(SwitchState {
+            block,
+            incoming: Some(state.block),
+            values: state.values.clone(),
+            memory: state.memory.clone(),
+            written: state.written.clone(),
+            cond,
+        });
+        Ok(())
+    }
+
+    fn run(&mut self, seed: HashMap<String, NodeId>) -> Result<(), String> {
+        let mut stack = vec![SwitchState {
+            block: 0,
+            incoming: None,
+            values: seed,
+            memory: HashMap::new(),
+            written: Vec::new(),
+            cond: self.true_cond,
+        }];
+        let mut processed = 0usize;
+        while let Some(mut state) = stack.pop() {
+            processed += 1;
+            if processed > 65536 {
+                return Err("switch CFG: path exploration limit exceeded".to_string());
+            }
+            let instructions = self.ir.blocks[state.block].instructions.clone();
+            let incoming_label = state
+                .incoming
+                .map(|index| self.ir.blocks[index].label.clone());
+            for inst in instructions.iter().filter(|i| i.opcode == "phi") {
+                let phi_ty = inst
+                    .operands
+                    .first()
+                    .and_then(|operand| operand_type(operand));
+                let wanted = incoming_label.as_ref().ok_or(
+                    "switch CFG: phi in entry block".to_string(),
+                )?;
+                let incomings = phi_incomings(inst);
+                let Some((value, _)) = incomings.iter().find(|(_, label)| label == wanted) else {
+                    return Err(format!("switch CFG: phi missing edge from %{}", wanted));
+                };
+                let value = get_node_id(
+                    &strip_type(value),
+                    &state.values,
+                    &self.ir.params,
+                    self.builder,
+                    phi_ty,
+                )
+                .ok_or(format!("switch CFG: unresolved phi value '{}'", value))?;
+                if let Some(result) = &inst.result {
+                    state.values.insert(result.clone(), value);
+                }
+            }
+            let mut terminator: Option<Instruction> = None;
+            for inst in instructions.iter().filter(|i| i.opcode != "phi") {
+                match inst.opcode.as_str() {
+                    "load" => {
+                        if inst.operands.len() < 2 {
+                            return Err(format!("switch CFG: malformed load: {}", inst.raw));
+                        }
+                        if inst.raw.contains("volatile") || inst.raw.contains("atomic") {
+                            return Err(format!(
+                                "switch CFG: volatile/atomic memory: {}",
+                                inst.raw
+                            ));
+                        }
+                        let access_ty = operand_type(&inst.operands[0])
+                            .ok_or(format!("switch CFG: load type: {}", inst.raw))?;
+                        let loc = self.resolve_loc(&inst.operands[1], &access_ty)?;
+                        let value = if let Some(value) = state.memory.get(&loc) {
+                            *value
+                        } else {
+                            self.initial_load(&loc, &state.values)?
+                        };
+                        if let Some(result) = &inst.result {
+                            state.values.insert(result.clone(), value);
+                        }
+                    }
+                    "store" => {
+                        if inst.operands.len() < 2 {
+                            return Err(format!("switch CFG: malformed store: {}", inst.raw));
+                        }
+                        if inst.raw.contains("volatile") || inst.raw.contains("atomic") {
+                            return Err(format!(
+                                "switch CFG: volatile/atomic memory: {}",
+                                inst.raw
+                            ));
+                        }
+                        let access_ty = operand_type(&inst.operands[0])
+                            .ok_or(format!("switch CFG: store type: {}", inst.raw))?;
+                        let value = get_node_id(
+                            &strip_type(&inst.operands[0]),
+                            &state.values,
+                            &self.ir.params,
+                            self.builder,
+                            Some(access_ty.clone()),
+                        )
+                        .ok_or(format!("switch CFG: unresolved store value: {}", inst.raw))?;
+                        if self
+                            .builder
+                            .function()
+                            .get_node(value)
+                            .is_some_and(|node| node.ty != access_ty)
+                        {
+                            return Err(format!(
+                                "switch CFG: store type mismatch: {}",
+                                inst.raw
+                            ));
+                        }
+                        let loc = self.resolve_loc(&inst.operands[1], &access_ty)?;
+                        state.memory.insert(loc.clone(), value);
+                        state.written.push(loc);
+                    }
+                    "getelementptr" => {
+                        self.record_gep(inst)?;
+                    }
+                    "br" | "switch" | "ret" | "unreachable" => {
+                        terminator = Some(inst.clone());
+                        break;
+                    }
+                    _ => {
+                        emit_instruction(
+                            inst,
+                            self.builder,
+                            &mut state.values,
+                            &self.ir.params,
+                            self.span,
+                        )?;
+                    }
+                }
+            }
+            let terminator =
+                terminator.ok_or_else(|| "switch CFG: block without terminator".to_string())?;
+            match terminator.opcode.as_str() {
+                "ret" => {
+                    let is_void = terminator
+                        .operands
+                        .first()
+                        .map(|operand| strip_type(operand) == "void")
+                        .unwrap_or(true);
+                    let ret = if is_void {
+                        None
+                    } else {
+                        Some(
+                            get_node_id(
+                                &strip_type(&terminator.operands[0]),
+                                &state.values,
+                                &self.ir.params,
+                                self.builder,
+                                None,
+                            )
+                            .ok_or_else(|| {
+                                format!("switch CFG: unresolved return: {}", terminator.raw)
+                            })?,
+                        )
+                    };
+                    let mut writes: Vec<(MemLoc, NodeId)> = Vec::new();
+                    for loc in &state.written {
+                        if let Some(value) = state.memory.get(loc) {
+                            writes.retain(|(existing, _)| existing != loc);
+                            writes.push((loc.clone(), *value));
+                        }
+                    }
+                    self.paths.push(SwitchPath {
+                        cond: state.cond,
+                        ret,
+                        writes,
+                    });
+                    if self.paths.len() > 4096 {
+                        return Err("switch CFG: too many paths".to_string());
+                    }
+                }
+                "unreachable" => {
+                    return Err("switch CFG: unreachable terminator".to_string());
+                }
+                "br" => {
+                    if terminator.operands.len() == 1 {
+                        let label = terminator.operands[0]
+                            .trim_start_matches("label ")
+                            .trim_start_matches('%')
+                            .to_string();
+                        let cond = state.cond;
+                        self.push_successor(&mut stack, &state, &label, cond)?;
+                    } else if terminator.operands.len() >= 3 {
+                        let condition = get_node_id(
+                            &strip_type(&terminator.operands[0]),
+                            &state.values,
+                            &self.ir.params,
+                            self.builder,
+                            None,
+                        )
+                        .ok_or_else(|| {
+                            format!("switch CFG: unresolved branch: {}", terminator.raw)
+                        })?;
+                        let true_label = terminator.operands[1]
+                            .trim_start_matches("label ")
+                            .trim_start_matches('%')
+                            .to_string();
+                        let false_label = terminator.operands[2]
+                            .trim_start_matches("label ")
+                            .trim_start_matches('%')
+                            .to_string();
+                        let true_cond = self.cond_and(state.cond, condition)?;
+                        let negated = self.cond_not(condition)?;
+                        let false_cond = self.cond_and(state.cond, negated)?;
+                        self.push_successor(&mut stack, &state, &true_label, true_cond)?;
+                        self.push_successor(&mut stack, &state, &false_label, false_cond)?;
+                    } else {
+                        return Err(format!("switch CFG: malformed br: {}", terminator.raw));
+                    }
+                }
+                "switch" => {
+                    let raw = &terminator.raw;
+                    let open = raw
+                        .find('[')
+                        .ok_or_else(|| format!("switch CFG: malformed switch: {}", raw))?;
+                    let close = raw
+                        .rfind(']')
+                        .ok_or_else(|| format!("switch CFG: malformed switch: {}", raw))?;
+                    let head = &raw[..open];
+                    let body = &raw[open + 1..close];
+                    let mut head_parts = head.split(',').map(str::trim);
+                    let value_part = head_parts.next().unwrap_or("");
+                    let value_part = value_part.trim_start_matches("switch").trim();
+                    let value_ty = operand_type(value_part)
+                        .ok_or_else(|| format!("switch CFG: switch type: {}", raw))?;
+                    let value = get_node_id(
+                        &strip_type(value_part),
+                        &state.values,
+                        &self.ir.params,
+                        self.builder,
+                        Some(value_ty.clone()),
+                    )
+                    .ok_or_else(|| format!("switch CFG: unresolved switch value: {}", raw))?;
+                    let default = head_parts
+                        .next()
+                        .ok_or_else(|| format!("switch CFG: missing default: {}", raw))?
+                        .trim_start_matches("label ")
+                        .trim_start_matches('%')
+                        .to_string();
+                    let mut cases: Vec<(i64, String)> = Vec::new();
+                    let tokens: Vec<&str> = body.split_whitespace().collect();
+                    let mut i = 0;
+                    while i + 3 < tokens.len() {
+                        if tokens[i + 2] == "label" {
+                            let constant = tokens[i + 1]
+                                .trim_end_matches(',')
+                                .parse::<i64>()
+                                .map_err(|_| {
+                                    format!("switch CFG: non-constant case: {}", raw)
+                                })?;
+                            let label = tokens[i + 3].trim_start_matches('%').to_string();
+                            cases.push((constant, label));
+                            i += 4;
+                        } else {
+                            i += 1;
+                        }
+                    }
+                    let mut default_guard = self.true_cond;
+                    for (constant, label) in &cases {
+                        let constant_node = self.builder.constant(
+                            int_constant_data(&value_ty, *constant as u64),
+                            value_ty.clone(),
+                            self.span,
+                        );
+                        let equal = self
+                            .builder
+                            .eq(value, constant_node, self.span)
+                            .map_err(|e| format!("switch CFG: {:?}", e))?;
+                        let case_cond = self.cond_and(state.cond, equal)?;
+                        self.push_successor(&mut stack, &state, label, case_cond)?;
+                        let not_equal = self
+                            .builder
+                            .ne(value, constant_node, self.span)
+                            .map_err(|e| format!("switch CFG: {:?}", e))?;
+                        default_guard = self.cond_and(default_guard, not_equal)?;
+                    }
+                    let default_cond = self.cond_and(state.cond, default_guard)?;
+                    self.push_successor(&mut stack, &state, &default, default_cond)?;
+                }
+                _ => return Err(format!("switch CFG: unsupported terminator: {}", terminator.raw)),
+            }
+        }
+        Ok(())
+    }
+
+    fn finish(mut self, ret_ty: &Type, seed: &HashMap<String, NodeId>) -> Result<(), String> {
+        let mut finals: HashMap<MemLoc, NodeId> = HashMap::new();
+        let mut result: Option<NodeId> = None;
+        let paths = self.paths.clone();
+        for path in &paths {
+            let cond = path.cond;
+            let ret = path.ret;
+            let writes = path.writes.clone();
+            let mut last: HashMap<MemLoc, NodeId> = HashMap::new();
+            for (loc, value) in writes {
+                last.insert(loc, value);
+            }
+            for (loc, value) in last {
+                let initial = self.initial_load(&loc, seed)?;
+                let current = finals.entry(loc).or_insert(initial);
+                *current = self
+                    .builder
+                    .select(cond, value, *current, self.span)
+                    .map_err(|e| format!("switch CFG: {:?}", e))?;
+            }
+            if let Some(value) = ret {
+                result = Some(match result {
+                    Some(previous) => self
+                        .builder
+                        .select(cond, value, previous, self.span)
+                        .map_err(|e| format!("switch CFG: {:?}", e))?,
+                    None => value,
+                });
+            }
+        }
+        for (loc, value) in finals {
+            let global = seed
+                .get(&loc.global)
+                .copied()
+                .ok_or(format!("switch CFG: unknown global @{}", loc.global))?;
+            let index = self
+                .builder
+                .constant(ConstantData::u64(loc.index), Type::u64(), self.span);
+            let access = self
+                .builder
+                .array_access(global, index, loc.ty.clone(), self.span)
+                .map_err(|e| format!("switch CFG: {:?}", e))?;
+            self.builder
+                .store(access, value, self.span)
+                .map_err(|e| format!("switch CFG: {:?}", e))?;
+        }
+        if ret_ty == &Type::Unit {
+            let unit = self
+                .builder
+                .constant(ConstantData::Unit, Type::Unit, self.span);
+            self.builder
+                .return_value(unit, self.span)
+                .map_err(|e| format!("switch CFG: {:?}", e))?;
+        } else {
+            let result = result
+                .ok_or_else(|| "switch CFG: no returning path".to_string())?;
+            self.builder
+                .return_value(result, self.span)
+                .map_err(|e| format!("switch CFG: {:?}", e))?;
+        }
+        Ok(())
+    }
+}
+
+fn lower_switch_cfg(
+    ir: &IrFunction,
+    builder: &mut Builder,
+    entry_values: HashMap<String, NodeId>,
+    ret_ty: Type,
+) -> Result<(), String> {
+    let span = Span::unknown();
+    let true_cond = builder.constant(ConstantData::Bool(true), Type::Bool, span);
+    let false_cond = builder.constant(ConstantData::Bool(false), Type::Bool, span);
+    let mut lowerer = SwitchLowerer {
+        ir,
+        builder,
+        span,
+        true_cond,
+        false_cond,
+        gep_locs: HashMap::new(),
+        global_elem: HashMap::new(),
+        initial_loads: HashMap::new(),
+        paths: Vec::new(),
+    };
+    lowerer.run(entry_values.clone())?;
+    lowerer.finish(&ret_ty, &entry_values)
+}
+
+/// True when an acyclic CFG has branch-guarded global memory: the
+/// straight-line block walker would execute guarded stores
+/// unconditionally, so these functions use the predicated engine.
+fn acyclic_global_memory_cfg(ir: &IrFunction) -> bool {
+    let mut global_geps: HashSet<String> = HashSet::new();
+    let mut has_memory = false;
+    let mut has_control = false;
+    for block in &ir.blocks {
+        for inst in &block.instructions {
+            match inst.opcode.as_str() {
+                "getelementptr" if inst.operands.len() >= 2 => {
+                    let base = strip_type(&inst.operands[1]);
+                    if base.starts_with('@') || global_geps.contains(&base) {
+                        if let Some(result) = &inst.result {
+                            global_geps.insert(result.clone());
+                        }
+                    }
+                }
+                "load" | "store" => {
+                    has_memory = true;
+                    let Some(ptr) = inst.operands.get(1) else {
+                        return false;
+                    };
+                    if inline_global_gep(ptr).is_none() {
+                        let base = strip_type(ptr);
+                        if !(base.starts_with('@') || global_geps.contains(&base)) {
+                            return false;
+                        }
+                    }
+                }
+                "switch" => has_control = true,
+                "br" if inst.operands.len() >= 3 => has_control = true,
+                _ => {}
+            }
+        }
+    }
+    has_memory && has_control
+}
+
 /// Lower a function without loops (straight-line or multi-block without back-edges).
 fn lower_straight_line(
     ir: &IrFunction,
@@ -3771,10 +4386,7 @@ fn emit_instruction(
                 ));
             }
             // Extract the type from the first operand (e.g., "i8 %10" → i8)
-            let op_type = inst.operands[0]
-                .split_whitespace()
-                .next()
-                .and_then(|t| parse_type(t));
+            let op_type = operand_type(&inst.operands[0]);
             let lhs_str = strip_type(&inst.operands[0]);
             let rhs_str = strip_type(&inst.operands[1]);
             let lhs = get_node_id(&lhs_str, value_map, params, builder, op_type.clone())
@@ -3782,11 +4394,7 @@ fn emit_instruction(
             let rhs = get_node_id(&rhs_str, value_map, params, builder, op_type.clone())
                 .ok_or(format!("cannot resolve rhs '{}' in {}", rhs_str, inst.raw))?;
 
-            let is_bool = inst.operands[0]
-                .split_whitespace()
-                .next()
-                .map(|t| t == "i1")
-                .unwrap_or(false);
+            let is_bool = matches!(op_type, Some(Type::Bool));
             let node_id = match inst.opcode.as_str() {
                 "add" => builder
                     .add(lhs, rhs, span)
@@ -4002,7 +4610,6 @@ fn emit_instruction(
                 .ok_or(format!("cannot resolve select true '{}'", true_str))?;
             let false_val = get_node_id(&false_str, value_map, params, builder, false_ty)
                 .ok_or(format!("cannot resolve select false '{}'", false_str))?;
-
             let node_id = builder
                 .select(cond, true_val, false_val, span)
                 .map_err(|e| format!("{:?}", e))?;
@@ -4177,8 +4784,22 @@ fn emit_instruction(
                     inst.raw
                 ));
             }
+            let (target, stored) = if array_lvalue {
+                (ptr, val)
+            } else {
+                let value_ty = builder
+                    .function()
+                    .get_node(val)
+                    .map(|node| node.ty.clone())
+                    .ok_or("store value node missing")?;
+                let zero = builder.constant(ConstantData::u64(0), Type::u64(), span);
+                let access = builder
+                    .array_access(ptr, zero, value_ty, span)
+                    .map_err(|e| format!("{:?}", e))?;
+                (access, val)
+            };
             let node_id = builder
-                .store(ptr, val, span)
+                .store(target, stored, span)
                 .map_err(|e| format!("{:?}", e))?;
             // Return the Unit-typed Store so loop builders include it in
             // the body; it has no SSA result, so callers must not map it.
