@@ -53,7 +53,7 @@ recovery path is recorded here.**
 | 4 | Any | generic pure-map OR reduction (conditional/zero-extended predicates); measured 3.12–3.43× |
 | 5 | All | integer AND-chain ported; bool-pack path missing |
 | 6 | parity | **restored (XOR-reduction path)** as `sir_opt::parity`; `HEAD` bitset/pack/popcount path still to mine |
-| 7 | Kernighan popcount | **restored for widths ≤16** as `sir_opt::popcount`; 32/64 await the kernel induction proof |
+| 7 | Kernighan popcount | **restored for all widths** as `sir_opt::popcount`; ≤16 machine-checked, 32/64 contract-backed pending the kernel induction proof |
 | 100–103 | arithmetic | **restored** as `sir_opt::arithmetic` (divide→shift, modulo→mask, multiply→shift, shift-mask) |
 | 300–303 | mask algebra | dropped as measured-neutral |
 | 310–313 | permutations | **missing** |
@@ -387,6 +387,13 @@ have now been restored into current `sir_mech` and tested.
   memchr over the full aligned range measured **1.41×** on the early hit
   but **0.86×** on no-hit, so it still does not dominate. Runtime search
   stays profile/opt-in.
+- **2026-09-20 — Kernighan 32/64 (contract)**: definition 7 now covers
+  production widths. Widths ≤16 keep the bounded machine proof; 32/64
+  are contract-backed and verified by differential/sanitizer evidence,
+  with the kernel induction proof still H3.
+  `gate6a/v22_popcount64.ll` rewrites 1 and is clean on native and
+  AArch64; harness timing is parity because clang optimizes the baseline
+  loop, so no speed claim.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

@@ -259,11 +259,10 @@ metadata, removing a false AArch64 mismatch in v10.
 
 ### Phase 2 — Restore high-value families (≤22k LOC)
 Priority by measured value:
-1. Kernighan bitset popcount (14–17×) — the rotated zero-test loop now
-   lowers, and definition 7 covers widths ≤16 with a bounded machine
-   proof. Bounded SAT unrolling only scales to 16 bits (8/16 =
-   8ms/285ms; 32 = 35.6s; 64 infeasible), so the production 32/64 path
-   remains an explicit H3 kernel-induction task.
+1. Kernighan bitset popcount (14–17×) — definition 7 now covers all
+   widths: ≤16 with a bounded machine proof, 32/64 contract-backed
+   pending the H3 kernel induction. Bounded SAT unrolling scales only to
+   16 bits (8/16 = 8ms/285ms; 32 = 35.6s; 64 infeasible).
 2. Runtime-bound reductions/search (contract-backed) — runtime sums are
    restored as definition 404; runtime search is
    found-flag shape now lowers and rewrites to `sir_memchr`; measured

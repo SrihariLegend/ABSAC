@@ -76,4 +76,17 @@ define dso_local i32 @naive_popcount16(i16 noundef %0) local_unnamed_addr {
             .any(|node| matches!(node.kind, sir_nodes::NodeKind::Loop { .. })),
         "optimized function must not contain the Kernighan loop"
     );
+
+    let ll = std::fs::read_to_string("../../../gate6a/v22_popcount64.ll").expect("corpus");
+    let function =
+        sir_lower::lower_function(&ll, "k01_kernighan_popcount_u64").expect("lower");
+    let optimized =
+        sir_opt::optimize_popcount(&function).expect("64-bit Kernighan must optimize");
+    assert!(
+        optimized
+            .arena
+            .iter()
+            .any(|node| matches!(node.kind, sir_nodes::NodeKind::Popcount { .. })),
+        "64-bit Kernighan must use Popcount"
+    );
 }
