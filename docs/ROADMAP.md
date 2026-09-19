@@ -251,7 +251,9 @@ item and is slated for the induction/kernel work in H3.
 
 ### Phase 2 — Restore high-value families (≤22k LOC)
 Priority by measured value:
-1. Kernighan bitset popcount (14–17×).
+1. Kernighan bitset popcount (14–17×) — the rotated zero-test loop now
+   lowers (`naive_popcount` is differential-clean); the family waits on
+   the step/induction obligation.
 2. Runtime-bound search/memchr (contract-backed).
 3. Parity (XOR path done) and the remaining reductions.
 4. Arithmetic bit hacks (mod/div/mul/shiftmask).

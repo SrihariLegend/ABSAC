@@ -178,6 +178,14 @@ have now been restored into current `sir_mech` and tested.
   **29.6M** vs the 4.4M budget; the first-match scan equivalence still
   dominates and needs an induction/kernel proof or a cached lemma
   (H3).
+- **2026-09-19 — H2 runtime lowering**: rotated self-latch zero-test
+  loops (`while (x != 0)`, back-edge on false, entry guard) now lower to
+  pre-tested SIR loops as `x != 0` / `x == 0`. The focused
+  `naive_popcount` fixture (`x &= x - 1`) lowers and is
+  differential-clean. This unblocks the Kernighan popcount family; its
+  step lemma and loop-to-popcount obligation are the next proof item
+  (H3). Separate-latch runtime loops (the v20 `naive_first_zero` shape)
+  remain refused and are the next lowering target.
 
 ## Reference commands
 

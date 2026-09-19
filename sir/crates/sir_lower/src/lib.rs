@@ -1277,6 +1277,55 @@ fn rotated_counted_domain(
     None
 }
 
+/// Rotated zero-test normalization for runtime-bounded loops.
+///
+/// Clang's `while (x != 0) { x = f(x); }` with an entry guard lowers to
+/// a self-latch block whose exit test compares the **next** carried
+/// value against zero with a back-edge on false:
+///
+/// ```text
+///   %next = f(%x)
+///   %exit = icmp eq %next, 0
+///   br i1 %exit, label %out, label %loop
+/// ```
+///
+/// With the pre-loop guard (`x0 == 0 → out`) this is the pre-tested
+/// domain `x != 0`, evaluated on the current carried value. The `ne`
+/// case is the symmetric `while (x == 0)` form. Anything else returns
+/// `None`.
+fn rotated_zero_test_domain(
+    builder: &mut Builder,
+    termination: NodeId,
+    carried_init_nodes: &[NodeId],
+    output_nodes: &[NodeId],
+) -> Option<NodeId> {
+    let (lhs, rhs, exit_on_eq) = {
+        let function = builder.function();
+        let term = function.get_node(termination)?;
+        match &term.kind {
+            sir_nodes::NodeKind::Eq { lhs, rhs } => (*lhs, *rhs, true),
+            sir_nodes::NodeKind::Ne { lhs, rhs } => (*lhs, *rhs, false),
+            _ => return None,
+        }
+    };
+    for (candidate, zero_side) in [(lhs, rhs), (rhs, lhs)] {
+        if lower_constant_u64(builder.function(), zero_side) != Some(0) {
+            continue;
+        }
+        let index = output_nodes.iter().position(|output| *output == candidate)?;
+        let carry = *carried_init_nodes.get(index)?;
+        let ty = builder.function().get_node(carry)?.ty.clone();
+        let span = Span::unknown();
+        let zero = builder.constant(int_constant_data(&ty, 0), ty, span);
+        return if exit_on_eq {
+            builder.ne(carry, zero, span).ok()
+        } else {
+            builder.eq(carry, zero, span).ok()
+        };
+    }
+    None
+}
+
 /// D4/F9 counterpart for clang's "back-edge on true" successor rotation.
 ///
 /// `for (i = 0; i < n; i += k)` (steps > 1, and other successor-tested
@@ -3327,13 +3376,30 @@ fn lower_loop_function(
             Some((counter, bound)) => builder.lt(counter, bound, span).map_err(|e| {
                 format!("loop build error (F9 Lt reconstruction): {:?}", e)
             })?,
-            None => {
-                return Err(format!(
-                    "unsupported: rotated loop exit (back-edge on false) that is not the \
-                     counted eq-next form (`icmp eq next, bound` with `next = carry + 1`); \
-                     lowering it as SIR would invert or shift the iteration domain"
-                ));
-            }
+            None => match rotated_zero_test_domain(
+                builder,
+                termination,
+                &carried_init_nodes,
+                &output_nodes,
+            ) {
+                Some(rebuilt) if has_entry_guard(ir, loop_idx) => rebuilt,
+                Some(_) => {
+                    return Err(format!(
+                        "unsupported: unguarded rotated zero-test loop (back-edge on false \
+                         with an exit test on the next carried value); SIR loops are \
+                         pre-tested, so the first forced iteration cannot be represented: {}",
+                        ir.name
+                    ));
+                }
+                None => {
+                    return Err(format!(
+                        "unsupported: rotated loop exit (back-edge on false) that is not the \
+                         counted eq-next form (`icmp eq next, bound` with `next = carry + 1`) \
+                         or a guarded zero-test (`icmp eq next, 0`); lowering it as SIR would \
+                         invert or shift the iteration domain"
+                    ));
+                }
+            },
         }
     };
 
