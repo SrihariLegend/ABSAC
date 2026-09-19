@@ -199,3 +199,32 @@ pub fn shift_mask_laws(width: u32, shift: u32) -> bool {
         CheckResult::Valid
     )
 }
+
+/// Kernighan's loop-to-popcount identity for widths where bounded
+/// symbolic unrolling is practical. The family gates on width ≤ 16;
+/// wider widths need the kernel induction proof (H3).
+pub fn kernighan_laws(width: u32) -> bool {
+    if width == 0 || width > 16 {
+        return false;
+    }
+    let mut bv = Bv::with_capacity(width as usize * 32 + 64);
+    let x = bv.var(VarId(0), width);
+    let zero = bv.zero(width);
+    let one = bv.constant(1, width);
+    let mut value = x;
+    let mut count = zero;
+    for _ in 0..width {
+        let is_zero = bv.eq(value, zero);
+        let nonzero = bv.not(is_zero);
+        let increment = bv.ite(nonzero, one, zero);
+        count = bv.add(count, increment);
+        let decremented = bv.sub(value, one);
+        let cleared = bv.and(value, decremented);
+        value = bv.ite(nonzero, cleared, value);
+    }
+    let popcount = bv.popcount(x);
+    matches!(
+        sir_mech::prove_equal(&bv, count, popcount),
+        CheckResult::Valid
+    )
+}

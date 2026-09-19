@@ -257,10 +257,10 @@ metadata, removing a false AArch64 mismatch in v10.
 ### Phase 2 — Restore high-value families (≤22k LOC)
 Priority by measured value:
 1. Kernighan bitset popcount (14–17×) — the rotated zero-test loop now
-   lowers (`naive_popcount` is differential-clean); the family waits on
-   the step/induction obligation. Bounded SAT unrolling only scales to
-   16 bits (8/16 = 8ms/285ms; 32 = 35.6s; 64 infeasible), so this is an
-   explicit H3 kernel-induction task.
+   lowers, and definition 7 covers widths ≤16 with a bounded machine
+   proof. Bounded SAT unrolling only scales to 16 bits (8/16 =
+   8ms/285ms; 32 = 35.6s; 64 infeasible), so the production 32/64 path
+   remains an explicit H3 kernel-induction task.
 2. Runtime-bound search/memchr (contract-backed) — the runtime-bound
    found-flag shape now lowers and rewrites to `sir_memchr`; measured
    no-hit 1.25× but early-hit 0.82×, so predictive retention is the

@@ -51,6 +51,7 @@ recovery path is recorded here.**
 | 4 | Any | integer OR reduction ported; bool-pack path missing |
 | 5 | All | integer AND-chain ported; bool-pack path missing |
 | 6 | parity | **restored (XOR-reduction path)** as `sir_opt::parity`; `HEAD` bitset/pack/popcount path still to mine |
+| 7 | Kernighan popcount | **restored for widths ≤16** as `sir_opt::popcount`; 32/64 await the kernel induction proof |
 | 100–103 | arithmetic | **restored** as `sir_opt::arithmetic` (divide→shift, modulo→mask, multiply→shift, shift-mask) |
 | 300–303 | mask algebra | dropped as measured-neutral |
 | 310–313 | permutations | **missing** |
@@ -120,8 +121,8 @@ Non-goals:
 | Rust LOC | 76,919 | ~15.9k + restored kernel/arith |
 | crates / binaries | 19 / 23 | 9 / 1 |
 | build warnings | 47 | 0 |
-| verification definitions | 24 | 12 |
-| rewrite recipes | 21 | 7 families |
+| verification definitions | 24 | 13 |
+| rewrite recipes | 21 | 8 families |
 | semantics recognizers | 23 | 5 family modules |
 | test files / test LOC | 63 / 15,217 | **9 tests**, case bodies under `tests/cases/` |
 | `sir_mech` proof kernel | LCF kernel + `arith.rs` + induction proof; 38 tests pass | restored; 28 proof cases run under 5 `sir_mech` tests |
@@ -282,6 +283,15 @@ have now been restored into current `sir_mech` and tested.
   queries was measured at **537M instructions** vs **29.6M** for the
   original query, and was reverted. The memchr proof budget still needs
   a genuine induction/kernel proof, not naive case splitting.
+- **2026-09-19 — Kernighan popcount slice**: definition 7 recognizes
+  `while (x) { x &= x - 1; count++ }` and rewrites the loop result to
+  `Popcount(x)`. The identity is machine-checked by bounded symbolic
+  unrolling for widths ≤16 (8 bits 8ms, 16 bits 285ms); wider widths are
+  refused pending the kernel induction proof. The focused i16 fixture is
+  differential-clean on native and AArch64, sanitizer-clean, and emits
+  `__builtin_popcount`. At `-O1` the timing fixture shows parity because
+  clang already selects popcount, so this is a capability slice, not a
+  speed claim.
 
 ## Reference commands
 
