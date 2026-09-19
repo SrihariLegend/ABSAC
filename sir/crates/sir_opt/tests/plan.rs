@@ -67,6 +67,7 @@ mod cases {
         pub fn run() {
             fixed_extent_sum_unrolls();
             mapped_sum_reinstantiates_map_per_index();
+            conditional_sum_over_pointer_unrolls();
         }
     }
     pub mod registry {

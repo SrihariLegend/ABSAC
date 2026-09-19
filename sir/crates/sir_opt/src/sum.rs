@@ -126,15 +126,20 @@ fn recognize_loop(
         find_element_access(function, element.invariant_value, counter.variable)?;
     let map_expression = element.invariant_value;
     let base_node = function.get_node(base)?;
-    let Type::Array {
-        element: array_element,
-        length,
-    } = &base_node.ty
-    else {
-        return None;
+    let (element_ty, extent) = match &base_node.ty {
+        Type::Array { element, length } => {
+            if fact.trip_count != Some(*length as u64) {
+                return None;
+            }
+            (element.as_ref().clone(), *length)
+        }
+        Type::Pointer { .. } => {
+            let extent = fact.trip_count? as usize;
+            (function.get_node(element_access)?.ty.clone(), extent)
+        }
+        _ => return None,
     };
-    let extent = *length;
-    if extent == 0 || extent > MAX_UNROLL || fact.trip_count != Some(extent as u64) {
+    if extent == 0 || extent > MAX_UNROLL {
         return None;
     }
     let _internal_result = *outputs.get(position)?;
@@ -159,7 +164,7 @@ fn recognize_loop(
         collection: base,
         extent,
         index_ty,
-        element_ty: array_element.as_ref().clone(),
+        element_ty,
         accumulator_ty,
         map_expression,
         element_access,
@@ -289,6 +294,50 @@ fn clone_with_index(
         NodeKind::Or { lhs, rhs } => NodeKind::Or {
             lhs: NodeId::new(rec(*lhs)?),
             rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::Lt { lhs, rhs } => NodeKind::Lt {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::Le { lhs, rhs } => NodeKind::Le {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::Gt { lhs, rhs } => NodeKind::Gt {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::Ge { lhs, rhs } => NodeKind::Ge {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::Eq { lhs, rhs } => NodeKind::Eq {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::Ne { lhs, rhs } => NodeKind::Ne {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::BoolAnd { lhs, rhs } => NodeKind::BoolAnd {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::BoolOr { lhs, rhs } => NodeKind::BoolOr {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::BoolNot { operand } => NodeKind::BoolNot {
+            operand: NodeId::new(rec(*operand)?),
+        },
+        NodeKind::Select {
+            cond,
+            true_val,
+            false_val,
+        } => NodeKind::Select {
+            cond: NodeId::new(rec(*cond)?),
+            true_val: NodeId::new(rec(*true_val)?),
+            false_val: NodeId::new(rec(*false_val)?),
         },
         _ => return None,
     };

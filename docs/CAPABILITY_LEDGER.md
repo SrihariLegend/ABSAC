@@ -45,7 +45,7 @@ recovery path is recorded here.**
 | definition | family | current status |
 |---|---|---|
 | 200–203 | bitscan/scan | 200 and 402 shapes ported; reverse/zero-count/scalar variants missing |
-| 400/401 | sums/mapped sums | fixed-extent + multi-loop ported; folded-offset/runtime shapes missing |
+| 400/401 | sums/mapped sums | fixed-extent, multi-loop, pointer-base, and conditional/masked maps ported; folded-offset/runtime shapes missing |
 | 402 | byte search | equality/u8 fixed-extent ported; runtime bounds missing |
 | 0 | popcount/cardinality | comparison-predicate count ported; bool-pack/Kernighan path missing |
 | 4 | Any | integer OR reduction ported; bool-pack path missing |
@@ -127,7 +127,7 @@ Non-goals:
 | test files / test LOC | 63 / 15,217 | **9 tests**, case bodies under `tests/cases/` |
 | `sir_mech` proof kernel | LCF kernel + `arith.rs` + induction proof; 38 tests pass | restored; 28 proof cases run under 5 `sir_mech` tests |
 | corpora known | v1–v11 | v2–v14, v16 (v12–v20 added in session) |
-| corpus result | v1–v11: 0 mismatched | 14 corpora default: 221 clean / 75 rewrites / 0 mismatched (78 with runtime search opt-in); with fuzz v17–v19b: 761 clean / 204 rewrites / 0 mismatched |
+| corpus result | v1–v11: 0 mismatched | 14 corpora default: 221 clean / 82 rewrites / 0 mismatched (85 with runtime search opt-in); with fuzz v17–v19b: 761 clean / 290 rewrites / 0 mismatched |
 
 Corpus comparison on `HEAD`’s own v1–v11: clean/mismatch counts are
 **identical** between `HEAD` and current on every corpus. On the
@@ -305,6 +305,13 @@ have now been restored into current `sir_mech` and tested.
   1.25× no-hit but 0.82× early-hit; `emit_c_diff
   --allow-runtime-search` opts in. Base-14 default drops 78 → 75
   rewrites (all clean), opt-in restores 78; fuzz stays 129.
+- **2026-09-19 — conditional/masked sums**: sum recognition now accepts
+  pointer bases with a constant trip count, and the map re-instantiator
+  covers comparisons, boolean ops, and `Select`. v16/v10 conditional and
+  masked sums rewrite; base-14 default rises 75 → 82 (opt-in 85) and
+  fuzz rises 129 → 208, all differential-clean on native and AArch64.
+  Measured wins: conditional sum 1.90×, ternary masked sum 2.24×,
+  high-mask sum 3.00×; sanitizers clean.
 
 ## Reference commands
 

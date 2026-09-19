@@ -233,9 +233,9 @@ Phase 1 progress:
   from the CNF model and `decode_model` panicked; the decoder now maps
   them to zero, which is a valid model for an unconstrained variable.
 
-Phase 1 status: **20,535 LOC, 9 crates, 9 passed / 0 failed / 0
-ignored**, 14-corpus **78 rewrites / 221 clean / 0 mismatched / 0
-harness errors**, and fuzz corpora v17–v19b **129 rewrites / 540 clean /
+Phase 1 status: **20,892 LOC, 9 crates, 9 passed / 0 failed / 0
+ignored**, 14-corpus **82 rewrites / 221 clean / 0 mismatched / 0
+harness errors**, and fuzz corpora v17–v19b **208 rewrites / 540 clean /
 0 mismatched** (761 clean total). The LOC guide is a guide, not a
 target; the restored kernel/arith is ~2.3k of the increase.
 

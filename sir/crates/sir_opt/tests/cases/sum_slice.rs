@@ -65,3 +65,25 @@ fn mapped_sum_reinstantiates_map_per_index() {
         "every mapped element must be materialized"
     );
 }
+
+fn conditional_sum_over_pointer_unrolls() {
+    let ll = std::fs::read_to_string("../../../gate6a/v16_corpus.ll").expect("corpus");
+    let function = sir_lower::lower_function(&ll, "s03_cond_sum_u8_64").expect("lower");
+    let optimized = sir_opt::optimize_sum(&function).expect("conditional sum must optimize");
+    assert!(
+        !optimized
+            .arena
+            .iter()
+            .any(|node| matches!(node.kind, sir_nodes::NodeKind::Loop { .. })),
+        "optimized function must not contain the conditional-sum loop"
+    );
+    assert!(
+        optimized
+            .arena
+            .iter()
+            .filter(|node| matches!(node.kind, sir_nodes::NodeKind::Select { .. }))
+            .count()
+            >= 64,
+        "conditional map must be re-instantiated per index"
+    );
+}
