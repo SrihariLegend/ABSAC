@@ -349,6 +349,12 @@ have now been restored into current `sir_mech` and tested.
   crc32 0 → 2 and statemate 0 → 1; all four Embench probes now report
   zero harness errors. Base-14 native/AArch64 stays 83 rewrites with
   zero mismatches; v8 sanitize is clean.
+- **2026-09-19 — residual shape sample**: v19b has 200 clean functions
+  and 134 with no rewrite; most unrewritten loops are runtime-bound sums,
+  counts, and searches (`trip_count: None`), which the fixed-extent
+  proof model refuses. Runtime reduction contracts or vectorized helpers
+  are the next family opportunity (H2/H4), not another fixed-extent
+  recognizer.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
