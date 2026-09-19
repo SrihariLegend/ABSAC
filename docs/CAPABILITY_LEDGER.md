@@ -431,6 +431,13 @@ have now been restored into current `sir_mech` and tested.
   / 0; sanitizers are clean. External Embench clean rises 8 → 11
   (statemate `interface`/`init`, matmult-int), with zero harness
   errors.
+- **2026-09-20 — global-effect verification**: the differential driver
+  now shadows every referenced global into a shared namespaced buffer,
+  resets it before each side's call, snapshots after the reference, and
+  compares the full buffer after the emitted call (`EMITGLOB`). Void
+  functions with global side effects are therefore no longer vacuously
+  "clean": statemate `interface`/`init` pass with all global bytes
+  compared on native, AArch64, and sanitizers.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
