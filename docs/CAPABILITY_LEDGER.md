@@ -244,6 +244,16 @@ have now been restored into current `sir_mech` and tested.
   now allocates local ids above the function maximum, and `patch::apply`
   rejects duplicate or colliding local ids. Native and AArch64
   differentials are clean.
+- **2026-09-19 — H4 runtime hybrid rejected**: a scalar-prefix +
+  library-memchr hybrid was measured against both regimes and lost:
+  early-hit 831,546ns vs 764,552ns baseline, no-hit 90,062ns vs 71,186ns
+  plain memchr. The hybrid code was removed; runtime search stays on
+  plain `sir_memchr`, and predictive retention remains open.
+- **2026-09-19 — lowering breadth**: LLVM's `ret void` operand is now
+  treated as a Unit return (previously only an empty operand list was).
+  External Embench probes drop one refusal each (crc32 5 → 4, edn
+  12 → 11); globals, allocas, external calls, and multi-loop CFG remain
+  the ceiling.
 
 ## Reference commands
 

@@ -3546,7 +3546,12 @@ fn lower_loop_function(
                     } else {
                     }
                 } else if inst.opcode == "ret" {
-                    if !inst.operands.is_empty() {
+                    let is_void = inst
+                        .operands
+                        .first()
+                        .map(|operand| strip_type(operand) == "void")
+                        .unwrap_or(true);
+                    if !is_void {
                         let ret_str = strip_type(&inst.operands[0]);
                         let ret_node = get_node_id(&ret_str, value_map, &ir.params, builder, None)
                             .ok_or(format!("cannot resolve return value '{}'", ret_str))?;
@@ -3597,7 +3602,12 @@ fn lower_straight_line(
     for block in &ir.blocks {
         for inst in &block.instructions {
             if inst.opcode == "ret" {
-                if !inst.operands.is_empty() {
+                let is_void = inst
+                    .operands
+                    .first()
+                    .map(|operand| strip_type(operand) == "void")
+                    .unwrap_or(true);
+                if !is_void {
                     let ret_str = strip_type(&inst.operands[0]);
                     let ret_node = get_node_id(&ret_str, value_map, &ir.params, builder, None)
                         .ok_or(format!("cannot resolve return value '{}'", ret_str))?;
