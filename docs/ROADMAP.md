@@ -241,8 +241,8 @@ target; the restored kernel/arith is ~2.3k of the increase.
 
 Remaining Phase 1 work: replayable proof records and the full
 predictive retention model. `--measured-retain`, `--profile-out`,
-`--profile-in`, and `--allow-defs` now close the measured
-per-definition retention loop; the default
+`--profile-in`, and `--allow-defs` now close the measured retention
+loop at per-function granularity; the default
 policy refuses runtime-dependent definition 403; live-out/frame gates
 have v0.
 

@@ -376,6 +376,17 @@ have now been restored into current `sir_mech` and tested.
   loop-free single-expression functions or unsupported domains
   (signed DSP, globals, allocas, nested CFG), so further rewrite gains
   need H3 theory/lowering work rather than another reduction helper.
+- **2026-09-20 — per-function retention profiles**: `--profile-out` now
+  writes `function def allow` lines, and `--profile-in` accepts both the
+  legacy global `def allow` form and the per-function form (per-function
+  overrides global). This lets input-dependent rewrites like runtime
+  definition 403 be enabled only for the functions where they measured
+  a win. Verified round-trip: count retained new; unrelated runtime
+  search stays default-refused.
+- **2026-09-20 — full-range hybrid rejected**: first-byte check then
+  memchr over the full aligned range measured **1.41×** on the early hit
+  but **0.86×** on no-hit, so it still does not dominate. Runtime search
+  stays profile/opt-in.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

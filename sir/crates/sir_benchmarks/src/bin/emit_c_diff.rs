@@ -20,9 +20,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
+use std::collections::BTreeMap;
 
 static ALLOW_RUNTIME_SEARCH: AtomicBool = AtomicBool::new(false);
 static ALLOW_DEFS: OnceLock<Vec<u64>> = OnceLock::new();
+static PER_FUNCTION_ALLOW: OnceLock<BTreeMap<String, BTreeMap<u64, bool>>> = OnceLock::new();
 
 /// Function names defined in the module (`define ... @name(`).
 fn function_names(ll: &str) -> Vec<String> {
@@ -732,7 +734,24 @@ struct RunResult {
 
 /// Run the single-pass optimizer.
 fn optimize(func: &Function) -> RunResult {
-    let result = if let Some(definitions) = ALLOW_DEFS.get() {
+    let fallback = |definition: u64| {
+        if let Some(definitions) = ALLOW_DEFS.get() {
+            definitions.contains(&definition)
+        } else if ALLOW_RUNTIME_SEARCH.load(Ordering::Relaxed) {
+            true
+        } else {
+            sir_opt::family::allow_profiled(definition)
+        }
+    };
+    let result = if let Some(profile) = PER_FUNCTION_ALLOW.get() {
+        sir_opt::optimize(func, &|definition| {
+            profile
+                .get(&func.name)
+                .and_then(|definitions| definitions.get(&definition))
+                .copied()
+                .unwrap_or_else(|| fallback(definition))
+        })
+    } else if let Some(definitions) = ALLOW_DEFS.get() {
         sir_opt::optimize(func, &|definition| definitions.contains(&definition))
     } else if ALLOW_RUNTIME_SEARCH.load(Ordering::Relaxed) {
         sir_opt::optimize(func, &sir_opt::family::allow_all)
@@ -1043,16 +1062,31 @@ fn main() {
                     eprintln!("cannot read profile {path}");
                     std::process::exit(2);
                 };
-                let definitions: Vec<u64> = text
-                    .lines()
-                    .filter_map(|line| {
-                        let mut parts = line.split_whitespace();
-                        let definition = parts.next()?.parse().ok()?;
-                        let allow = parts.next()?;
-                        (allow != "0").then_some(definition)
-                    })
-                    .collect();
-                let _ = ALLOW_DEFS.set(definitions);
+                let mut global = Vec::new();
+                let mut per_function: BTreeMap<String, BTreeMap<u64, bool>> = BTreeMap::new();
+                for line in text.lines() {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    match parts.as_slice() {
+                        [definition, allow] => {
+                            if let Ok(definition) = definition.parse() {
+                                if *allow != "0" {
+                                    global.push(definition);
+                                }
+                            }
+                        }
+                        [function, definition, allow] => {
+                            if let Ok(definition) = definition.parse() {
+                                per_function
+                                    .entry((*function).to_string())
+                                    .or_default()
+                                    .insert(definition, *allow != "0");
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                let _ = ALLOW_DEFS.set(global);
+                let _ = PER_FUNCTION_ALLOW.set(per_function);
                 i += 2;
             }
             "--time-reps" if i + 1 < args.len() => {
@@ -1109,8 +1143,7 @@ fn main() {
     let mut errors = 0usize;
     let mut violations = 0usize;
     let mut retained_base = 0usize;
-    let mut retention_profile: std::collections::BTreeMap<u64, bool> =
-        std::collections::BTreeMap::new();
+    let mut retention_profile: BTreeMap<String, BTreeMap<u64, bool>> = BTreeMap::new();
     for name in function_names(&ll) {
         if let Some(only) = &only {
             if &name != only {
@@ -1160,6 +1193,8 @@ fn main() {
                                 let retained = retain == "new";
                                 for definition in definitions {
                                     retention_profile
+                                        .entry(name.clone())
+                                        .or_default()
                                         .entry(definition)
                                         .and_modify(|allow| *allow &= retained)
                                         .or_insert(retained);
@@ -1203,10 +1238,12 @@ fn main() {
     }
     if measured_retain {
         let mut profile = String::new();
-        for (definition, allow) in &retention_profile {
-            let allow = u8::from(*allow);
-            println!("EMITPROFILE def={definition} allow={allow}");
-            profile.push_str(&format!("{definition} {allow}\n"));
+        for (function, definitions) in &retention_profile {
+            for (definition, allow) in definitions {
+                let allow = u8::from(*allow);
+                println!("EMITPROFILE function={function} def={definition} allow={allow}");
+                profile.push_str(&format!("{function} {definition} {allow}\n"));
+            }
         }
         if let Some(path) = &profile_out {
             if let Err(error) = fs::write(path, profile) {
