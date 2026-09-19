@@ -309,8 +309,12 @@ fn recognize_loop(
                 }
                 _ => return None,
             };
-            if !runtime && length != Some(extent) {
-                return None;
+            if !runtime {
+                if let Some(length) = length {
+                    if length != extent {
+                        return None;
+                    }
+                }
             }
             accesses.push((id, *base, element));
         }

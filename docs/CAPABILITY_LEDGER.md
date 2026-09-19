@@ -265,6 +265,12 @@ have now been restored into current `sir_mech` and tested.
   u32/u64) is 6 clean / 0 mismatched on both native and AArch64; the
   lowerer already maps these intrinsics to the SIR/emitter helpers, so
   no family is needed.
+- **2026-09-19 — pointer-base searches**: fixed-extent equality
+  searches over a raw pointer no longer require an array length in the
+  type; the constant loop bound supplies the extent (v14
+  `s01_search_a_while_accessing_b` / `s02_eq_key_with_extra`). Coverage
+  is folded into the search case; base-14 and fuzz counts are unchanged
+  and clean.
 
 ## Reference commands
 
