@@ -4410,19 +4410,6 @@ fn emit_instruction(
             if inst.operands.len() < 2 {
                 return Err(format!("{} needs 2 operands: {}", inst.opcode, inst.raw));
             }
-            // ── Fail-closed semantic gates (advisor signedness audit) ──
-            // SIR has a single Shr/Div/Rem node whose emitted-C semantics
-            // follow the operand type, and the lowerer types every LLVM
-            // `iN` as UNSIGNED. Signed opcodes therefore mistranslate
-            // (negative operands get unsigned semantics; sdiv INT_MIN/-1
-            // trap is unmodeled). Refuse loudly instead of silently
-            // producing a differently-defined program.
-            if matches!(inst.opcode.as_str(), "sdiv" | "srem") {
-                return Err(format!(
-                    "unsupported: signed opcode '{}' (SIR Shr/Div/Rem are unsigned-model; arithmetic-shift and signed-division semantics are not representable): {}",
-                    inst.opcode, inst.raw
-                ));
-            }
             // `exact` means poison if the division has a remainder —
             // poison semantics are unmodeled; fail closed (advisor
             // arithmetic-flags directive).
@@ -4457,6 +4444,21 @@ fn emit_instruction(
                 "mul" => builder
                     .mul(lhs, rhs, span)
                     .map_err(|e| format!("{:?}", e))?,
+                "sdiv" | "srem" => {
+                    let ty = builder
+                        .function()
+                        .get_node(lhs)
+                        .map(|node| node.ty.clone())
+                        .ok_or("signed division operand missing")?;
+                    let name = if inst.opcode == "sdiv" {
+                        "sir_sdiv"
+                    } else {
+                        "sir_srem"
+                    };
+                    builder
+                        .intrinsic(name, &[lhs, rhs], ty, Effects::empty(), span)
+                        .map_err(|e| format!("{:?}", e))?
+                }
                 "and" if is_bool => builder
                     .bool_and(lhs, rhs, span)
                     .map_err(|e| format!("{:?}", e))?,
@@ -4499,10 +4501,10 @@ fn emit_instruction(
                         span,
                     )
                     .map_err(|e| format!("{:?}", e))?,
-                "udiv" | "sdiv" => builder
+                "udiv" => builder
                     .div(lhs, rhs, span)
                     .map_err(|e| format!("{:?}", e))?,
-                "urem" | "srem" => builder
+                "urem" => builder
                     .rem(lhs, rhs, span)
                     .map_err(|e| format!("{:?}", e))?,
                 _ => unreachable!(),

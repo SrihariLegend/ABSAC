@@ -1224,6 +1224,21 @@ fn emit_expr(
                     len
                 )
             }
+            "sir_sdiv" | "sir_srem" if args.len() == 2 => {
+                let a = emit_operand(args[0], func, carrier_map);
+                let b = emit_operand(args[1], func, carrier_map);
+                let width = int_bits(&node.ty).unwrap_or(32);
+                let op = if name == "sir_sdiv" { "sdiv" } else { "srem" };
+                let signed = signed_c_type(&node.ty);
+                format!(
+                    "(({})__sir_{op}_i{width}(({})({}), ({})({})))",
+                    c_type(&node.ty),
+                    signed,
+                    a,
+                    signed,
+                    b
+                )
+            }
             "sir_sum_u8" | "sir_sum_u16" | "sir_sum_u32" | "sir_sum_u64"
                 if args.len() == 2 =>
             {
@@ -1631,6 +1646,45 @@ pub fn emit_c(func: &Function) -> String {
              \x20   return (int32_t)memcmp(a, b, (size_t)n);\n\
              }\n",
         );
+        out.push('\n');
+    }
+    let mut signed_div_widths: Vec<u32> = func
+        .arena
+        .iter()
+        .filter_map(|node| match &node.kind {
+            NodeKind::Intrinsic { name, .. }
+                if name == "sir_sdiv" || name == "sir_srem" =>
+            {
+                int_bits(&node.ty)
+            }
+            _ => None,
+        })
+        .collect();
+    signed_div_widths.sort_unstable();
+    signed_div_widths.dedup();
+    if !signed_div_widths.is_empty() {
+        out.push_str("/* Guarded signed division/remainder (INT_MIN/-1 and /0 are undefined in the source). */\n");
+        for width in signed_div_widths {
+            let (signed, int_min) = match width {
+                8 => ("int8_t", "INT8_MIN"),
+                16 => ("int16_t", "INT16_MIN"),
+                32 => ("int32_t", "INT32_MIN"),
+                _ => ("int64_t", "INT64_MIN"),
+            };
+            let _ = write!(
+                out,
+                "static {signed} __sir_sdiv_i{width}({signed} a, {signed} b) {{\n\
+                 \x20   if (b == 0) return 0;\n\
+                 \x20   if (a == {int_min} && b == -1) return a;\n\
+                 \x20   return ({signed})(a / b);\n\
+                 }}\n\
+                 static {signed} __sir_srem_i{width}({signed} a, {signed} b) {{\n\
+                 \x20   if (b == 0) return 0;\n\
+                 \x20   if (a == {int_min} && b == -1) return 0;\n\
+                 \x20   return ({signed})(a % b);\n\
+                 }}\n"
+            );
+        }
         out.push('\n');
     }
     for (intrinsic, element, helper) in [

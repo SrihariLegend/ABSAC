@@ -476,6 +476,13 @@ have now been restored into current `sir_mech` and tested.
   `verify_benchmark` become clean; external Embench
   clean rises 15 → 17. Base-14 native/AArch64 stay 230 / 128 / 0, fuzz
   stays 540 / 360 / 0, and sanitizers report no violations.
+- **2026-09-20 — signed division/remainder**: `sdiv`/`srem` lower to
+  `sir_sdiv`/`sir_srem` and emit guarded helpers (division by zero and
+  `INT_MIN / -1` are undefined in the source; the guard returns an
+  arbitrary defined value). `exact` flags still fail closed. matmult-int
+  `RandomInteger` becomes clean; external Embench clean rises 17 → 18.
+  Base-14 native/AArch64 stay 230 / 128 / 0, fuzz stays 540 / 360 / 0,
+  and sanitizers report no violations.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
