@@ -250,6 +250,28 @@ fn resolve_global(
     id
 }
 
+/// Resolve a pointer-valued call operand (direct global/param, or an
+/// inline constant GEP) to a pointer-typed SIR node.
+fn resolve_pointer_operand(
+    operand: &str,
+    value_map: &mut HashMap<String, NodeId>,
+    params: &[(String, String)],
+    builder: &mut Builder,
+    span: Span,
+) -> Option<NodeId> {
+    if let Some((name, element, index)) = inline_global_gep(operand) {
+        let base = resolve_global(&name, value_map, builder, span);
+        let index = builder.constant(ConstantData::u64(index), Type::u64(), span);
+        return builder.pointer_offset(base, index, element, span).ok();
+    }
+    let token = operand
+        .split_whitespace()
+        .rev()
+        .find(|token| token.starts_with('@') || token.starts_with('%'))?
+        .trim_end_matches(|ch| ch == ')' || ch == ',');
+    get_node_id(token, value_map, params, builder, None)
+}
+
 /// Infer the pointee type (and mutability) of opaque `ptr` parameters
 /// from the element types of the GEPs/loads/stores that use them.
 ///
@@ -4969,6 +4991,14 @@ fn intrinsic_arguments(raw: &str) -> Option<&str> {
     Some(raw[open + 1..].trim_end_matches(')'))
 }
 
+/// Top-level call arguments with their declared types/attributes.
+fn call_arguments(inst: &Instruction) -> Option<String> {
+    let raw = inst.operands.join(", ");
+    let open = raw.find('(')?;
+    let close = raw.rfind(')')?;
+    Some(raw[open + 1..close].to_string())
+}
+
 /// Emit a single instruction as a SIR node. Returns the NodeId if the
 /// instruction produces a value.
 fn emit_instruction(
@@ -5743,44 +5773,81 @@ fn emit_instruction(
                     }
                 }
             }
+            if callee.contains("llvm.memset") || callee.contains("llvm.memcpy") {
+                let inside = call_arguments(inst)
+                    .ok_or_else(|| format!("malformed memset/memcpy call: {}", inst.raw))?;
+                let parts: Vec<String> = split_operands(&inside);
+                if parts.len() < 3 {
+                    return Err(format!("memset/memcpy needs 3 operands: {}", inst.raw));
+                }
+                let is_memset = callee.contains("llvm.memset");
+                let volatile = parts
+                    .get(3)
+                    .map(|flag| strip_type(flag) == "true")
+                    .unwrap_or(false);
+                if volatile {
+                    return Err(format!(
+                        "unsupported: volatile memset/memcpy (ordering semantics not modeled): {}",
+                        inst.raw
+                    ));
+                }
+                let dst = resolve_pointer_operand(&parts[0], value_map, params, builder, span)
+                    .ok_or_else(|| format!("cannot resolve memset/memcpy dst: {}", inst.raw))?;
+                let length_str = strip_type(&parts[2]);
+                let length = get_node_id(
+                    &length_str,
+                    value_map,
+                    params,
+                    builder,
+                    Some(Type::u64()),
+                )
+                .ok_or(format!("cannot resolve memset/memcpy length '{}'", length_str))?;
+                let node_id = if is_memset {
+                    let value_str = strip_type(&parts[1]);
+                    let value = get_node_id(
+                        &value_str,
+                        value_map,
+                        params,
+                        builder,
+                        Some(Type::u8()),
+                    )
+                    .ok_or(format!("cannot resolve memset value '{}'", value_str))?;
+                    builder
+                        .intrinsic(
+                            "sir_memset",
+                            &[dst, value, length],
+                            Type::Unit,
+                            Effects::WRITE_MEMORY,
+                            span,
+                        )
+                        .map_err(|e| format!("{:?}", e))?
+                } else {
+                    let src = resolve_pointer_operand(&parts[1], value_map, params, builder, span)
+                        .ok_or_else(|| {
+                            format!("cannot resolve memcpy src: {}", inst.raw)
+                        })?;
+                    builder
+                        .intrinsic(
+                            "sir_memcpy",
+                            &[dst, src, length],
+                            Type::Unit,
+                            Effects::READ_MEMORY | Effects::WRITE_MEMORY,
+                            span,
+                        )
+                        .map_err(|e| format!("{:?}", e))?
+                };
+                return Ok(Some(node_id));
+            }
             if callee.contains("@bcmp") || callee.contains("@memcmp") {
-                let raw = inst.operands.join(", ");
-                let open = raw
-                    .find('(')
+                let inside = call_arguments(inst)
                     .ok_or_else(|| format!("malformed bcmp/memcmp call: {}", inst.raw))?;
-                let close = raw
-                    .rfind(')')
-                    .ok_or_else(|| format!("malformed bcmp/memcmp call: {}", inst.raw))?;
-                let inside = &raw[open + 1..close];
-                let parts: Vec<String> = split_operands(inside);
+                let parts: Vec<String> = split_operands(&inside);
                 if parts.len() < 3 {
                     return Err(format!("bcmp/memcmp needs 3 operands: {}", inst.raw));
                 }
-                let resolve_pointer = |operand: &str,
-                                       value_map: &mut HashMap<String, NodeId>,
-                                       builder: &mut Builder|
-                 -> Option<NodeId> {
-                    if let Some((name, element, index)) = inline_global_gep(operand) {
-                        let base = resolve_global(&name, value_map, builder, span);
-                        let index = builder.constant(
-                            ConstantData::u64(index),
-                            Type::u64(),
-                            span,
-                        );
-                        return builder
-                            .pointer_offset(base, index, element, span)
-                            .ok();
-                    }
-                    let token = operand
-                        .split_whitespace()
-                        .rev()
-                        .find(|token| token.starts_with('@') || token.starts_with('%'))?
-                        .trim_end_matches(|ch| ch == ')' || ch == ',');
-                    get_node_id(token, value_map, params, builder, None)
-                };
-                let a = resolve_pointer(&parts[0], value_map, builder)
+                let a = resolve_pointer_operand(&parts[0], value_map, params, builder, span)
                     .ok_or_else(|| format!("cannot resolve bcmp lhs: {}", inst.raw))?;
-                let b = resolve_pointer(&parts[1], value_map, builder)
+                let b = resolve_pointer_operand(&parts[1], value_map, params, builder, span)
                     .ok_or_else(|| format!("cannot resolve bcmp rhs: {}", inst.raw))?;
                 let length_str = strip_type(&parts[2]);
                 let length = get_node_id(

@@ -493,6 +493,15 @@ have now been restored into current `sir_mech` and tested.
   external Embench clean rises 18 → 19. Base-14 native/AArch64 stay
   230 / 128 / 0, fuzz stays 540 / 360 / 0, and statemate is
   differential-clean at 16 cases with zero sanitizer violations.
+- **2026-09-20 — `llvm.memset`/`llvm.memcpy`**: memory-fill and
+  memory-copy intrinsics lower to effect-classified Unit intrinsics and
+  emit `memset`/`memcpy` calls; volatile forms fail closed. The
+  pointer-argument resolver is shared with `bcmp`/`memcmp`. A focused
+  global-buffer fixture is differential-clean on native, AArch64, and
+  sanitizers. Base-14 native/AArch64 stay 230 / 128 / 0, fuzz stays
+  540 / 360 / 0, and the external Embench counts are unchanged (19);
+  this is a prerequisite for the blocked benchmark wrappers rather
+  than a new clean function by itself.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
