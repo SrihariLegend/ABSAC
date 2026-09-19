@@ -1,4 +1,3 @@
-#[test]
 fn fixed_extent_all_and_chain_unrolls() {
     assert!(
         sir_opt::prove::and_laws(64),

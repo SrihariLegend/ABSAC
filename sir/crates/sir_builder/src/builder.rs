@@ -16,7 +16,7 @@ use crate::BuildError;
 ///
 /// # Example (conceptual)
 ///
-/// ```ignore
+/// ```text
 /// let mut b = Builder::new("add", &[("a", Type::i32()), ("b", Type::i32())], Type::i32());
 /// let a = b.parameter_index(0).unwrap();
 /// let b_param = b.parameter_index(1).unwrap();

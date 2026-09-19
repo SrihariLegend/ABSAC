@@ -20,7 +20,7 @@ use crate::VerificationError;
 ///
 /// # Usage
 ///
-/// ```ignore
+/// ```text
 /// let mut v = Verifier::new(&func);
 /// if v.verify() {
 ///     println!("valid");
@@ -683,7 +683,12 @@ impl<'a> Verifier<'a> {
             // Check the return value type.
             let ret = &return_nodes[0];
             if let NodeKind::Return { value } = &ret.kind {
-                if let Some(val_ty) = self.node_type(*value) {
+                if !self.func.arena.contains(*value) {
+                    self.errors.push(VerificationError::DanglingReference {
+                        node: ret.id,
+                        referenced: *value,
+                    });
+                } else if let Some(val_ty) = self.node_type(*value) {
                     if val_ty != self.func.return_ty {
                         self.errors.push(VerificationError::ReturnTypeMismatch {
                             expected: self.func.return_ty.clone(),
@@ -795,4 +800,3 @@ impl<'a> Verifier<'a> {
 }
 
 // ── Tests ───────────────────────────────────────────────────
-

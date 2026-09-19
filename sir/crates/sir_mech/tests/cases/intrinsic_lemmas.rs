@@ -1,17 +1,17 @@
-//! Intrinsic-model lemmas, proved (not assumed) by the kernel.
-//!
-//! The AVX2 model used by Gate 4B is:
-//!
-//! ```text
-//!   pcmpeqb(x, y)      = 0xFF if x == y else 0x00          (per byte)
-//!   movemask(v)[i]     = msb of lane i
-//!   popcount(v)        = number of set bits
-//! ```
-//!
-//! Everything below is a theorem about those definitions: the per-byte
-//! lemma (a movemask bit is byte equality), the popcount decomposition
-//! (popcount = sum of its bits), and the 32-lane chunk identities the
-//! k50/k18 vector loops rely on.
+// Intrinsic-model lemmas, proved (not assumed) by the kernel.
+//
+// The AVX2 model used by Gate 4B is:
+//
+// ```text
+//   pcmpeqb(x, y)      = 0xFF if x == y else 0x00          (per byte)
+//   movemask(v)[i]     = msb of lane i
+//   popcount(v)        = number of set bits
+// ```
+//
+// Everything below is a theorem about those definitions: the per-byte
+// lemma (a movemask bit is byte equality), the popcount decomposition
+// (popcount = sum of its bits), and the 32-lane chunk identities the
+// k50/k18 vector loops rely on.
 
 use sir_mech::kernel::{Context, Kernel, KernelError, SchemaId, Theorem};
 use sir_mech::term::{BvOp, Sort, Symbol, Tid};
@@ -74,7 +74,6 @@ fn find(k: &Kernel, name: &str) -> Symbol {
 
 // ── the per-byte lemma ───────────────────────────────────────────────
 
-#[test]
 fn per_byte_lemma_proved_and_replayed() {
     let mut k = Kernel::new();
     let x = varg(&mut k, "x", Sort::Bv(8));
@@ -89,7 +88,6 @@ fn per_byte_lemma_proved_and_replayed() {
 
 // ── popcount = sum of bits ───────────────────────────────────────────
 
-#[test]
 fn popcount_is_sum_of_bits() {
     let mut k = Kernel::new();
     let x = varg(&mut k, "x", Sort::Bv(32));
@@ -129,7 +127,6 @@ fn cardinality_chunk(
     k.bitblast_eq(lhs, rhs)
 }
 
-#[test]
 fn cardinality_chunk_lemma_proved() {
     let mut k = Kernel::new();
     let mut bytes = Vec::new();
@@ -144,7 +141,6 @@ fn cardinality_chunk_lemma_proved() {
 
 // ── the 32-lane `All` chunk lemma ────────────────────────────────────
 
-#[test]
 fn all_chunk_lemma_proved() {
     let mut k = Kernel::new();
     let mut bytes = Vec::new();
@@ -168,7 +164,6 @@ fn all_chunk_lemma_proved() {
 
 // ── composition: rewriting a lemma inside a sum context ──────────────
 
-#[test]
 fn sum_context_rewrite() {
     let mut k = Kernel::new();
     let x = varg(&mut k, "x", Sort::Bv(8));
@@ -200,7 +195,6 @@ fn sum_context_rewrite() {
 
 /// The composition pattern Gate 4B uses: a proven schema is instantiated
 /// at concrete terms and then rewritten inside a larger context.
-#[test]
 fn schema_instantiation_composes() {
     let mut k = Kernel::new();
     // schema: P(x) = x + 0

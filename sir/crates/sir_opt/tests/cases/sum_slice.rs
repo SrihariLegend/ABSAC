@@ -1,7 +1,6 @@
-//! The sum vertical slice must recognize, prove, and unroll a
-//! fixed-extent raw-element sum from the corpus.
+// The sum vertical slice must recognize, prove, and unroll a
+// fixed-extent raw-element sum from the corpus.
 
-#[test]
 fn fixed_extent_sum_unrolls() {
     let ll = std::fs::read_to_string("../../../gate6a/v6_corpus.ll").expect("corpus");
     let function = sir_lower::lower_function(&ll, "p04_sum_u8_const_u64").expect("lower");
@@ -36,7 +35,6 @@ fn fixed_extent_sum_unrolls() {
     assert!(adds >= 127, "unrolled sum must build the add chain");
 }
 
-#[test]
 fn mapped_sum_reinstantiates_map_per_index() {
     let ll = std::fs::read_to_string("../../../gate6a/v6_corpus.ll").expect("corpus");
     let function = sir_lower::lower_function(&ll, "p10_map_then_sum_const").expect("lower");

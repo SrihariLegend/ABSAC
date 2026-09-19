@@ -1,4 +1,3 @@
-#[test]
 fn fixed_extent_cardinality_unrolls_predicates() {
     let ll = std::fs::read_to_string("../../../gate6a/v6_corpus.ll").expect("corpus");
     let function =

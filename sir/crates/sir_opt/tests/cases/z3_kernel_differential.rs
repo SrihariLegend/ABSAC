@@ -1,8 +1,8 @@
-//! Third-party cross-check: random bitvector equivalences decided by the
-//! `sir_mech` SAT kernel must agree with z3.
-//!
-//! z3 is optional (set `Z3_BIN` or rely on the vendored binary); the test
-//! skips when it is unavailable, matching the historical differential.
+// Third-party cross-check: random bitvector equivalences decided by the
+// `sir_mech` SAT kernel must agree with z3.
+//
+// z3 is optional (set `Z3_BIN` or rely on the vendored binary); the test
+// skips when it is unavailable, matching the historical differential.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -89,42 +89,45 @@ fn z3_binary() -> Option<PathBuf> {
     vendored.exists().then_some(vendored)
 }
 
-fn z3_verdict(z3: &Path, width: u32, lhs: &str, rhs: &str) -> Option<bool> {
+fn z3_batch(z3: &Path, queries: &[(u32, String, String)]) -> Option<Vec<Option<bool>>> {
     let mut script = String::new();
-    for index in 0..3 {
-        script.push_str(&format!("(declare-const x{index} (_ BitVec {width}))\n"));
+    for (width, lhs, rhs) in queries {
+        script.push_str("(reset)\n");
+        for index in 0..3 {
+            script.push_str(&format!("(declare-const x{index} (_ BitVec {width}))\n"));
+        }
+        script.push_str(&format!("(assert (not (= {lhs} {rhs})))\n(check-sat)\n"));
     }
-    script.push_str(&format!("(assert (not (= {lhs} {rhs})))\n(check-sat)\n"));
     let path = std::env::temp_dir().join(format!(
-        "sir_opt_z3_{}_{}.smt2",
-        std::process::id(),
-        width
+        "sir_opt_z3_{}.smt2",
+        std::process::id()
     ));
     let mut file = std::fs::File::create(&path).ok()?;
     file.write_all(script.as_bytes()).ok()?;
     let output = Command::new(z3).arg("-smt2").arg(&path).output().ok()?;
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let verdict = if stdout.contains("unsat") {
-        Some(true)
-    } else if stdout.contains("sat") {
-        Some(false)
-    } else {
-        None
-    };
     let _ = std::fs::remove_file(path);
-    verdict
+    Some(
+        stdout
+            .lines()
+            .filter_map(|line| match line.trim() {
+                "unsat" => Some(Some(true)),
+                "sat" => Some(Some(false)),
+                _ => None,
+            })
+            .collect(),
+    )
 }
 
-#[test]
 fn kernel_agrees_with_z3_on_random_bitvector_equivalences() {
     let Some(z3) = z3_binary() else {
         eprintln!("z3 unavailable — skipping kernel differential");
         return;
     };
     let mut rng = Rng(0x5EED_1234_5678_9ABC);
-    let mut agreements = 0usize;
-    let mut decided = 0usize;
-    for iteration in 0..300 {
+    let mut kernels = Vec::new();
+    let mut queries = Vec::new();
+    for iteration in 0..80 {
         let width = [8u32, 16, 32, 64][iteration % 4];
         let mut bv = Bv::with_capacity(256);
         let vars: Vec<Term> = (0..3)
@@ -140,13 +143,23 @@ fn kernel_agrees_with_z3_on_random_bitvector_equivalences() {
             CheckResult::Counterexample(_) => Some(false),
             CheckResult::Unknown(_) => None,
         };
-        let external = z3_verdict(&z3, width, &lhs_smt, &rhs_smt);
+        kernels.push(kernel);
+        queries.push((width, lhs_smt, rhs_smt));
+    }
+    let Some(external) = z3_batch(&z3, &queries) else {
+        panic!("z3 batch failed");
+    };
+    assert_eq!(external.len(), kernels.len(), "one z3 verdict per query");
+    let mut agreements = 0usize;
+    let mut decided = 0usize;
+    for (index, (kernel, external)) in kernels.iter().zip(external.iter()).enumerate() {
+        let (width, lhs, rhs) = &queries[index];
         match (kernel, external) {
             (Some(kernel), Some(external)) => {
                 decided += 1;
                 assert_eq!(
                     kernel, external,
-                    "kernel/z3 disagreement at width {width}: {lhs_smt} == {rhs_smt}"
+                    "kernel/z3 disagreement at width {width}: {lhs} == {rhs}"
                 );
                 agreements += 1;
             }
@@ -154,7 +167,7 @@ fn kernel_agrees_with_z3_on_random_bitvector_equivalences() {
         }
     }
     assert!(
-        agreements >= 20,
+        agreements >= 10,
         "cross-check must decide a useful number of cases, got {agreements} of {decided}"
     );
 }

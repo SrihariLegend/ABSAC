@@ -1,4 +1,3 @@
-#[test]
 fn fixed_extent_any_or_reduction_unrolls() {
     let ll = std::fs::read_to_string("../../../gate6a/v6_corpus.ll").expect("corpus");
     let function =

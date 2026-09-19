@@ -1,4 +1,3 @@
-#[test]
 fn fixed_extent_inequality_search_builds_select_chain() {
     let ll = std::fs::read_to_string("../../../gate6a/v9_corpus.ll").expect("corpus");
     let function =

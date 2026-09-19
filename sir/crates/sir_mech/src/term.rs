@@ -819,7 +819,6 @@ fn bv_op_symbol(op: BvOp) -> &'static str {
 mod tests {
     use super::*;
 
-    #[test]
     fn hash_consing_shares_structure() {
         let mut a = Arena::new();
         let x = a.declare_var("x", Sort::Int);
@@ -830,7 +829,6 @@ mod tests {
         assert_eq!(s1, s2, "structurally equal terms must share an id");
     }
 
-    #[test]
     fn substitution_rebuilds() {
         let mut a = Arena::new();
         let x = a.declare_var("x", Sort::Int);
@@ -844,7 +842,6 @@ mod tests {
         assert_eq!(a.display(out), "5 + y");
     }
 
-    #[test]
     fn app_signature_checked() {
         let mut a = Arena::new();
         let f = a.declare_func("read", vec![Sort::Int], Sort::Bv(8));
@@ -855,12 +852,19 @@ mod tests {
         assert_eq!(a.display(r), "read(i)");
     }
 
-    #[test]
     fn sort_display_and_constants() {
         let mut a = Arena::new();
         let b = a.bv(0x1FF, 8);
         assert_eq!(a.display(b), "0xff:bv8");
         let c = a.bool(true);
         assert_eq!(a.display(c), "true");
+    }
+
+    #[test]
+    fn term_contracts() {
+        hash_consing_shares_structure();
+        substitution_rebuilds();
+        app_signature_checked();
+        sort_display_and_constants();
     }
 }

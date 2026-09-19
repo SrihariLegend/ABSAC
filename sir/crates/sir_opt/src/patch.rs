@@ -34,6 +34,11 @@ pub fn apply(function: &Function, patch: &Patch) -> Option<Function> {
         let new = *map.get(local_id)?;
         replace_uses(&mut rewritten, *old, new)?;
     }
+    for (old, local_id) in &patch.replacements {
+        if rewritten.return_node == Some(*old) {
+            rewritten.return_node = map.get(local_id).copied();
+        }
+    }
     sweep(&mut rewritten);
     // Post-patch structural gate: a patch that produces malformed SIR
     // (dangling references, bad loop shape, type violation, cycles) is

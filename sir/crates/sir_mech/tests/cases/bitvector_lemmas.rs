@@ -1,6 +1,6 @@
-//! End-to-end checks of the bitvector decision procedure on the
-//! identities Gate 4B needs: per-byte compares, movemask, popcount
-//! sums, and SAD lane arithmetic.
+// End-to-end checks of the bitvector decision procedure on the
+// identities Gate 4B needs: per-byte compares, movemask, popcount
+// sums, and SAD lane arithmetic.
 
 use sir_types::fnv::FastHashMap;
 
@@ -15,7 +15,6 @@ fn assert_valid(r: CheckResult, what: &str) {
     }
 }
 
-#[test]
 fn division_and_remainder_by_power_of_two_match_shift_and_mask() {
     for width in [4u32, 8, 16, 32] {
         let mut bv = Bv::new();
@@ -32,7 +31,6 @@ fn division_and_remainder_by_power_of_two_match_shift_and_mask() {
     }
 }
 
-#[test]
 fn division_remainder_decomposition_holds() {
     let mut bv = Bv::new();
     let x = bv.var(VarId(0), 16);
@@ -44,7 +42,6 @@ fn division_remainder_decomposition_holds() {
     assert_valid(prove_equal(&bv, total, x), "(x/4)*4 + x%4 == x");
 }
 
-#[test]
 fn false_remainder_claim_is_refuted() {
     let mut bv = Bv::new();
     let x = bv.var(VarId(0), 8);
@@ -65,7 +62,6 @@ fn false_remainder_claim_is_refuted() {
 /// `pcmpeqb` on one byte: the result byte is 0xFF when equal, 0x00
 /// otherwise. `pmovmskb` extracts its MSB. The per-byte lemma says that
 /// extracted bit is exactly `(x == y)`.
-#[test]
 fn per_byte_pcmpeqb_movemask_bit_is_equality() {
     let mut bv = Bv::new();
     let x = bv.var(VarId(0), 8);
@@ -79,7 +75,6 @@ fn per_byte_pcmpeqb_movemask_bit_is_equality() {
 }
 
 /// `pcmpeqb` after a mask: the extracted bit is `(x & m) == t`.
-#[test]
 fn per_byte_masked_compare() {
     let mut bv = Bv::new();
     let x = bv.var(VarId(0), 8);
@@ -96,7 +91,6 @@ fn per_byte_masked_compare() {
 
 /// `popcount` of a movemask (bit i = predicate_i) equals the sum of the
 /// predicate bits. This is the core of the cardinality chunk lemma.
-#[test]
 fn popcount_of_movemask_is_sum_of_predicate_bits() {
     let mut bv = Bv::new();
     let bytes: Vec<_> = (0..8).map(|i| bv.var(VarId(i), 8)).collect();
@@ -125,7 +119,6 @@ fn popcount_of_movemask_is_sum_of_predicate_bits() {
 
 /// `sad_epu8` on one 8-byte group: zero-extended sum of bytes equals
 /// the 16-bit lane result (no carry out of the 16-bit lane).
-#[test]
 fn sad_lane_equals_byte_sum() {
     let mut bv = Bv::new();
     let bytes: Vec<_> = (0..8).map(|i| bv.var(VarId(i), 8)).collect();
@@ -143,7 +136,6 @@ fn sad_lane_equals_byte_sum() {
 }
 
 /// A true identity over adders.
-#[test]
 fn add_sub_cancel() {
     let mut bv = Bv::new();
     let x = bv.var(VarId(0), 16);
@@ -155,7 +147,6 @@ fn add_sub_cancel() {
 
 /// A false identity must produce a counterexample that actually
 /// refutes it.
-#[test]
 fn false_identity_yields_real_counterexample() {
     let mut bv = Bv::new();
     let x = bv.var(VarId(0), 8);
@@ -171,7 +162,6 @@ fn false_identity_yields_real_counterexample() {
 }
 
 /// Tautology and implication entry points.
-#[test]
 fn tautology_and_implication() {
     let mut bv = Bv::new();
     let x = bv.var(VarId(0), 8);
@@ -189,7 +179,6 @@ fn tautology_and_implication() {
 }
 
 /// The SAT layer must be able to refute a pigeonhole-style formula.
-#[test]
 fn solver_model_reconstructs_variables() {
     let mut bv = Bv::new();
     let x = bv.var(VarId(0), 32);

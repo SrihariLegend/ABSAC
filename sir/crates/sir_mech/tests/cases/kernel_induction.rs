@@ -1,23 +1,23 @@
-//! A genuine induction proof in the kernel.
-//!
-//! The object theory is a range fold:
-//!
-//! ```text
-//!   S(x, x) = 0                      (empty range)
-//!   S(x, y1) = S(x, y) + g(y)  if y1 = y + 1
-//!   S(x1, y) = S(x, y) + g(x)  if x1 = x + 1
-//! ```
-//!
-//! (the second and third schemas are the two directions of "extend the
-//! range by one element"). From them we prove the splitting law
-//!
-//! ```text
-//!   b <= c, c <= a  ⊢  S(a, c) = S(a, b) + S(c, b)
-//! ```
-//!
-//! by induction on `m = c - b`, then instantiate and discharge the
-//! guards with linear arithmetic. The final theorem is replayed by the
-//! kernel, which re-checks every derivation step.
+// A genuine induction proof in the kernel.
+//
+// The object theory is a range fold:
+//
+// ```text
+//   S(x, x) = 0                      (empty range)
+//   S(x, y1) = S(x, y) + g(y)  if y1 = y + 1
+//   S(x1, y) = S(x, y) + g(x)  if x1 = x + 1
+// ```
+//
+// (the second and third schemas are the two directions of "extend the
+// range by one element"). From them we prove the splitting law
+//
+// ```text
+//   b <= c, c <= a  ⊢  S(a, c) = S(a, b) + S(c, b)
+// ```
+//
+// by induction on `m = c - b`, then instantiate and discharge the
+// guards with linear arithmetic. The final theorem is replayed by the
+// kernel, which re-checks every derivation step.
 
 use sir_mech::kernel::{Context, Kernel, KernelError, SchemaId, Statement, Theorem};
 use sir_mech::term::{FuncId, Sort, Symbol, Tid};
@@ -315,7 +315,6 @@ fn env_x1(k: &Kernel) -> Symbol {
     find(k, "x1")
 }
 
-#[test]
 fn fold_shift_lemma_holds_for_all_m() {
     let mut env = Env::new();
     let thm = prove_fold_shift(&mut env).expect("induction proof");
@@ -341,7 +340,6 @@ fn fold_shift_lemma_holds_for_all_m() {
     env.k.replay(&thm).expect("replay of induction proof");
 }
 
-#[test]
 fn fold_shift_instantiates_to_classic_split() {
     let mut env = Env::new();
     let shift = prove_fold_shift(&mut env).expect("induction proof");

@@ -435,7 +435,6 @@ mod tests {
         Arena::new()
     }
 
-    #[test]
     fn proves_trivial_bound() {
         let mut a = setup();
         let x = a.declare_var("x", Sort::Int);
@@ -451,7 +450,6 @@ mod tests {
         ));
     }
 
-    #[test]
     fn proves_guard_failure_bound() {
         // i <= n && !(i + 32 <= n)  =>  n - i <= 31
         let mut a = setup();
@@ -474,7 +472,6 @@ mod tests {
         );
     }
 
-    #[test]
     fn proves_integer_strict_tightening() {
         // x < 5 => x <= 4 over the integers.
         let mut a = setup();
@@ -487,7 +484,6 @@ mod tests {
         assert_eq!(prove_entailment(&a, &[hyp], goal), ArithOutcome::Valid);
     }
 
-    #[test]
     fn proves_linear_combination() {
         // 2k + 3 <= n => 2k + 2 <= n
         let mut a = setup();
@@ -509,7 +505,6 @@ mod tests {
         ));
     }
 
-    #[test]
     fn rejects_unsound_bound() {
         // i <= n && !(i + 32 <= n) does NOT imply n - i <= 30
         let mut a = setup();
@@ -530,5 +525,14 @@ mod tests {
             prove_entailment(&a, &[a1, a2, not_guard], goal),
             ArithOutcome::Unknown(_)
         ));
+    }
+
+    #[test]
+    fn arithmetic_contracts() {
+        proves_trivial_bound();
+        proves_guard_failure_bound();
+        proves_integer_strict_tightening();
+        proves_linear_combination();
+        rejects_unsound_bound();
     }
 }
