@@ -615,6 +615,14 @@ have now been restored into current `sir_mech` and tested.
   native, AArch64, and sanitizers; `verify.sh full` passes with
   external Embench at 23 clean, base-14 at 230 / 131 / 0, and fuzz at
   540 / 360 / 0.
+- **2026-09-20 — sequential nested-loop groups**: back edges are
+  dominance-based in the group detector, back-edge sets partition into
+  sequential chains, inter-group straight-line segments are sequenced
+  with run-once SIR loops, and carrier initializers substitute parent
+  carriers without leaking child-scope temporaries. matmult-int
+  `initialise_benchmark` is clean at 16 cases native/AArch64 and
+  sanitizer-clean; external Embench clean rises 23 → 24. Base-14 stays
+  230 / 131 / 0, fuzz stays 540 / 360 / 0, and `verify.sh full` passes.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

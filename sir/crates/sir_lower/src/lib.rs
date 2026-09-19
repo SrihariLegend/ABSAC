@@ -1260,10 +1260,42 @@ struct NestedShape {
 
 /// Back edges in block-index order: `(latch, header)`.
 fn indexed_back_edges(ir: &IrFunction) -> Vec<(usize, usize)> {
-    let mut edges = Vec::new();
-    for idx in 0..ir.blocks.len() {
+    let count = ir.blocks.len();
+    let mut predecessors: Vec<Vec<usize>> = vec![Vec::new(); count];
+    for idx in 0..count {
         for succ in successor_indices(ir, idx) {
-            if succ <= idx {
+            predecessors[succ].push(idx);
+        }
+    }
+    let mut dominators: Vec<HashSet<usize>> = vec![(0..count).collect(); count];
+    if count > 0 {
+        dominators[0] = HashSet::from([0]);
+    }
+    loop {
+        let mut changed = false;
+        for idx in 1..count {
+            let mut next: Option<HashSet<usize>> = None;
+            for pred in &predecessors[idx] {
+                next = Some(match next {
+                    None => dominators[*pred].clone(),
+                    Some(previous) => previous.intersection(&dominators[*pred]).copied().collect(),
+                });
+            }
+            let mut next = next.unwrap_or_default();
+            next.insert(idx);
+            if next != dominators[idx] {
+                dominators[idx] = next;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    let mut edges = Vec::new();
+    for idx in 0..count {
+        for succ in successor_indices(ir, idx) {
+            if dominators[idx].contains(&succ) {
                 edges.push((idx, succ));
             }
         }
@@ -1350,6 +1382,103 @@ fn detect_linear_chain(ir: &IrFunction) -> Option<Vec<(usize, usize)>> {
         }
     }
     Some(edges)
+}
+
+fn chain_pair_ok(
+    ir: &IrFunction,
+    parent: (usize, usize),
+    child: (usize, usize),
+) -> bool {
+    let Some(terminator) = ir.blocks[parent.1]
+        .instructions
+        .iter()
+        .find(|inst| inst.opcode == "br")
+    else {
+        return false;
+    };
+    if terminator.operands.len() != 1 {
+        return false;
+    }
+    let target = ir.block_map.get(
+        &terminator.operands[0]
+            .trim_start_matches("label ")
+            .trim_start_matches('%')
+            .to_string(),
+    );
+    if target != Some(&child.1) {
+        return false;
+    }
+    let Some(child_term) = ir.blocks[child.0]
+        .instructions
+        .iter()
+        .find(|inst| inst.opcode == "br")
+    else {
+        return false;
+    };
+    if child_term.operands.len() < 3 {
+        return false;
+    }
+    let targets: Vec<usize> = terminator_targets(child_term)
+        .iter()
+        .filter_map(|label| ir.block_map.get(label).copied())
+        .collect();
+    targets.contains(&child.1) && targets.contains(&parent.0)
+}
+
+/// Partition all back edges into sequential groups of direct nested chains.
+fn detect_sequential_groups(ir: &IrFunction) -> Option<Vec<Vec<(usize, usize)>>> {
+    let mut edges = indexed_back_edges(ir);
+    if edges.is_empty() {
+        return None;
+    }
+    edges.sort_by_key(|(_, header)| *header);
+    let mut groups: Vec<Vec<(usize, usize)>> = Vec::new();
+    for edge in edges {
+        if let Some(group) = groups.last_mut() {
+            let outer = group[0];
+            if edge.1 > outer.0 {
+                groups.push(vec![edge]);
+                continue;
+            }
+            if edge.1 > outer.1 && edge.0 <= outer.0 {
+                let parent = *group.last().unwrap();
+                if !chain_pair_ok(ir, parent, edge) {
+                    return None;
+                }
+                group.push(edge);
+                continue;
+            }
+            return None;
+        }
+        groups.push(vec![edge]);
+    }
+    for group in &groups {
+        let outer = group[0];
+        for &(_, header) in group {
+            if !ir.blocks[header].instructions.iter().any(|inst| inst.opcode == "phi") {
+                return None;
+            }
+            let terminator = ir.blocks[group[0].0]
+                .instructions
+                .iter()
+                .find(|inst| inst.opcode == "br")?;
+            if terminator.operands.len() < 3 {
+                return None;
+            }
+        }
+        for idx in outer.1..=outer.0 {
+            for inst in &ir.blocks[idx].instructions {
+                if matches!(inst.opcode.as_str(), "call" | "switch")
+                    || inst.raw.contains("double")
+                    || inst.raw.contains("float")
+                    || inst.raw.contains("atomic")
+                {
+                    return None;
+                }
+            }
+        }
+    }
+    Some(groups)
 }
 
 /// A strict two-level counted nest: outer header branches directly to the
@@ -1622,6 +1751,13 @@ pub fn lower(text: &str) -> Result<Function, String> {
             }
         }
         return Ok(builder.build());
+    }
+
+    if let Some(groups) = detect_sequential_groups(&ir) {
+        if groups.len() > 1 && groups.iter().any(|group| group.len() > 1) {
+            return lower_sequential_groups(&ir, &groups, &mut builder, &mut value_map)
+                .map(|_| builder.build());
+        }
     }
 
     // Detect loop structure: find the back-edge block (the one that branches to itself or to a predecessor)
@@ -3675,6 +3811,211 @@ fn lower_early_exit_search(
     builder
         .return_value(ret_node, span)
         .map_err(|e| format!("early-exit search return: {:?}", e))?;
+    Ok(())
+}
+
+/// Lower one loop of a linear chain, recursing into its child first.
+fn emit_plain_block(
+    ir: &IrFunction,
+    idx: usize,
+    builder: &mut Builder,
+    value_map: &mut HashMap<String, NodeId>,
+) -> Result<(), String> {
+    let span = Span::unknown();
+    for inst in &ir.blocks[idx].instructions {
+        match inst.opcode.as_str() {
+            "phi" | "br" => continue,
+            "ret" => {
+                if builder.function().return_node.is_some() {
+                    continue;
+                }
+                let is_void = inst
+                    .operands
+                    .first()
+                    .map(|operand| strip_type(operand) == "void")
+                    .unwrap_or(true);
+                if is_void {
+                    let unit = builder.constant(ConstantData::Unit, Type::Unit, span);
+                    builder
+                        .return_value(unit, span)
+                        .map_err(|e| format!("{:?}", e))?;
+                } else {
+                    let value = get_node_id(
+                        &strip_type(&inst.operands[0]),
+                        value_map,
+                        &ir.params,
+                        builder,
+                        None,
+                    )
+                    .ok_or(format!("unresolved return: {}", inst.raw))?;
+                    builder
+                        .return_value(value, span)
+                        .map_err(|e| format!("{:?}", e))?;
+                }
+            }
+            _ => {
+                emit_instruction(inst, builder, value_map, &ir.params, span)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn emit_until_block(
+    ir: &IrFunction,
+    start: usize,
+    stop: usize,
+    builder: &mut Builder,
+    value_map: &mut HashMap<String, NodeId>,
+) -> Result<(), String> {
+    let mut current = start;
+    let mut seen = HashSet::new();
+    while current != stop {
+        if !seen.insert(current) {
+            return Err("sequential groups: cyclic straight-line path".to_string());
+        }
+        emit_plain_block(ir, current, builder, value_map)?;
+        let block = &ir.blocks[current];
+        if block.instructions.iter().any(|inst| inst.opcode == "ret") {
+            return Ok(());
+        }
+        let target = block
+            .instructions
+            .iter()
+            .find(|inst| inst.opcode == "br")
+            .and_then(|inst| {
+                if inst.operands.len() == 1 {
+                    ir.block_map.get(
+                        &inst.operands[0]
+                            .trim_start_matches("label ")
+                            .trim_start_matches('%')
+                            .to_string(),
+                    )
+                    .copied()
+                } else {
+                    None
+                }
+            })
+            .ok_or(format!(
+                "sequential groups: block {} is not straight-line",
+                block.label
+            ))?;
+        current = target;
+    }
+    Ok(())
+}
+
+fn loop_exit_target(ir: &IrFunction, latch: usize, header: usize) -> Result<usize, String> {
+    let terminator = ir.blocks[latch]
+        .instructions
+        .iter()
+        .find(|inst| inst.opcode == "br" && inst.operands.len() >= 3)
+        .ok_or("sequential groups: loop latch has no conditional branch".to_string())?;
+    let targets: Vec<usize> = terminator_targets(terminator)
+        .iter()
+        .filter_map(|label| ir.block_map.get(label).copied())
+        .collect();
+    targets
+        .into_iter()
+        .find(|target| *target != header)
+        .ok_or("sequential groups: loop latch has no exit".to_string())
+}
+
+fn lower_sequential_groups(
+    ir: &IrFunction,
+    groups: &[Vec<(usize, usize)>],
+    builder: &mut Builder,
+    value_map: &mut HashMap<String, NodeId>,
+) -> Result<(), String> {
+    let span = Span::unknown();
+    fn wrap_once(
+        builder: &mut Builder,
+        body: &[NodeId],
+        span: Span,
+    ) -> Result<(), String> {
+        if body.is_empty() {
+            return Ok(());
+        }
+        let flag_true = builder.constant(ConstantData::Bool(true), Type::Bool, span);
+        let flag_false = builder.constant(ConstantData::Bool(false), Type::Bool, span);
+        builder
+            .r#loop(
+                body,
+                flag_true,
+                &[flag_false],
+                &[flag_true],
+                Type::Tuple {
+                    elements: vec![Type::Bool],
+                },
+                span,
+            )
+            .map_err(|e| format!("sequential groups: {:?}", e))?;
+        Ok(())
+    }
+    let mut next = 0usize;
+    for group in groups {
+        let outer = group[0].1;
+        let segment_start = builder
+            .function()
+            .arena
+            .ids()
+            .map(|id| id.0)
+            .max()
+            .unwrap_or(0);
+        emit_until_block(ir, next, outer, builder, value_map)?;
+        let segment: Vec<NodeId> = builder
+            .function()
+            .arena
+            .ids()
+            .filter(|id| id.0 > segment_start)
+            .collect();
+        wrap_once(builder, &segment, span)?;
+        lower_loop_chain(ir, group, 0, builder, value_map)?;
+        next = loop_exit_target(ir, group[0].0, outer)?;
+    }
+    let final_start = builder
+        .function()
+        .arena
+        .ids()
+        .map(|id| id.0)
+        .max()
+        .unwrap_or(0);
+    let mut seen = HashSet::new();
+    while seen.insert(next) {
+        emit_plain_block(ir, next, builder, value_map)?;
+        if ir.blocks[next]
+            .instructions
+            .iter()
+            .any(|inst| inst.opcode == "ret")
+        {
+            break;
+        }
+        let Some(target) = ir.blocks[next]
+            .instructions
+            .iter()
+            .find(|inst| inst.opcode == "br" && inst.operands.len() == 1)
+            .and_then(|inst| {
+                ir.block_map
+                    .get(
+                        &inst.operands[0]
+                            .trim_start_matches("label ")
+                            .trim_start_matches('%')
+                            .to_string(),
+                    )
+                    .copied()
+            })
+        else {
+            break;
+        };
+        next = target;
+    }
+    let final_segment: Vec<NodeId> = builder
+        .function()
+        .arena
+        .ids()
+        .filter(|id| id.0 > final_start)
+        .collect();
+    wrap_once(builder, &final_segment, span)?;
     Ok(())
 }
 

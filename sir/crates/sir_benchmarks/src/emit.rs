@@ -115,6 +115,28 @@ fn dependency_closure(
     out
 }
 
+fn reaches_loop(
+    id: NodeId,
+    func: &Function,
+    loops: &HashSet<NodeId>,
+    seen: &mut HashSet<NodeId>,
+) -> bool {
+    if loops.contains(&id) {
+        return true;
+    }
+    if !seen.insert(id) {
+        return false;
+    }
+    func.get_node(id)
+        .map(|node| {
+            node.kind
+                .input_nodes()
+                .iter()
+                .any(|input| reaches_loop(*input, func, loops, seen))
+        })
+        .unwrap_or(false)
+}
+
 /// Map a SIR type to a C type string.
 pub fn c_type(ty: &Type) -> String {
     match ty {
@@ -1916,11 +1938,21 @@ pub fn emit_c(func: &Function) -> String {
         // Carrier initializers may read preheader loads (e.g. a loop-carried
         // pointer initialized from a loaded i16). Those statements must be
         // emitted before the carrier declarations, not in the post-loop pass.
+        let loop_node_ids: HashSet<NodeId> = func
+            .arena
+            .iter()
+            .filter(|node| matches!(node.kind, NodeKind::Loop { .. }))
+            .map(|node| node.id)
+            .collect();
         let pre_set = dependency_closure(&carried_seeds, func, &loop_ids);
         let prelude: Vec<NodeId> = pre_set
             .iter()
             .copied()
-            .filter(|id| !store_targets.contains(id) && func.get_node(*id).is_some())
+            .filter(|id| {
+                !store_targets.contains(id)
+                    && func.get_node(*id).is_some()
+                    && !reaches_loop(*id, func, &loop_node_ids, &mut HashSet::new())
+            })
             .collect();
         let empty_map = HashMap::new();
         for id in topo_order(&prelude, &pre_set, func) {
@@ -2081,7 +2113,10 @@ fn emit_loop(
             .and_then(|oi| func.get_node(*oi))
             .map(|n| c_type(&n.ty))
             .unwrap_or_else(|| c_type(&ci_node.ty));
-        let init = emit_expr(ci_node, func, parent_carriers);
+        let init = parent_carriers
+            .get(&ci)
+            .cloned()
+            .unwrap_or_else(|| emit_expr(ci_node, func, parent_carriers));
         let _ = write!(out, "    {} o{}_{} = {};\n", ty, ordinal, i, init);
     }
 
