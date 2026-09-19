@@ -26,8 +26,9 @@ struct SearchPlan {
     runtime: bool,
 }
 
-/// Optimize a bounded search and report whether definition 402
-/// (`sir_memchr`) or 200 (select chain) produced the patch.
+/// Optimize a bounded search and report whether definition 402 (fixed
+/// `sir_memchr`), 403 (runtime `sir_memchr`), or 200 (select chain)
+/// produced the patch.
 pub fn optimize_search(function: &Function) -> Option<(Function, u64)> {
     crate::family::with_facts(function, |facts| apply_one(function, facts))
 }
@@ -48,7 +49,7 @@ pub(crate) fn apply_one(
             return None;
         }
     }
-    let optimized = if plan.definition == 402 {
+    let optimized = if plan.definition != 200 {
         let (collection, scalar) = plan.memchr?;
         let max = function.arena.ids().map(|id| id.0).max().unwrap_or(0);
         let local = max + 1;
@@ -328,7 +329,17 @@ fn recognize_loop(
     if runtime && memchr.is_none() {
         return None;
     }
-    let definition = if memchr.is_some() { 402 } else { 200 };
+    let definition = if runtime {
+        if memchr.is_some() {
+            403
+        } else {
+            return None;
+        }
+    } else if memchr.is_some() {
+        402
+    } else {
+        200
+    };
 
     let target = function
         .arena

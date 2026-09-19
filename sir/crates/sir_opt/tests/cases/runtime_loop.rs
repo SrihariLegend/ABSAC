@@ -23,7 +23,7 @@ define dso_local i64 @naive_first_zero(ptr nocapture noundef readonly %0, i64 no
         .expect("runtime-bound search loop must lower");
     let (optimized, definition) =
         sir_opt::optimize_search(&function).expect("runtime search must optimize");
-    assert_eq!(definition, 402, "runtime search is memchr definition 402");
+    assert_eq!(definition, 403, "runtime search is memchr definition 403");
     assert!(
         optimized.arena.iter().any(|node| matches!(
             &node.kind,

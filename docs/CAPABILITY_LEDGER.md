@@ -127,7 +127,7 @@ Non-goals:
 | test files / test LOC | 63 / 15,217 | **9 tests**, case bodies under `tests/cases/` |
 | `sir_mech` proof kernel | LCF kernel + `arith.rs` + induction proof; 38 tests pass | restored; 28 proof cases run under 5 `sir_mech` tests |
 | corpora known | v1–v11 | v2–v14, v16 (v12–v20 added in session) |
-| corpus result | v1–v11: 0 mismatched | 14 corpora: 221 clean / 78 rewrites / 0 mismatched; with fuzz v17–v19b: 761 clean / 207 rewrites / 0 mismatched |
+| corpus result | v1–v11: 0 mismatched | 14 corpora default: 221 clean / 75 rewrites / 0 mismatched (78 with runtime search opt-in); with fuzz v17–v19b: 761 clean / 204 rewrites / 0 mismatched |
 
 Corpus comparison on `HEAD`’s own v1–v11: clean/mismatch counts are
 **identical** between `HEAD` and current on every corpus. On the
@@ -299,6 +299,12 @@ have now been restored into current `sir_mech` and tested.
   induction proof rather than SAT. The i16 slice is now a canonical
   corpus (`gate6a/v21_popcount16.ll`): 1 clean rewrite on native,
   AArch64, and sanitizers.
+- **2026-09-19 — measured-retention policy**: runtime-bound memchr is
+  now definition **403**, separate from fixed-extent 402. The default
+  policy (`family::allow_profiled`) refuses 403 because it measured
+  1.25× no-hit but 0.82× early-hit; `emit_c_diff
+  --allow-runtime-search` opts in. Base-14 default drops 78 → 75
+  rewrites (all clean), opt-in restores 78; fuzz stays 129.
 
 ## Reference commands
 

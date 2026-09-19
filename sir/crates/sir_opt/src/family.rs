@@ -38,13 +38,21 @@ pub fn allow_all(_definition: u64) -> bool {
     true
 }
 
+/// Default policy when no predictive profile exists: runtime-dependent
+/// rewrites stay off. Definition 403 (runtime `memchr`) measured 1.25×
+/// on no-hit inputs but 0.82× on early-hit inputs, so it is opt-in until
+/// the cost model can choose per call.
+pub fn allow_profiled(definition: u64) -> bool {
+    definition != 403
+}
+
 struct SearchFamily;
 impl Family for SearchFamily {
     fn name(&self) -> &'static str {
         "search"
     }
     fn definitions(&self) -> &'static [u64] {
-        &[200, 402]
+        &[200, 402, 403]
     }
     fn apply_one(&self, function: &Function, facts: &FactDatabase) -> Option<Applied> {
         let (function, definition) = search::apply_one(function, facts)?;

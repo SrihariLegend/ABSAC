@@ -239,9 +239,9 @@ harness errors**, and fuzz corpora v17–v19b **129 rewrites / 540 clean /
 0 mismatched** (761 clean total). The LOC guide is a guide, not a
 target; the restored kernel/arith is ~2.3k of the increase.
 
-Remaining Phase 1 work: measured-retention policy in the driver
-(`allow` hook is in place), replayable proof records, and conservative
-plan-bound application gates (live-outs, frames, memory bases).
+Remaining Phase 1 work: replayable proof records and the full
+predictive retention model (the measured-retention default now refuses
+runtime-dependent definition 403; live-out/frame gates have v0).
 
 Phase 1 evidence update: the left-fold proof trim brought the sum
 pipeline to **7.19M instructions** (budget 9.4M) and the workspace suite

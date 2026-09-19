@@ -18,6 +18,9 @@ use sir_types::Type;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static ALLOW_RUNTIME_SEARCH: AtomicBool = AtomicBool::new(false);
 
 /// Function names defined in the module (`define ... @name(`).
 fn function_names(ll: &str) -> Vec<String> {
@@ -715,9 +718,12 @@ struct RunResult {
 
 /// Run the single-pass optimizer.
 fn optimize(func: &Function) -> RunResult {
-    if let Some((function, rewrites, definitions)) =
+    let result = if ALLOW_RUNTIME_SEARCH.load(Ordering::Relaxed) {
         sir_opt::optimize(func, &sir_opt::family::allow_all)
-    {
+    } else {
+        sir_opt::optimize(func, &sir_opt::family::allow_profiled)
+    };
+    if let Some((function, rewrites, definitions)) = result {
         if std::env::var_os("SIR_OPT_TRACE").is_some() {
             for definition in definitions {
                 eprintln!("SIR_OPT {} def={definition}", func.name);
@@ -947,7 +953,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!(
-            "usage: emit_c_diff <corpus.ll> [--cases N] [--workdir DIR] [--function NAME] [--sanitize] [--cc clang|gcc] [--target native|aarch64] [--time] [--time-reps N] [--time-baseline] [--measured-retain] [--time-fill V]"
+            "usage: emit_c_diff <corpus.ll> [--cases N] [--workdir DIR] [--function NAME] [--sanitize] [--cc clang|gcc] [--target native|aarch64] [--allow-runtime-search] [--time] [--time-reps N] [--time-baseline] [--measured-retain] [--time-fill V]"
         );
         std::process::exit(2);
     }
@@ -994,6 +1000,10 @@ fn main() {
             "--measured-retain" => {
                 time_mode = true;
                 measured_retain = true;
+                i += 1;
+            }
+            "--allow-runtime-search" => {
+                ALLOW_RUNTIME_SEARCH.store(true, Ordering::Relaxed);
                 i += 1;
             }
             "--time-reps" if i + 1 < args.len() => {
