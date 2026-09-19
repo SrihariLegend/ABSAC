@@ -48,7 +48,7 @@ recovery path is recorded here.**
 | 400/401 | sums/mapped sums | fixed-extent, multi-loop, and conditional/masked maps ported; folded-offset/runtime shapes missing |
 | 402 | byte search | equality/u8 fixed-extent ported; runtime bounds missing |
 | 0 | popcount/cardinality | comparison-predicate count ported; bool-pack/Kernighan path missing |
-| 4 | Any | integer OR reduction ported; bool-pack path missing |
+| 4 | Any | generic pure-map OR reduction (conditional/zero-extended predicates); measured 3.12–3.43× |
 | 5 | All | integer AND-chain ported; bool-pack path missing |
 | 6 | parity | **restored (XOR-reduction path)** as `sir_opt::parity`; `HEAD` bitset/pack/popcount path still to mine |
 | 7 | Kernighan popcount | **restored for widths ≤16** as `sir_opt::popcount`; 32/64 await the kernel induction proof |
@@ -127,7 +127,7 @@ Non-goals:
 | test files / test LOC | 63 / 15,217 | **9 tests**, case bodies under `tests/cases/` |
 | `sir_mech` proof kernel | LCF kernel + `arith.rs` + induction proof; 38 tests pass | restored; 28 proof cases run under 5 `sir_mech` tests |
 | corpora known | v1–v11 | v2–v14, v16 (v12–v20 added in session) |
-| corpus result | v1–v11: 0 mismatched | 14 corpora default: 221 clean / 82 rewrites / 0 mismatched (85 with runtime search opt-in); with fuzz v17–v19b: 761 clean / 290 rewrites / 0 mismatched |
+| corpus result | v1–v11: 0 mismatched | 14 corpora default: 221 clean / 83 rewrites / 0 mismatched (86 with runtime search opt-in); with fuzz v17–v19b: 761 clean / 323 rewrites / 0 mismatched |
 
 Corpus comparison on `HEAD`’s own v1–v11: clean/mismatch counts are
 **identical** between `HEAD` and current on every corpus. On the
@@ -311,6 +311,12 @@ have now been restored into current `sir_mech` and tested.
   fuzz rises 129 → 208, all differential-clean on native and AArch64.
   Measured wins: conditional sum 1.90×, ternary masked sum 2.24×,
   high-mask sum 3.00×; sanitizers clean.
+- **2026-09-19 — generic Any maps**: `Any` now re-instantiates any pure
+  expression whose type matches the accumulator, not just a bare load or
+  `or(load, const)`. This covers `zext(predicate)` and conditional
+  predicates over narrower elements. Base-14 82 → 83 rewrites (86
+  opt-in), fuzz 208 → 240, all differential-clean on native and
+  AArch64; sanitizers clean. Measured wins: 3.12× and 3.43×.
 
 ## Reference commands
 

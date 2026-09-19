@@ -19,4 +19,17 @@ fn fixed_extent_any_or_reduction_unrolls() {
             >= 63,
         "OR chain must cover the array"
     );
+
+    // A zero-extended predicate is a valid Any map even when the loaded
+    // element width differs from the accumulator width.
+    let ll = std::fs::read_to_string("../../../gate6a/v19b_fuzz_corpus.ll").expect("corpus");
+    let function = sir_lower::lower_function(&ll, "f047").expect("lower");
+    let optimized = sir_opt::optimize_any(&function).expect("conditional Any must optimize");
+    assert!(
+        !optimized
+            .arena
+            .iter()
+            .any(|node| matches!(node.kind, sir_nodes::NodeKind::Loop { .. })),
+        "optimized conditional Any must not contain the reduction loop"
+    );
 }

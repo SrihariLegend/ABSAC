@@ -1,5 +1,5 @@
-//! Fixed-extent `Any` reduction over an integer array: OR-reduce the
-//! elements into a straight-line bitwise-OR chain.
+//! Fixed-extent `Any` reduction: OR-reduce a pure element expression into
+//! a straight-line bitwise-OR chain.
 
 use sir_nodes::{Function, Node, NodeKind};
 use sir_types::{ConstantData, Effects, NodeId, Span, Type};
@@ -13,7 +13,7 @@ struct AnyPlan {
     extent: usize,
     index_ty: Type,
     accumulator_ty: Type,
-    expression: NodeKind,
+    expression: NodeId,
     element_access: NodeId,
     carry_first: bool,
 }
@@ -41,15 +41,16 @@ pub(crate) fn apply_one(
             &mut next,
             NodeKind::Constant(ConstantData::u64(index as u64)),
             plan.index_ty.clone(),
+            Effects::empty(),
         );
         let value = instantiate(
-            &plan.expression,
-            plan.element_access,
-            plan.collection,
+            function,
+            &plan,
+            plan.expression,
             constant,
-            &plan.accumulator_ty,
             &mut nodes,
             &mut next,
+            0,
         )?;
         chain = Some(match chain {
             None => value,
@@ -61,6 +62,7 @@ pub(crate) fn apply_one(
                     rhs: NodeId::new(if plan.carry_first { value } else { acc }),
                 },
                 plan.accumulator_ty.clone(),
+                Effects::empty(),
             ),
         });
     }
@@ -125,44 +127,26 @@ fn recognize_loop(
     if !is_zero(function, reduction.variable) {
         return None;
     }
-    let position = carried_inputs.iter().position(|id| *id == reduction.variable)?;
-    let output = *outputs.get(position)?;
-    let carry_first = !matches!(
-        &function.get_node(output)?.kind,
-        NodeKind::Or { lhs, .. } if *lhs == reduction.invariant_value
-    );
-    let expression = function.get_node(reduction.invariant_value)?.kind.clone();
-    let access = match &expression {
-        NodeKind::ArrayAccess { .. } => reduction.invariant_value,
-        NodeKind::Or { lhs, rhs } => {
-            if matches!(&function.get_node(*lhs)?.kind, NodeKind::ArrayAccess { .. }) {
-                *lhs
-            } else if matches!(&function.get_node(*rhs)?.kind, NodeKind::ArrayAccess { .. }) {
-                *rhs
-            } else {
-                return None;
-            }
-        }
-        _ => return None,
-    };
-    let NodeKind::ArrayAccess { base, index } = &function.get_node(access)?.kind else {
-        return None;
-    };
-    if *index != counter.variable {
+    let expression = reduction.invariant_value;
+    let accumulator_ty = function.get_node(reduction.variable)?.ty.clone();
+    if function.get_node(expression)?.ty != accumulator_ty {
         return None;
     }
-    let Type::Array { element, length } = &function.get_node(*base)?.ty else {
+    let (element_access, base, index) =
+        find_element_access(function, expression, counter.variable)?;
+    let Type::Array { length, .. } = &function.get_node(base)?.ty else {
         return None;
     };
     let extent = *length;
     if extent == 0 || extent > 512 || fact.trip_count != Some(extent as u64) {
         return None;
     }
-    let accumulator_ty = function.get_node(reduction.variable)?.ty.clone();
-    if **element != accumulator_ty {
-        return None;
-    }
-    let _internal = outputs.get(position)?;
+    let position = carried_inputs.iter().position(|id| *id == reduction.variable)?;
+    let output = *outputs.get(position)?;
+    let carry_first = !matches!(
+        &function.get_node(output)?.kind,
+        NodeKind::Or { lhs, .. } if *lhs == expression
+    );
     let target = function
         .arena
         .iter()
@@ -176,47 +160,135 @@ fn recognize_loop(
         .id;
     Some(AnyPlan {
         target,
-        collection: *base,
+        collection: base,
         extent,
-        index_ty: function.get_node(*index)?.ty.clone(),
+        index_ty: function.get_node(index)?.ty.clone(),
         accumulator_ty,
         expression,
-        element_access: access,
+        element_access,
         carry_first,
     })
 }
 
 fn instantiate(
-    expression: &NodeKind,
-    element_access: NodeId,
-    collection: NodeId,
-    index: u64,
-    accumulator_ty: &Type,
+    function: &Function,
+    plan: &AnyPlan,
+    node_id: NodeId,
+    index_local: u64,
     nodes: &mut Vec<(u64, Node)>,
     next: &mut u64,
+    depth: usize,
 ) -> Option<u64> {
-    let kind = match expression {
-        NodeKind::ArrayAccess { .. } => NodeKind::ArrayAccess {
-            base: collection,
-            index: NodeId::new(index),
+    if depth > 32 {
+        return None;
+    }
+    if node_id == plan.element_access {
+        return Some(push(
+            nodes,
+            next,
+            NodeKind::ArrayAccess {
+                base: plan.collection,
+                index: NodeId::new(index_local),
+            },
+            function.get_node(node_id)?.ty.clone(),
+            Effects::READ_MEMORY,
+        ));
+    }
+    let node = function.get_node(node_id)?;
+    let mut rec = |id: NodeId| {
+        instantiate(function, plan, id, index_local, nodes, next, depth + 1)
+    };
+    let kind = match &node.kind {
+        NodeKind::Constant(data) => NodeKind::Constant(data.clone()),
+        NodeKind::Parameter { .. } => return Some(node_id.as_u64()),
+        NodeKind::Convert {
+            operand,
+            target_ty,
+            kind,
+        } => NodeKind::Convert {
+            operand: NodeId::new(rec(*operand)?),
+            target_ty: target_ty.clone(),
+            kind: *kind,
         },
-        NodeKind::Or { lhs, rhs } => {
-            let (access_side, constant_side) = if *lhs == element_access {
-                (lhs, rhs)
-            } else if *rhs == element_access {
-                (rhs, lhs)
-            } else {
-                return None;
-            };
-            let _ = access_side;
-            NodeKind::Or {
-                lhs: NodeId::new(index),
-                rhs: *constant_side,
-            }
-        }
+        NodeKind::Add { lhs, rhs } => NodeKind::Add {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::Sub { lhs, rhs } => NodeKind::Sub {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::Mul { lhs, rhs } => NodeKind::Mul {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::And { lhs, rhs } => NodeKind::And {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::Or { lhs, rhs } => NodeKind::Or {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::Xor { lhs, rhs } => NodeKind::Xor {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::Shl { lhs, rhs } => NodeKind::Shl {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::Shr { lhs, rhs } => NodeKind::Shr {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::Lt { lhs, rhs } => NodeKind::Lt {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::Le { lhs, rhs } => NodeKind::Le {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::Gt { lhs, rhs } => NodeKind::Gt {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::Ge { lhs, rhs } => NodeKind::Ge {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::Eq { lhs, rhs } => NodeKind::Eq {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::Ne { lhs, rhs } => NodeKind::Ne {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::BoolAnd { lhs, rhs } => NodeKind::BoolAnd {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::BoolOr { lhs, rhs } => NodeKind::BoolOr {
+            lhs: NodeId::new(rec(*lhs)?),
+            rhs: NodeId::new(rec(*rhs)?),
+        },
+        NodeKind::BoolNot { operand } => NodeKind::BoolNot {
+            operand: NodeId::new(rec(*operand)?),
+        },
+        NodeKind::Select {
+            cond,
+            true_val,
+            false_val,
+        } => NodeKind::Select {
+            cond: NodeId::new(rec(*cond)?),
+            true_val: NodeId::new(rec(*true_val)?),
+            false_val: NodeId::new(rec(*false_val)?),
+        },
         _ => return None,
     };
-    Some(push(nodes, next, kind, accumulator_ty.clone()))
+    Some(push(nodes, next, kind, node.ty.clone(), Effects::empty()))
 }
 
 fn push(
@@ -224,20 +296,39 @@ fn push(
     next: &mut u64,
     kind: NodeKind,
     ty: Type,
+    effects: Effects,
 ) -> u64 {
     let id = *next;
     *next += 1;
-    nodes.push((
-        id,
-        Node::new(
-            NodeId::new(id),
-            kind,
-            ty,
-            Effects::empty(),
-            Span::unknown(),
-        ),
-    ));
+    nodes.push((id, Node::new(NodeId::new(id), kind, ty, effects, Span::unknown())));
     id
+}
+
+fn find_element_access(
+    function: &Function,
+    root: NodeId,
+    induction: NodeId,
+) -> Option<(NodeId, NodeId, NodeId)> {
+    let mut found = None;
+    let mut worklist = vec![root];
+    let mut seen = std::collections::HashSet::new();
+    while let Some(id) = worklist.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+        let node = function.get_node(id)?;
+        if let NodeKind::ArrayAccess { base, index } = &node.kind {
+            if *index != induction {
+                continue;
+            }
+            if found.is_some() {
+                return None;
+            }
+            found = Some((id, *base, *index));
+        }
+        worklist.extend(node.kind.input_nodes());
+    }
+    found
 }
 
 fn is_one(function: &Function, id: NodeId) -> bool {
@@ -267,5 +358,4 @@ fn type_bits(ty: &Type) -> Option<u32> {
         Type::BitVector { width } => Some(*width as u32),
         _ => None,
     }
-    .filter(|width| *width <= 64)
 }
