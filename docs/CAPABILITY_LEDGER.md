@@ -219,7 +219,8 @@ have now been restored into current `sir_mech` and tested.
   `aarch64-linux-gnu-gcc -static`, compiles the reference IR with
   `clang --target=aarch64-linux-gnu`, and runs both under
   `qemu-aarch64`. Base-14 is **221 clean / 0 mismatched**, matching
-  native, including the sum and memchr families.
+  native, including the sum and memchr families; fuzz v17/v19 add
+  **220 clean / 0 mismatched**.
 - **2026-09-19 — input-domain oracle fix**: the differential driver now
   respects `!range` metadata (e.g. a `_Bool` array filled with 0/1
   instead of arbitrary bytes). This removed a false AArch64 mismatch in
