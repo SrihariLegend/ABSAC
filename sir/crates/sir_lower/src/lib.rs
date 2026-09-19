@@ -978,6 +978,40 @@ pub fn lower(text: &str) -> Result<Function, String> {
     let text = extract_first_function(text);
     let ir = parse_function(&text)?;
 
+    // Signed comparisons control loop domains in ways the reconstruction
+    // paths do not model yet. Refuse signed control flow wholesale for
+    // now; signed value operations (ashr, smax/smin in straight-line
+    // code) are handled below.
+    let has_back_edge = ir.blocks.iter().enumerate().any(|(idx, block)| {
+        block.instructions.iter().any(|inst| {
+            inst.opcode == "br"
+                && inst.operands.iter().any(|operand| {
+                    operand
+                        .trim()
+                        .strip_prefix("label %")
+                        .and_then(|label| ir.block_map.get(label).copied())
+                        .is_some_and(|target| target <= idx)
+                })
+        })
+    });
+    let signed_control_flow = ir.blocks.iter().any(|block| {
+        block.instructions.iter().any(|inst| {
+            let raw = inst.raw.as_str();
+            raw.contains("icmp sgt")
+                || raw.contains("icmp sge")
+                || raw.contains("icmp slt")
+                || raw.contains("icmp sle")
+                || raw.contains("llvm.smax")
+                || raw.contains("llvm.smin")
+        })
+    });
+    if has_back_edge && signed_control_flow {
+        return Err(
+            "unsupported: signed comparison/min/max inside a loop (loop-domain signedness is not modeled)"
+                .to_string(),
+        );
+    }
+
     // Map return type
     let ret_ty = parse_type(&ir.ret_type).unwrap_or(Type::Unit);
 
@@ -3665,7 +3699,7 @@ fn emit_instruction(
             // (negative operands get unsigned semantics; sdiv INT_MIN/-1
             // trap is unmodeled). Refuse loudly instead of silently
             // producing a differently-defined program.
-            if matches!(inst.opcode.as_str(), "ashr" | "sdiv" | "srem") {
+            if matches!(inst.opcode.as_str(), "sdiv" | "srem") {
                 return Err(format!(
                     "unsupported: signed opcode '{}' (SIR Shr/Div/Rem are unsigned-model; arithmetic-shift and signed-division semantics are not representable): {}",
                     inst.opcode, inst.raw
@@ -3694,7 +3728,7 @@ fn emit_instruction(
             let rhs_str = strip_type(&inst.operands[1]);
             let lhs = get_node_id(&lhs_str, value_map, params, builder, op_type.clone())
                 .ok_or(format!("cannot resolve lhs '{}' in {}", lhs_str, inst.raw))?;
-            let rhs = get_node_id(&rhs_str, value_map, params, builder, op_type)
+            let rhs = get_node_id(&rhs_str, value_map, params, builder, op_type.clone())
                 .ok_or(format!("cannot resolve rhs '{}' in {}", rhs_str, inst.raw))?;
 
             let is_bool = inst.operands[0]
@@ -3742,8 +3776,17 @@ fn emit_instruction(
                 "shl" => builder
                     .shl(lhs, rhs, span)
                     .map_err(|e| format!("{:?}", e))?,
-                "lshr" | "ashr" => builder
+                "lshr" => builder
                     .shr(lhs, rhs, span)
+                    .map_err(|e| format!("{:?}", e))?,
+                "ashr" => builder
+                    .intrinsic(
+                        "sir_ashr",
+                        &[lhs, rhs],
+                        op_type.unwrap_or(Type::u64()),
+                        Effects::empty(),
+                        span,
+                    )
                     .map_err(|e| format!("{:?}", e))?,
                 "udiv" | "sdiv" => builder
                     .div(lhs, rhs, span)
@@ -3817,13 +3860,18 @@ fn emit_instruction(
             // `icmp sgt i8 %x, -1` becomes `%x > 255` under unsigned
             // semantics. Refuse loudly; only eq/ne (signedness-agnostic)
             // and unsigned predicates lower.
-            if matches!(cmp_type, "sgt" | "sge" | "slt" | "sle") {
-                return Err(format!(
-                    "unsupported: signed icmp '{}' (SIR comparison semantics are unsigned-model; signed predicate would mistranslate negative operands): {}",
-                    cmp_type, inst.raw
-                ));
-            }
-            let node_id = match cmp_type {
+            let node_id = if matches!(cmp_type, "sgt" | "sge" | "slt" | "sle") {
+                builder
+                    .intrinsic(
+                        format!("sir_{cmp_type}"),
+                        &[lhs, rhs],
+                        Type::Bool,
+                        Effects::empty(),
+                        span,
+                    )
+                    .map_err(|e| format!("{:?}", e))?
+            } else {
+                match cmp_type {
                 "eq" => builder.eq(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
                 "ne" => builder.ne(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
                 "ugt" => builder.gt(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
@@ -3831,6 +3879,7 @@ fn emit_instruction(
                 "ult" => builder.lt(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
                 "ule" => builder.le(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
                 _ => return Err(format!("unsupported icmp type: {}", cmp_type)),
+                }
             };
 
             if let Some(name) = result_name {
@@ -4298,20 +4347,22 @@ fn emit_instruction(
                         let b = get_node_id(&b_str, value_map, params, builder, op_ty)
                             .ok_or(format!("cannot resolve umax operand '{}'", b_str))?;
 
-                        let node_id =
-                            if callee.contains("llvm.umax") || callee.contains("llvm.smax") {
-                                // umax/smax(a, b) = select(a > b, a, b)
-                                let cmp = builder.gt(a, b, span).map_err(|e| format!("{:?}", e))?;
-                                builder
-                                    .select(cmp, a, b, span)
-                                    .map_err(|e| format!("{:?}", e))?
-                            } else {
-                                // umin/smin(a, b) = select(a < b, a, b)
-                                let cmp = builder.lt(a, b, span).map_err(|e| format!("{:?}", e))?;
-                                builder
-                                    .select(cmp, a, b, span)
-                                    .map_err(|e| format!("{:?}", e))?
-                            };
+                        let signed =
+                            callee.contains("llvm.smax") || callee.contains("llvm.smin");
+                        let max = callee.contains("llvm.umax") || callee.contains("llvm.smax");
+                        let cmp = if signed {
+                            let op = if max { "sir_sgt" } else { "sir_slt" };
+                            builder
+                                .intrinsic(op, &[a, b], Type::Bool, Effects::empty(), span)
+                                .map_err(|e| format!("{:?}", e))?
+                        } else if max {
+                            builder.gt(a, b, span).map_err(|e| format!("{:?}", e))?
+                        } else {
+                            builder.lt(a, b, span).map_err(|e| format!("{:?}", e))?
+                        };
+                        let node_id = builder
+                            .select(cmp, a, b, span)
+                            .map_err(|e| format!("{:?}", e))?;
 
                         if let Some(name) = result_name {
                             value_map.insert(name, node_id);

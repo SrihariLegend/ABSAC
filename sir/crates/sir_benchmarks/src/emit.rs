@@ -1097,6 +1097,47 @@ fn emit_expr(
         // semantic SIR operation it selects. Unknown names fail loudly
         // at compile time instead of silently emitting 0.
         NodeKind::Intrinsic { name, args } => match name.as_str() {
+            "sir_ashr" if args.len() == 2 => {
+                let x = emit_operand(args[0], func, carrier_map);
+                let k = emit_operand(args[1], func, carrier_map);
+                let source_ty = func
+                    .get_node(args[0])
+                    .map(|node| node.ty.clone())
+                    .unwrap_or_else(|| node.ty.clone());
+                format!(
+                    "(({}) ((({}) ({})) >> ({})))",
+                    c_type(&node.ty),
+                    signed_c_type(&source_ty),
+                    x,
+                    k
+                )
+            }
+            "sir_slt" | "sir_sle" | "sir_sgt" | "sir_sge" if args.len() == 2 => {
+                let lhs = emit_operand(args[0], func, carrier_map);
+                let rhs = emit_operand(args[1], func, carrier_map);
+                let lhs_ty = func
+                    .get_node(args[0])
+                    .map(|node| node.ty.clone())
+                    .unwrap_or_else(|| Type::u64());
+                let rhs_ty = func
+                    .get_node(args[1])
+                    .map(|node| node.ty.clone())
+                    .unwrap_or_else(|| Type::u64());
+                let op = match name.as_str() {
+                    "sir_slt" => "<",
+                    "sir_sle" => "<=",
+                    "sir_sgt" => ">",
+                    _ => ">=",
+                };
+                format!(
+                    "((bool)((({}) ({})) {} (({}) ({}))))",
+                    signed_c_type(&lhs_ty),
+                    lhs,
+                    op,
+                    signed_c_type(&rhs_ty),
+                    rhs
+                )
+            }
             "blsr" if args.len() == 1 => {
                 let x = emit_operand(args[0], func, carrier_map);
                 format!("(({})(({}) & (({}) - 1)))", c_type(&node.ty), x, x)

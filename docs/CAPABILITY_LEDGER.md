@@ -416,6 +416,13 @@ have now been restored into current `sir_mech` and tested.
   differential- and sanitizer-clean on native and AArch64. Base-14
   clean rises 221 → 230 with rewrites stable at 128; external Embench
   clean rises 6 → 8.
+- **2026-09-20 — signed value ops**: `ashr`, signed comparisons, and
+  `smax`/`smin` are supported as value-level intrinsics with signed
+  C casts. Signed comparisons that control loop domains still fail
+  closed (the first attempt mis-lowered v3 `n02_running_max` and
+  `n11_reverse_sum`; base-14 is back to 230 clean / 128 rewrites / 0
+  mismatched). Focused signed fixtures are clean on native, AArch64,
+  and sanitizers; fuzz remains 540 / 360 / 0.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
