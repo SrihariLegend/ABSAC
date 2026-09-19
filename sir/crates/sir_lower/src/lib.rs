@@ -3997,41 +3997,13 @@ fn emit_instruction(
         }
 
         "store" => {
-            // store i8 %result, ptr %out_ptr
-            // SIR Store { ptr, value } → returns Unit
-            if inst.operands.len() < 2 {
-                return Err(format!("store needs value + ptr: {}", inst.raw));
-            }
-            // ── Fail-closed memory semantics (advisor D3 queue item 1) ──
-            // A volatile store has observable occurrence + ordering
-            // semantics; dropping or merging it changes program behavior.
-            // Refuse loudly as an explicit UNSUPPORTED class — never
-            // silently lower it as an ordinary write.
-            if inst.raw.contains("volatile") {
-                return Err(format!(
-                    "unsupported: volatile store (observable occurrence/ordering semantics): {}",
-                    inst.raw
-                ));
-            }
-            if inst.raw.contains("atomic") {
-                return Err(format!(
-                    "unsupported: atomic store (ordering semantics not modeled): {}",
-                    inst.raw
-                ));
-            }
-            // operand 0: "i8 %result" (the value)
-            // operand 1: "ptr %out_ptr" (the pointer)
-            let val_str = strip_type(&inst.operands[0]);
-            let ptr_str = strip_type(&inst.operands[1]);
-            let val = get_node_id(&val_str, value_map, params, builder, None)
-                .ok_or(format!("cannot resolve store value '{}'", val_str))?;
-            let ptr = get_node_id(&ptr_str, value_map, params, builder, None)
-                .ok_or(format!("cannot resolve store ptr '{}'", ptr_str))?;
-            let _node_id = builder
-                .store(ptr, val, span)
-                .map_err(|e| format!("{:?}", e))?;
-            // Store produces no value (Unit) — don't insert into value_map
-            Ok(None)
+            // Memory writes are not emitted yet. Lowering them to Store
+            // nodes and letting the emitter ignore them would silently
+            // drop side effects, so refuse until write emission exists.
+            Err(format!(
+                "unsupported: memory store (write semantics not emitted): {}",
+                inst.raw
+            ))
         }
 
         "br" | "ret" | "phi" => {

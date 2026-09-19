@@ -399,6 +399,12 @@ have now been restored into current `sir_mech` and tested.
   orders of magnitude from pipeline feasibility (8/16/32 = 3.5ms /
   62ms / 1.06s). SAT encoding tweaks are not the H3 path; the induction
   obligation needs kernel/proof-by-reflection work instead.
+- **2026-09-20 — stores fail closed**: the lowerer previously built
+  `Store` nodes that the emitter silently ignored — a side-effect drop.
+  Memory stores are now refused explicitly until write emission exists.
+  No existing clean corpus function changes (they were already refused
+  or store-free); this closes a latent miscompile class. Write emission
+  is now an explicit lowering-breadth item.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
