@@ -1527,11 +1527,21 @@ fn emit_expr(
                 )
             }
         }
-        NodeKind::PointerOffset { base, index } => format!(
-            "({} + {})",
-            emit_operand(*base, func, carrier_map),
-            emit_operand(*index, func, carrier_map)
-        ),
+        NodeKind::PointerOffset { base, index } => {
+            let base_expr = emit_operand(*base, func, carrier_map);
+            let index_expr = emit_operand(*index, func, carrier_map);
+            if let Some(Type::Pointer { pointee, .. }) =
+                func.get_node(*base).map(|node| &node.ty)
+            {
+                if pointee.as_ref() != &node.ty {
+                    format!("(({}) ({} + {}))", c_type(&node.ty), base_expr, index_expr)
+                } else {
+                    format!("({} + {})", base_expr, index_expr)
+                }
+            } else {
+                format!("({} + {})", base_expr, index_expr)
+            }
+        }
         NodeKind::Global { name } => c_global_name(name),
         NodeKind::LocalAlloca { name, .. } => c_local_name(name),
         NodeKind::Store { ptr, value } => {

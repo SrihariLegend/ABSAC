@@ -595,6 +595,15 @@ have now been restored into current `sir_mech` and tested.
   clean at 16 cases native/AArch64 and sanitizer-clean; external Embench
   clean rises 20 → 22. Base-14 stays 230 / 131 / 0, fuzz stays
   540 / 360 / 0, and `verify.sh full` passes.
+- **2026-09-20 — post-tested nested loops (`fir_no_red_ld`)**: direct
+  latch tests of the carried counter (`carry < bound`) now shift by the
+  loop step so the source's do-while iteration count is preserved;
+  `disjoint` qualifiers are stripped; mixed-width GEPs scale their index
+  to bytes when the opaque pointee differs, and `PointerOffset` casts
+  the re-typed pointer expression. EDN `fir_no_red_ld` is clean at 16
+  cases native/AArch64 and sanitizer-clean; external Embench clean rises
+  22 → 23. `verify.sh full` passes with base-14 at 230 / 131 / 0 and
+  fuzz at 540 / 360 / 0.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

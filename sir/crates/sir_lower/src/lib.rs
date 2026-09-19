@@ -805,6 +805,7 @@ fn strip_type(operand: &str) -> String {
         .replace("readonly ", "")
         .replace("zeroext ", "")
         .replace("signext ", "")
+        .replace("disjoint ", "")
         .replace("inbounds ", "")
         .replace("nuw ", "")
         .replace("nsw ", "")
@@ -1817,6 +1818,32 @@ fn rotated_counted_domain(
         }
     }
     None
+}
+
+/// Normalize a loop termination: accept a direct `carry < bound` test
+/// (any constant step) or the rotated `next == bound` counted form.
+fn counted_termination(
+    builder: &mut Builder,
+    condition: NodeId,
+    carried_init_nodes: &[NodeId],
+    carried_next_nodes: &[NodeId],
+) -> Option<NodeId> {
+    use sir_nodes::NodeKind;
+    if let Some(NodeKind::Lt { lhs, rhs: _ }) = builder.function().get_node(condition).map(|n| &n.kind)
+    {
+        if carried_init_nodes.contains(lhs) {
+            // The source is a post-tested do-while: shift the domain so
+            // the first iteration still runs and the final check uses
+            // the pre-increment carry.
+            if let Some(rebuilt) =
+                post_tested_carry_domain(builder, condition, carried_init_nodes, carried_next_nodes)
+            {
+                return Some(rebuilt);
+            }
+        }
+    }
+    let (carry, bound) = rotated_counted_domain(builder, condition, carried_init_nodes)?;
+    builder.lt(carry, bound, Span::unknown()).ok()
 }
 
 /// Rotated zero-test normalization for runtime-bounded loops.
@@ -3686,11 +3713,8 @@ fn lower_loop_chain(
         Some(Type::Bool),
     )
     .ok_or("nested chain: unresolved latch condition".to_string())?;
-    let (carry, bound) = rotated_counted_domain(builder, condition, &init_nodes)
+    let termination = counted_termination(builder, condition, &init_nodes, &next_nodes)
         .ok_or("nested chain: latch is not a constant-step counted test".to_string())?;
-    let termination = builder
-        .lt(carry, bound, span)
-        .map_err(|e| format!("nested chain: {:?}", e))?;
 
     let output_types: Vec<Type> = phis.iter().map(|phi| phi.ty.clone()).collect();
     let loop_ty = Type::Tuple {
@@ -3860,11 +3884,8 @@ fn lower_nested_two_level(
         Some(Type::Bool),
     )
     .ok_or("nested loop: unresolved latch condition".to_string())?;
-    let (carry, bound) = rotated_counted_domain(builder, condition, &outer_inits)
+    let termination = counted_termination(builder, condition, &outer_inits, &outer_nexts)
         .ok_or("nested loop: outer latch is not a constant-step counted test".to_string())?;
-    let termination = builder
-        .lt(carry, bound, span)
-        .map_err(|e| format!("nested loop: {:?}", e))?;
 
     let output_types: Vec<Type> = outer_phis.iter().map(|phi| phi.ty.clone()).collect();
     let loop_ty = Type::Tuple {
@@ -6182,6 +6203,34 @@ fn emit_instruction(
                 let index_str = strip_type(&inst.operands[2]);
                 get_node_id(&index_str, value_map, params, builder, None)
                     .ok_or(format!("cannot resolve gep index '{}'", index_str))?
+            };
+            // The access index is in source-element units. When the
+            // opaque pointer kept a different pointee (mixed-width use),
+            // scale it to bytes so the emitter's pointer cast is sound.
+            let index = if let Some(Type::Pointer { pointee, .. }) =
+                builder.function().get_node(base).map(|node| &node.ty)
+            {
+                if pointee.as_ref() != &elem_ty {
+                    match type_size(&elem_ty) {
+                        Some(size) if size > 1 => {
+                            let index_ty = builder
+                                .function()
+                                .get_node(index)
+                                .map(|node| node.ty.clone())
+                                .unwrap_or(Type::u64());
+                            let factor =
+                                builder.constant(ConstantData::u64(size as u64), index_ty, span);
+                            builder
+                                .mul(index, factor, span)
+                                .map_err(|e| format!("{:?}", e))?
+                        }
+                        _ => index,
+                    }
+                } else {
+                    index
+                }
+            } else {
+                index
             };
 
             let base_is_pointer = builder
