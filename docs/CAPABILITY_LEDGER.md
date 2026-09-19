@@ -261,6 +261,10 @@ have now been restored into current `sir_mech` and tested.
   differential- and sanitizer-clean. At `-O1` clang already selected the
   same machine instructions, so this is an IR-quality/leanness win, not
   a wall-time claim.
+- **2026-09-19 — bitscan evidence**: the v18 corpus (ctpop/cttz/ctlz
+  u32/u64) is 6 clean / 0 mismatched on both native and AArch64; the
+  lowerer already maps these intrinsics to the SIR/emitter helpers, so
+  no family is needed.
 
 ## Reference commands
 
