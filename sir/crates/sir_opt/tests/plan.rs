@@ -43,6 +43,12 @@ mod cases {
             fixed_extent_xor_reduction_unrolls();
         }
     }
+    pub mod runtime_loop {
+        include!("cases/runtime_loop.rs");
+        pub fn run() {
+            rotated_zero_test_loop_lowers();
+        }
+    }
     pub mod search {
         include!("cases/search_slice.rs");
         pub fn run() {
@@ -83,6 +89,7 @@ fn families_rewrite_and_prove() {
     cases::count::run();
     cases::memchr::run();
     cases::parity::run();
+    cases::runtime_loop::run();
     cases::search::run();
     cases::sum::run();
     cases::registry::run();
