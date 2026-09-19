@@ -46,7 +46,8 @@ mod cases {
     pub mod runtime_loop {
         include!("cases/runtime_loop.rs");
         pub fn run() {
-            rotated_zero_test_loop_lowers();
+            runtime_bound_search_lowers_and_uses_memchr();
+            runtime_zero_test_loop_lowers();
         }
     }
     pub mod search {

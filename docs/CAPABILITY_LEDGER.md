@@ -126,7 +126,7 @@ Non-goals:
 | test files / test LOC | 63 / 15,217 | **9 tests**, case bodies under `tests/cases/` |
 | `sir_mech` proof kernel | LCF kernel + `arith.rs` + induction proof; 38 tests pass | restored; 28 proof cases run under 5 `sir_mech` tests |
 | corpora known | v1–v11 | v2–v14, v16 (v12–v20 added in session) |
-| corpus result | v1–v11: 0 mismatched | 14 corpora: 221 clean / 59 rewrites / 0 mismatched; with fuzz v17–v19b: 761 clean / 187 rewrites / 0 mismatched |
+| corpus result | v1–v11: 0 mismatched | 14 corpora: 221 clean / 62 rewrites / 0 mismatched; with fuzz v17–v19b: 761 clean / 190 rewrites / 0 mismatched |
 
 Corpus comparison on `HEAD`’s own v1–v11: clean/mismatch counts are
 **identical** between `HEAD` and current on every corpus. On the
@@ -186,6 +186,19 @@ have now been restored into current `sir_mech` and tested.
   step lemma and loop-to-popcount obligation are the next proof item
   (H3). Separate-latch runtime loops (the v20 `naive_first_zero` shape)
   remain refused and are the next lowering target.
+- **2026-09-19 — H2 runtime search**: the found-flag runtime-bound
+  search shape now recognizes a non-constant bound and rewrites to the
+  `sir_memchr` intrinsic (definition 402) with the runtime bound as its
+  third argument. The focused `naive_first_zero` fixture is
+  differential-clean and sanitizer-clean. Measured retention is
+  input-dependent: 1.25× on no-hit (89,234ns → 71,186ns) but 0.82× on
+  early-hit (710,492ns → 868,892ns), so the predictive cost model (H4)
+  is required before this rewrite becomes the unconditional default.
+- **2026-09-19 — analysis correctness**: trip-count estimation now
+  requires the carried variable to be stepped by a nonzero constant.
+  Previously a runtime bound sentinel was mistaken for a counter
+  (`trip_count = Some(0)`), which could misclassify runtime loops; the
+  fix raised base-14 rewrites 59 → 62 with zero mismatches.
 
 ## Reference commands
 

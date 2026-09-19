@@ -254,7 +254,10 @@ Priority by measured value:
 1. Kernighan bitset popcount (14–17×) — the rotated zero-test loop now
    lowers (`naive_popcount` is differential-clean); the family waits on
    the step/induction obligation.
-2. Runtime-bound search/memchr (contract-backed).
+2. Runtime-bound search/memchr (contract-backed) — the runtime-bound
+   found-flag shape now lowers and rewrites to `sir_memchr`; measured
+   no-hit 1.25× but early-hit 0.82×, so predictive retention is the
+   remaining piece.
 3. Parity (XOR path done) and the remaining reductions.
 4. Arithmetic bit hacks (mod/div/mul/shiftmask).
 5. Mask algebra and permutations.

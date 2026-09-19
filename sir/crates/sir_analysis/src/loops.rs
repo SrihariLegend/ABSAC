@@ -30,7 +30,8 @@ pub fn run_loops(func: &Function) -> HashMap<NodeId, LoopFact> {
             carried_inputs,
         } = &node.kind
         {
-            let trip_count = estimate_trip_count(func, *termination, carried_inputs);
+            let trip_count =
+                estimate_trip_count(func, *termination, carried_inputs, outputs);
             let is_nested = is_nested_loop(func, body);
             let carried = carried_inputs.clone();
             let reductions = detect_reductions(func, carried_inputs, outputs);
@@ -59,16 +60,17 @@ fn estimate_trip_count(
     func: &Function,
     termination: NodeId,
     carried_inputs: &[NodeId],
+    outputs: &[NodeId],
 ) -> Option<u64> {
     let term_node = func.get_node(termination)?;
 
     // Guarded terminations (`!found && i < limit`): the trip-count
     // comparison may be a conjunct of a boolean AND.
     if let NodeKind::BoolAnd { lhs, rhs } = &term_node.kind {
-        if let Some(trip) = estimate_trip_count(func, *lhs, carried_inputs) {
+        if let Some(trip) = estimate_trip_count(func, *lhs, carried_inputs, outputs) {
             return Some(trip);
         }
-        return estimate_trip_count(func, *rhs, carried_inputs);
+        return estimate_trip_count(func, *rhs, carried_inputs, outputs);
     }
 
     // Look for a comparison that controls the loop.
@@ -78,14 +80,16 @@ fn estimate_trip_count(
     | NodeKind::Ge { lhs, rhs } = &term_node.kind
     {
         // Check if one side is a carried variable being incremented.
-        for &carry in carried_inputs {
-            if let Some(trip) = try_count_loop(func, carry, *lhs, *rhs) {
+        for (index, &carry) in carried_inputs.iter().enumerate() {
+            let next = *outputs.get(index)?;
+            if let Some(trip) = try_count_loop(func, carry, next, *lhs, *rhs) {
                 return Some(trip);
             }
         }
     } else if let NodeKind::Eq { lhs, rhs } | NodeKind::Ne { lhs, rhs } = &term_node.kind {
-        for &carry in carried_inputs {
-            if let Some(trip) = try_count_loop(func, carry, *lhs, *rhs) {
+        for (index, &carry) in carried_inputs.iter().enumerate() {
+            let next = *outputs.get(index)?;
+            if let Some(trip) = try_count_loop(func, carry, next, *lhs, *rhs) {
                 return Some(trip);
             }
         }
@@ -96,7 +100,13 @@ fn estimate_trip_count(
 
 /// Try to compute a trip count when a carried variable is compared
 /// against a constant bound.
-fn try_count_loop(func: &Function, carried: NodeId, lhs: NodeId, rhs: NodeId) -> Option<u64> {
+fn try_count_loop(
+    func: &Function,
+    carried: NodeId,
+    next: NodeId,
+    lhs: NodeId,
+    rhs: NodeId,
+) -> Option<u64> {
     // Check if one operand is the carried variable and the other is a constant.
     let bound_side = if lhs == carried {
         rhs
@@ -105,6 +115,19 @@ fn try_count_loop(func: &Function, carried: NodeId, lhs: NodeId, rhs: NodeId) ->
     } else {
         return None;
     };
+
+    // The carried value must actually be stepped by a nonzero constant;
+    // otherwise a runtime bound sentinel that merely appears in the
+    // comparison would be mistaken for a counter.
+    let step = match func.get_node(next).map(|node| &node.kind) {
+        Some(NodeKind::Add { lhs, rhs }) if *lhs == carried => get_constant_u64(func, *rhs),
+        Some(NodeKind::Add { lhs, rhs }) if *rhs == carried => get_constant_u64(func, *lhs),
+        Some(NodeKind::Sub { lhs, rhs }) if *lhs == carried => get_constant_u64(func, *rhs),
+        _ => None,
+    }?;
+    if step == 0 {
+        return None;
+    }
 
     // Get the constant bound.
     let bound_val = get_constant_u64(func, bound_side)?;
@@ -321,4 +344,3 @@ fn folded_add_offset(
     }
     None
 }
-

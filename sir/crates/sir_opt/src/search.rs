@@ -23,6 +23,7 @@ struct SearchPlan {
     accesses: Vec<(NodeId, NodeId, Type)>,
     definition: u64,
     memchr: Option<(NodeId, NodeId)>,
+    runtime: bool,
 }
 
 /// Optimize a bounded search and report whether definition 402
@@ -42,8 +43,10 @@ pub(crate) fn apply_one(
     if plan.definition == 200 && plan.extent > 16 {
         return None;
     }
-    if !prove::first_match_laws(plan.extent as u32, plan.index_width) {
-        return None;
+    if !plan.runtime {
+        if !prove::first_match_laws(plan.extent as u32, plan.index_width) {
+            return None;
+        }
     }
     let optimized = if plan.definition == 402 {
         let (collection, scalar) = plan.memchr?;
@@ -169,25 +172,34 @@ fn recognize_loop(
     }
     let fact = facts.loops.get(&loop_id)?;
 
-    let mut index_pos = None;
     let mut found_pos = None;
+    let mut counter_pos = None;
     let mut result_pos = None;
+    let mut runtime_result_pos = None;
     for (position, carried) in carried_inputs.iter().enumerate() {
         match &function.get_node(*carried)?.kind {
             NodeKind::Constant(ConstantData::Bool(false)) => found_pos = Some(position),
-            NodeKind::Constant(data) if data.as_u64() == Some(0) => index_pos = Some(position),
+            NodeKind::Constant(data) if data.as_u64() == Some(0) => counter_pos = Some(position),
             NodeKind::Constant(data) if data.as_u64().is_some() => result_pos = Some(position),
-            _ => {}
+            _ => runtime_result_pos = Some(position),
         }
     }
-    let index_pos = index_pos?;
     let found_pos = found_pos?;
-    let result_pos = result_pos?;
-    let index = carried_inputs[index_pos];
+    let counter_pos = counter_pos?;
+    let runtime = runtime_result_pos.is_some();
+    let result_pos = if runtime {
+        runtime_result_pos?
+    } else {
+        result_pos?
+    };
+    let index = carried_inputs[counter_pos];
     let found = carried_inputs[found_pos];
     let bound = carried_inputs[result_pos];
-    let extent = constant_u64(function, bound)? as usize;
-    if extent == 0 || fact.trip_count != Some(extent as u64) {
+    let extent = if runtime { 0 } else { constant_u64(function, bound)? as usize };
+    if !runtime && (extent == 0 || fact.trip_count != Some(extent as u64)) {
+        return None;
+    }
+    if runtime && fact.trip_count.is_some() {
         return None;
     }
 
@@ -239,7 +251,7 @@ fn recognize_loop(
         return None;
     }
 
-    let step = function.get_node(outputs[index_pos])?;
+    let step = function.get_node(outputs[counter_pos])?;
     let NodeKind::Add { lhs, rhs } = step.kind else {
         return None;
     };
@@ -250,7 +262,9 @@ fn recognize_loop(
     let termination_kind = &function.get_node(*termination)?.kind;
     let bound_guard = match termination_kind {
         NodeKind::Lt { lhs, rhs }
-            if *lhs == index && constant_u64(function, *rhs) == Some(extent as u64) =>
+            if *lhs == index
+                && (*rhs == bound
+                    || (!runtime && constant_u64(function, *rhs) == Some(extent as u64))) =>
         {
             true
         }
@@ -263,7 +277,10 @@ fn recognize_loop(
             matches!(
                 &function.get_node(lt)?.kind,
                 NodeKind::Lt { lhs, rhs }
-                    if *lhs == index && constant_u64(function, *rhs) == Some(extent as u64)
+                    if *lhs == index
+                        && (*rhs == bound
+                            || (!runtime
+                                && constant_u64(function, *rhs) == Some(extent as u64)))
             )
         }
         _ => false,
@@ -284,13 +301,18 @@ fn recognize_loop(
             if *access_index != index {
                 continue;
             }
-            let Type::Array { element, length } = &function.get_node(*base)?.ty else {
-                return None;
+            let base_ty = &function.get_node(*base)?.ty;
+            let (element, length) = match base_ty {
+                Type::Array { element, length } => (element.as_ref().clone(), Some(*length)),
+                Type::Pointer { pointee, .. } if **pointee == Type::u8() => {
+                    (Type::u8(), None)
+                }
+                _ => return None,
             };
-            if *length != extent {
+            if !runtime && length != Some(extent) {
                 return None;
             }
-            accesses.push((id, *base, element.as_ref().clone()));
+            accesses.push((id, *base, element));
         }
         worklist.extend(node.kind.input_nodes());
     }
@@ -299,6 +321,9 @@ fn recognize_loop(
     }
 
     let memchr = memchr_contract(function, predicate, &accesses);
+    if runtime && memchr.is_none() {
+        return None;
+    }
     let definition = if memchr.is_some() { 402 } else { 200 };
 
     let target = function
@@ -330,6 +355,7 @@ fn recognize_loop(
         accesses,
         definition,
         memchr,
+        runtime,
     })
 }
 
