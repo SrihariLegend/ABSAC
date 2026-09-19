@@ -132,7 +132,7 @@ fn patch_gate_rejects_dangling_replacement() {
             lhs: NodeId::new(u64::MAX),
             rhs: value,
         },
-        value_ty,
+        value_ty.clone(),
         Effects::empty(),
         Span::unknown(),
     );
@@ -143,5 +143,22 @@ fn patch_gate_rejects_dangling_replacement() {
     assert!(
         patch::apply(&function, &bad_add).is_none(),
         "a reachable node naming a nonexistent operand must be rejected"
+    );
+
+    // A patch node that introduces a write must fail the frame gate.
+    let write_node = Node::new(
+        NodeId::new(0),
+        NodeKind::Constant(sir_types::ConstantData::u64(7)),
+        value_ty.clone(),
+        Effects::WRITE_MEMORY,
+        Span::unknown(),
+    );
+    let write_patch = Patch {
+        nodes: vec![(0, write_node)],
+        replacements: vec![(value, 0)],
+    };
+    assert!(
+        patch::apply(&function, &write_patch).is_none(),
+        "a patch node that introduces a write must be rejected"
     );
 }

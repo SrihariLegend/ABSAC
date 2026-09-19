@@ -203,6 +203,12 @@ have now been restored into current `sir_mech` and tested.
   harness now renames exact `@name` symbols everywhere they appear
   (calls, function-pointer operands, `llvm.compiler.used` metadata),
   not only calls. Address-taken corpus functions can now be tested.
+- **2026-09-19 — H1 frame/base gate v0**: synthesized patch nodes may
+  be pure or read memory, but introducing writes, allocation, I/O,
+  atomics, or volatile accesses now fails closed. Coverage is folded
+  into the existing patch-gate test; base-14 stays 62 rewrites with
+  zero mismatches. Full frame/base identity checks across regions
+  remain.
 - **2026-09-19 — Kernighan proof-cost evidence**: bounded symbolic
   unrolling proves the Kernighan loop-to-popcount identity at 8 bits in
   8ms and 16 bits in 285ms, but 32 bits takes 35.6s and 64 bits is

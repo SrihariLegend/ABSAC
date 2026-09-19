@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use sir_nodes::{Function, Node, NodeKind};
-use sir_types::NodeId;
+use sir_types::{Effects, NodeId};
 
 /// A detached replacement graph. Node operands that name another patch
 /// node hold that node's local id; any other operand is external.
@@ -25,6 +25,12 @@ pub fn apply(function: &Function, patch: &Patch) -> Option<Function> {
 
     let mut rewritten = function.clone();
     for (local_id, node) in &patch.nodes {
+        // Frame/base gate v0: a synthesized patch node may read memory
+        // or be pure, but it may not introduce writes, allocation, I/O,
+        // atomics, or volatile accesses outside the authorized region.
+        if !(node.effects - Effects::READ_MEMORY).is_empty() {
+            return None;
+        }
         let mut imported = node.clone();
         imported.id = *map.get(local_id)?;
         imported.kind = rewrite_local(&imported.kind, &local, &map)?;
