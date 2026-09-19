@@ -1140,6 +1140,98 @@ fn block_successors(block: &Block) -> Vec<String> {
     }
     Vec::new()
 }
+
+struct NestedShape {
+    outer: usize,
+    outer_latch: usize,
+    inner: usize,
+}
+
+/// A strict two-level counted nest: outer header branches directly to the
+/// inner header; the inner latch exits to the outer latch; the outer latch
+/// branches back to the outer header or out. Integer memory only.
+fn detect_nested_two_level(ir: &IrFunction) -> Option<NestedShape> {
+    let mut edges = Vec::new();
+    for idx in 0..ir.blocks.len() {
+        for succ in successor_indices(ir, idx) {
+            if succ <= idx {
+                edges.push((idx, succ));
+            }
+        }
+    }
+    if edges.len() != 2 {
+        return None;
+    }
+    edges.sort_by_key(|(_, header)| *header);
+    let (outer_latch, outer) = edges[0];
+    let (inner_latch, inner) = edges[1];
+    if inner_latch != inner {
+        return None;
+    }
+    if outer >= inner || inner > outer_latch {
+        return None;
+    }
+    let outer_terminator = ir.blocks[outer]
+        .instructions
+        .iter()
+        .find(|inst| matches!(inst.opcode.as_str(), "br" | "switch" | "ret"))?;
+    if outer_terminator.opcode != "br" || outer_terminator.operands.len() != 1 {
+        return None;
+    }
+    let outer_target = ir.block_map.get(
+        &outer_terminator.operands[0]
+            .trim_start_matches("label ")
+            .trim_start_matches('%')
+            .to_string(),
+    )?;
+    if *outer_target != inner {
+        return None;
+    }
+    let inner_terminator = ir.blocks[inner_latch]
+        .instructions
+        .iter()
+        .find(|inst| inst.opcode == "br")?;
+    if inner_terminator.operands.len() < 3 {
+        return None;
+    }
+    let inner_targets: Vec<usize> = terminator_targets(inner_terminator)
+        .iter()
+        .filter_map(|label| ir.block_map.get(label).copied())
+        .collect();
+    if !inner_targets.contains(&inner) || !inner_targets.contains(&outer_latch) {
+        return None;
+    }
+    let outer_terminator = ir.blocks[outer_latch]
+        .instructions
+        .iter()
+        .find(|inst| inst.opcode == "br")?;
+    if outer_terminator.operands.len() < 3 {
+        return None;
+    }
+    let outer_targets: Vec<usize> = terminator_targets(outer_terminator)
+        .iter()
+        .filter_map(|label| ir.block_map.get(label).copied())
+        .collect();
+    if !outer_targets.contains(&outer) {
+        return None;
+    }
+    for idx in outer..=outer_latch {
+        for inst in &ir.blocks[idx].instructions {
+            if matches!(inst.opcode.as_str(), "call" | "switch")
+                || inst.raw.contains("double")
+                || inst.raw.contains("float")
+                || inst.raw.contains("atomic")
+            {
+                return None;
+            }
+        }
+    }
+    Some(NestedShape {
+        outer,
+        outer_latch,
+        inner,
+    })
+}
 /// Lower an LLVM IR function to SIR.
 pub fn lower(text: &str) -> Result<Function, String> {
     let text = extract_first_function(text);
@@ -1233,6 +1325,11 @@ pub fn lower(text: &str) -> Result<Function, String> {
     if !has_back_edge && ir.blocks.len() > 1 && acyclic_global_memory_cfg(&ir) {
         let return_ty = builder.function().return_ty.clone();
         return lower_switch_cfg(&ir, &mut builder, value_map, return_ty)
+            .map(|_| builder.build());
+    }
+
+    if let Some(shape) = detect_nested_two_level(&ir) {
+        return lower_nested_two_level(&ir, &shape, &mut builder, &mut value_map)
             .map(|_| builder.build());
     }
 
@@ -3163,6 +3260,230 @@ fn lower_early_exit_search(
     builder
         .return_value(ret_node, span)
         .map_err(|e| format!("early-exit search return: {:?}", e))?;
+    Ok(())
+}
+
+/// Lower a strict two-level nest (fir shape): build the inner Loop, then
+/// the outer Loop around its node and extracts.
+fn lower_nested_two_level(
+    ir: &IrFunction,
+    shape: &NestedShape,
+    builder: &mut Builder,
+    value_map: &mut HashMap<String, NodeId>,
+) -> Result<(), String> {
+    let span = Span::unknown();
+    let outer = shape.outer;
+    let outer_latch = shape.outer_latch;
+    let inner = shape.inner;
+    let latch_label = ir.blocks[outer_latch].label.clone();
+
+    // Preheader straight-line blocks.
+    for idx in 0..outer {
+        let block = &ir.blocks[idx];
+        if block.instructions.iter().any(|inst| inst.opcode == "ret") {
+            continue;
+        }
+        for inst in &block.instructions {
+            if matches!(inst.opcode.as_str(), "phi" | "br" | "ret") {
+                continue;
+            }
+            emit_instruction(inst, builder, value_map, &ir.params, span)?;
+        }
+    }
+
+    // Outer phis: map each result to its carried entry value.
+    struct NestPhi {
+        result: String,
+        ty: Type,
+        next: String,
+    }
+    let mut outer_phis: Vec<NestPhi> = Vec::new();
+    let mut outer_inits: Vec<NodeId> = Vec::new();
+    for inst in &ir.blocks[outer].instructions {
+        if inst.opcode != "phi" {
+            continue;
+        }
+        let result = inst.result.clone().unwrap_or_default();
+        let ty = inst
+            .operands
+            .first()
+            .and_then(|operand| operand_type(operand))
+            .ok_or(format!("nested loop: unsupported phi type: {}", inst.raw))?;
+        let mut init = None;
+        let mut next = None;
+        for (value, label) in phi_incomings(inst) {
+            if label == latch_label {
+                next = Some(value);
+            } else if init.is_none() {
+                init = Some(value);
+            }
+        }
+        let init = init.ok_or(format!("nested loop: phi without entry: {}", inst.raw))?;
+        let next = next.ok_or(format!("nested loop: phi without latch: {}", inst.raw))?;
+        let init_node = get_node_id(
+            &strip_type(&init),
+            value_map,
+            &ir.params,
+            builder,
+            Some(ty.clone()),
+        )
+        .ok_or(format!("nested loop: unresolved phi entry '{}'", init))?;
+        value_map.insert(result.clone(), init_node);
+        outer_inits.push(init_node);
+        outer_phis.push(NestPhi { result, ty, next });
+    }
+    if outer_phis.is_empty() {
+        return Err("nested loop: outer header has no phis".to_string());
+    }
+
+    // Outer header body, up to the branch into the inner loop.
+    let mut body_nodes: Vec<NodeId> = Vec::new();
+    for inst in &ir.blocks[outer].instructions {
+        if matches!(inst.opcode.as_str(), "phi" | "br" | "ret") {
+            continue;
+        }
+        if let Some(id) = emit_instruction(inst, builder, value_map, &ir.params, span)? {
+            body_nodes.push(id);
+        }
+    }
+
+    // Build the inner loop; skip every block before it (already emitted).
+    let mut skip_blocks: HashSet<String> = HashSet::new();
+    for idx in 0..inner {
+        skip_blocks.insert(ir.blocks[idx].label.clone());
+    }
+    let inner_start = builder
+        .function()
+        .arena
+        .ids()
+        .map(|id| id.0)
+        .max()
+        .unwrap_or(0);
+    lower_loop_function(ir, inner, builder, value_map, &skip_blocks)?;
+    let inner_loop_id = builder
+        .function()
+        .arena
+        .ids()
+        .find(|id| {
+            id.0 > inner_start
+                && builder
+                    .function()
+                    .get_node(*id)
+                    .is_some_and(|node| matches!(node.kind, NodeKind::Loop { .. }))
+        })
+        .map(|id| id.0)
+        .unwrap_or(inner_start);
+    body_nodes.extend(
+        builder
+            .function()
+            .arena
+            .ids()
+            .filter(|id| id.0 >= inner_loop_id),
+    );
+
+    // Resolve outer next values from the latch and derive the pre-tested
+    // termination from the latch's exit test.
+    let mut outer_nexts: Vec<NodeId> = Vec::new();
+    for phi in &outer_phis {
+        let next = get_node_id(
+            &strip_type(&phi.next),
+            value_map,
+            &ir.params,
+            builder,
+            Some(phi.ty.clone()),
+        )
+        .ok_or(format!("nested loop: unresolved phi next '{}'", phi.next))?;
+        outer_nexts.push(next);
+    }
+    let latch_terminator = ir.blocks[outer_latch]
+        .instructions
+        .iter()
+        .find(|inst| inst.opcode == "br" && inst.operands.len() >= 3)
+        .ok_or("nested loop: outer latch has no conditional branch".to_string())?;
+    let condition = get_node_id(
+        &strip_type(&latch_terminator.operands[0]),
+        value_map,
+        &ir.params,
+        builder,
+        Some(Type::Bool),
+    )
+    .ok_or("nested loop: unresolved latch condition".to_string())?;
+    let (carry, bound) = rotated_counted_domain(builder, condition, &outer_inits)
+        .ok_or("nested loop: outer latch is not a constant-step counted test".to_string())?;
+    let termination = builder
+        .lt(carry, bound, span)
+        .map_err(|e| format!("nested loop: {:?}", e))?;
+
+    let output_types: Vec<Type> = outer_phis.iter().map(|phi| phi.ty.clone()).collect();
+    let loop_ty = Type::Tuple {
+        elements: output_types.clone(),
+    };
+    let outer_loop = builder
+        .r#loop(
+            &body_nodes,
+            termination,
+            &outer_nexts,
+            &outer_inits,
+            loop_ty,
+            span,
+        )
+        .map_err(|e| format!("nested loop: {:?}", e))?;
+    for (index, phi) in outer_phis.iter().enumerate() {
+        let extract = builder
+            .tuple_extract(outer_loop, index, phi.ty.clone(), span)
+            .map_err(|e| format!("nested loop: {:?}", e))?;
+        value_map.insert(phi.result.clone(), extract);
+    }
+
+    // Post-latch blocks (function exit).
+    for idx in outer_latch.saturating_add(1)..ir.blocks.len() {
+        let block = &ir.blocks[idx];
+        if block.instructions.iter().any(|inst| inst.opcode == "phi") {
+            return Err(format!(
+                "nested loop: unsupported post-loop phi in {}",
+                block.label
+            ));
+        }
+        for inst in &block.instructions {
+            match inst.opcode.as_str() {
+                "phi" | "br" => continue,
+                "ret" => {
+                    if builder.function().return_node.is_some() {
+                        continue;
+                    }
+                    let is_void = inst
+                        .operands
+                        .first()
+                        .map(|operand| strip_type(operand) == "void")
+                        .unwrap_or(true);
+                    if is_void {
+                        let unit = builder.constant(ConstantData::Unit, Type::Unit, span);
+                        builder
+                            .return_value(unit, span)
+                            .map_err(|e| format!("nested loop: {:?}", e))?;
+                    } else {
+                        let value = get_node_id(
+                            &strip_type(&inst.operands[0]),
+                            value_map,
+                            &ir.params,
+                            builder,
+                            None,
+                        )
+                        .ok_or(format!(
+                            "nested loop: unresolved return: {}",
+                            inst.raw
+                        ))?;
+                        builder
+                            .return_value(value, span)
+                            .map_err(|e| format!("nested loop: {:?}", e))?;
+                    }
+                }
+                _ => {
+                    emit_instruction(inst, builder, value_map, &ir.params, span)?;
+                }
+            }
+        }
+    }
     Ok(())
 }
 

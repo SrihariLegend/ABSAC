@@ -577,6 +577,14 @@ have now been restored into current `sir_mech` and tested.
   hand-built nested SIR probe compiles and returns the expected value;
   existing corpora are unchanged (fast runner and fuzz stay green).
   Nested-loop construction in the lowerer is the next step.
+- **2026-09-20 — two-level nested loops (fir)**: a strict nested
+  detector plus builder lowers the inner loop first and constructs the
+  outer loop around the inner `Loop` node and its extracts; the emitter's
+  recursive support schedules the inner loop inside the outer body with
+  parent carriers. EDN `fir` is differential-clean at 16 cases on
+  native and AArch64, sanitizer-clean, and external Embench clean rises
+  19 → 20. Base-14 stays 230 / 131 / 0, fuzz stays 540 / 360 / 0, and
+  `verify.sh full` passes.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
