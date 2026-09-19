@@ -199,6 +199,15 @@ have now been restored into current `sir_mech` and tested.
   Previously a runtime bound sentinel was mistaken for a counter
   (`trip_count = Some(0)`), which could misclassify runtime loops; the
   fix raised base-14 rewrites 59 → 62 with zero mismatches.
+- **2026-09-19 — harness symbol rename**: the differential/timing
+  harness now renames exact `@name` symbols everywhere they appear
+  (calls, function-pointer operands, `llvm.compiler.used` metadata),
+  not only calls. Address-taken corpus functions can now be tested.
+- **2026-09-19 — Kernighan proof-cost evidence**: bounded symbolic
+  unrolling proves the Kernighan loop-to-popcount identity at 8 bits in
+  8ms and 16 bits in 285ms, but 32 bits takes 35.6s and 64 bits is
+  infeasible. The production-width family therefore needs the
+  induction/kernel proof (H3), not brute-force unrolling.
 
 ## Reference commands
 

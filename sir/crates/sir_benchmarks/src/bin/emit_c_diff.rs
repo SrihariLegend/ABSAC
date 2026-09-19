@@ -533,7 +533,7 @@ fn time_function(
             base_path,
         )
     } else {
-        let ref_ll = ll.replace(&format!("@{name}("), &format!("@{name}__ref("));
+        let ref_ll = rename_symbol(ll, name, "__ref");
         let ref_path = dir.join("ref.ll");
         fs::write(&ref_path, &ref_ll).map_err(|e| format!("write ref.ll: {e}"))?;
         (
@@ -769,7 +769,7 @@ fn run_function(
             reason: format!("cannot create {}", dir.display()),
         };
     }
-    let ref_ll = ll.replace(&format!("@{name}("), &format!("@{name}__ref("));
+    let ref_ll = rename_symbol(ll, name, "__ref");
     let driver = build_driver(name, &optimized.function, &ir_ret, &ir_params, cases);
 
     // Define any external globals the module references.
@@ -869,6 +869,31 @@ fn ns_value(line: &str, key: &str) -> Option<u64> {
     let prefix = format!("{key}=");
     line.split_whitespace()
         .find_map(|token| token.strip_prefix(&prefix)?.parse().ok())
+}
+
+/// Rename every exact `@name` symbol reference, including calls,
+/// function-pointer arrays, and metadata such as `llvm.compiler.used`.
+/// Longer identifiers sharing the prefix are left untouched.
+fn rename_symbol(text: &str, name: &str, suffix: &str) -> String {
+    let needle = format!("@{name}");
+    let mut out = String::with_capacity(text.len() + 16);
+    let mut rest = text;
+    while let Some(position) = rest.find(&needle) {
+        out.push_str(&rest[..position]);
+        out.push_str(&needle);
+        let after = &rest[position + needle.len()..];
+        let continues_identifier = after
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_alphanumeric() || c == '_')
+            .unwrap_or(false);
+        if !continues_identifier {
+            out.push_str(suffix);
+        }
+        rest = after;
+    }
+    out.push_str(rest);
+    out
 }
 
 fn main() {
