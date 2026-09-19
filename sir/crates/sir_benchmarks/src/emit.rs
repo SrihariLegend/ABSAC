@@ -115,18 +115,6 @@ fn dependency_closure(
     out
 }
 
-/// True when the expression depends on an output of one of `loops`
-/// (directly or through a tuple extract).
-fn depends_on_loop(id: NodeId, func: &Function, loops: &HashSet<NodeId>) -> bool {
-    let closure = dependency_closure(&[id], func, &HashSet::new());
-    closure.iter().any(|node| {
-        matches!(
-            func.get_node(*node).map(|n| &n.kind),
-            Some(NodeKind::TupleExtract { tuple, .. }) if loops.contains(tuple)
-        )
-    })
-}
-
 /// Map a SIR type to a C type string.
 pub fn c_type(ty: &Type) -> String {
     match ty {
@@ -1942,6 +1930,7 @@ pub fn emit_c(func: &Function) -> String {
                 &mut out,
                 loop_ordinal(func, loop_n.id),
                 &HashMap::new(),
+                &HashSet::new(),
             );
             loop_ids.extend(emitted_ids);
         }
@@ -2045,6 +2034,7 @@ fn emit_loop(
     out: &mut String,
     ordinal: usize,
     parent_carriers: &HashMap<NodeId, String>,
+    pre_emitted: &HashSet<NodeId>,
 ) -> HashSet<NodeId> {
     let (body, termination, outputs, carried_inputs) = match &loop_node.kind {
         NodeKind::Loop {
@@ -2102,7 +2092,6 @@ fn emit_loop(
         })
         .collect();
     let nested_set: HashSet<NodeId> = nested_loops.iter().copied().collect();
-    let mut nested_emitted = false;
 
     if try_emit_first_occurrence(
         loop_node,
@@ -2121,7 +2110,7 @@ fn emit_loop(
         emitted.extend(body_set.iter().copied());
         return emitted;
     }
-    let mut emitted: HashSet<NodeId> = HashSet::new();
+    let mut emitted: HashSet<NodeId> = pre_emitted.clone();
     if let Some(term_expr) = emit_pure_expr(termination, func, &carrier_map, 0) {
         // Fully inlinable pure condition: emit it directly in the while
         // condition. This is the canonical loop shape downstream compilers
@@ -2133,6 +2122,10 @@ fn emit_loop(
         // explicit pre-test form.
         out.push_str("    while (1) {\n");
         for id in topo_order(&[termination], &term_set, func) {
+            if pre_emitted.contains(&id) {
+                emitted.insert(id);
+                continue;
+            }
             if store_targets.contains(&id) {
                 emitted.insert(id);
                 continue;
@@ -2153,27 +2146,17 @@ fn emit_loop(
         let _ = write!(out, "        if (!({term_expr})) break;\n");
     }
 
-    // Remaining body nodes, in dataflow order.
-    for id in topo_order(&body_seeds, &body_set, func) {
-        if !nested_emitted
-            && !nested_loops.is_empty()
-            && depends_on_loop(id, func, &nested_set)
-        {
-            emitted.extend(emit_nested_loops(
-                &nested_loops,
-                func,
-                out,
-                &carrier_map,
-            ));
-            nested_emitted = true;
+    // Walk the body in program order, expanding each statement's
+    // dependencies and executing nested loops in place.
+    let emit_statement = |id: NodeId,
+                          emitted: &mut HashSet<NodeId>,
+                          out: &mut String| {
+        if !emitted.insert(id) || store_targets.contains(&id) {
+            return;
         }
-        if !emitted.insert(id) {
-            continue;
-        }
-        if store_targets.contains(&id) {
-            continue;
-        }
-        let node = func.get_node(id).expect("arena node");
+        let Some(node) = func.get_node(id) else {
+            return;
+        };
         let ty = c_type(&node.ty);
         let expr = emit_expr(node, func, &carrier_map);
         if node.ty == Type::Unit {
@@ -2183,16 +2166,30 @@ fn emit_loop(
         } else {
             let _ = write!(out, "        {} v{} = {};\n", ty, id.as_u64(), expr);
         }
+    };
+    for id in body.iter().copied() {
+        if nested_set.contains(&id) {
+            if let Some(node) = func.get_node(id) {
+                let ordinal = loop_ordinal(func, id);
+                let child_pre = emitted.clone();
+                emitted.extend(emit_loop(
+                    node,
+                    func,
+                    out,
+                    ordinal,
+                    &carrier_map,
+                    &child_pre,
+                ));
+            }
+            continue;
+        }
+        for dependency in topo_order(&[id], &body_set, func) {
+            emit_statement(dependency, &mut emitted, out);
+        }
     }
-    if !nested_emitted && !nested_loops.is_empty() {
-        emitted.extend(emit_nested_loops(
-            &nested_loops,
-            func,
-            out,
-            &carrier_map,
-        ));
+    for id in topo_order(&body_seeds, &body_set, func) {
+        emit_statement(id, &mut emitted, out);
     }
-
     // Assign outputs: the outputs are the carriers, so this both records the
     // iteration result and updates the values the next iteration (and any
     // post-loop consumer) reads.
@@ -2202,34 +2199,5 @@ fn emit_loop(
     }
 
     out.push_str("    }\n");
-    emitted
-}
-
-fn emit_nested_loops(
-    ids: &[NodeId],
-    func: &Function,
-    out: &mut String,
-    parent_carriers: &HashMap<NodeId, String>,
-) -> HashSet<NodeId> {
-    let mut emitted = HashSet::new();
-    for &id in ids {
-        let Some(node) = func.get_node(id) else {
-            continue;
-        };
-        let ordinal = loop_ordinal(func, id);
-        emitted.extend(emit_loop(node, func, out, ordinal, parent_carriers));
-        emitted.insert(id);
-        if let NodeKind::Loop {
-            body,
-            termination,
-            outputs,
-            ..
-        } = &node.kind
-        {
-            emitted.extend(body.iter().copied());
-            emitted.insert(*termination);
-            emitted.extend(outputs.iter().copied());
-        }
-    }
     emitted
 }

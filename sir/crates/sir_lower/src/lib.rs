@@ -93,6 +93,115 @@ fn gep_source_array_type(line: &str) -> Option<Type> {
     })
 }
 
+/// Nested array dimensions and final element type for `[A x [B x T]]`.
+fn array_dimensions(ty: &str) -> Option<(Vec<usize>, Type)> {
+    let ty = ty.trim();
+    let rest = ty.strip_prefix('[')?;
+    let mut depth = 1usize;
+    let mut close = None;
+    for (index, ch) in rest.char_indices() {
+        match ch {
+            '[' => depth += 1,
+            ']' => {
+                depth -= 1;
+                if depth == 0 {
+                    close = Some(index);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let close = close?;
+    let inner = &rest[..close];
+    let (length, element) = inner.split_once('x')?;
+    let length = length.trim().parse::<usize>().ok()?;
+    let element = element.trim();
+    let (mut dimensions, final_ty) = if element.starts_with('[') {
+        array_dimensions(element)?
+    } else {
+        (Vec::new(), parse_type(element)?)
+    };
+    dimensions.insert(0, length);
+    Some((dimensions, final_ty))
+}
+
+/// Linear element index for a multi-index GEP. For `[A x T]` with
+/// indices `(i, j)` this is `i * A + j`; nested arrays use the product
+/// of the remaining dimensions.
+fn gep_linear_index(
+    builder: &mut Builder,
+    source_ty: &str,
+    indices: &[String],
+    value_map: &HashMap<String, NodeId>,
+    params: &[(String, String)],
+    span: Span,
+) -> Result<NodeId, String> {
+    let last = indices
+        .last()
+        .ok_or("getelementptr without index".to_string())?;
+    let mut fallback = || -> Result<NodeId, String> {
+        get_node_id(&strip_type(last), value_map, params, builder, None)
+            .ok_or(format!("cannot resolve gep index '{}'", strip_type(last)))
+    };
+    let Some((dimensions, _)) = array_dimensions(source_ty) else {
+        return fallback();
+    };
+    let strides: Vec<usize> = if indices.len() == dimensions.len() {
+        (0..dimensions.len())
+            .map(|m| dimensions[m + 1..].iter().product())
+            .collect()
+    } else if indices.len() == dimensions.len() + 1 {
+        let mut strides: Vec<usize> = (0..dimensions.len())
+            .map(|m| dimensions[m..].iter().product())
+            .collect();
+        strides.push(1);
+        strides
+    } else {
+        return fallback();
+    };
+    let mut result: Option<NodeId> = None;
+    for (index, operand) in indices.iter().enumerate() {
+        let index_node = get_node_id(
+            &strip_type(operand),
+            value_map,
+            params,
+            builder,
+            operand_type(operand),
+        )
+        .ok_or(format!(
+            "cannot resolve gep index '{}'",
+            strip_type(operand)
+        ))?;
+        let stride = strides[index];
+        let node_ty = builder
+            .function()
+            .get_node(index_node)
+            .map(|node| node.ty.clone())
+            .unwrap_or(Type::u64());
+        let term = if stride == 1 {
+            index_node
+        } else {
+            let factor = builder.constant(ConstantData::u64(stride as u64), node_ty, span);
+            builder
+                .mul(index_node, factor, span)
+                .map_err(|e| format!("{:?}", e))?
+        };
+        result = Some(match result {
+            None => term,
+            Some(previous) => builder
+                .add(previous, term, span)
+                .map_err(|e| format!("{:?}", e))?,
+        });
+    }
+    if let Some(result) = result {
+        Ok(result)
+    } else {
+        let ty = operand_type(last).unwrap_or(Type::u64());
+        Ok(builder.constant(ConstantData::u64(0), ty, span))
+    }
+}
+
 /// Pointee type of a `getelementptr` source operand as used by a
 /// parameter: `<elem>, ptr %p, ...` (or `[N x T], ptr %p, i64 0, i64 %i`
 /// where the accessed element is `T`).
@@ -1147,6 +1256,89 @@ struct NestedShape {
     inner: usize,
 }
 
+/// Back edges in block-index order: `(latch, header)`.
+fn indexed_back_edges(ir: &IrFunction) -> Vec<(usize, usize)> {
+    let mut edges = Vec::new();
+    for idx in 0..ir.blocks.len() {
+        for succ in successor_indices(ir, idx) {
+            if succ <= idx {
+                edges.push((idx, succ));
+            }
+        }
+    }
+    edges
+}
+
+/// A linear chain of counted loops, outer to inner. Requires direct
+/// header→child branches and each non-outermost loop exiting into its
+/// parent's latch.
+fn detect_linear_chain(ir: &IrFunction) -> Option<Vec<(usize, usize)>> {
+    let mut edges = indexed_back_edges(ir);
+    if edges.len() < 3 {
+        return None;
+    }
+    edges.sort_by_key(|(_, header)| *header);
+    for window in edges.windows(2) {
+        let (outer_latch, outer) = window[0];
+        let (inner_latch, inner) = window[1];
+        if !(outer < inner && inner_latch <= outer_latch) {
+            return None;
+        }
+        let terminator = ir.blocks[outer]
+            .instructions
+            .iter()
+            .find(|inst| inst.opcode == "br")?;
+        if terminator.operands.len() != 1 {
+            return None;
+        }
+        let target = ir.block_map.get(
+            &terminator.operands[0]
+                .trim_start_matches("label ")
+                .trim_start_matches('%')
+                .to_string(),
+        )?;
+        if *target != inner {
+            return None;
+        }
+    }
+    for (index, &(latch, header)) in edges.iter().enumerate() {
+        let terminator = ir.blocks[latch]
+            .instructions
+            .iter()
+            .find(|inst| inst.opcode == "br")?;
+        if terminator.operands.len() < 3 {
+            return None;
+        }
+        let targets: Vec<usize> = terminator_targets(terminator)
+            .iter()
+            .filter_map(|label| ir.block_map.get(label).copied())
+            .collect();
+        if !targets.contains(&header) {
+            return None;
+        }
+        if index > 0 {
+            let parent_latch = edges[index - 1].0;
+            if !targets.contains(&parent_latch) {
+                return None;
+            }
+        }
+    }
+    let outer = edges[0].1;
+    let outer_latch = edges[0].0;
+    for idx in outer..=outer_latch {
+        for inst in &ir.blocks[idx].instructions {
+            if matches!(inst.opcode.as_str(), "call" | "switch")
+                || inst.raw.contains("double")
+                || inst.raw.contains("float")
+                || inst.raw.contains("atomic")
+            {
+                return None;
+            }
+        }
+    }
+    Some(edges)
+}
+
 /// A strict two-level counted nest: outer header branches directly to the
 /// inner header; the inner latch exits to the outer latch; the outer latch
 /// branches back to the outer header or out. Integer memory only.
@@ -1331,6 +1523,81 @@ pub fn lower(text: &str) -> Result<Function, String> {
     if let Some(shape) = detect_nested_two_level(&ir) {
         return lower_nested_two_level(&ir, &shape, &mut builder, &mut value_map)
             .map(|_| builder.build());
+    }
+
+    if let Some(chain) = detect_linear_chain(&ir) {
+        let outer = chain[0].1;
+        let outer_latch = chain[0].0;
+        for idx in 0..outer {
+            let block = &ir.blocks[idx];
+            if block.instructions.iter().any(|inst| inst.opcode == "ret") {
+                continue;
+            }
+            for inst in &block.instructions {
+                if matches!(inst.opcode.as_str(), "phi" | "br" | "ret") {
+                    continue;
+                }
+                emit_instruction(inst, &mut builder, &mut value_map, &ir.params, Span::unknown())?;
+            }
+        }
+        lower_loop_chain(&ir, &chain, 0, &mut builder, &mut value_map)
+            .map_err(|e| format!("nested chain: {}", e))?;
+        for idx in outer_latch.saturating_add(1)..ir.blocks.len() {
+            let block = &ir.blocks[idx];
+            if block.instructions.iter().any(|inst| inst.opcode == "phi") {
+                return Err(format!(
+                    "nested chain: unsupported post-loop phi in {}",
+                    block.label
+                ));
+            }
+            for inst in &block.instructions {
+                match inst.opcode.as_str() {
+                    "phi" | "br" => continue,
+                    "ret" => {
+                        if builder.function().return_node.is_some() {
+                            continue;
+                        }
+                        let is_void = inst
+                            .operands
+                            .first()
+                            .map(|operand| strip_type(operand) == "void")
+                            .unwrap_or(true);
+                        if is_void {
+                            let unit =
+                                builder.constant(ConstantData::Unit, Type::Unit, Span::unknown());
+                            builder
+                                .return_value(unit, Span::unknown())
+                                .map_err(|e| format!("nested chain: {:?}", e))?;
+                        } else {
+                            let value = get_node_id(
+                                &strip_type(&inst.operands[0]),
+                                &value_map,
+                                &ir.params,
+                                &mut builder,
+                                None,
+                            )
+                            .ok_or(format!(
+                                "nested chain: unresolved return: {}",
+                                inst.raw
+                            ))?;
+                            builder
+                                .return_value(value, Span::unknown())
+                                .map_err(|e| format!("nested chain: {:?}", e))?;
+                        }
+                    }
+                    _ => {
+                        emit_instruction(
+                            inst,
+                            &mut builder,
+                            &mut value_map,
+                            &ir.params,
+                            Span::unknown(),
+                        )?;
+                    }
+                }
+            }
+        }
+        return Ok(builder.build());
     }
 
     // Detect loop structure: find the back-edge block (the one that branches to itself or to a predecessor)
@@ -3260,6 +3527,191 @@ fn lower_early_exit_search(
     builder
         .return_value(ret_node, span)
         .map_err(|e| format!("early-exit search return: {:?}", e))?;
+    Ok(())
+}
+
+/// Lower one loop of a linear chain, recursing into its child first.
+fn lower_loop_chain(
+    ir: &IrFunction,
+    chain: &[(usize, usize)],
+    index: usize,
+    builder: &mut Builder,
+    value_map: &mut HashMap<String, NodeId>,
+) -> Result<(), String> {
+    let span = Span::unknown();
+    let (latch, header) = chain[index];
+    let header_label = ir.blocks[header].label.clone();
+    let latch_label = ir.blocks[latch].label.clone();
+    let next_label = if latch == header {
+        header_label.clone()
+    } else {
+        latch_label.clone()
+    };
+
+    struct ChainPhi {
+        result: String,
+        ty: Type,
+        next: String,
+    }
+    let mut phis: Vec<ChainPhi> = Vec::new();
+    let mut init_nodes: Vec<NodeId> = Vec::new();
+    for inst in &ir.blocks[header].instructions {
+        if inst.opcode != "phi" {
+            continue;
+        }
+        let result = inst.result.clone().unwrap_or_default();
+        let ty = inst
+            .operands
+            .first()
+            .and_then(|operand| operand_type(operand))
+            .ok_or(format!("nested chain: unsupported phi type: {}", inst.raw))?;
+        let mut init = None;
+        let mut next = None;
+        for (value, label) in phi_incomings(inst) {
+            if label == next_label {
+                next = Some(value);
+            } else if init.is_none() {
+                init = Some(value);
+            }
+        }
+        let init = init.ok_or(format!("nested chain: phi without entry: {}", inst.raw))?;
+        let next = next.ok_or(format!("nested chain: phi without latch: {}", inst.raw))?;
+        let init_node = get_node_id(
+            &strip_type(&init),
+            value_map,
+            &ir.params,
+            builder,
+            Some(ty.clone()),
+        )
+        .ok_or(format!("nested chain: unresolved phi entry '{}'", init))?;
+        value_map.insert(result.clone(), init_node);
+        init_nodes.push(init_node);
+        phis.push(ChainPhi { result, ty, next });
+    }
+    if phis.is_empty() {
+        return Err(format!(
+            "nested chain: loop header {} has no phis",
+            ir.blocks[header].label
+        ));
+    }
+
+    let mut body_nodes: Vec<NodeId> = Vec::new();
+    for inst in &ir.blocks[header].instructions {
+        if matches!(inst.opcode.as_str(), "phi" | "br" | "ret") {
+            continue;
+        }
+        if let Some(id) = emit_instruction(inst, builder, value_map, &ir.params, span)? {
+            body_nodes.push(id);
+        }
+    }
+
+    if index + 1 < chain.len() {
+        let child_start = builder
+            .function()
+            .arena
+            .ids()
+            .map(|id| id.0)
+            .max()
+            .unwrap_or(0);
+        lower_loop_chain(ir, chain, index + 1, builder, value_map)?;
+        let child_loop = builder
+            .function()
+            .arena
+            .ids()
+            .filter(|id| {
+                id.0 > child_start
+                    && builder
+                        .function()
+                        .get_node(*id)
+                        .is_some_and(|node| matches!(node.kind, NodeKind::Loop { .. }))
+            })
+            .map(|id| id.0)
+            .max()
+            .unwrap_or(child_start);
+        body_nodes.extend(
+            builder
+                .function()
+                .arena
+                .ids()
+                .filter(|id| id.0 >= child_loop),
+        );
+    }
+
+    if latch != header {
+        if ir.blocks[latch]
+            .instructions
+            .iter()
+            .any(|inst| inst.opcode == "phi")
+        {
+            return Err(format!(
+                "nested chain: latch {} carries phis",
+                ir.blocks[latch].label
+            ));
+        }
+        for inst in &ir.blocks[latch].instructions {
+            if matches!(inst.opcode.as_str(), "phi" | "br" | "ret") {
+                continue;
+            }
+            if let Some(id) = emit_instruction(inst, builder, value_map, &ir.params, span)? {
+                body_nodes.push(id);
+            }
+        }
+    }
+
+    let mut next_nodes: Vec<NodeId> = Vec::new();
+    for phi in &phis {
+        let next = get_node_id(
+            &strip_type(&phi.next),
+            value_map,
+            &ir.params,
+            builder,
+            Some(phi.ty.clone()),
+        )
+        .ok_or(format!("nested chain: unresolved phi next '{}'", phi.next))?;
+        next_nodes.push(next);
+    }
+    let terminator = ir.blocks[latch]
+        .instructions
+        .iter()
+        .find(|inst| inst.opcode == "br" && inst.operands.len() >= 3)
+        .ok_or(format!(
+            "nested chain: loop {} has no conditional latch",
+            ir.blocks[header].label
+        ))?;
+    let condition = get_node_id(
+        &strip_type(&terminator.operands[0]),
+        value_map,
+        &ir.params,
+        builder,
+        Some(Type::Bool),
+    )
+    .ok_or("nested chain: unresolved latch condition".to_string())?;
+    let (carry, bound) = rotated_counted_domain(builder, condition, &init_nodes)
+        .ok_or("nested chain: latch is not a constant-step counted test".to_string())?;
+    let termination = builder
+        .lt(carry, bound, span)
+        .map_err(|e| format!("nested chain: {:?}", e))?;
+
+    let output_types: Vec<Type> = phis.iter().map(|phi| phi.ty.clone()).collect();
+    let loop_ty = Type::Tuple {
+        elements: output_types.clone(),
+    };
+    let loop_node = builder
+        .r#loop(
+            &body_nodes,
+            termination,
+            &next_nodes,
+            &init_nodes,
+            loop_ty,
+            span,
+        )
+        .map_err(|e| format!("nested chain: {:?}", e))?;
+    for (slot, phi) in phis.iter().enumerate() {
+        let extract = builder
+            .tuple_extract(loop_node, slot, phi.ty.clone(), span)
+            .map_err(|e| format!("nested chain: {:?}", e))?;
+        value_map.insert(phi.result.clone(), extract);
+    }
     Ok(())
 }
 
@@ -5713,16 +6165,24 @@ fn emit_instruction(
             let base = get_node_id(&base_str, value_map, params, builder, None)
                 .ok_or(format!("cannot resolve gep base '{}'", base_str))?;
 
-            // Determine the index: for 3-operand GEP it's operand[2].
-            // For 4+ operand GEP (multi-index), skip the first index (0) and use the last.
-            let index_str = if inst.operands.len() >= 4 {
-                // Multi-index: use the last operand as the index, skip the first (0)
-                strip_type(inst.operands.last().unwrap())
+            // Three-operand GEPs index the pointee directly. Multi-index
+            // GEPs (arrays/2D pointers) fold their dimensions into one
+            // linear index, so `[20 x i64], ptr p, i64 i, i64 j` becomes
+            // `i * 20 + j` rather than dropping the row index.
+            let index = if inst.operands.len() >= 4 {
+                gep_linear_index(
+                    builder,
+                    elem_type_str,
+                    &inst.operands[2..],
+                    value_map,
+                    params,
+                    span,
+                )?
             } else {
-                strip_type(&inst.operands[2])
+                let index_str = strip_type(&inst.operands[2]);
+                get_node_id(&index_str, value_map, params, builder, None)
+                    .ok_or(format!("cannot resolve gep index '{}'", index_str))?
             };
-            let index = get_node_id(&index_str, value_map, params, builder, None)
-                .ok_or(format!("cannot resolve gep index '{}'", index_str))?;
 
             let base_is_pointer = builder
                 .function()

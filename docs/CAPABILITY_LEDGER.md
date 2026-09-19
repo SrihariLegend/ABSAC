@@ -585,6 +585,16 @@ have now been restored into current `sir_mech` and tested.
   native and AArch64, sanitizer-clean, and external Embench clean rises
   19 → 20. Base-14 stays 230 / 131 / 0, fuzz stays 540 / 360 / 0, and
   `verify.sh full` passes.
+- **2026-09-20 — linear loop chains (matmult)**: nested detection now
+  accepts a chain of directly nested counted loops (outer→middle→inner)
+  and lowers it recursively: each level builds its child `Loop`, then
+  its own carried state and termination. Multi-index GEPs fold their
+  dimensions into one linear index (`[20 x i64], p, i, j` → `i*20+j`),
+  and the emitter executes nested loops **in body order**, hoisting only
+  parent-scoped dependencies. matmult-int `Test` and `Multiply` are
+  clean at 16 cases native/AArch64 and sanitizer-clean; external Embench
+  clean rises 20 → 22. Base-14 stays 230 / 131 / 0, fuzz stays
+  540 / 360 / 0, and `verify.sh full` passes.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
