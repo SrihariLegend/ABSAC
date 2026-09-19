@@ -16,6 +16,15 @@ pub struct Patch {
 pub fn apply(function: &Function, patch: &Patch) -> Option<Function> {
     let max = function.arena.ids().map(|id| id.0).max().unwrap_or(0);
     let local: HashSet<u64> = patch.nodes.iter().map(|(id, _)| *id).collect();
+    if local.len() != patch.nodes.len() {
+        return None;
+    }
+    // Local patch ids are a namespace disjoint from the function's SSA
+    // ids. A collision would silently map an external operand onto a
+    // synthesized node.
+    if function.arena.ids().any(|id| local.contains(&id.0)) {
+        return None;
+    }
     let mut map: BTreeMap<u64, NodeId> = BTreeMap::new();
     let mut next = max + 1;
     for (local_id, _) in &patch.nodes {

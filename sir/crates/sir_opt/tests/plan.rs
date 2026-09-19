@@ -168,4 +168,23 @@ fn patch_gate_rejects_dangling_replacement() {
         patch::apply(&function, &write_patch).is_none(),
         "a patch node that introduces a write must be rejected"
     );
+
+    // Patch-local ids must not collide with the function's SSA ids.
+    let collision = Patch {
+        nodes: vec![(
+            0,
+            Node::new(
+                NodeId::new(0),
+                NodeKind::Constant(sir_types::ConstantData::u64(1)),
+                value_ty.clone(),
+                Effects::empty(),
+                Span::unknown(),
+            ),
+        )],
+        replacements: Vec::new(),
+    };
+    assert!(
+        patch::apply(&function, &collision).is_none(),
+        "patch-local id collisions must be rejected"
+    );
 }

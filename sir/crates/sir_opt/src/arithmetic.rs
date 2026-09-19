@@ -14,6 +14,7 @@ use crate::prove;
 const DIVIDE_SHIFT: u64 = 100;
 const MODULO_AND: u64 = 101;
 const MULTIPLY_SHIFT: u64 = 102;
+const SHIFT_MASK: u64 = 103;
 
 struct ArithmeticPlan {
     target: NodeId,
@@ -39,18 +40,22 @@ pub(crate) fn apply_one(
         DIVIDE_SHIFT => prove::divide_pow2_laws(plan.width, plan.shift),
         MODULO_AND => prove::modulo_pow2_laws(plan.width, plan.shift),
         MULTIPLY_SHIFT => prove::multiply_pow2_laws(plan.width, plan.shift),
+        SHIFT_MASK => prove::shift_mask_laws(plan.width, plan.shift),
         _ => false,
     };
     if !proved {
         return None;
     }
-    let amount = if plan.definition == MODULO_AND {
-        (1u64 << plan.shift) - 1
-    } else {
-        u64::from(plan.shift)
+    let amount = match plan.definition {
+        MODULO_AND => (1u64 << plan.shift) - 1,
+        SHIFT_MASK => (1u64 << (plan.width - plan.shift)) - 1,
+        _ => u64::from(plan.shift),
     };
+    let max = function.arena.ids().map(|id| id.0).max().unwrap_or(0);
+    let constant_local = max + 1;
+    let replacement_local = max + 2;
     let constant = Node::new(
-        NodeId::new(0),
+        NodeId::new(constant_local),
         NodeKind::Constant(ConstantData::u64(amount)),
         plan.ty.clone(),
         Effects::empty(),
@@ -59,33 +64,43 @@ pub(crate) fn apply_one(
     let replacement = match plan.definition {
         DIVIDE_SHIFT => NodeKind::Shr {
             lhs: plan.dynamic,
-            rhs: NodeId::new(0),
+            rhs: NodeId::new(constant_local),
         },
         MODULO_AND => NodeKind::And {
             lhs: plan.dynamic,
-            rhs: NodeId::new(0),
+            rhs: NodeId::new(constant_local),
+        },
+        SHIFT_MASK => NodeKind::And {
+            lhs: plan.dynamic,
+            rhs: NodeId::new(constant_local),
         },
         _ => NodeKind::Shl {
             lhs: plan.dynamic,
-            rhs: NodeId::new(0),
+            rhs: NodeId::new(constant_local),
         },
     };
     let replacement = Node::new(
-        NodeId::new(1),
+        NodeId::new(replacement_local),
         replacement,
         plan.ty,
         Effects::empty(),
         Span::unknown(),
     );
     let patch = Patch {
-        nodes: vec![(0, constant), (1, replacement)],
-        replacements: vec![(plan.target, 1)],
+        nodes: vec![(constant_local, constant), (replacement_local, replacement)],
+        replacements: vec![(plan.target, replacement_local)],
     };
     apply(function, &patch).map(|function| (function, plan.definition))
 }
 
 fn recognize(function: &Function) -> Option<ArithmeticPlan> {
     for node in function.arena.iter() {
+        if let NodeKind::Shr { lhs, rhs } = &node.kind {
+            if let Some(plan) = recognize_shift_mask(function, node.id, *lhs, *rhs, &node.ty) {
+                return Some(plan);
+            }
+            continue;
+        }
         let (lhs, rhs, definition) = match &node.kind {
             NodeKind::Div { lhs, rhs } => (*lhs, *rhs, DIVIDE_SHIFT),
             NodeKind::Rem { lhs, rhs } => (*lhs, *rhs, MODULO_AND),
@@ -116,6 +131,36 @@ fn recognize(function: &Function) -> Option<ArithmeticPlan> {
         });
     }
     None
+}
+
+fn recognize_shift_mask(
+    function: &Function,
+    target: NodeId,
+    lhs: NodeId,
+    rhs: NodeId,
+    ty: &Type,
+) -> Option<ArithmeticPlan> {
+    let inner = function.get_node(lhs)?;
+    let NodeKind::Shl { lhs: x, rhs: inner_amount } = &inner.kind else {
+        return None;
+    };
+    let outer = constant_u64(function, rhs)?;
+    let inner = constant_u64(function, *inner_amount)?;
+    if outer != inner || outer == 0 {
+        return None;
+    }
+    let width = type_bits(&function.get_node(*x)?.ty)?;
+    if outer >= u64::from(width) {
+        return None;
+    }
+    Some(ArithmeticPlan {
+        target,
+        definition: SHIFT_MASK,
+        dynamic: *x,
+        shift: outer as u32,
+        width,
+        ty: ty.clone(),
+    })
 }
 
 fn constant_u64(function: &Function, id: NodeId) -> Option<u64> {

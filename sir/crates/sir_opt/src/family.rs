@@ -61,7 +61,7 @@ impl Family for ArithmeticFamily {
         "arithmetic"
     }
     fn definitions(&self) -> &'static [u64] {
-        &[100, 101, 102]
+        &[100, 101, 102, 103]
     }
     fn apply_one(&self, function: &Function, facts: &FactDatabase) -> Option<Applied> {
         let (function, definition) = arithmetic::apply_one(function, facts)?;

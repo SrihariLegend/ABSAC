@@ -181,3 +181,21 @@ pub fn multiply_pow2_laws(width: u32, shift: u32) -> bool {
         CheckResult::Valid
     )
 }
+
+/// `(x << k) >> k` clears the top `k` bits: a mask of the low `W - k`.
+pub fn shift_mask_laws(width: u32, shift: u32) -> bool {
+    if width == 0 || width > 64 || shift == 0 || shift >= width {
+        return false;
+    }
+    let mut bv = Bv::with_capacity(64);
+    let x = bv.var(VarId(0), width);
+    let amount = bv.constant(u64::from(shift), width);
+    let raised = bv.shl(x, amount);
+    let lowered = bv.lshr(raised, amount);
+    let mask = bv.constant((1u64 << (width - shift)) - 1, width);
+    let masked = bv.and(x, mask);
+    matches!(
+        sir_mech::prove_equal(&bv, lowered, masked),
+        CheckResult::Valid
+    )
+}

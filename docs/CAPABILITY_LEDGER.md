@@ -51,7 +51,7 @@ recovery path is recorded here.**
 | 4 | Any | integer OR reduction ported; bool-pack path missing |
 | 5 | All | integer AND-chain ported; bool-pack path missing |
 | 6 | parity | **restored (XOR-reduction path)** as `sir_opt::parity`; `HEAD` bitset/pack/popcount path still to mine |
-| 100–102 | arithmetic | **restored** as `sir_opt::arithmetic` (divide→shift, modulo→mask, multiply→shift); 103 shift-mask still missing |
+| 100–103 | arithmetic | **restored** as `sir_opt::arithmetic` (divide→shift, modulo→mask, multiply→shift, shift-mask) |
 | 300–303 | mask algebra | dropped as measured-neutral |
 | 310–313 | permutations | **missing** |
 | set algebra | — | **missing** |
@@ -120,13 +120,13 @@ Non-goals:
 | Rust LOC | 76,919 | ~15.9k + restored kernel/arith |
 | crates / binaries | 19 / 23 | 9 / 1 |
 | build warnings | 47 | 0 |
-| verification definitions | 24 | 7 |
+| verification definitions | 24 | 12 |
 | rewrite recipes | 21 | 7 families |
 | semantics recognizers | 23 | 5 family modules |
 | test files / test LOC | 63 / 15,217 | **9 tests**, case bodies under `tests/cases/` |
 | `sir_mech` proof kernel | LCF kernel + `arith.rs` + induction proof; 38 tests pass | restored; 28 proof cases run under 5 `sir_mech` tests |
 | corpora known | v1–v11 | v2–v14, v16 (v12–v20 added in session) |
-| corpus result | v1–v11: 0 mismatched | 14 corpora: 221 clean / 75 rewrites / 0 mismatched; with fuzz v17–v19b: 761 clean / 203 rewrites / 0 mismatched |
+| corpus result | v1–v11: 0 mismatched | 14 corpora: 221 clean / 78 rewrites / 0 mismatched; with fuzz v17–v19b: 761 clean / 207 rewrites / 0 mismatched |
 
 Corpus comparison on `HEAD`’s own v1–v11: clean/mismatch counts are
 **identical** between `HEAD` and current on every corpus. On the
@@ -237,6 +237,13 @@ have now been restored into current `sir_mech` and tested.
   zero mismatches, and AArch64 matches native. This also required the
   patch applier to rewrite values inside `Loop` bodies (`replace_in_kind`
   gained the Loop container arm).
+- **2026-09-19 — H2 shift-mask 103 + collision gate**: `(x << k) >> k`
+  now lowers to `x & ((1 << (W-k)) - 1)`. The first version reused patch
+  local ids 0/1, which collided with parameter NodeIds and silently
+  mapped a parameter to the mask constant in v17b `f000`. The family
+  now allocates local ids above the function maximum, and `patch::apply`
+  rejects duplicate or colliding local ids. Native and AArch64
+  differentials are clean.
 
 ## Reference commands
 

@@ -233,9 +233,9 @@ Phase 1 progress:
   from the CNF model and `decode_model` panicked; the decoder now maps
   them to zero, which is a valid model for an unconstrained variable.
 
-Phase 1 status: **20,146 LOC, 9 crates, 9 passed / 0 failed / 0
-ignored**, 14-corpus **75 rewrites / 221 clean / 0 mismatched / 0
-harness errors**, and fuzz corpora v17–v19b **128 rewrites / 540 clean /
+Phase 1 status: **20,535 LOC, 9 crates, 9 passed / 0 failed / 0
+ignored**, 14-corpus **78 rewrites / 221 clean / 0 mismatched / 0
+harness errors**, and fuzz corpora v17–v19b **129 rewrites / 540 clean /
 0 mismatched** (761 clean total). The LOC guide is a guide, not a
 target; the restored kernel/arith is ~2.3k of the increase.
 
@@ -250,7 +250,7 @@ budget; the first-match scan equivalence is the remaining proof-cost
 item and is slated for the induction/kernel work in H3.
 
 Cross-arch evidence update: `emit_c_diff --target aarch64` now runs the
-full base-14 differential under qemu at **221 clean / 75 rewrites / 0
+full base-14 differential under qemu at **221 clean / 78 rewrites / 0
 mismatched**, matching native. The harness also respects `!range` input
 metadata, removing a false AArch64 mismatch in v10.
 
@@ -266,8 +266,7 @@ Priority by measured value:
    no-hit 1.25× but early-hit 0.82×, so predictive retention is the
    remaining piece.
 3. Parity (XOR path done) and the remaining reductions.
-4. Arithmetic bit hacks: mod/div/mul done (100–102); shift-mask (103)
-   remains.
+4. Arithmetic bit hacks: mod/div/mul/shift-mask all done (100–103).
 5. Mask algebra and permutations.
 6. Set algebra and other neutral families only if a corpus needs them.
 
