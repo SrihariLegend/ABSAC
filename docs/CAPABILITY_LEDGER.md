@@ -483,6 +483,16 @@ have now been restored into current `sir_mech` and tested.
   `RandomInteger` becomes clean; external Embench clean rises 17 → 18.
   Base-14 native/AArch64 stay 230 / 128 / 0, fuzz stays 540 / 360 / 0,
   and sanitizers report no violations.
+- **2026-09-20 — block-level joins for high-path CFGs**: acyclic
+  global-memory CFGs are pre-counted; above 512 paths the predicated
+  engine merges one state per basic block instead of enumerating paths
+  (incoming conditions fold through `Select`). Measured motivation:
+  raising the path cap for statemate `generic_FH_TUERMODUL_CTRL` grew
+  the emitted file to 4.4 MB and did not finish in 120 s; the block
+  engine emits 159 KB and runs in ~5 s. statemate clean rises 6 → 7 and
+  external Embench clean rises 18 → 19. Base-14 native/AArch64 stay
+  230 / 128 / 0, fuzz stays 540 / 360 / 0, and statemate is
+  differential-clean at 16 cases with zero sanitizer violations.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

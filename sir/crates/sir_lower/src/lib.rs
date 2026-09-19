@@ -3771,6 +3771,18 @@ struct SwitchState {
     cond: NodeId,
 }
 
+#[derive(Clone)]
+struct BlockState {
+    values: HashMap<String, NodeId>,
+    memory: HashMap<MemLoc, NodeId>,
+}
+
+struct ExitState {
+    reach: NodeId,
+    ret: Option<NodeId>,
+    memory: HashMap<MemLoc, NodeId>,
+}
+
 struct SwitchLowerer<'a> {
     ir: &'a IrFunction,
     builder: &'a mut Builder,
@@ -3781,6 +3793,7 @@ struct SwitchLowerer<'a> {
     global_elem: HashMap<String, Type>,
     initial_loads: HashMap<MemLoc, NodeId>,
     paths: Vec<SwitchPath>,
+    exits: Vec<ExitState>,
 }
 
 impl<'a> SwitchLowerer<'a> {
@@ -3808,6 +3821,21 @@ impl<'a> SwitchLowerer<'a> {
         }
         self.builder
             .bool_not(a, self.span)
+            .map_err(|e| format!("switch CFG: {:?}", e))
+    }
+
+    fn cond_or(&mut self, a: NodeId, b: NodeId) -> Result<NodeId, String> {
+        if a == self.true_cond || b == self.true_cond {
+            return Ok(self.true_cond);
+        }
+        if a == self.false_cond {
+            return Ok(b);
+        }
+        if b == self.false_cond {
+            return Ok(a);
+        }
+        self.builder
+            .bool_or(a, b, self.span)
             .map_err(|e| format!("switch CFG: {:?}", e))
     }
 
@@ -4098,7 +4126,7 @@ impl<'a> SwitchLowerer<'a> {
                         ret,
                         writes,
                     });
-                    if self.paths.len() > 4096 {
+                    if self.paths.len() > 1024 {
                         return Err("switch CFG: too many paths".to_string());
                     }
                 }
@@ -4278,6 +4306,548 @@ impl<'a> SwitchLowerer<'a> {
         }
         Ok(())
     }
+
+    /// Block-level join engine: one state per CFG block, with incoming
+    /// conditions folded through `Select`. Scales where path enumeration
+    /// explodes (state-machine switches).
+    fn run_blocks(&mut self, seed: HashMap<String, NodeId>) -> Result<(), String> {
+        let order = dag_order(self.ir);
+        let block_count = self.ir.blocks.len();
+        let mut preds: Vec<Option<BlockState>> = vec![None; block_count];
+        let mut incoming: Vec<Vec<(usize, NodeId)>> = vec![Vec::new(); block_count];
+
+        for idx in order {
+            let instructions = self.ir.blocks[idx].instructions.clone();
+            let used = block_value_names(&instructions);
+            let entries = incoming[idx].clone();
+            let (reach, mut values, mut memory) = if idx == 0 {
+                (self.true_cond, seed.clone(), HashMap::new())
+            } else if entries.is_empty() {
+                continue;
+            } else {
+                let mut reach = self.false_cond;
+                for (_, cond) in &entries {
+                    reach = self.cond_or(reach, *cond)?;
+                }
+                let mut values = seed.clone();
+                let mut keys: HashSet<String> = HashSet::new();
+                for (pred, _) in &entries {
+                    if let Some(state) = &preds[*pred] {
+                        for key in state.values.keys() {
+                            if !seed.contains_key(key) {
+                                keys.insert(key.clone());
+                            }
+                        }
+                    }
+                }
+                for key in keys {
+                    let mut joined = None;
+                    let mut present = 0usize;
+                    for (pred, cond) in &entries {
+                        if let Some(value) =
+                            preds[*pred].as_ref().and_then(|state| state.values.get(&key))
+                        {
+                            present += 1;
+                            joined = Some(match joined {
+                                None => *value,
+                                Some(previous) => self
+                                    .builder
+                                    .select(*cond, *value, previous, self.span)
+                                    .map_err(|e| format!("switch CFG: {:?}", e))?,
+                            });
+                        }
+                    }
+                    if present != entries.len() && used.contains(&key) {
+                        return Err(format!(
+                            "switch CFG: value {} is not defined on every incoming path",
+                            key
+                        ));
+                    }
+                    if present == entries.len() {
+                        if let Some(value) = joined {
+                            values.insert(key, value);
+                        }
+                    }
+                }
+                let mut keys: HashSet<MemLoc> = HashSet::new();
+                for (pred, _) in &entries {
+                    if let Some(state) = &preds[*pred] {
+                        keys.extend(state.memory.keys().cloned());
+                    }
+                }
+                let mut memory = HashMap::new();
+                for loc in keys {
+                    let mut joined = None;
+                    for (pred, cond) in &entries {
+                        let value = match preds[*pred]
+                            .as_ref()
+                            .and_then(|state| state.memory.get(&loc))
+                        {
+                            Some(value) => *value,
+                            None => self.initial_load(&loc, &seed)?,
+                        };
+                        joined = Some(match joined {
+                            None => value,
+                            Some(previous) => self
+                                .builder
+                                .select(*cond, value, previous, self.span)
+                                .map_err(|e| format!("switch CFG: {:?}", e))?,
+                        });
+                    }
+                    if let Some(value) = joined {
+                        memory.insert(loc, value);
+                    }
+                }
+                (reach, values, memory)
+            };
+
+            for inst in instructions.iter().filter(|inst| inst.opcode == "phi") {
+                let phi_ty = inst
+                    .operands
+                    .first()
+                    .and_then(|operand| operand_type(operand));
+                let mut joined = None;
+                for (value, label) in phi_incomings(inst) {
+                    let Some(pred) = self.ir.block_map.get(&label).copied() else {
+                        continue;
+                    };
+                    let Some((_, cond)) = entries.iter().find(|(p, _)| *p == pred) else {
+                        continue;
+                    };
+                    let mut lookup = values.clone();
+                    if let Some(state) = &preds[pred] {
+                        lookup.extend(state.values.clone());
+                    }
+                    let value = get_node_id(
+                        &strip_type(&value),
+                        &lookup,
+                        &self.ir.params,
+                        self.builder,
+                        phi_ty.clone(),
+                    )
+                    .ok_or(format!("switch CFG: unresolved phi value '{}'", value))?;
+                    joined = Some(match joined {
+                        None => value,
+                        Some(previous) => self
+                            .builder
+                            .select(*cond, value, previous, self.span)
+                            .map_err(|e| format!("switch CFG: {:?}", e))?,
+                    });
+                }
+                if let (Some(value), Some(result)) = (joined, &inst.result) {
+                    values.insert(result.clone(), value);
+                }
+            }
+
+            let mut terminator: Option<Instruction> = None;
+            for inst in instructions.iter().filter(|inst| inst.opcode != "phi") {
+                match inst.opcode.as_str() {
+                    "load" => {
+                        if inst.raw.contains("volatile") || inst.raw.contains("atomic") {
+                            return Err(format!(
+                                "switch CFG: volatile/atomic memory: {}",
+                                inst.raw
+                            ));
+                        }
+                        let access_ty = operand_type(&inst.operands[0])
+                            .ok_or(format!("switch CFG: load type: {}", inst.raw))?;
+                        let loc = self.resolve_loc(&inst.operands[1], &access_ty)?;
+                        let value = match memory.get(&loc) {
+                            Some(value) => *value,
+                            None => self.initial_load(&loc, &seed)?,
+                        };
+                        if let Some(result) = &inst.result {
+                            values.insert(result.clone(), value);
+                        }
+                    }
+                    "store" => {
+                        let access_ty = operand_type(&inst.operands[0])
+                            .ok_or(format!("switch CFG: store type: {}", inst.raw))?;
+                        let value = get_node_id(
+                            &strip_type(&inst.operands[0]),
+                            &values,
+                            &self.ir.params,
+                            self.builder,
+                            Some(access_ty.clone()),
+                        )
+                        .ok_or(format!("switch CFG: unresolved store value: {}", inst.raw))?;
+                        let loc = self.resolve_loc(&inst.operands[1], &access_ty)?;
+                        memory.insert(loc, value);
+                    }
+                    "getelementptr" => {
+                        self.record_gep(inst)?;
+                    }
+                    "br" | "switch" | "ret" | "unreachable" => {
+                        terminator = Some(inst.clone());
+                        break;
+                    }
+                    _ => {
+                        emit_instruction(
+                            inst,
+                            self.builder,
+                            &mut values,
+                            &self.ir.params,
+                            self.span,
+                        )?;
+                    }
+                }
+            }
+            let terminator =
+                terminator.ok_or_else(|| "switch CFG: block without terminator".to_string())?;
+            match terminator.opcode.as_str() {
+                "ret" => {
+                    let is_void = terminator
+                        .operands
+                        .first()
+                        .map(|operand| strip_type(operand) == "void")
+                        .unwrap_or(true);
+                    let ret = if is_void {
+                        None
+                    } else {
+                        Some(
+                            get_node_id(
+                                &strip_type(&terminator.operands[0]),
+                                &values,
+                                &self.ir.params,
+                                self.builder,
+                                None,
+                            )
+                            .ok_or_else(|| {
+                                format!("switch CFG: unresolved return: {}", terminator.raw)
+                            })?,
+                        )
+                    };
+                    self.exits.push(ExitState {
+                        reach,
+                        ret,
+                        memory: memory.clone(),
+                    });
+                }
+                "unreachable" => {}
+                "br" => {
+                    let (true_label, false_cond) = if terminator.operands.len() == 1 {
+                        (
+                            terminator.operands[0]
+                                .trim_start_matches("label ")
+                                .trim_start_matches('%')
+                                .to_string(),
+                            None,
+                        )
+                    } else if terminator.operands.len() >= 3 {
+                        let condition = get_node_id(
+                            &strip_type(&terminator.operands[0]),
+                            &values,
+                            &self.ir.params,
+                            self.builder,
+                            None,
+                        )
+                        .ok_or_else(|| {
+                            format!("switch CFG: unresolved branch: {}", terminator.raw)
+                        })?;
+                        let true_label = terminator.operands[1]
+                            .trim_start_matches("label ")
+                            .trim_start_matches('%')
+                            .to_string();
+                        let false_label = terminator.operands[2]
+                            .trim_start_matches("label ")
+                            .trim_start_matches('%')
+                            .to_string();
+                        let negated = self.cond_not(condition)?;
+                        let false_cond = self.cond_and(reach, negated)?;
+                        if let Some(succ) = self.ir.block_map.get(&false_label).copied() {
+                            if false_cond != self.false_cond {
+                                incoming[succ].push((idx, false_cond));
+                            }
+                        }
+                        (true_label, Some(condition))
+                    } else {
+                        return Err(format!("switch CFG: malformed br: {}", terminator.raw));
+                    };
+                    let true_cond = match false_cond {
+                        None => reach,
+                        Some(condition) => self.cond_and(reach, condition)?,
+                    };
+                    if true_cond != self.false_cond {
+                        if let Some(succ) = self.ir.block_map.get(&true_label).copied() {
+                            incoming[succ].push((idx, true_cond));
+                        }
+                    }
+                }
+                "switch" => {
+                    let raw = &terminator.raw;
+                    let open = raw
+                        .find('[')
+                        .ok_or_else(|| format!("switch CFG: malformed switch: {}", raw))?;
+                    let close = raw
+                        .rfind(']')
+                        .ok_or_else(|| format!("switch CFG: malformed switch: {}", raw))?;
+                    let head = &raw[..open];
+                    let body = &raw[open + 1..close];
+                    let mut head_parts = head.split(',').map(str::trim);
+                    let value_part = head_parts.next().unwrap_or("");
+                    let value_part = value_part.trim_start_matches("switch").trim();
+                    let value_ty = operand_type(value_part)
+                        .ok_or_else(|| format!("switch CFG: switch type: {}", raw))?;
+                    let value = get_node_id(
+                        &strip_type(value_part),
+                        &values,
+                        &self.ir.params,
+                        self.builder,
+                        Some(value_ty.clone()),
+                    )
+                    .ok_or_else(|| format!("switch CFG: unresolved switch value: {}", raw))?;
+                    let default = head_parts
+                        .next()
+                        .ok_or_else(|| format!("switch CFG: missing default: {}", raw))?
+                        .trim_start_matches("label ")
+                        .trim_start_matches('%')
+                        .to_string();
+                    let tokens: Vec<&str> = body.split_whitespace().collect();
+                    let mut cases: Vec<(i64, String)> = Vec::new();
+                    let mut i = 0;
+                    while i + 3 < tokens.len() {
+                        if tokens[i + 2] == "label" {
+                            let constant = tokens[i + 1]
+                                .trim_end_matches(',')
+                                .parse::<i64>()
+                                .map_err(|_| {
+                                    format!("switch CFG: non-constant case: {}", raw)
+                                })?;
+                            let label = tokens[i + 3].trim_start_matches('%').to_string();
+                            cases.push((constant, label));
+                            i += 4;
+                        } else {
+                            i += 1;
+                        }
+                    }
+                    let mut default_guard = self.true_cond;
+                    for (constant, label) in &cases {
+                        let constant_node = self.builder.constant(
+                            int_constant_data(&value_ty, *constant as u64),
+                            value_ty.clone(),
+                            self.span,
+                        );
+                        let equal = self
+                            .builder
+                            .eq(value, constant_node, self.span)
+                            .map_err(|e| format!("switch CFG: {:?}", e))?;
+                        let case_cond = self.cond_and(reach, equal)?;
+                        if case_cond != self.false_cond {
+                            if let Some(succ) = self.ir.block_map.get(label).copied() {
+                                incoming[succ].push((idx, case_cond));
+                            }
+                        }
+                        let not_equal = self
+                            .builder
+                            .ne(value, constant_node, self.span)
+                            .map_err(|e| format!("switch CFG: {:?}", e))?;
+                        default_guard = self.cond_and(default_guard, not_equal)?;
+                    }
+                    let default_cond = self.cond_and(reach, default_guard)?;
+                    if default_cond != self.false_cond {
+                        if let Some(succ) = self.ir.block_map.get(&default).copied() {
+                            incoming[succ].push((idx, default_cond));
+                        }
+                    }
+                }
+                _ => {
+                    return Err(format!(
+                        "switch CFG: unsupported terminator: {}",
+                        terminator.raw
+                    ))
+                }
+            }
+            preds[idx] = Some(BlockState {
+                values,
+                memory,
+            });
+        }
+        Ok(())
+    }
+
+    fn finish_blocks(mut self, ret_ty: &Type, seed: &HashMap<String, NodeId>) -> Result<(), String> {
+        let mut result: Option<NodeId> = None;
+        let mut locations: HashSet<MemLoc> = HashSet::new();
+        for exit in &self.exits {
+            locations.extend(exit.memory.keys().cloned());
+        }
+        let mut finals: HashMap<MemLoc, NodeId> = HashMap::new();
+        for loc in locations {
+            let initial = self.initial_load(&loc, seed)?;
+            let mut value = initial;
+            for exit in &self.exits {
+                let branch = exit
+                    .memory
+                    .get(&loc)
+                    .copied()
+                    .unwrap_or(initial);
+                value = self
+                    .builder
+                    .select(exit.reach, branch, value, self.span)
+                    .map_err(|e| format!("switch CFG: {:?}", e))?;
+            }
+            finals.insert(loc, value);
+        }
+        for exit in &self.exits {
+            if let Some(ret) = exit.ret {
+                result = Some(match result {
+                    None => ret,
+                    Some(previous) => self
+                        .builder
+                        .select(exit.reach, ret, previous, self.span)
+                        .map_err(|e| format!("switch CFG: {:?}", e))?,
+                });
+            }
+        }
+        for (loc, value) in finals {
+            let global = seed
+                .get(&loc.global)
+                .copied()
+                .ok_or(format!("switch CFG: unknown global @{}", loc.global))?;
+            let index = self
+                .builder
+                .constant(ConstantData::u64(loc.index), Type::u64(), self.span);
+            let access = self
+                .builder
+                .array_access(global, index, loc.ty.clone(), self.span)
+                .map_err(|e| format!("switch CFG: {:?}", e))?;
+            self.builder
+                .store(access, value, self.span)
+                .map_err(|e| format!("switch CFG: {:?}", e))?;
+        }
+        if ret_ty == &Type::Unit {
+            let unit = self
+                .builder
+                .constant(ConstantData::Unit, Type::Unit, self.span);
+            self.builder
+                .return_value(unit, self.span)
+                .map_err(|e| format!("switch CFG: {:?}", e))?;
+        } else {
+            let result =
+                result.ok_or_else(|| "switch CFG: no returning path".to_string())?;
+            self.builder
+                .return_value(result, self.span)
+                .map_err(|e| format!("switch CFG: {:?}", e))?;
+        }
+        Ok(())
+    }
+}
+
+fn terminator_targets(inst: &Instruction) -> Vec<String> {
+    match inst.opcode.as_str() {
+        "br" => inst
+            .operands
+            .iter()
+            .filter_map(|operand| operand.trim().strip_prefix("label "))
+            .map(|label| label.trim_start_matches('%').to_string())
+            .collect(),
+        "switch" => {
+            let raw = &inst.raw;
+            let Some(open) = raw.find('[') else {
+                return Vec::new();
+            };
+            let Some(close) = raw.rfind(']') else {
+                return Vec::new();
+            };
+            let head = &raw[..open];
+            let body = &raw[open + 1..close];
+            let mut labels = Vec::new();
+            if let Some(default) = head.split(',').nth(1) {
+                labels.push(
+                    default
+                        .trim()
+                        .trim_start_matches("label ")
+                        .trim_start_matches('%')
+                        .to_string(),
+                );
+            }
+            let tokens: Vec<&str> = body.split_whitespace().collect();
+            let mut i = 0;
+            while i + 3 < tokens.len() {
+                if tokens[i + 2] == "label" {
+                    labels.push(tokens[i + 3].trim_start_matches('%').to_string());
+                    i += 4;
+                } else {
+                    i += 1;
+                }
+            }
+            labels
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn successor_indices(ir: &IrFunction, idx: usize) -> Vec<usize> {
+    let mut out = Vec::new();
+    for inst in &ir.blocks[idx].instructions {
+        if matches!(inst.opcode.as_str(), "br" | "switch") {
+            for label in terminator_targets(inst) {
+                if let Some(succ) = ir.block_map.get(&label).copied() {
+                    out.push(succ);
+                }
+            }
+            break;
+        }
+    }
+    out
+}
+
+fn dag_order(ir: &IrFunction) -> Vec<usize> {
+    let count = ir.blocks.len();
+    let mut indegree = vec![0usize; count];
+    for idx in 0..count {
+        for succ in successor_indices(ir, idx) {
+            indegree[succ] += 1;
+        }
+    }
+    let mut order = Vec::with_capacity(count);
+    let mut queue = std::collections::VecDeque::from([0usize]);
+    while let Some(idx) = queue.pop_front() {
+        order.push(idx);
+        for succ in successor_indices(ir, idx) {
+            indegree[succ] = indegree[succ].saturating_sub(1);
+            if indegree[succ] == 0 {
+                queue.push_back(succ);
+            }
+        }
+    }
+    order
+}
+
+fn acyclic_path_count(ir: &IrFunction) -> usize {
+    let mut counts = vec![0usize; ir.blocks.len()];
+    counts[0] = 1;
+    for idx in dag_order(ir) {
+        if idx >= counts.len() {
+            continue;
+        }
+        let incoming = counts[idx];
+        for succ in successor_indices(ir, idx) {
+            counts[succ] = (counts[succ] + incoming).min(4096);
+        }
+    }
+    counts.into_iter().max().unwrap_or(0)
+}
+
+fn block_value_names(instructions: &[Instruction]) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for inst in instructions {
+        if inst.opcode == "phi" {
+            for (value, _) in phi_incomings(inst) {
+                let value = strip_type(&value);
+                if value.starts_with('%') {
+                    out.insert(value);
+                }
+            }
+        }
+        for operand in &inst.operands {
+            let value = strip_type(&operand_value_token(operand));
+            if value.starts_with('%') {
+                out.insert(value);
+            }
+        }
+    }
+    out
 }
 
 fn lower_switch_cfg(
@@ -4299,9 +4869,15 @@ fn lower_switch_cfg(
         global_elem: HashMap::new(),
         initial_loads: HashMap::new(),
         paths: Vec::new(),
+        exits: Vec::new(),
     };
-    lowerer.run(entry_values.clone())?;
-    lowerer.finish(&ret_ty, &entry_values)
+    if acyclic_path_count(ir) > 512 {
+        lowerer.run_blocks(entry_values.clone())?;
+        lowerer.finish_blocks(&ret_ty, &entry_values)
+    } else {
+        lowerer.run(entry_values.clone())?;
+        lowerer.finish(&ret_ty, &entry_values)
+    }
 }
 
 /// True when an acyclic CFG has branch-guarded global memory: the
