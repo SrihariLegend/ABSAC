@@ -4043,6 +4043,16 @@ fn emit_instruction(
             // Handle a few known intrinsics
             // tail call i8 @llvm.umax.i8(i8 %10, i8 %8)
             let callee = inst.operands.first().map(|s| s.trim()).unwrap_or("");
+            // Compile-time hints with no runtime semantics. Dropping them
+            // is behaviour-preserving; keeping them would block otherwise
+            // ordinary functions.
+            if callee.contains("llvm.lifetime.")
+                || callee.contains("llvm.dbg.")
+                || callee.contains("llvm.assume")
+                || callee.contains("llvm.experimental.noalias.scope.decl")
+            {
+                return Ok(None);
+            }
             if callee.contains("llvm.fshl") || callee.contains("llvm.fshr") {
                 // Funnel shifts with a constant amount are clang's lowering of
                 // scalar rotates: fshl(a,b,k) = (a << k) | (b >> (w-k)) and

@@ -271,6 +271,12 @@ have now been restored into current `sir_mech` and tested.
   `s01_search_a_while_accessing_b` / `s02_eq_key_with_extra`). Coverage
   is folded into the search case; base-14 and fuzz counts are unchanged
   and clean.
+- **2026-09-19 — compile-time hint calls**: `llvm.lifetime.*`,
+  `llvm.dbg.*`, `llvm.assume`, and
+  `llvm.experimental.noalias.scope.decl` are dropped during lowering;
+  they have no runtime semantics, and keeping them blocked otherwise
+  ordinary functions. Embench statemate drops from 12 to 11 refusals;
+  base-14 is unchanged at 78 rewrites with zero mismatches.
 
 ## Reference commands
 
