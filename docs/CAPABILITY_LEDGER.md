@@ -570,6 +570,13 @@ have now been restored into current `sir_mech` and tested.
   A handcrafted IR fixture is differential-clean on native, AArch64, and
   sanitizers; the fast reproduction runner stays green and corpus counts
   are unchanged (no corpus currently exercises the intrinsic).
+- **2026-09-20 — staged nested-loop emission**: the emitter now treats
+  Loop nodes contained in another Loop's body as nested rather than
+  sequential, passes parent carrier maps into recursive emission, and
+  schedules nested loops before consumers of their outputs. A
+  hand-built nested SIR probe compiles and returns the expected value;
+  existing corpora are unchanged (fast runner and fuzz stay green).
+  Nested-loop construction in the lowerer is the next step.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
