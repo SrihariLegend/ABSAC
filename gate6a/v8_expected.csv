@@ -1,0 +1,29 @@
+kernel	class	expectation	expected_lower	expected_verify	expected_concepts	expected_candidates	expected_rewrites	key_property
+p01_first_set_48	P	recognized	yes	yes	FirstOccurrence	any	any	early-return search extent 48 (solver path, rewrite)
+p02_first_set_96	P	recognized	yes	yes	FirstOccurrence	any	any	early-return search extent 96 (symbolic path, rewrite)
+p03_first_nonzero_u16_80	P	recognized	yes	yes	FirstOccurrence	any	any	u16 implicit non-zero search extent 80
+p04_first_eq_key_u8_64	P	recognized	yes	yes	FirstOccurrence	any	any	scalar-eq predicate: recipe must refuse the ctz mask
+p05_first_set_128	P	recognized	yes	yes	FirstOccurrence	any	any	early-return search extent 128 (symbolic path)
+p06_two_loops_count_sum_const	P	recognized	yes	yes	CardinalityReduction	any	any	two sequential reductions over one constant extent
+p07_sum_u8_const_112	P	recognized	yes	yes	SumReduction	any	any	plain sum extent 112 (recognition only)
+p08_count_ge_const_u8_56	P	recognized	yes	yes	CardinalityReduction	any	any	cardinality >= extent 56 (rewrite)
+p09_count_le_const_u32_72	P	recognized	yes	yes	CardinalityReduction	any	any	cardinality <= u32 extent 72 (rewrite)
+p10_all_ge_const_u16_40	P	recognized	yes	yes	ConjunctiveReduction	any	any	all >= u16 extent 40
+p11_map_then_sum_const	P	recall_gap_known	any	any	MappedSumReduction	any	any	map-then-sum extent 64 (candidate gap)
+p12_search_subrange_short	P	recognized	yes	yes	FirstOccurrence	any	any	sub-range search: sentinel 128 != extent 48, rewrite refused
+p13_search_sentinel_zero	P	recognized	yes	yes	FirstOccurrence	any	any	zero sentinel: rewrite refused, lowering native-faithful
+p14_runtime_extent_search	P	recall_gap_known	any	any	any	any	any	runtime-extent search: lowers, no fabricated extent
+p15_do_while_stride3_sum	P	recall_gap_known	any	any	any	any	any	post-tested do-while stride 3 (lowering fidelity)
+p16_search_then_sum	P	recall_gap_known	any	any	any	any	any	search then second loop (multi-loop + early exit not composed)
+n01_running_max_const	N	safe_abstain	any	any	none	0	0	running max lookalike (X06)
+n02_masked_sum_ternary_const	N	safe_abstain	any	any	none	0	0	ternary threshold sum (D5)
+n03_masked_sum_hi_const	N	safe_abstain	any	any	none	0	0	high-nibble masked sum (D5)
+n04_volatile_load_const	N	safe_abstain	any	any	none	0	0	volatile loads
+n05_atomic_fetch_add	N	safe_abstain	any	any	none	0	0	C11 atomic read-modify-write
+n06_may_alias_store_const	N	safe_abstain	any	any	none	0	0	may-alias store in a constant-extent loop
+n07_two_arrays_const	N	safe_abstain	any	any	none	0	0	two-array relation
+n08_nonterminating_reverse	N	safe_abstain	any	any	none	0	0	unsigned `i >= 0` reverse search (totality gate)
+n09_early_exit_global_const	N	safe_abstain	any	any	none	0	0	early exit with a global side effect
+n10_runtime_sum_u16	N	contained_abstain	any	any	any	0	0	runtime extent sum: no fabricated extent
+n11_runtime_count_ge_u32	N	contained_abstain	any	any	any	0	0	runtime extent cardinality
+n12_signed_sum_const	N	contained_abstain	any	any	any	0	0	signed accumulation: must refuse

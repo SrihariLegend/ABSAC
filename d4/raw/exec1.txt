@@ -1,0 +1,63 @@
+H3 EXEC — differential SIR execution (original vs rewritten)
+id	class	patterns	mismatches	first_mismatch
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a01	P	1	0	
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a02	P	2	0	
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a03	P	256	0	
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a04	P	14	0	
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a05	P	14	0	
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a06	P	14	0	
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a07	P	24	0	
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a08	P	24	0	
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a09	P	6	0	
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a10	P	6	0	
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a11	P	6	0	
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a12	P	6	0	
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a13	P	256	0	
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unclassified use of %12 at %13: unknown means not dead, binding incomplete")
+h3a14	N	0	0	(no rewrite; nothing to execute)
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unclassified use of %12 at %13: unknown means not dead, binding incomplete")
+h3a15	N	0	0	(no rewrite; nothing to execute)
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: forward reduction requires zero-based induction start")
+h3a16	N	0	0	(no rewrite; nothing to execute)
+Iteration 1: Branching on candidate candidate#2 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: counted loop does not cover the complete collection extent")
+h3a17	N	0	0	(no rewrite; nothing to execute)
+Iteration 1: Branching on candidate candidate#2 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: no unit-stride induction counter (stride contract)")
+h3a18	N	0	0	(no rewrite; nothing to execute)
+Iteration 1: Branching on candidate candidate#0 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: counted loop is not proven finite")
+h3a19	N	0	0	(no rewrite; nothing to execute)
+h3a20	N	0	0	(no rewrite; nothing to execute)
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: predicate scalar depends on a loop-carried value (not invariant)")
+h3a21	N	0	0	(no rewrite; nothing to execute)
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: forward reduction requires zero-based induction start")
+h3a22	N	0	0	(no rewrite; nothing to execute)
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: accumulator identity is not the recurrence's monoid identity")
+h3a23	S1	0	0	(no rewrite; nothing to execute)
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: accumulator identity is not the recurrence's monoid identity")
+h3a24	S1	0	0	(no rewrite; nothing to execute)
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a25	P	256	0	
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a26	P	24	0	

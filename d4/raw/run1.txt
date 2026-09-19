@@ -1,0 +1,90 @@
+H3 RUN — tier A (SIR fixtures), frozen C3 registry
+id	class	kind	outcome	cands	rewrites	notes
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a01	P	bool	rewrites=1	cands=4	NoCandidate
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a02	P	bool	rewrites=1	cands=4	NoCandidate
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a03	P	bool	rewrites=1	cands=4	NoCandidate
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a04	P	bool	rewrites=1	cands=4	NoCandidate
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a05	P	bool	rewrites=1	cands=4	NoCandidate
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a06	P	bool	rewrites=1	cands=4	NoCandidate
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a07	P	pred	rewrites=1	cands=2	NoCandidate
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a08	P	pred	rewrites=1	cands=2	NoCandidate
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a09	P	pred	rewrites=1	cands=2	NoCandidate
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a10	P	pred	rewrites=1	cands=2	NoCandidate
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a11	P	pred	rewrites=1	cands=2	NoCandidate
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a12	P	pred	rewrites=1	cands=2	NoCandidate
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a13	P	bool	rewrites=1	cands=4	NoCandidate
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unclassified use of %12 at %13: unknown means not dead, binding incomplete")
+h3a14	N	bool	rewrites=0	cands=4	RewriteFailed
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unclassified use of %12 at %13: unknown means not dead, binding incomplete")
+h3a15	N	bool	rewrites=0	cands=4	RewriteFailed
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: forward reduction requires zero-based induction start")
+h3a16	N	bool	rewrites=0	cands=4	RewriteFailed
+Iteration 1: Branching on candidate candidate#2 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: counted loop does not cover the complete collection extent")
+h3a17	N	bool	rewrites=0	cands=3	RewriteFailed
+Iteration 1: Branching on candidate candidate#2 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: no unit-stride induction counter (stride contract)")
+h3a18	N	bool	rewrites=0	cands=3	RewriteFailed
+Iteration 1: Branching on candidate candidate#0 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: counted loop is not proven finite")
+h3a19	N	bool	rewrites=0	cands=1	RewriteFailed
+h3a20	N	bool	rewrites=0	cands=3	NoProof
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: predicate scalar depends on a loop-carried value (not invariant)")
+h3a21	N	pred	rewrites=0	cands=2	RewriteFailed
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: forward reduction requires zero-based induction start")
+h3a22	N	bool	rewrites=0	cands=4	RewriteFailed
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: accumulator identity is not the recurrence's monoid identity")
+h3a23	S1	bool	rewrites=0	cands=4	RewriteFailed
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: accumulator identity is not the recurrence's monoid identity")
+h3a24	S1	pred	rewrites=0	cands=2	RewriteFailed
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a25	P	bool	rewrites=1	cands=4	NoCandidate
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a26	P	pred	rewrites=1	cands=2	NoCandidate
+TIER_A_REWRITES=15/26
+
+H3 RUN — tier B (LLVM sources)
+kernel	lowered	verify	f_cands	rewrites	outcome
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+Rewrite failed: StructuralVerificationFailed([TypeMismatch { node: NodeId(14), kind: Ne { lhs: NodeId(19), rhs: NodeId(13) }, input_index: 1, expected: Bool, actual: Integer { width: I8, signed: false, overflow: Wrapping } }, TypeMismatch { node: NodeId(17), kind: Pack { array: NodeId(0) }, input_index: 0, expected: Bool, actual: Integer { width: I8, signed: false, overflow: Wrapping } }])
+h3b01_any_or_global	YES	PASS	2	0	RewriteFailed
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+Rewrite failed: StructuralVerificationFailed([TypeMismatch { node: NodeId(17), kind: Ne { lhs: NodeId(22), rhs: NodeId(16) }, input_index: 1, expected: Bool, actual: Integer { width: I8, signed: false, overflow: Wrapping } }])
+h3b02_any_gt_global	YES	PASS	2	0	RewriteFailed
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+Rewrite failed: StructuralVerificationFailed([TypeMismatch { node: NodeId(17), kind: Ne { lhs: NodeId(22), rhs: NodeId(16) }, input_index: 1, expected: Bool, actual: Integer { width: I8, signed: false, overflow: Wrapping } }])
+h3b03_any_eq_global	YES	PASS	2	0	RewriteFailed
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+Rewrite failed: StructuralVerificationFailed([TypeMismatch { node: NodeId(17), kind: Ne { lhs: NodeId(22), rhs: NodeId(16) }, input_index: 1, expected: Bool, actual: Integer { width: I8, signed: false, overflow: Wrapping } }])
+h3b04_any_lt_global	YES	PASS	2	0	RewriteFailed
+h3b05_ptr_scan	YES	PASS	0	0	NoCandidate
+h3b06_volatile_load	YES	PASS	1	0	NoProof
+h3b07_store_in_loop	NO	-	0	0	lower: unsupported call: tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 16 dereferenceable(256) @h3_g_b, i8 %0, i64 256, i1 false), !tbaa !5
+h3b08_two_loops	NO	-	0	0	lower: unsupported: multiple loops sharing an exit CFG (nested/sequential loops) not modeled: h3b08_two_loops
+h3b09_reverse_scan	NO	-	0	0	lower: unsupported: rotated loop exit (back-edge on false) that is not the counted eq-next form (`icmp eq next, bound` with `next = carry + 1`); lowering it as SIR would invert or shift the iteration domain
+h3b10_early_exit	NO	-	0	0	lower: unsupported: loop with a separate latch block (multi-block back-edge) not modeled: h3b10_early_exit
+h3b11_out_param	NO	-	0	0	lower: unsupported: loop with a separate latch block (multi-block back-edge) not modeled: h3b11_out_param
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+Rewrite failed: StructuralVerificationFailed([TypeMismatch { node: NodeId(16), kind: Ne { lhs: NodeId(21), rhs: NodeId(15) }, input_index: 1, expected: Bool, actual: Integer { width: I8, signed: false, overflow: Wrapping } }, TypeMismatch { node: NodeId(19), kind: Pack { array: NodeId(0) }, input_index: 0, expected: Bool, actual: Integer { width: I8, signed: false, overflow: Wrapping } }])
+h3b12_signed_lt_zero	YES	PASS	2	0	RewriteFailed
+TOTAL_REWRITES=15

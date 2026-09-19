@@ -1,0 +1,6 @@
+# Gate 6B sealed fusion corpus (generated before any fusion automation; sha256sum)
+f161f612bb7d3de141b83fde1adc8cc129e9356ea0bceecb633e71608e195463  gate6b/corpus.c
+10b97364c90e4499445765258776a1c89e4e2516f72b476e206fc8805d5ff187  gate6b/corpus.ll
+d563127b7ed5f043534239c23bbc94d304ef30f6d2f0584b24bb3deb2a1cde5d  gate6b/expected.csv
+44c84190ad4356aa67127cb54fa08089a26e7186e2cbe84848eed703152b8d95  gate6b/README.md
+82debfb03ceb26c543a24ecb569700d0ff0dde2d14ca0b847c2593edb108cf57  docs/C3_FREEZE_RECORD.md

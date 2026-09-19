@@ -1,0 +1,23 @@
+# Gate 6A fresh blind recognition evaluation
+# corpus=gate6a/v14_corpus.ll
+# registry=default; config=OptimizerConfig::default
+PositionSearch roles assigned: collection=Some(NodeId(0)), scalar=None, result=Some(NodeId(20))
+PositionSearch roles assigned: collection=Some(NodeId(0)), scalar=None, result=Some(NodeId(20))
+Iteration 1: Branching on candidate candidate#1 with strategy BitScanForward
+
+KERNEL s01_search_a_while_accessing_b class=P expectation=recognized
+  key_property: collection must bind the searched array, not the second accessed array
+  observed: lowered=true verify=true truths=23 concepts=["FirstOccurrence", "LogicalSequence", "FiniteCollection", "IsZero", "PredicateMap", "ElementSequence", "DisjunctiveReduction"] beliefs=2 cands=2 rewrites=1
+  RESULT recognized ["FirstOccurrence"] (PASS)
+PositionSearch roles assigned: collection=Some(NodeId(0)), scalar=Some(NodeId(1)), result=Some(NodeId(18))
+PositionSearch roles assigned: collection=Some(NodeId(0)), scalar=Some(NodeId(1)), result=Some(NodeId(18))
+Iteration 1: Branching on candidate candidate#1 with strategy BitScanForward
+
+KERNEL s02_eq_key_with_extra class=P expectation=recognized
+  key_property: scalar must bind the compared key, not the trailing integer parameter
+  observed: lowered=true verify=true truths=20 concepts=["PredicateMap", "FirstOccurrence", "ElementSequence", "DisjunctiveReduction", "FiniteCollection", "LogicalSequence"] beliefs=2 cands=2 rewrites=1
+  RESULT recognized ["FirstOccurrence"] (PASS)
+
+GATE6A_SUMMARY positives=2 recognized=2 recall_misses=0 known_gap_misses=0
+GATE6A_SAFETY negatives=0 contained_rows=0 false_positive_recognitions=0 unsafe_candidates=0 unsafe_rewrites=0
+GATE6A_VERDICT PASS

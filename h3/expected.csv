@@ -1,0 +1,39 @@
+id	class	expected_outcome	expected_safety	rationale
+h3a01	P	rewrite	OK	boolean any OR-reduce, identity=false, extent 0 (zero-trip), field consumer
+h3a02	P	rewrite	OK	boolean any, extent 1
+h3a03	P	rewrite	OK	boolean any, extent 8
+h3a04	P	rewrite	OK	boolean any, index-first tuple (acc slot 1), extent 64
+h3a05	P	rewrite	OK	boolean any with select downstream of the acc value
+h3a06	P	rewrite	OK	boolean any, extent 256 (wide pack)
+h3a07	P	rewrite	OK	predicate any u8 > param, extent 8
+h3a08	P	rewrite	OK	predicate any u64 >= param, index-first tuple, extent 8
+h3a09	P	rewrite	OK	predicate any i32 == const 0, extent 16
+h3a10	P	rewrite	OK	predicate any i8 < const 0 (signed compare), extent 8
+h3a11	P	rewrite	OK	predicate any u16 != const 0, acc slot 1, extent 8
+h3a12	P	rewrite	OK	predicate any u32 <= const 100, extent 8
+h3a13	N	abstain@live-out	OK	extra dead index-slot extract = unclassified second use
+h3a14	N	abstain@live-out	OK	two consumers of the same acc slot
+h3a15	N	abstain@live-out	OK	whole-tuple return escape
+h3a16	N	abstain@binding	OK	nonzero (1) induction start
+h3a17	N	abstain@binding	OK	bound 7 < extent 8 (partial scan)
+h3a18	N	abstain@binding	OK	reverse (descending) traversal, stride -1
+h3a19	N	abstain@binding	OK	bound depends on the loop body (not proven finite)
+h3a20	N	abstain@verification	OK	two reductions (OR + AND accumulators) in one loop
+h3a21	N	abstain REQUIRED	SAFETY predicate scalar derived from the induction counter (values[i] > i): not a stable live-in scalar; any rewrite must be refused
+h3a22	N	abstain@binding	OK	acc slot 1 + nonzero start
+h3a23	S1	abstain REQUIRED	SAFETY boolean any with identity=true: outside Any theorem domain (identity must be false); must not rewrite
+h3a24	S1	abstain REQUIRED	SAFETY predicate any with identity=true: outside Any theorem domain; must not rewrite
+h3a25	N	abstain@live-out	OK	TupleExtract consumer of acc slot (unclassified live-out form)
+h3a26	N	abstain@live-out	OK	TupleExtract consumer of pred-any acc slot
+h3b01	B	abstain@application	OK	clang -O1 eq-next loop rotation: binder requires lt(carry,bound); positive-shaped candidate blocked late
+h3b02	B	abstain@application	OK	eq-next rotation, predicate > param
+h3b03	B	abstain@application	OK	eq-next rotation, predicate == param
+h3b04	B	abstain@application	OK	eq-next rotation, predicate < param
+h3b05	B	abstain@candidate	OK	pointer-parameter scan: no fixed extent
+h3b06	B	abstain@candidate	OK	volatile global read: effects
+h3b07	B	abstain@lower	OK	store inside loop
+h3b08	B	abstain@lower	OK	two sequential loops
+h3b09	B	abstain (no crash)	ROBUSTNESS	reverse scan must abstain cleanly; a crash is a robustness failure
+h3b10	B	abstain@lower	OK	early-exit loop (separate latch block)
+h3b11	B	abstain@lower	OK	index observed via out-parameter + early exit
+h3b12	B	abstain@application	OK	signed-comparison global scan (eq-next rotation)

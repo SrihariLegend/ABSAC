@@ -1,0 +1,113 @@
+# Gate 6A fresh blind recognition evaluation
+# corpus=gate6a/v13_corpus.ll
+# registry=default; config=OptimizerConfig::default
+Iteration 1: Branching on candidate candidate#0 with strategy ClearLowestBit
+Iteration 1: Branching on candidate candidate#1 with strategy IsolateLowestBit
+Iteration 1: Branching on candidate candidate#2 with strategy IsolateLowestClearBit
+Iteration 2: Branching on candidate candidate#0 with strategy IsolateLowestBit
+Iteration 2: Branching on candidate candidate#1 with strategy IsolateLowestClearBit
+Iteration 2: Branching on candidate candidate#2 with strategy SetLowestClearBit
+Iteration 2: Branching on candidate candidate#0 with strategy ClearLowestBit
+Iteration 2: Branching on candidate candidate#1 with strategy IsolateLowestClearBit
+Iteration 2: Branching on candidate candidate#2 with strategy SetLowestClearBit
+Iteration 2: Branching on candidate candidate#0 with strategy ClearLowestBit
+Iteration 2: Branching on candidate candidate#1 with strategy IsolateLowestBit
+Iteration 2: Branching on candidate candidate#2 with strategy SetLowestClearBit
+Iteration 3: Branching on candidate candidate#0 with strategy IsolateLowestClearBit
+Iteration 3: Branching on candidate candidate#1 with strategy SetLowestClearBit
+Iteration 3: Branching on candidate candidate#0 with strategy IsolateLowestBit
+Iteration 3: Branching on candidate candidate#1 with strategy SetLowestClearBit
+Iteration 3: Branching on candidate candidate#0 with strategy IsolateLowestBit
+Iteration 3: Branching on candidate candidate#1 with strategy IsolateLowestClearBit
+Iteration 4: Branching on candidate candidate#0 with strategy SetLowestClearBit
+Iteration 4: Branching on candidate candidate#0 with strategy IsolateLowestClearBit
+Iteration 4: Branching on candidate candidate#0 with strategy SetLowestClearBit
+
+KERNEL a01_merged_mask_u32_loop class=P expectation=recognized
+  key_property: four mask patterns merged through a loop-invariant computed input
+  observed: lowered=true verify=true truths=5 concepts=["PredicateMap", "LowestSetBit", "LowestClearBitMask", "SetLowestClearBit", "ClearLowestSetBit"] beliefs=1 cands=4 rewrites=4
+  RESULT recognized ["ClearLowestSetBit", "LowestSetBit", "LowestClearBitMask", "SetLowestClearBit"] (PASS)
+Iteration 1: Branching on candidate candidate#2 with strategy MaskExtract
+Iteration 1: Branching on candidate candidate#0 with strategy BitwiseAnd
+Iteration 1: Branching on candidate candidate#1 with strategy ShiftRight
+Iteration 2: Branching on candidate candidate#0 with strategy BitwiseAnd
+Iteration 2: Branching on candidate candidate#1 with strategy ShiftRight
+Iteration 2: Branching on candidate candidate#1 with strategy MaskExtract
+Iteration 2: Branching on candidate candidate#0 with strategy ShiftRight
+Iteration 2: Branching on candidate candidate#1 with strategy MaskExtract
+Iteration 2: Branching on candidate candidate#0 with strategy BitwiseAnd
+Iteration 3: Branching on candidate candidate#0 with strategy ShiftRight
+Iteration 3: Branching on candidate candidate#0 with strategy BitwiseAnd
+Iteration 3: Branching on candidate candidate#0 with strategy ShiftRight
+
+KERNEL a02_merged_pow2_u32_loop class=P expectation=recognized
+  key_property: remainder/division/shift-mask merged through one computed input
+  observed: lowered=true verify=true truths=2 concepts=["PredicateMap", "ModuloPowerOfTwo", "DividePowerOfTwo", "ShiftMask"] beliefs=1 cands=3 rewrites=3
+  RESULT recognized ["ModuloPowerOfTwo", "DividePowerOfTwo", "ShiftMask"] (PASS)
+Iteration 1: Branching on candidate candidate#0 with strategy BitwiseAnd
+Iteration 1: Branching on candidate candidate#1 with strategy ShiftRight
+Iteration 2: Branching on candidate candidate#0 with strategy BitwiseAnd
+Iteration 2: Branching on candidate candidate#1 with strategy ShiftRight
+Iteration 2: Branching on candidate candidate#0 with strategy BitwiseAnd
+Iteration 3: Branching on candidate candidate#0 with strategy ShiftRight
+Iteration 3: Branching on candidate candidate#0 with strategy BitwiseAnd
+Iteration 3: Branching on candidate candidate#0 with strategy BitwiseAnd
+
+KERNEL a03_chained_pow2_u32 class=P expectation=recognized
+  key_property: chained power-of-two operations with distinct constants
+  observed: lowered=true verify=true truths=3 concepts=["ModuloPowerOfTwo", "DividePowerOfTwo", "PredicateMap"] beliefs=1 cands=2 rewrites=3
+  RESULT recognized ["ModuloPowerOfTwo", "DividePowerOfTwo"] (PASS)
+Iteration 1: Branching on candidate candidate#0 with strategy ClearLowestBit
+Iteration 1: Branching on candidate candidate#1 with strategy IsolateLowestBit
+Iteration 1: Branching on candidate candidate#2 with strategy IsolateLowestClearBit
+Iteration 2: Branching on candidate candidate#0 with strategy IsolateLowestBit
+Iteration 2: Branching on candidate candidate#1 with strategy IsolateLowestClearBit
+Iteration 2: Branching on candidate candidate#2 with strategy SetLowestClearBit
+Iteration 2: Branching on candidate candidate#0 with strategy ClearLowestBit
+Iteration 2: Branching on candidate candidate#1 with strategy IsolateLowestClearBit
+Iteration 2: Branching on candidate candidate#2 with strategy SetLowestClearBit
+Iteration 2: Branching on candidate candidate#0 with strategy ClearLowestBit
+Iteration 2: Branching on candidate candidate#1 with strategy IsolateLowestBit
+Iteration 2: Branching on candidate candidate#2 with strategy SetLowestClearBit
+Iteration 3: Branching on candidate candidate#0 with strategy IsolateLowestClearBit
+Iteration 3: Branching on candidate candidate#1 with strategy SetLowestClearBit
+Iteration 3: Branching on candidate candidate#0 with strategy IsolateLowestBit
+Iteration 3: Branching on candidate candidate#1 with strategy SetLowestClearBit
+Iteration 3: Branching on candidate candidate#0 with strategy IsolateLowestBit
+Iteration 3: Branching on candidate candidate#1 with strategy IsolateLowestClearBit
+Iteration 4: Branching on candidate candidate#0 with strategy SetLowestClearBit
+Iteration 4: Branching on candidate candidate#0 with strategy IsolateLowestClearBit
+Iteration 4: Branching on candidate candidate#0 with strategy SetLowestClearBit
+
+KERNEL a04_merged_mask_u64 class=P expectation=recognized
+  key_property: 64-bit merged mask patterns
+  observed: lowered=true verify=true truths=5 concepts=["LowestClearBitMask", "LowestSetBit", "ClearLowestSetBit", "SetLowestClearBit", "PredicateMap"] beliefs=1 cands=4 rewrites=4
+  RESULT recognized ["ClearLowestSetBit", "LowestSetBit", "LowestClearBitMask", "SetLowestClearBit"] (PASS)
+Iteration 1: Branching on candidate candidate#1 with strategy ClearLowestBit
+Iteration 1: Branching on candidate candidate#0 with strategy BitwiseAnd
+Iteration 2: Branching on candidate candidate#0 with strategy BitwiseAnd
+Iteration 2: Branching on candidate candidate#0 with strategy ClearLowestBit
+
+KERNEL a05_merged_mask_rem_u16 class=P expectation=recognized
+  key_property: 16-bit merged mask and remainder
+  observed: lowered=true verify=true truths=3 concepts=["ModuloPowerOfTwo", "ClearLowestSetBit", "PredicateMap"] beliefs=2 cands=2 rewrites=2
+  RESULT recognized ["ClearLowestSetBit", "ModuloPowerOfTwo"] (PASS)
+
+KERNEL n01_unrelated_shift_mask_u32 class=N expectation=safe_abstain
+  key_property: ordinary accumulation with unrelated Shr+And must not become a zero-count scan
+  observed: lowered=true verify=true truths=1 concepts=["PredicateMap"] beliefs=0 cands=0 rewrites=0
+  RESULT safe_abstain (PASS)
+
+KERNEL n02_unrelated_shift_one_u32 class=N expectation=safe_abstain
+  key_property: shift-by-one and mask not carried and not feeding termination must abstain
+  observed: lowered=true verify=true truths=1 concepts=["PredicateMap"] beliefs=0 cands=0 rewrites=0
+  RESULT safe_abstain (PASS)
+
+KERNEL n03_carried_shift_unrelated_probe class=N expectation=safe_abstain
+  key_property: carried shift with an unrelated non-terminating probe must abstain
+  observed: lowered=true verify=true truths=1 concepts=["PredicateMap"] beliefs=0 cands=0 rewrites=0
+  RESULT safe_abstain (PASS)
+
+GATE6A_SUMMARY positives=5 recognized=5 recall_misses=0 known_gap_misses=0
+GATE6A_SAFETY negatives=3 contained_rows=0 false_positive_recognitions=0 unsafe_candidates=0 unsafe_rewrites=0
+GATE6A_VERDICT PASS

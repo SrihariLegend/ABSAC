@@ -1,0 +1,27 @@
+NATIVE p01_sum_u8_u32: clean cases=48 rewrites=0
+NATIVE p02_count_ge_u32: clean cases=48 rewrites=0
+NATIVE p03_count_lt_u16: clean cases=48 rewrites=0
+NATIVE p04_all_eq_u16: clean cases=48 rewrites=0
+NATIVE p05_all_ne_u8: clean cases=48 rewrites=0
+NATIVE p06_sum_u32_u32: clean cases=48 rewrites=0
+NATIVE p07_count_eq_const_bound: clean cases=48 rewrites=1
+NATIVE p08_any_or_u32: clean cases=48 rewrites=0
+NATIVE p09_all_ge_u16: clean cases=48 rewrites=0
+NATIVE p10_count_ne_do_while_u16: clean cases=48 rewrites=0
+NATIVE p11_map_then_sum: clean cases=48 rewrites=0
+NATIVE p12_two_loops: clean cases=48 rewrites=0
+NATIVE n01_sum_if_mask: clean cases=48 rewrites=0
+NATIVE n02_sum_ternary_gt: clean cases=48 rewrites=0
+NATIVE n03_sum_masked_hi: clean cases=48 rewrites=0
+NATIVE n04_sum_index_conditional: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: n04_sum_index_conditional (early-exit search: no header/latch/merge triple))
+NATIVE n05_sum_i64_nsw: clean cases=48 rewrites=0
+NATIVE n06_running_max_u16: clean cases=48 rewrites=0
+NATIVE n07_two_arrays_u8: clean cases=48 rewrites=0
+NATIVE n08_store_maybe_alias: lower_refused (TypeMismatch { node: NodeId(8), expected: Pointer { pointee: Unit, mutable: true }, actual: Integer { width: I16, signed: false, overflow: Wrapping } })
+NATIVE n09_volatile_load: clean cases=48 rewrites=0
+NATIVE n10_stride4: clean cases=48 rewrites=0
+NATIVE n11_atomic_flags: lower_refused (unsupported: atomic load (ordering semantics not modeled): %10 = load atomic i32, ptr %9 monotonic, align 4)
+NATIVE n12_self_recurrence: clean cases=48 rewrites=0
+# sanitize=address,undefined
+EMITC_SANITIZE violations=0
+EMITC_SUMMARY clean=21 mismatched=0 lower_refused=3 harness_errors=0

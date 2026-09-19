@@ -1,0 +1,31 @@
+id	class	kind	elem	op	scalar	extent	acc_slot	identity	consumer	deviation
+# D4 regression corpus = H3 promoted (advisor directive). Classification corrections:
+#   h3a13/h3a25/h3a26 N->P: the abstention cause was a provably-dead second
+#   projection (fixture artifact), now classified; the semantic deviation is absent.
+#   h3a21/h3a23/h3a24 remain N/S1 and MUST abstain (S2/S1 gates).
+h3a01	P	bool	-	or	-	0	0	0	field	-
+h3a02	P	bool	-	or	-	1	0	0	field	-
+h3a03	P	bool	-	or	-	8	0	0	field	-
+h3a04	P	bool	-	or	-	64	1	0	field	-
+h3a05	P	bool	-	or	-	128	0	0	select	-
+h3a06	P	bool	-	or	-	256	0	0	field	-
+h3a07	P	pred	u8	gt	param	8	0	0	field	-
+h3a08	P	pred	u64	ge	param	8	1	0	field	-
+h3a09	P	pred	i32	eq	const:0	16	0	0	field	-
+h3a10	P	pred	i8	lt	const:0	8	0	0	field	-
+h3a11	P	pred	u16	ne	const:0	8	1	0	field	-
+h3a12	P	pred	u32	le	const:100	8	0	0	field	-
+h3a13	P	bool	-	or	-	8	0	0	field	deadidx->fixed:dead-projection
+h3a14	N	bool	-	or	-	8	0	0	field	twofield
+h3a15	N	bool	-	or	-	8	0	0	tuple	-
+h3a16	N	bool	-	or	-	8	0	0	field	nz_start
+h3a17	N	bool	-	or	-	8	0	0	field	partial_bound
+h3a18	N	bool	-	or	-	8	0	0	field	reverse
+h3a19	N	bool	-	or	-	8	0	0	field	unstable_bound
+h3a20	N	bool	-	or	-	8	0	0	field	two_reductions
+h3a21	N	pred	u32	gt	param	8	0	0	field	unstable_scalar
+h3a22	N	bool	-	or	-	8	1	0	field	nz_start
+h3a23	S1	bool	-	or	-	8	0	1	field	-
+h3a24	S1	pred	u32	gt	param	8	0	1	field	-
+h3a25	P	bool	-	or	-	8	0	0	extract	-->fixed:dead-projection
+h3a26	P	pred	u32	gt	param	8	0	0	extract	-->fixed:dead-projection

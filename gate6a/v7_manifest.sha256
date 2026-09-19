@@ -1,0 +1,8 @@
+# Gate 6A-v7 sealed corpus manifest (generated before the frozen run).
+# Frozen candidate: HEAD 5320229 (multi-loop candidates + do-while reconstruction + certified gate).
+# Classification frozen before evaluation; post-run records live in docs/GATE6A_V7_RESULTS.md.
+401d8bee48c42c111c4ec9550626914cb1d192b69245d55f1c817c35045eb0ed  gate6a/v7_corpus.c
+151ab096fc2d1322e912c7daee7fccd441f2f768962ca7e3afe530838d11c778  gate6a/v7_corpus.ll
+5c800ff8c88f485836245d760d3dc5b63486a019684687437aed636e409a38f4  gate6a/v7_expected.csv
+06fb64ad2b7688e439f76c5b148c283199b50fa67672a5c4e920597eccd088ad  gate6a/v7_README.md
+986620419dd38e11cd7f300b942a066e22eb37c51439408d8b92caad72ee033f  sir/crates/sir_benchmarks/src/bin/gate6a_run.rs

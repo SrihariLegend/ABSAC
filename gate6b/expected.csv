@@ -1,0 +1,11 @@
+kernel	class	expected_outcome	expected_reductions	min_speedup_vs_3vec	rationale
+g6p01_triad	P	fuse	count(mask,target);sum;all(val)	1.20	three independent reductions share buf and n; disjoint accumulators
+g6p02_count_sum	P	fuse	count(mask,target);sum	1.10	pair fusion over one buffer and domain
+g6p03_sum_all	P	fuse	sum;all(val)	1.10	pair fusion over one buffer and domain
+g6p04_two_predicates	P	fuse	count(mask,t1);count(mask,t2);sum	1.20	two predicates plus sum share one traversal; distinct accumulators
+g6p05_literals	P	fuse	count(and15==5);sum;all(66)	1.20	literal predicates, no scalar parameters
+g6n06_two_buffers	N	no_fuse	-	-	distinct buffer bases: no shared traversal
+g6n07_half_domain	N	no_fuse	-	-	same base, different iteration domains (n vs n/2)
+g6n08_store_loop	N	no_fuse	-	-	second loop has an observable store (not a reduction)
+g6n09_reverse	N	no_fuse	-	-	descending traversal outside the recognized forward dialect
+g6n10_dependent	N	no_fuse	-	-	second domain depends on the first reduction's result

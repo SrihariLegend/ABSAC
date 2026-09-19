@@ -1,0 +1,13 @@
+kernel	class	expectation	expected_lower	expected_verify	expected_concepts	expected_candidates	expected_rewrites	key_property
+r01_runtime_first_zero_guard	P	recall_gap_known	any	any	any	any	any	explicit n==0 guard on a runtime zero search
+r02_runtime_first_ne_key_u32	P	recognized	yes	yes	FirstOccurrence	any	any	runtime Ne search, n sentinel, u32 elements
+r03_runtime_last_eq_key_u16	P	recall_gap_known	any	any	any	any	any	descending runtime Eq search (known lowering gap)
+r04_runtime_first_ge_key_u16	P	recall_gap_known	any	any	any	any	any	runtime Ge predicate search (no precedent)
+s01_sum_u16_64	P	recognized	yes	yes	SumReduction	any	any	wider-element sum reduction, extent 64
+s02_xor_map_sum_i16_64	P	recognized	yes	yes	MappedSumReduction	any	any	xor map then sum, i16 elements, extent 64
+s03_cond_sum_u8_64	P	recall_gap_known	any	any	any	any	any	conditional sum via select (predicate-map interaction)
+s04_sum_u32_32	P	recognized	yes	yes	SumReduction	any	any	wider-element sum reduction, extent 32
+p01_rotl13_u32	P	recall_gap_known	any	any	any	any	any	scalar rotate-left by 13 (permutation lowering unknown)
+p02_bswap_u32	P	recall_gap_known	any	any	any	any	any	llvm.bswap intrinsic lowering unknown
+p03_bitrev_u32	P	recall_gap_known	any	any	any	any	any	manual bit-reversal chain
+c01_search_then_sum	P	recall_gap_known	any	any	any	any	any	search then second loop (composition gap)

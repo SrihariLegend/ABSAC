@@ -1,0 +1,12 @@
+SEARCH lib_memchr n=64 reps=200000 ns_per_call=1.78 sink=600000
+SEARCH naive_loop n=64 reps=200000 ns_per_call=1.97 sink=600000
+SEARCH lib_memchr n=64 reps=200000 ns_per_call=2.13 sink=12800000
+SEARCH naive_loop n=64 reps=200000 ns_per_call=18.02 sink=12800000
+SEARCH lib_memchr n=4096 reps=5000 ns_per_call=1.57 sink=15000
+SEARCH naive_loop n=4096 reps=5000 ns_per_call=1.94 sink=15000
+SEARCH lib_memchr n=4096 reps=5000 ns_per_call=20.90 sink=20480000
+SEARCH naive_loop n=4096 reps=5000 ns_per_call=559.28 sink=20480000
+WORD lib_builtin_popcount reps=20000000 ns_per_call=1.06 sink=650244147
+WORD naive_kernighan reps=2000000 ns_per_call=18.12 sink=65024449
+WORD lib_builtin_ctz reps=20000000 ns_per_call=0.60 sink=0
+WORD naive_shift_ctz reps=2000000 ns_per_call=1.45 sink=1999510

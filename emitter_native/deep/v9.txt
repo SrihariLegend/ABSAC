@@ -1,0 +1,30 @@
+NATIVE p01_first_eq_key_u16_72: clean cases=2000 rewrites=1
+NATIVE p02_first_ne_key_u8_64: clean cases=2000 rewrites=1
+NATIVE p03_first_ge_key_u32_56: clean cases=2000 rewrites=1
+NATIVE p04_first_lt_key_u8_48: clean cases=2000 rewrites=1
+NATIVE p05_first_gt_key_u16_80: clean cases=2000 rewrites=1
+NATIVE p06_first_eq_zero_u8_64: clean cases=2000 rewrites=1
+NATIVE p07_first_ne_zero_u8_96: clean cases=2000 rewrites=1
+NATIVE p08_first_eq_literal_u8_56: clean cases=2000 rewrites=1
+NATIVE p09_first_key_lt_elem_u8_40: clean cases=2000 rewrites=1
+NATIVE p10_first_key_ge_elem_u16_64: clean cases=2000 rewrites=1
+NATIVE p11_count_ge_const_48: clean cases=2000 rewrites=1
+NATIVE p12_two_loops_count_sum_64: clean cases=2000 rewrites=1
+NATIVE p13_first_eq_key_u32_128: clean cases=2000 rewrites=1
+NATIVE p14_search_compound_and: clean cases=2000 rewrites=0
+NATIVE p15_search_subrange_short: clean cases=2000 rewrites=0
+NATIVE p16_runtime_extent_search: clean cases=2000 rewrites=0
+NATIVE p17_do_while_stride4_sum: clean cases=2000 rewrites=0
+NATIVE n01_running_max_const: clean cases=2000 rewrites=0
+NATIVE n02_masked_sum_ternary_const: clean cases=2000 rewrites=0
+NATIVE n03_masked_sum_hi_const: clean cases=2000 rewrites=0
+NATIVE n04_volatile_load_const: clean cases=2000 rewrites=0
+NATIVE n05_atomic_load_const: lower_refused (unsupported: atomic load (ordering semantics not modeled): %7 = load atomic i32, ptr %6 monotonic, align 4)
+NATIVE n06_may_alias_store_const: lower_refused (TypeMismatch { node: NodeId(5), expected: Pointer { pointee: Unit, mutable: true }, actual: Integer { width: I16, signed: false, overflow: Wrapping } })
+NATIVE n07_two_arrays_const: clean cases=2000 rewrites=0
+NATIVE n08_nonterminating_reverse: lower_refused (function has too few blocks for the lowerer)
+NATIVE n09_early_exit_global_const: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: n09_early_exit_global_const (early-exit search: no header/latch/merge triple))
+NATIVE n10_runtime_sum_u16: clean cases=2000 rewrites=0
+NATIVE n11_runtime_count_ge_u32: clean cases=2000 rewrites=0
+NATIVE n12_signed_sum_const: clean cases=2000 rewrites=0
+EMITC_SUMMARY clean=25 mismatched=0 lower_refused=4 harness_errors=0

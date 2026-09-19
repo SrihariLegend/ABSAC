@@ -1,0 +1,75 @@
+# H3 EXECUTION — 2026-09-02T17:18:12Z
+# Differential SIR execution of committed rewrites (run BEFORE inspecting run1 failures)
+H3 EXEC — differential SIR execution (original vs rewritten)
+id	class	patterns	mismatches	first_mismatch
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a01	P	1	0	
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a02	P	2	0	
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a03	P	256	0	
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a04	P	14	0	
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a05	P	14	0	
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a06	P	14	0	
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a07	P	24	0	
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a08	P	24	0	
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a09	P	6	0	
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a10	P	6	0	
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a11	P	6	0	
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a12	P	6	0	
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unclassified use of %12 at %13: unknown means not dead, binding incomplete")
+h3a13	N	0	0	(no rewrite; nothing to execute)
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unclassified use of %12 at %13: unknown means not dead, binding incomplete")
+h3a14	N	0	0	(no rewrite; nothing to execute)
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unclassified use of %12 at %13: unknown means not dead, binding incomplete")
+h3a15	N	0	0	(no rewrite; nothing to execute)
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: forward reduction requires zero-based induction start")
+h3a16	N	0	0	(no rewrite; nothing to execute)
+Iteration 1: Branching on candidate candidate#2 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: counted loop does not cover the complete collection extent")
+h3a17	N	0	0	(no rewrite; nothing to execute)
+Iteration 1: Branching on candidate candidate#2 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: no unit-stride induction counter (stride contract)")
+h3a18	N	0	0	(no rewrite; nothing to execute)
+Iteration 1: Branching on candidate candidate#0 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: counted loop is not proven finite")
+h3a19	N	0	0	(no rewrite; nothing to execute)
+h3a20	N	0	0	(no rewrite; nothing to execute)
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a21 S2-witness: 2/4000 first=Some("orig=false rewritten=true arr=[0, 1, 2, 1, 2, 1, 4, 1]")
+h3a21	N	24	0	
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unsupported shape: forward reduction requires zero-based induction start")
+h3a22	N	0	0	(no rewrite; nothing to execute)
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a23	S1	256	1	orig=true rewritten=false scalar=None flag=None first5=[0, 0, 0, 0, 0]
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a24	S1	24	9	orig=true rewritten=false scalar=Some(0) flag=None first5=[0, 0, 0, 0, 0]
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unclassified use of %12 at %13: unknown means not dead, binding incomplete")
+h3a25	N	0	0	(no rewrite; nothing to execute)
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+Rewrite failed: RecipeFailed("application binding refused: unclassified use of %14 at %15: unknown means not dead, binding incomplete")
+h3a26	N	0	0	(no rewrite; nothing to execute)
+
+# S1 reproduction (identity=true reductions)
+H3 S1 — identity=true reduction reproduction
+Iteration 1: Branching on candidate candidate#3 with strategy Any
+h3a23 identity=true: rewrites=1
+  patterns=256 mismatches=1 first=Some("orig=true rewritten=false scalar=None first5=[0, 0, 0, 0, 0]")
+Iteration 1: Branching on candidate candidate#1 with strategy Any
+h3a24 identity=true: rewrites=1
+  patterns=24 mismatches=9 first=Some("orig=true rewritten=false scalar=Some(0) first5=[0, 0, 0, 0, 0]")

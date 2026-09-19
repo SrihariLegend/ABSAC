@@ -1,0 +1,9 @@
+NATIVE a01_merged_mask_u32_loop: clean cases=48 rewrites=4
+NATIVE a02_merged_pow2_u32_loop: clean cases=48 rewrites=3
+NATIVE a03_chained_pow2_u32: clean cases=48 rewrites=3
+NATIVE a04_merged_mask_u64: clean cases=48 rewrites=4
+NATIVE a05_merged_mask_rem_u16: clean cases=48 rewrites=2
+NATIVE n01_unrelated_shift_mask_u32: clean cases=48 rewrites=0
+NATIVE n02_unrelated_shift_one_u32: clean cases=48 rewrites=0
+NATIVE n03_carried_shift_unrelated_probe: clean cases=48 rewrites=0
+EMITC_SUMMARY clean=8 mismatched=0 lower_refused=0 harness_errors=0

@@ -1,0 +1,306 @@
+warning: unreachable pattern
+   --> crates/sir_semantics/src/binding.rs:727:17
+    |
+727 |                 _ => return false,
+    |                 ^ no value can reach this
+    |
+note: multiple earlier patterns match some of the same values
+   --> crates/sir_semantics/src/binding.rs:727:17
+    |
+722 |                 IntegerWidth::I8 => 8,
+    |                 ---------------- matches some of the same values
+723 |                 IntegerWidth::I16 => 16,
+    |                 ----------------- matches some of the same values
+724 |                 IntegerWidth::I32 => 32,
+    |                 ----------------- matches some of the same values
+725 |                 IntegerWidth::I64 => 64,
+    |                 ----------------- matches some of the same values
+726 |                 IntegerWidth::I128 => 128,
+727 |                 _ => return false,
+    |                 ^ ...and 1 other patterns collectively make this unreachable
+    = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `carried_inputs`
+  --> crates/sir_semantics/src/recognizers/loop_until_zero.rs:25:13
+   |
+25 |             carried_inputs,
+   |             ^^^^^^^^^^^^^^ help: try ignoring the field: `carried_inputs: _`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `length`
+   --> crates/sir_generation/src/generators/bitset.rs:175:24
+    |
+175 |         compute_cost: |length| CostProfile {
+    |                        ^^^^^^ help: if this is intentional, prefix it with an underscore: `_length`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+  --> crates/sir_generation/src/generators/mod.rs:38:9
+   |
+38 |     let mut proposals: Vec<UntrustedProposal> = Vec::new();
+   |         ----^^^^^^^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `proposals`
+  --> crates/sir_generation/src/generators/mod.rs:38:9
+   |
+38 |     let mut proposals: Vec<UntrustedProposal> = Vec::new();
+   |         ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_proposals`
+
+warning: unreachable pattern
+   --> crates/sir_rewrite/src/recipes/any.rs:209:13
+    |
+209 |             _ => return None,
+    |             ^ no value can reach this
+    |
+note: multiple earlier patterns match some of the same values
+   --> crates/sir_rewrite/src/recipes/any.rs:209:13
+    |
+200 |             (IntegerWidth::I8, false) => ConstantData::u8(0),
+    |             ------------------------- matches some of the same values
+201 |             (IntegerWidth::I8, true) => ConstantData::i8(0),
+    |             ------------------------ matches some of the same values
+202 |             (IntegerWidth::I16, false) => ConstantData::u16(0),
+    |             -------------------------- matches some of the same values
+203 |             (IntegerWidth::I16, true) => ConstantData::i16(0),
+    |             ------------------------- matches some of the same values
+...
+209 |             _ => return None,
+    |             ^ ...and 5 other patterns collectively make this unreachable
+    = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `loaded_ty`
+    --> crates/sir_lower/src/lib.rs:2206:17
+     |
+2206 |             let loaded_ty = parse_type(&type_str).unwrap_or(Type::u8());
+     |                 ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_loaded_ty`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `phi_info_debug` is never used
+    --> crates/sir_lower/src/lib.rs:2378:4
+     |
+2378 | fn phi_info_debug(inst: &Instruction) -> Vec<(String, String)> {
+     |    ^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `sir_types::NodeId`
+ --> crates/sir_benchmarks/src/vector_plan.rs:3:5
+  |
+3 | use sir_types::NodeId;
+  |     ^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `TailPolicy`
+ --> crates/sir_benchmarks/src/vector_emit.rs:3:53
+  |
+3 | use crate::vector_plan::{VectorOp, VectorPredicate, TailPolicy, VectorPlan};
+  |                                                     ^^^^^^^^^^
+
+warning: unused imports: `TailPolicy`, `VectorOp`, `VectorPlan`, and `VectorPredicate`
+  --> crates/sir_benchmarks/src/gate5a.rs:17:26
+   |
+17 | use crate::vector_plan::{VectorOp, VectorPredicate, TailPolicy, VectorPlan};
+   |                          ^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^^  ^^^^^^^^^^
+
+warning: unused variable: `closure`
+   --> crates/sir_benchmarks/src/framework/mod.rs:255:57
+    |
+255 |         ExpectedKnowledge::MissingKnowledge { concepts, closure, representations, rewrites } => {
+    |                                                         ^^^^^^^ help: try ignoring the field: `closure: _`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `candidates`
+  --> crates/sir_benchmarks/src/graph/mod.rs:11:59
+   |
+11 | fn graph001_validate_provenance(truths: &[SemanticTruth], candidates: &[sir_generation::candidate::Candidate]) {
+   |                                                           ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_candidates`
+
+warning: unused variable: `candidates`
+  --> crates/sir_benchmarks/src/graph/mod.rs:35:59
+   |
+35 | fn graph002_validate_provenance(truths: &[SemanticTruth], candidates: &[sir_generation::candidate::Candidate]) {
+   |                                                           ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_candidates`
+
+warning: unused variable: `x_cleared`
+  --> crates/sir_benchmarks/src/graph/mod.rs:96:21
+   |
+96 |                 let x_cleared = b.bit_and(x, x_minus_one, unknown_span()).unwrap();
+   |                     ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_x_cleared`
+
+warning: unused variable: `a_and_c`
+   --> crates/sir_benchmarks/src/graph/mod.rs:104:21
+    |
+104 |                 let a_and_c = b.bool_and(a_val, c_val, unknown_span()).unwrap();
+    |                     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_a_and_c`
+
+warning: unused variable: `y_mod_16`
+   --> crates/sir_benchmarks/src/graph/mod.rs:107:21
+    |
+107 |                 let y_mod_16 = b.rem(y, sixteen, unknown_span()).unwrap();
+    |                     ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_y_mod_16`
+
+warning: unused variable: `true_val`
+   --> crates/sir_benchmarks/src/vector_derive.rs:218:53
+    |
+218 |                     if let NodeKind::Select { cond, true_val, false_val } = &bn.kind {
+    |                                                     ^^^^^^^^ help: try ignoring the field: `true_val: _`
+
+warning: unused variable: `and_lhs`
+   --> crates/sir_benchmarks/src/vector_derive.rs:294:53
+    |
+294 |                         if let NodeKind::And { lhs: and_lhs, rhs: and_rhs } = &lhs_node.kind {
+    |                                                     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_and_lhs`
+
+warning: unused variable: `vw`
+   --> crates/sir_benchmarks/src/gate5a.rs:190:9
+    |
+190 |     let vw = plan.isa.width();
+    |         ^^ help: if this is intentional, prefix it with an underscore: `_vw`
+
+warning: unused variable: `extra_params`
+   --> crates/sir_benchmarks/src/gate5a.rs:362:75
+    |
+362 | fn emit_k50(out: &mut String, plan: &CandidatePlan, buf: &str, len: &str, extra_params: &str) {
+    |                                                                           ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_extra_params`
+
+# Gate 6A fresh blind recognition evaluation
+# corpus=/home/tom/dev/experiments/ABSAC/gate6a/v4_corpus.ll
+# registry=default; config=OptimizerConfig::default
+
+KERNEL p01_sum_u8_u64 class=P expectation=recognized
+  key_property: plain u8 sum into u64
+  observed: lowered=true verify=true truths=3 concepts=["IsZero", "PredicateMap", "SumReduction"] beliefs=0 cands=0 rewrites=0
+  RESULT recognized ["SumReduction"] (PASS)
+
+KERNEL p02_count_eq_u16 class=P expectation=recognized
+  key_property: u16 equality count
+  observed: lowered=true verify=true truths=4 concepts=["IsZero", "PredicateMap", "CardinalityReduction"] beliefs=0 cands=0 rewrites=0
+  RESULT recognized ["CardinalityReduction"] (PASS)
+
+KERNEL p03_count_le_u32 class=P expectation=recognized
+  key_property: u32 <= predicate
+  observed: lowered=true verify=true truths=4 concepts=["IsZero", "CardinalityReduction", "PredicateMap"] beliefs=0 cands=0 rewrites=0
+  RESULT recognized ["CardinalityReduction"] (PASS)
+
+KERNEL p04_all_ne_u16 class=P expectation=recognized
+  key_property: u16 != select-reset
+  observed: lowered=true verify=true truths=4 concepts=["IsZero", "PredicateMap", "ConjunctiveReduction"] beliefs=0 cands=0 rewrites=0
+  RESULT recognized ["ConjunctiveReduction"] (PASS)
+
+KERNEL p05_sum_u32_u64 class=P expectation=recognized
+  key_property: u32 sum into u64
+  observed: lowered=true verify=true truths=3 concepts=["IsZero", "SumReduction", "PredicateMap"] beliefs=0 cands=0 rewrites=0
+  RESULT recognized ["SumReduction"] (PASS)
+
+KERNEL p06_all_eq_u8 class=P expectation=recognized
+  key_property: u8 == bitwise-and form
+  observed: lowered=true verify=true truths=4 concepts=["PredicateMap", "ConjunctiveReduction", "IsZero"] beliefs=0 cands=0 rewrites=0
+  RESULT recognized ["ConjunctiveReduction"] (PASS)
+
+KERNEL p07_count_gt_u8 class=P expectation=recognized
+  key_property: u8 > predicate
+  observed: lowered=true verify=true truths=4 concepts=["PredicateMap", "CardinalityReduction", "IsZero"] beliefs=0 cands=0 rewrites=0
+  RESULT recognized ["CardinalityReduction"] (PASS)
+
+KERNEL p08_sum_u16_u32 class=P expectation=recognized
+  key_property: u16 sum into u32
+  observed: lowered=true verify=true truths=3 concepts=["SumReduction", "PredicateMap", "IsZero"] beliefs=0 cands=0 rewrites=0
+  RESULT recognized ["SumReduction"] (PASS)
+
+KERNEL p09_count_eq_do_while_u32 class=P expectation=recognized
+  key_property: do-while over u32
+  observed: lowered=true verify=true truths=3 concepts=["PredicateMap", "CardinalityReduction"] beliefs=0 cands=0 rewrites=0
+  RESULT recognized ["CardinalityReduction"] (PASS)
+
+KERNEL p10_any_or_u16 class=P expectation=recognized
+  key_property: u16 raw-element OR (Any family)
+  observed: lowered=true verify=true truths=2 concepts=["DisjunctiveReduction", "PredicateMap", "IsZero"] beliefs=0 cands=0 rewrites=0
+  RESULT recognized ["DisjunctiveReduction"] (PASS)
+
+KERNEL p11_map_then_sum class=P expectation=recall_gap_known
+  key_property: transformed-element sum (open recall gap)
+  observed: lowered=true verify=true truths=2 concepts=["PredicateMap", "IsZero"] beliefs=0 cands=0 rewrites=0
+  RESULT recall miss (KNOWN OPEN GAP, recorded; lowered=true verified=true)
+
+KERNEL p12_two_loops class=P expectation=recall_gap_known
+  key_property: two sequential loops (open frontend gap)
+  observed: lowered=false verify=false truths=0 concepts=[] beliefs=0 cands=0 rewrites=0
+  note: lower: unsupported: multiple loops sharing an exit CFG (nested/sequential loops) not modeled: p12_two_loops
+  RESULT recall miss (KNOWN OPEN GAP, recorded; lowered=false verified=false)
+
+KERNEL n01_sum_masked_and class=N expectation=safe_abstain
+  key_property: masked sum: s += (buf[i] & 0x0F) (D5 class)
+  observed: lowered=true verify=true truths=2 concepts=["IsZero", "PredicateMap"] beliefs=0 cands=0 rewrites=0
+  RESULT safe_abstain (PASS)
+
+KERNEL n02_sum_ternary class=N expectation=safe_abstain
+  key_property: conditional sum, ternary arm (D5 class)
+  observed: lowered=true verify=true truths=3 concepts=["IsZero", "PredicateMap"] beliefs=0 cands=0 rewrites=0
+  RESULT safe_abstain (PASS)
+
+KERNEL n03_sum_if_ne class=N expectation=safe_abstain
+  key_property: conditional sum, if != 0 (D5 class)
+  observed: lowered=true verify=true truths=3 concepts=["PredicateMap", "SumReduction", "IsZero"] beliefs=0 cands=0 rewrites=0
+  SAFETY FAIL: reduction concept on a negative: ["SumReduction"]
+  RESULT SAFETY VIOLATION (FAIL)
+
+KERNEL n04_sum_shifted class=N expectation=safe_abstain
+  key_property: shifted sum: s += (w[i] >> 3) (D5 class)
+  observed: lowered=true verify=true truths=2 concepts=["IsZero", "PredicateMap"] beliefs=0 cands=0 rewrites=0
+  RESULT safe_abstain (PASS)
+
+KERNEL n05_sum_scaled class=N expectation=safe_abstain
+  key_property: scaled sum: s += b[i] * 3 (D5 class)
+  observed: lowered=true verify=true truths=2 concepts=["PredicateMap", "IsZero"] beliefs=0 cands=0 rewrites=0
+  RESULT safe_abstain (PASS)
+
+KERNEL n06_sum_i32_nsw class=N expectation=contained_abstain
+  key_property: signed nsw sum: recognition allowed, authorization must refuse
+  observed: lowered=true verify=true truths=3 concepts=["SumReduction", "PredicateMap", "IsZero"] beliefs=0 cands=0 rewrites=0
+  recognition recorded (allowed): reduction_concepts=["SumReduction"]
+  RESULT contained (PASS)
+
+KERNEL n07_running_max_u32 class=N expectation=safe_abstain
+  key_property: running max (partial-truth candidate class)
+  observed: lowered=true verify=true truths=2 concepts=["IsZero", "PredicateMap"] beliefs=0 cands=0 rewrites=0
+  RESULT safe_abstain (PASS)
+
+KERNEL n08_count_equal_pairs_u16 class=N expectation=safe_abstain
+  key_property: two-array relation (footprint completeness class)
+  observed: lowered=true verify=true truths=3 concepts=["IsZero", "PredicateMap"] beliefs=0 cands=0 rewrites=0
+  RESULT safe_abstain (PASS)
+
+KERNEL n09_store_maybe_alias class=N expectation=safe_abstain
+  key_property: may-alias store inside the loop
+  observed: lowered=false verify=false truths=0 concepts=[] beliefs=0 cands=0 rewrites=0
+  note: lower: TypeMismatch { node: NodeId(8), expected: Pointer { pointee: Unit, mutable: true }, actual: Integer { width: I8, signed: false, overflow: Wrapping } }
+  RESULT safe_abstain (PASS)
+
+KERNEL n10_volatile_load class=N expectation=safe_abstain
+  key_property: volatile loads (effects)
+  observed: lowered=true verify=true truths=2 concepts=["IsZero", "PredicateMap"] beliefs=0 cands=0 rewrites=0
+  RESULT safe_abstain (PASS)
+
+KERNEL n11_stride3 class=N expectation=safe_abstain
+  key_property: fixed stride 3
+  observed: lowered=true verify=true truths=2 concepts=["PredicateMap", "IsZero"] beliefs=0 cands=0 rewrites=0
+  RESULT safe_abstain (PASS)
+
+KERNEL n12_atomic_sum class=N expectation=safe_abstain
+  key_property: C11 atomic loads
+  observed: lowered=false verify=false truths=0 concepts=[] beliefs=0 cands=0 rewrites=0
+  note: lower: unsupported: atomic load (ordering semantics not modeled): %10 = load atomic i16, ptr %9 monotonic, align 2
+  RESULT safe_abstain (PASS)
+
+GATE6A_SUMMARY positives=12 recognized=10 recall_misses=0 known_gap_misses=2
+GATE6A_SAFETY negatives=12 contained_rows=1 false_positive_recognitions=1 unsafe_candidates=0 unsafe_rewrites=0
+GATE6A_VERDICT FAIL

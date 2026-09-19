@@ -1,0 +1,23 @@
+id	class	kind	elem	op	scalar	extent	acc_slot	identity	consumer	deviation
+# H4c Tier A — fresh blind SIR-source corpus (authored from the frozen C3
+# dialect + D4 remediation record; no optimizer probing). Distinct row set
+# from h3/d4/h4b. Implementation state at seal: 1da3b28 (F10 fix).
+# class P = eligible positive (expected rewrite); N = near-miss negative
+# (expected abstain); S1/S2 = safety near-misses (must abstain).
+h4c-a01	P	bool	-	or	-	5	0	0	field	-
+h4c-a02	P	bool	-	or	-	63	1	0	field	-
+h4c-a03	P	bool	-	or	-	17	0	0	extract	-
+h4c-a04	P	bool	-	or	-	48	0	0	select	-
+h4c-a05	P	pred	u16	lt	param	40	0	0	field	-
+h4c-a06	P	pred	u32	ge	const:1000	7	1	0	field	-
+h4c-a07	P	pred	i16	le	const:0	13	0	0	field	-
+h4c-a08	P	pred	u8	eq	const:255	96	0	0	field	-
+h4c-a09	P	pred	i64	ge	const:-7	6	0	0	field	-
+h4c-a10	P	pred	u64	ne	param	15	0	0	extract	-
+h4c-a11	N	bool	-	or	-	12	0	0	field	nz_start
+h4c-a12	N	pred	u32	gt	param	10	1	0	field	partial_bound
+h4c-a13	N	bool	-	or	-	20	0	0	field	reverse
+h4c-a14	N	pred	u16	ge	param	8	0	0	tuple	-
+h4c-a15	N	bool	-	or	-	8	0	0	field	twofield
+h4c-a16	S1	bool	-	or	-	24	0	1	field	-
+h4c-a17	S2	pred	u32	lt	param	9	0	0	field	unstable_scalar

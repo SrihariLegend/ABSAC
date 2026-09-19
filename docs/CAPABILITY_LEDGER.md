@@ -1,0 +1,148 @@
+# Capability Ledger — old vs current
+
+Source of truth for what the pruning removed. The old tree is at
+`git HEAD` (`2cae1fd`), extracted at `/tmp/old_sir/sir`, and cloned as a
+writable reference at `/tmp/absac_head_clone` (a real worktree is
+impossible because `.git` is read-only). Recover any file with
+`git show HEAD:<path>`.
+
+Important: the session’s final old tree (~92.9k LOC) was **never
+committed**. `HEAD` is an earlier commit (~76.9k LOC). Uncommitted
+session additions — exact sum/memchr definitions and recipes, measured
+profile tables, later gate fixes — are not recoverable as source;
+their high-value algorithms were ported into `sir_opt` before deletion,
+and their corpora/evidence remain in the working tree.
+
+Rule going forward: **delete a capability only when the new architecture
+has an equivalent or better path, or when it is measured-neutral and its
+recovery path is recorded here.**
+
+## Crates
+
+| old crate | status | recovery / replacement |
+|---|---|---|
+| `sir_types` | kept | current |
+| `sir_nodes` | kept | current |
+| `sir_builder` | kept | current |
+| `sir_verify` | kept | current; post-patch gate restored |
+| `sir_analysis` | reduced | loops/graph kept; 11 dead analyses dropped |
+| `sir_mech` | kept | BV/SAT/term; LCF kernel + QF integer linear arithmetic restored from `HEAD`; kernel-model bug fixed |
+| `sir_lower` | kept | current |
+| `sir_semantics` | **missing** | concepts/roles/certificates/binding/authorization; port per family |
+| `sir_transform` | **missing** | contexts/roles/constraints/structures; re-express in `sir_opt::plan` |
+| `sir_generation` | **missing** | candidate/strategy layer; replaced by `Family::propose` |
+| `sir_verification` | **missing** | theorem/obligation/backends/artifacts; restore per family + z3 |
+| `sir_rewrite` | **missing** | engine/frames/artifacts/recipes; patch engine replaced, gates to restore |
+| `sir_optimizer` | **missing** | driver replaced; profile/objective/budgets/measured retention to restore |
+| `sir_selection` | removed | needs return for global search/cost ranking |
+| `sir_inference` | removed | contexts simplified; re-add only if evidence needs it |
+| `sir_printer` | removed | diagnostics; optional |
+| `sir_tests` | removed | legacy cross-crate tests |
+| `sir_gate4b` | removed | Gate 4B checker; evidence in `docs/GATE4B_PROOF.md` |
+
+## Families
+
+| definition | family | current status |
+|---|---|---|
+| 200–203 | bitscan/scan | 200 and 402 shapes ported; reverse/zero-count/scalar variants missing |
+| 400/401 | sums/mapped sums | fixed-extent + multi-loop ported; folded-offset/runtime shapes missing |
+| 402 | byte search | equality/u8 fixed-extent ported; runtime bounds missing |
+| 0 | popcount/cardinality | comparison-predicate count ported; bool-pack/Kernighan path missing |
+| 4 | Any | integer OR reduction ported; bool-pack path missing |
+| 5 | All | integer AND-chain ported; bool-pack path missing |
+| 6 | parity | **missing** (old path never fired in gate corpora) |
+| 100–103 | arithmetic | **missing** |
+| 300–303 | mask algebra | dropped as measured-neutral |
+| 310–313 | permutations | **missing** |
+| set algebra | — | **missing** |
+
+## Assurance and tooling
+
+| capability | old | current |
+|---|---|---|
+| structural verifier | `sir_verify`, post-rewrite | kept; post-patch gate restored |
+| family obligations/theorems | definitions + obligation DB | missing; `Family` proof hook to land |
+| concrete/symbolic/exhaustive backends | verification crates | BV/SAT + law checks + restored LCF kernel with `replay`, induction, and QF integer linear arithmetic |
+| z3 differential | solver/family level | kernel random differential restored; family level missing |
+| application gates | authorization/occurrence/live-out/frame/base | simplified shape checks only |
+| measured profiles/retention | optimizer + timing harness | missing; rewrites unconditional |
+| timing/differential harness | rich `emit_c_diff` modes | differential + sanitize + basic time |
+| wasm differential | `wasm_diff` | removed (recoverable) |
+| AArch64 differential | toolchain installed | harness never written |
+| external corpora | planned/fetched in parts | not yet active |
+| proof records/replay | partial | LCF kernel `replay` + kernel-induction proof restored; not yet wired into family obligations |
+
+## Recovery plan (mine `HEAD` selectively)
+
+Rules:
+
+- Mine `HEAD` for semantics, recognizers, definitions, recipes, and
+  tests; do not resurrect the old framework or copy whole crates.
+- Port one capability at a time into `sir_opt` `Family` modules on the
+  lean core. Each port carries its own proof, z3 differential, gate,
+  tests, and measurement.
+- No deletion without a replacement, a measurement, or a ledger entry.
+- Back up and commit before and after every milestone.
+
+Milestones:
+
+| # | milestone | exit criteria |
+|---|---|---|
+| M0 | **Safety** | writable `.git` or external mirror; current and `HEAD` both committed; backups verified |
+| M1 | **Measurement** | timing/retention tool restored outside core; 14-corpus + callgrind baselines reproducible; rewrite counts recorded |
+| M2 | **Assurance** | family-level z3 differential + plan-bound gates (authorization/occurrence, live-outs, frames, memory bases); every supported family has an obligation and fails closed |
+| M3 | **Top-value families** | Kernighan bitset popcount, runtime-bounded search/memchr, parity; each has proof + z3 + corpus/fuzz + measured win |
+| M4 | **Breadth families** | arithmetic 100–103, permutations 310–313, bitscan variants; masks 300–303 only if measurement justifies; 15+ definitions with proofs and measurements |
+| M5 | **Evidence and targets** | external corpora with manifests/held-out splits; `aarch64_diff`; wasm differential rebuilt; independent reproduction |
+| M6 | **Research** | array/quantifier theory + proved `memchr`; global interaction-aware optimizer; predictive cost model + autotuning + runtime dispatch (ROADMAP pillars A–G) |
+
+Acceptance for any port:
+
+- zero mismatches, differential and sanitizers clean, zero warnings;
+- a small `Family` module (roughly 100–400 LOC, not a framework);
+- a machine-checked obligation plus an independent z3 cross-check;
+- a measured speedup, or an explicit measured-neutral justification;
+- a ledger entry that names the `HEAD` source files mined.
+
+Non-goals:
+
+- no wholesale `git checkout` of old crates;
+- no pruning before replacement/measurement;
+- no LOC target (leanness is a constraint, not a number);
+- no claim that `HEAD` is simply “better”: session-final old was ~92.9k
+  uncommitted, `HEAD` is 76.9k with 47 warnings and mismatches on
+  v12–v16 where current is clean.
+
+## HEAD reference comparison (2026-09-19)
+
+| metric | old `HEAD` (`2cae1fd`) | current |
+|---|---:|---:|
+| Rust LOC | 76,919 | ~15.9k + restored kernel/arith |
+| crates / binaries | 19 / 23 | 9 / 1 |
+| build warnings | 47 | 0 |
+| verification definitions | 24 | 7 |
+| rewrite recipes | 21 | 5 families |
+| semantics recognizers | 23 | 5 family modules |
+| test files / test LOC | 63 / 15,217 | 22 tests + restored kernel tests |
+| `sir_mech` proof kernel | LCF kernel + `arith.rs` + induction proof; 38 tests pass | restored, 28 `sir_mech` tests pass |
+| corpora known | v1–v11 | v2–v14, v16 (v12–v20 added in session) |
+| corpus result | v1–v11: 0 mismatched | 221 clean / 76 rewrites / 0 mismatched |
+
+Corpus comparison on `HEAD`’s own v1–v11: clean/mismatch counts are
+**identical** between `HEAD` and current on every corpus. On the
+session-added v12–v20 corpora, `HEAD` mismatches (v12=1, v13=4, v16=1)
+because it predates session gate fixes; current is 0-mismatch.
+
+Correction to earlier notes: `HEAD` **did** have an induction kernel
+(`sir_mech/src/kernel.rs`, `tests/kernel_induction.rs`) and
+quantifier-free integer linear arithmetic (`sir_mech/src/arith.rs`).
+There was **no array theory and no quantifier support** (runtime-pointer
+library search was blocked on exactly that). The kernel and arithmetic
+have now been restored into current `sir_mech` and tested.
+
+## Reference commands
+
+- Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
+- Old file: `git show HEAD:sir/crates/<crate>/<path>`
+- Build old baseline (outside repo):
+  `cd /tmp/old_sir/sir && CARGO_TARGET_DIR=/tmp/old_target cargo build --release`

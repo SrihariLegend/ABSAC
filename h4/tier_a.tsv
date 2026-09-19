@@ -1,0 +1,44 @@
+id	class	kind	elem	op	scalar	extent	acc_slot	identity	consumer	deviation
+# H4 Tier A — fresh SIR-source corpus (blind authoring: written from the
+# frozen C3 input dialect + D4 remediation record, no optimizer probing).
+# class P = eligible positive (expected rewrite); N = near-miss negative
+# (expected abstain); S1/S2 = safety near-misses (expected abstain; a
+# rewrite is a safety failure).
+# Positives vary extents (7,33,100,2,128,64,12,24,9,20,31), element widths
+# (u8,u16,u32,u64,i8,i32,i64), all comparison operators, param/const
+# scalars, acc slots 0/1, and field/extract/select consumers.
+h4a01	P	bool	-	or	-	7	0	0	field	-
+h4a02	P	bool	-	or	-	33	0	0	field	-
+h4a03	P	bool	-	or	-	100	0	0	field	-
+h4a04	P	bool	-	or	-	2	1	0	field	-
+h4a05	P	bool	-	or	-	128	1	0	select	-
+h4a06	P	bool	-	or	-	64	0	0	extract	-
+h4a07	P	pred	u8	le	param	12	0	0	field	-
+h4a08	P	pred	u8	ge	param	64	0	0	field	-
+h4a09	P	pred	u16	eq	param	24	1	0	field	-
+h4a10	P	pred	u32	ne	const:7	33	0	0	field	-
+h4a11	P	pred	i8	le	const:0	16	0	0	field	-
+h4a12	P	pred	i32	ge	const:-1	9	0	0	field	-
+h4a13	P	pred	i64	lt	const:0	20	0	0	field	-
+h4a14	P	pred	u64	gt	const:255	8	1	0	field	-
+h4a15	P	pred	u32	eq	param	64	0	0	extract	-
+h4a16	P	pred	u8	ne	param	31	0	0	select	-
+h4a17	P	bool	-	or	-	8	0	0	field	deadidx
+h4a18	N	bool	-	or	-	8	0	0	field	nz_start
+h4a19	N	bool	-	or	-	16	1	0	field	partial_bound
+h4a20	N	pred	u32	gt	param	8	0	0	field	nz_start
+h4a21	N	pred	u16	le	param	12	1	0	field	partial_bound
+h4a22	N	bool	-	or	-	8	0	0	field	reverse
+h4a23	N	pred	u8	ne	param	8	0	0	field	reverse
+h4a24	N	bool	-	or	-	8	0	0	field	unstable_bound
+h4a25	N	pred	u32	eq	param	8	0	0	field	unstable_bound
+h4a26	N	bool	-	or	-	8	0	0	field	two_reductions
+h4a27	N	pred	u8	gt	param	8	0	0	field	two_reductions
+h4a28	N	bool	-	or	-	8	0	0	tuple	-
+h4a29	N	pred	u32	gt	param	8	0	0	tuple	-
+h4a30	N	bool	-	or	-	8	0	0	field	twofield
+h4a31	N	pred	u16	lt	param	8	1	0	field	twofield
+h4a32	S1	bool	-	or	-	8	0	1	field	-
+h4a33	S1	pred	u8	ge	param	8	0	1	field	-
+h4a34	S2	pred	u32	gt	param	8	0	0	field	unstable_scalar
+h4a35	S2	pred	u8	lt	param	8	0	0	field	unstable_scalar

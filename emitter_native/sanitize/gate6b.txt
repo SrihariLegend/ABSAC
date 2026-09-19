@@ -1,0 +1,115 @@
+# Gate 6B fusion evaluation
+# corpus=gate6b/corpus.ll
+# apparatus: gate6b_run + extract_loop_regions + plan derivation + composition + emitter
+# sanitize=address,undefined
+
+KERNEL g6n06_two_buffers class=N expected=no_fuse
+  rationale: distinct buffer bases: no shared traversal
+  region[0] g6n06_two_buffers_region0 deps=[] concepts=["IsZero", "CardinalityReduction", "PredicateMap", "PredicateMap"] plan=Cardinality buffer=p0 length=p2 pred=masked_eq(mask=p3,target=p4) width=32
+  region[1] g6n06_two_buffers_region1 deps=[] concepts=["SumReduction", "PredicateMap"] plan=Sum buffer=p1 length=p2 pred=identity width=32
+  fusion_candidates=0
+  DECISION no_fuse (composition refused)
+  EXPECTATION PASS
+
+KERNEL g6n09_reverse class=N expected=no_fuse
+  rationale: descending traversal outside the recognized forward dialect
+  ANALYSIS_FAIL region g6n09_reverse_region1 did not lower: unsupported: signed icmp 'sgt' (SIR comparison semantics are unsigned-model; signed predicate would mistranslate negative operands): %31 = icmp sgt i64 %22, 1
+  DECISION no_fuse (analysis refused)
+  EXPECTATION PASS
+
+KERNEL g6p01_triad class=P expected=fuse
+  rationale: three independent reductions share buf and n; disjoint accumulators
+  region[0] g6p01_triad_region0 deps=[] concepts=["IsZero", "CardinalityReduction", "PredicateMap", "PredicateMap"] plan=Cardinality buffer=p0 length=p1 pred=masked_eq(mask=p2,target=p3) width=32
+  region[1] g6p01_triad_region1 deps=[] concepts=["SumReduction", "PredicateMap"] plan=Sum buffer=p0 length=p1 pred=identity width=32
+  region[2] g6p01_triad_region2 deps=[] concepts=["PredicateMap", "PredicateMap", "ConjunctiveReduction"] plan=All buffer=p0 length=p1 pred=eq(p4) width=32
+  fusion_candidates=1
+  SEARCH engine0_cost=4.200 search_choice=fuse_3 members=[0, 1, 2] options=[fuse_3=2.200, fuse_2=3.200, fuse_2=3.200, fuse_2=3.200, engine0_3vec=4.200]
+  SEARCH_EARLYEXIT_SENSITIVITY choice=fuse_2 members=[0, 1] cost=2.013
+  CORRECTNESS OK checks=399 failures=0
+  BENCH kernel=g6p01_triad n=4096 dist=random engine0_ns=235.42 plan_ns=116.53 ratio=0.4950
+  BENCH kernel=g6p01_triad n=4096 dist=equal engine0_ns=235.21 plan_ns=116.53 ratio=0.4954
+  BENCH kernel=g6p01_triad n=65536 dist=random engine0_ns=18545.62 plan_ns=7924.09 ratio=0.4273
+  BENCH kernel=g6p01_triad n=65536 dist=equal engine0_ns=18501.02 plan_ns=7923.99 ratio=0.4283
+  EXPECTATION PASS
+
+KERNEL g6n08_store_loop class=N expected=no_fuse
+  rationale: second loop has an observable store (not a reduction)
+  ANALYSIS_FAIL region g6n08_store_loop_region0 did not lower: unsupported call: tail call void @llvm.memset.p0.i64(ptr nonnull align 16 @g6_out, i8 %2, i64 %9, i1 false), !tbaa !5
+  DECISION no_fuse (analysis refused)
+  EXPECTATION PASS
+
+KERNEL g6p02_count_sum class=P expected=fuse
+  rationale: pair fusion over one buffer and domain
+  region[0] g6p02_count_sum_region0 deps=[] concepts=["IsZero", "CardinalityReduction", "PredicateMap", "PredicateMap"] plan=Cardinality buffer=p0 length=p1 pred=masked_eq(mask=p2,target=p3) width=32
+  region[1] g6p02_count_sum_region1 deps=[] concepts=["SumReduction", "PredicateMap"] plan=Sum buffer=p0 length=p1 pred=identity width=32
+  fusion_candidates=1
+  SEARCH engine0_cost=2.950 search_choice=fuse_2 members=[0, 1] options=[fuse_2=1.950, engine0_3vec=2.950]
+  SEARCH_EARLYEXIT_SENSITIVITY choice=fuse_2 members=[0, 1] cost=1.950
+  CORRECTNESS OK checks=266 failures=0
+  BENCH kernel=g6p02_count_sum n=4096 dist=random engine0_ns=181.83 plan_ns=96.42 ratio=0.5303
+  BENCH kernel=g6p02_count_sum n=4096 dist=equal engine0_ns=182.96 plan_ns=97.75 ratio=0.5343
+  BENCH kernel=g6p02_count_sum n=65536 dist=random engine0_ns=17760.87 plan_ns=8919.74 ratio=0.5022
+  BENCH kernel=g6p02_count_sum n=65536 dist=equal engine0_ns=17749.95 plan_ns=8944.52 ratio=0.5039
+  EXPECTATION PASS
+
+KERNEL g6n10_dependent class=N expected=no_fuse
+  rationale: second domain depends on the first reduction's result
+  region[0] g6n10_dependent_region0 deps=[] concepts=["IsZero", "CardinalityReduction", "PredicateMap", "PredicateMap"] plan=Cardinality buffer=p0 length=p1 pred=masked_eq(mask=p2,target=p3) width=32
+  region[1] g6n10_dependent_region1 deps=[Some(0)] concepts=["SumReduction", "PredicateMap"] plan=Sum buffer=p0 length=p4 pred=identity width=32
+  fusion_candidates=0
+  DECISION no_fuse (composition refused)
+  EXPECTATION PASS
+
+KERNEL g6n07_half_domain class=N expected=no_fuse
+  rationale: same base, different iteration domains (n vs n/2)
+  region[0] g6n07_half_domain_region0 deps=[] concepts=["IsZero", "CardinalityReduction", "PredicateMap", "PredicateMap"] plan=Cardinality buffer=p0 length=p1 pred=masked_eq(mask=p2,target=p3) width=32
+  region[1] g6n07_half_domain_region1 deps=[Some(0)] concepts=["SumReduction", "PredicateMap"] plan=Sum buffer=p0 length=p4 pred=identity width=32
+  fusion_candidates=0
+  DECISION no_fuse (composition refused)
+  EXPECTATION PASS
+
+KERNEL g6p03_sum_all class=P expected=fuse
+  rationale: pair fusion over one buffer and domain
+  region[0] g6p03_sum_all_region0 deps=[] concepts=["IsZero", "SumReduction", "PredicateMap"] plan=Sum buffer=p0 length=p1 pred=identity width=32
+  region[1] g6p03_sum_all_region1 deps=[] concepts=["PredicateMap", "PredicateMap", "ConjunctiveReduction"] plan=All buffer=p0 length=p1 pred=eq(p2) width=32
+  fusion_candidates=1
+  SEARCH engine0_cost=2.600 search_choice=fuse_2 members=[0, 1] options=[fuse_2=1.600, engine0_3vec=2.600]
+  SEARCH_EARLYEXIT_SENSITIVITY choice=engine0_3vec members=[] cost=1.413
+  CORRECTNESS OK checks=266 failures=0
+  BENCH kernel=g6p03_sum_all n=4096 dist=random engine0_ns=170.30 plan_ns=88.01 ratio=0.5168
+  BENCH kernel=g6p03_sum_all n=4096 dist=equal engine0_ns=170.06 plan_ns=88.18 ratio=0.5185
+  BENCH kernel=g6p03_sum_all n=65536 dist=random engine0_ns=17689.68 plan_ns=8904.12 ratio=0.5034
+  BENCH kernel=g6p03_sum_all n=65536 dist=equal engine0_ns=17652.28 plan_ns=8852.54 ratio=0.5015
+  EXPECTATION PASS
+
+KERNEL g6p05_literals class=P expected=fuse
+  rationale: literal predicates, no scalar parameters
+  region[0] g6p05_literals_region0 deps=[] concepts=["IsZero", "CardinalityReduction", "PredicateMap", "PredicateMap"] plan=Cardinality buffer=p0 length=p1 pred=masked_eq(mask=15,target=5) width=32
+  region[1] g6p05_literals_region1 deps=[] concepts=["SumReduction", "PredicateMap"] plan=Sum buffer=p0 length=p1 pred=identity width=32
+  region[2] g6p05_literals_region2 deps=[] concepts=["PredicateMap", "PredicateMap", "ConjunctiveReduction"] plan=All buffer=p0 length=p1 pred=eq(66) width=32
+  fusion_candidates=1
+  SEARCH engine0_cost=4.200 search_choice=fuse_3 members=[0, 1, 2] options=[fuse_3=2.200, fuse_2=3.200, fuse_2=3.200, fuse_2=3.200, engine0_3vec=4.200]
+  SEARCH_EARLYEXIT_SENSITIVITY choice=fuse_2 members=[0, 1] cost=2.013
+  CORRECTNESS OK checks=399 failures=0
+  BENCH kernel=g6p05_literals n=4096 dist=random engine0_ns=229.13 plan_ns=117.18 ratio=0.5114
+  BENCH kernel=g6p05_literals n=4096 dist=equal engine0_ns=229.30 plan_ns=117.77 ratio=0.5136
+  BENCH kernel=g6p05_literals n=65536 dist=random engine0_ns=18436.03 plan_ns=8146.38 ratio=0.4419
+  BENCH kernel=g6p05_literals n=65536 dist=equal engine0_ns=18421.95 plan_ns=8153.27 ratio=0.4426
+  EXPECTATION PASS
+
+KERNEL g6p04_two_predicates class=P expected=fuse
+  rationale: two predicates plus sum share one traversal; distinct accumulators
+  region[0] g6p04_two_predicates_region0 deps=[] concepts=["IsZero", "CardinalityReduction", "PredicateMap", "PredicateMap"] plan=Cardinality buffer=p0 length=p1 pred=masked_eq(mask=p2,target=p3) width=32
+  region[1] g6p04_two_predicates_region1 deps=[] concepts=["CardinalityReduction", "PredicateMap", "PredicateMap"] plan=Cardinality buffer=p0 length=p1 pred=masked_eq(mask=p2,target=p4) width=32
+  region[2] g6p04_two_predicates_region2 deps=[] concepts=["SumReduction", "PredicateMap"] plan=Sum buffer=p0 length=p1 pred=identity width=32
+  fusion_candidates=1
+  SEARCH engine0_cost=4.550 search_choice=fuse_3 members=[0, 1, 2] options=[fuse_3=2.550, fuse_2=3.550, fuse_2=3.550, fuse_2=3.550, engine0_3vec=4.550]
+  SEARCH_EARLYEXIT_SENSITIVITY choice=fuse_3 members=[0, 1, 2] cost=2.550
+  CORRECTNESS OK checks=399 failures=0
+  BENCH kernel=g6p04_two_predicates n=4096 dist=random engine0_ns=215.30 plan_ns=107.00 ratio=0.4970
+  BENCH kernel=g6p04_two_predicates n=4096 dist=equal engine0_ns=214.95 plan_ns=107.08 ratio=0.4982
+  BENCH kernel=g6p04_two_predicates n=65536 dist=random engine0_ns=18258.62 plan_ns=8499.88 ratio=0.4655
+  BENCH kernel=g6p04_two_predicates n=65536 dist=equal engine0_ns=18320.83 plan_ns=8550.09 ratio=0.4667
+  EXPECTATION PASS
+
+GATE6B_SUMMARY pass=10 fail=0

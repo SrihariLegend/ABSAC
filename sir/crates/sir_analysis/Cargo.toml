@@ -1,0 +1,13 @@
+[package]
+name = "sir_analysis"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+sir_types = { path = "../sir_types" }
+sir_nodes = { path = "../sir_nodes" }
+
+[dev-dependencies]
+sir_builder = { path = "../sir_builder" }
+sir_verify = { path = "../sir_verify" }

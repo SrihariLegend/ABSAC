@@ -1,0 +1,29 @@
+# Rust
+/target/
+**/target/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Repomix
+repomix-output.xml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dirac
+.dirac-cache/
+
+# Local scratch (native test temp files; /tmp is a small tmpfs here)
+/tmp/
+
+# Vendored third-party validation tools (install with:)
+#   pip3 install --target vendor/z3py z3-solver
+/vendor/
+
+gate4/differential
+gate4/differential_asan

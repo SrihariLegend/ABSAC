@@ -1,0 +1,14 @@
+[package]
+name = "sir_opt"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sir_analysis = { path = "../sir_analysis" }
+sir_mech = { path = "../sir_mech" }
+sir_nodes = { path = "../sir_nodes" }
+sir_types = { path = "../sir_types" }
+sir_verify = { path = "../sir_verify" }
+
+[dev-dependencies]
+sir_lower = { path = "../sir_lower" }

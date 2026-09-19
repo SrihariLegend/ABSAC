@@ -1,0 +1,25 @@
+kernel	class	expectation	expected_lower	expected_verify	expected_concepts	expected_candidates	expected_rewrites	key_property
+p01_runtime_search_zero_elem	P	recognized	yes	yes	FirstOccurrence	any	any	runtime search for zero (`!buf[i]`)
+p02_runtime_search_eq_key_neg1	P	recognized	yes	yes	FirstOccurrence	any	any	runtime Eq search, -1 sentinel (identity)
+p03_runtime_search_ne_key_n	P	recognized	yes	yes	FirstOccurrence	any	any	runtime Ne search, n sentinel
+p04_runtime_search_u16	P	recognized	yes	yes	FirstOccurrence	any	any	u16 runtime search
+p05_runtime_search_sentinel_nm1	P	recall_gap_known	any	any	any	any	any	computed n-1 sentinel
+p06_runtime_search_do_while	P	recall_gap_known	any	any	any	any	any	do-while runtime search
+p07_runtime_descending_search	P	recall_gap_known	any	any	any	any	any	descending runtime search
+p08_const_search_zero_elem	P	recognized	yes	yes	FirstOccurrence	any	any	constant search for zero (rewrite)
+p09_const_search_ge_key	P	recognized	yes	yes	FirstOccurrence	any	any	constant Ge search (rewrite)
+p10_count_ne_const_48	P	recognized	yes	yes	CardinalityReduction	any	any	cardinality Ne extent 48 (rewrite)
+p11_two_loops_const_56	P	recognized	yes	yes	CardinalityReduction	any	any	two sequential reductions extent 56
+p12_sum_u16_const_64	P	recognized	yes	yes	SumReduction	any	any	u16 sum extent 64 (recognition only)
+n01_running_max_const	N	safe_abstain	any	any	none	0	0	running max lookalike (X06)
+n02_masked_sum_ternary_const	N	safe_abstain	any	any	none	0	0	ternary threshold sum (D5)
+n03_masked_sum_hi_const	N	safe_abstain	any	any	none	0	0	high-nibble masked sum (D5)
+n04_volatile_load_const	N	safe_abstain	any	any	none	0	0	volatile loads
+n05_atomic_load_const	N	safe_abstain	any	any	none	0	0	C11 atomic loads
+n06_may_alias_store_const	N	safe_abstain	any	any	none	0	0	may-alias store
+n07_two_arrays_const	N	safe_abstain	any	any	none	0	0	two-array relation
+n08_nonterminating_reverse	N	safe_abstain	any	any	none	0	0	unsigned reverse search (totality gate)
+n09_early_exit_global_const	N	safe_abstain	any	any	none	0	0	early exit with a global write
+n10_runtime_sum_u16	N	contained_abstain	any	any	any	0	0	runtime extent sum
+n11_runtime_count_ge_u32	N	contained_abstain	any	any	any	0	0	runtime extent cardinality
+n12_signed_sum_const	N	contained_abstain	any	any	any	0	0	signed accumulation

@@ -1,0 +1,8 @@
+# H3 sealed artifact manifest (generated before the sealed run; sha256sum)
+6ed0e1b53dd541ebeb6dd1b8d7d83913779eb0ae77fb91278b3c855a268ee4af  h3/tier_a.tsv
+e817276e1d6c52b75bb1384d2412c047bbdad41d9ed68655464d071fd5d128de  h3/tier_b.c
+e48d148874fe502493e18ea2125a9ade6e0396d301a29dd69b4ce94f8b77ee5f  h3/tier_b.ll
+9ba740eae33de360122405b2ab1f3a00b8c30677599d4cc00dcfe86cf7c27454  h3/expected.csv
+7364740f36b53942b2a092495610c9d3063e2f1eb4d70e002a65584c322b4a61  h3/README.md
+82debfb03ceb26c543a24ecb569700d0ff0dde2d14ca0b847c2593edb108cf57  docs/C3_FREEZE_RECORD.md
+5ca43df40cae4b443649d33cfac98b9e0b4f7e7997825ff0ec1b6966ee8ea9c1  sir/crates/sir_benchmarks/src/bin/h3_run.rs

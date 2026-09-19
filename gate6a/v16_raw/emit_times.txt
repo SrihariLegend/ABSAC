@@ -1,0 +1,20 @@
+NATIVE r01_runtime_first_zero_guard: lower_refused (unsupported: loop with a separate latch block (multi-block back-edge) not modeled: r01_runtime_first_zero_guard (early-exit search: merge does not return))
+NATIVE r02_runtime_first_ne_key_u32: clean cases=2 rewrites=0
+EMITTIME_BASE r02_runtime_first_ne_key_u32 reps=100000 ref_ns=143677 new_ns=140277 sink=0
+NATIVE r03_runtime_last_eq_key_u16: clean cases=2 rewrites=0
+EMITTIME_BASE r03_runtime_last_eq_key_u16 reps=100000 ref_ns=331282 new_ns=330594 sink=3000000
+NATIVE r04_runtime_first_ge_key_u16: clean cases=2 rewrites=0
+EMITTIME_BASE r04_runtime_first_ge_key_u16 reps=100000 ref_ns=136347 new_ns=136749 sink=0
+NATIVE s01_sum_u16_64: clean cases=2 rewrites=0
+EMITTIME_BASE s01_sum_u16_64 reps=100000 ref_ns=2359955 new_ns=2292740 sink=1258191000000
+NATIVE s02_xor_map_sum_i16_64: clean cases=2 rewrites=0
+EMITTIME_BASE s02_xor_map_sum_i16_64 reps=100000 ref_ns=2650280 new_ns=2720298 sink=1258378200000
+NATIVE s03_cond_sum_u8_64: clean cases=2 rewrites=0
+EMITTIME_BASE s03_cond_sum_u8_64 reps=100000 ref_ns=3560808 new_ns=3449395 sink=2731200000
+NATIVE s04_sum_u32_32: clean cases=2 rewrites=0
+EMITTIME_BASE s04_sum_u32_32 reps=100000 ref_ns=785450 new_ns=782979 sink=41277966768000000
+NATIVE p01_rotl13_u32: lower_refused (function has too few blocks for the lowerer)
+NATIVE p02_bswap_u32: lower_refused (function has too few blocks for the lowerer)
+NATIVE p03_bitrev_u32: lower_refused (function has too few blocks for the lowerer)
+NATIVE c01_search_then_sum: lower_refused (cannot resolve gep index '%4')
+EMITC_SUMMARY clean=7 mismatched=0 lower_refused=5 harness_errors=0

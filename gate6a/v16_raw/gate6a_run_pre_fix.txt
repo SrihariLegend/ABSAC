@@ -1,0 +1,80 @@
+# Gate 6A fresh blind recognition evaluation
+# corpus=gate6a/v16_corpus.ll
+# registry=default; config=OptimizerConfig::default
+
+KERNEL r01_runtime_first_zero_guard class=P expectation=recall_gap_known
+  key_property: explicit n==0 guard on a runtime zero search
+  observed: lowered=false verify=false truths=0 concepts=[] beliefs=0 cands=0 rewrites=0
+  note: lower: unsupported: loop with a separate latch block (multi-block back-edge) not modeled: r01_runtime_first_zero_guard (early-exit search: merge does not return)
+  RESULT recall miss (KNOWN OPEN GAP, recorded; lowered=false verified=false)
+PositionSearch roles assigned: collection=Some(NodeId(0)), scalar=Some(NodeId(2)), result=Some(NodeId(19))
+PositionSearch roles assigned: collection=Some(NodeId(0)), scalar=Some(NodeId(2)), result=Some(NodeId(19))
+Failed proof for DefinitionId(200): Unknown(NoApplicableBackend)
+
+KERNEL r02_runtime_first_ne_key_u32 class=P expectation=recognized
+  key_property: runtime Ne search, n sentinel, u32 elements
+  observed: lowered=true verify=true truths=8 concepts=["IsZero", "FirstOccurrence", "DisjunctiveReduction", "PredicateMap"] beliefs=2 cands=1 rewrites=0
+  RESULT recognized ["FirstOccurrence"] (PASS)
+PositionSearch roles assigned: collection=Some(NodeId(0)), scalar=Some(NodeId(2)), result=Some(NodeId(17))
+PositionSearch roles assigned: collection=Some(NodeId(0)), scalar=Some(NodeId(2)), result=Some(NodeId(17))
+
+KERNEL r03_runtime_last_eq_key_u16 class=P expectation=recall_gap_known
+  key_property: descending runtime Eq search (known lowering gap)
+  observed: lowered=true verify=true truths=6 concepts=["LastOccurrence", "DisjunctiveReduction", "IsZero", "PredicateMap"] beliefs=2 cands=0 rewrites=0
+  RESULT recall miss (KNOWN OPEN GAP, recorded; lowered=true verified=true)
+PositionSearch roles assigned: collection=Some(NodeId(0)), scalar=Some(NodeId(2)), result=Some(NodeId(19))
+PositionSearch roles assigned: collection=Some(NodeId(0)), scalar=Some(NodeId(2)), result=Some(NodeId(19))
+Failed proof for DefinitionId(200): Unknown(NoApplicableBackend)
+
+KERNEL r04_runtime_first_ge_key_u16 class=P expectation=recall_gap_known
+  key_property: runtime Ge predicate search (no precedent)
+  observed: lowered=true verify=true truths=8 concepts=["FirstOccurrence", "DisjunctiveReduction", "PredicateMap", "IsZero"] beliefs=2 cands=1 rewrites=0
+  RESULT recall miss (KNOWN OPEN GAP, recorded; lowered=true verified=true)
+
+KERNEL s01_sum_u16_64 class=P expectation=recognized
+  key_property: wider-element sum reduction, extent 64
+  observed: lowered=true verify=true truths=6 concepts=["FiniteCollection", "PredicateMap", "ElementSequence", "LogicalSequence", "SumReduction"] beliefs=1 cands=1 rewrites=0
+  RESULT recognized ["SumReduction"] (PASS)
+
+KERNEL s02_xor_map_sum_i16_64 class=P expectation=recognized
+  key_property: xor map then sum, i16 elements, extent 64
+  observed: lowered=true verify=true truths=6 concepts=["PredicateMap", "ElementSequence", "MappedSumReduction", "LogicalSequence", "FiniteCollection"] beliefs=1 cands=0 rewrites=0
+  RESULT recognized ["MappedSumReduction"] (PASS)
+
+KERNEL s03_cond_sum_u8_64 class=P expectation=recall_gap_known
+  key_property: conditional sum via select (predicate-map interaction)
+  observed: lowered=true verify=true truths=9 concepts=["IsZero", "LogicalSequence", "FiniteCollection", "ElementSequence", "PredicateMap"] beliefs=1 cands=0 rewrites=0
+  RESULT recall miss (KNOWN OPEN GAP, recorded; lowered=true verified=true)
+
+KERNEL s04_sum_u32_32 class=P expectation=recognized
+  key_property: wider-element sum reduction, extent 32
+  observed: lowered=true verify=true truths=6 concepts=["FiniteCollection", "ElementSequence", "LogicalSequence", "PredicateMap", "SumReduction"] beliefs=1 cands=1 rewrites=0
+  RESULT recognized ["SumReduction"] (PASS)
+
+KERNEL p01_rotl13_u32 class=P expectation=recall_gap_known
+  key_property: scalar rotate-left by 13 (permutation lowering unknown)
+  observed: lowered=false verify=false truths=0 concepts=[] beliefs=0 cands=0 rewrites=0
+  note: lower: function has too few blocks for the lowerer
+  RESULT recall miss (KNOWN OPEN GAP, recorded; lowered=false verified=false)
+
+KERNEL p02_bswap_u32 class=P expectation=recall_gap_known
+  key_property: llvm.bswap intrinsic lowering unknown
+  observed: lowered=false verify=false truths=0 concepts=[] beliefs=0 cands=0 rewrites=0
+  note: lower: function has too few blocks for the lowerer
+  RESULT recall miss (KNOWN OPEN GAP, recorded; lowered=false verified=false)
+
+KERNEL p03_bitrev_u32 class=P expectation=recall_gap_known
+  key_property: manual bit-reversal chain
+  observed: lowered=false verify=false truths=0 concepts=[] beliefs=0 cands=0 rewrites=0
+  note: lower: function has too few blocks for the lowerer
+  RESULT recall miss (KNOWN OPEN GAP, recorded; lowered=false verified=false)
+
+KERNEL c01_search_then_sum class=P expectation=recall_gap_known
+  key_property: search then second loop (composition gap)
+  observed: lowered=false verify=false truths=0 concepts=[] beliefs=0 cands=0 rewrites=0
+  note: lower: cannot resolve gep index '%4'
+  RESULT recall miss (KNOWN OPEN GAP, recorded; lowered=false verified=false)
+
+GATE6A_SUMMARY positives=12 recognized=4 recall_misses=0 known_gap_misses=8
+GATE6A_SAFETY negatives=0 contained_rows=0 false_positive_recognitions=0 unsafe_candidates=0 unsafe_rewrites=0
+GATE6A_VERDICT PASS

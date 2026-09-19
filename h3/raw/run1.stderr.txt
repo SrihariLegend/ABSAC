@@ -1,0 +1,4 @@
+
+thread 'main' (16217) panicked at crates/sir_analysis/src/constants.rs:175:80:
+attempt to add with overflow
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

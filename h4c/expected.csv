@@ -1,0 +1,28 @@
+id	class	expected_outcome	expected_safety	rationale
+h4c-a01	P	rewrite	OK	boolean any, extent 5, field consumer
+h4c-a02	P	rewrite	OK	boolean any, extent 63, acc slot 1
+h4c-a03	P	rewrite	OK	boolean any, extent 17, TupleExtract consumer
+h4c-a04	P	rewrite	OK	boolean any, extent 48, select consumer
+h4c-a05	P	rewrite	OK	predicate lt param u16, extent 40
+h4c-a06	P	rewrite	OK	predicate ge const:1000 u32, extent 7, acc slot 1
+h4c-a07	P	rewrite	OK	predicate le const:0 i16, extent 13
+h4c-a08	P	rewrite	OK	predicate eq const:255 u8, extent 96
+h4c-a09	P	rewrite	OK	predicate ge const:-7 i64, extent 6
+h4c-a10	P	rewrite	OK	predicate ne param u64, extent 15, TupleExtract consumer
+h4c-a11	N	abstain	OK	nonzero induction start
+h4c-a12	N	abstain	OK	partial bound, predicate row, acc slot 1
+h4c-a13	N	abstain	OK	reverse traversal
+h4c-a14	N	abstain	OK	whole multi-output tuple returned
+h4c-a15	N	abstain	OK	two observable consumers of the acc slot
+h4c-a16	S1	abstain REQUIRED	SAFETY	identity=true OR-reduction (S1 gate)
+h4c-a17	S2	abstain REQUIRED	SAFETY	index-derived predicate scalar (S2 gate)
+h4c01	B	rewrite	OK	any-or fixed-extent extern global, extent 96 (eq-next rotation)
+h4c02	B	rewrite	OK	predicate lt param, fixed extent 160
+h4c03	B	rewrite	OK	predicate gt literal, fixed extent 24
+h4c04	B	abstain	OK	pointer-parameter scan, no fixed extent
+h4c05	B	abstain	ROBUSTNESS	reverse scan must abstain cleanly; a panic is a robustness failure
+h4c06	B	abstain	OK	partial bound over a 96-byte global (bound != extent)
+h4c07	B	abstain	OK	two sequential loops, different extents
+h4c08	B	abstain	OK	signed-comparison scan (unsigned SIR comparison model)
+h4c09	B	abstain REQUIRED	SAFETY	index-dependent predicate scalar (S2 class); must not commit
+h4c10	B	abstain	OK	store inside the loop

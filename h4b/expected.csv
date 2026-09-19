@@ -1,0 +1,49 @@
+id	class	expected_outcome	expected_safety	rationale
+h4a01	P	rewrite	OK	boolean any, extent 7, field consumer
+h4a02	P	rewrite	OK	boolean any, extent 33, field consumer
+h4a03	P	rewrite	OK	boolean any, extent 100, field consumer
+h4a04	P	rewrite	OK	boolean any, extent 2, acc slot 1 (index-first tuple)
+h4a05	P	rewrite	OK	boolean any, extent 128, acc slot 1, select consumer
+h4a06	P	rewrite	OK	boolean any, extent 64, TupleExtract consumer (D4 live-out fix)
+h4a07	P	rewrite	OK	predicate le param u8, extent 12
+h4a08	P	rewrite	OK	predicate ge param u8, extent 64
+h4a09	P	rewrite	OK	predicate eq param u16, extent 24, acc slot 1
+h4a10	P	rewrite	OK	predicate ne const:7 u32, extent 33
+h4a11	P	rewrite	OK	predicate le const:0 i8, extent 16
+h4a12	P	rewrite	OK	predicate ge const:-1 i32, extent 9
+h4a13	P	rewrite	OK	predicate lt const:0 i64, extent 20 (new width)
+h4a14	P	rewrite	OK	predicate gt const:255 u64, extent 8, acc slot 1
+h4a15	P	rewrite	OK	predicate eq param u32, extent 64, TupleExtract consumer
+h4a16	P	rewrite	OK	predicate ne param u8, extent 31, select consumer
+h4a17	P	rewrite	OK	dead index projection (D4: dead uses do not block classification)
+h4a18	N	abstain	OK	nonzero induction start (1)
+h4a19	N	abstain	OK	partial bound (extent-1), acc slot 1
+h4a20	N	abstain	OK	nonzero induction start, predicate row
+h4a21	N	abstain	OK	partial bound, predicate row, acc slot 1
+h4a22	N	abstain	OK	reverse traversal (stride -1)
+h4a23	N	abstain	OK	reverse traversal, predicate row
+h4a24	N	abstain	OK	bound depends on loop body (no finite proof)
+h4a25	N	abstain	OK	bound depends on loop body, extent 32, acc slot 1 (H4b correction)
+h4a26	N	abstain	OK	two simultaneous reductions (OR + AND)
+h4a27	N	abstain	OK	partial bound with select consumer, predicate row (H4b correction)
+h4a28	N	abstain	OK	whole multi-output tuple returned (wholesale-tuple quarantine)
+h4a29	N	abstain	OK	whole tuple returned, predicate row
+h4a30	N	abstain	OK	two observable consumers of the acc slot
+h4a31	N	abstain	OK	two observable consumers of the acc slot, acc slot 1
+h4a32	S1	abstain REQUIRED	SAFETY	identity=true OR-reduction (S1 monoid-identity gate)
+h4a33	S1	abstain REQUIRED	SAFETY	identity=true predicate OR-reduction (S1 gate)
+h4a34	S2	abstain REQUIRED	SAFETY	predicate scalar derived from induction counter (S2 invariant gate)
+h4a35	S2	abstain REQUIRED	SAFETY	index-derived predicate scalar, u8 (S2 gate)
+h4b01	B	rewrite	OK	any-or fixed-extent extern global, extent 64 (eq-next rotation)
+h4b02	B	rewrite	OK	predicate ge param, fixed extent 128
+h4b03	B	rewrite	OK	predicate ne literal, fixed extent 64
+h4b04	B	rewrite	OK	predicate le param, fixed extent 32
+h4b05	B	abstain	OK	pointer-parameter scan, no fixed extent
+h4b06	B	abstain	OK	volatile load (effects)
+h4b07	B	abstain	OK	store inside the loop
+h4b08	B	abstain	OK	two sequential loops
+h4b09	B	abstain	ROBUSTNESS	reverse scan must abstain cleanly; a panic is a robustness failure
+h4b10	B	abstain	OK	early-exit loop
+h4b11	B	abstain	OK	index observed via out-parameter
+h4b12	B	abstain	OK	signed-comparison scan (unsigned SIR comparison model)
+h4b13	B	abstain REQUIRED	SAFETY	index-dependent predicate scalar (S2 class); must not commit

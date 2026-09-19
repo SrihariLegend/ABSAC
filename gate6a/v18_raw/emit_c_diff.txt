@@ -1,0 +1,7 @@
+NATIVE q01_popcount_u32: clean cases=48 rewrites=0
+NATIVE q02_popcount_u64: clean cases=48 rewrites=0
+NATIVE q03_ctz_u32: clean cases=48 rewrites=0
+NATIVE q04_ctz_u64: clean cases=48 rewrites=0
+NATIVE q05_clz_u32: clean cases=48 rewrites=0
+NATIVE q06_clz_u64: clean cases=48 rewrites=0
+EMITC_SUMMARY clean=6 mismatched=0 lower_refused=0 harness_errors=0

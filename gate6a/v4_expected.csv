@@ -1,0 +1,25 @@
+kernel	class	expectation	expected_lower	expected_verify	expected_concepts	expected_candidates	expected_rewrites	key_property
+p01_sum_u8_u64	P	recognized	yes	yes	SumReduction	any	any	plain u8 sum into u64
+p02_count_eq_u16	P	recognized	yes	yes	CardinalityReduction	any	any	u16 equality count
+p03_count_le_u32	P	recognized	yes	yes	CardinalityReduction	any	any	u32 <= predicate
+p04_all_ne_u16	P	recognized	yes	yes	ConjunctiveReduction	any	any	u16 != select-reset
+p05_sum_u32_u64	P	recognized	yes	yes	SumReduction	any	any	u32 sum into u64
+p06_all_eq_u8	P	recognized	yes	yes	ConjunctiveReduction	any	any	u8 == bitwise-and form
+p07_count_gt_u8	P	recognized	yes	yes	CardinalityReduction	any	any	u8 > predicate
+p08_sum_u16_u32	P	recognized	yes	yes	SumReduction	any	any	u16 sum into u32
+p09_count_eq_do_while_u32	P	recognized	yes	yes	CardinalityReduction	any	any	do-while over u32
+p10_any_or_u16	P	recognized	yes	yes	DisjunctiveReduction	any	any	u16 raw-element OR (Any family)
+p11_map_then_sum	P	recall_gap_known	any	any	SumReduction	any	any	transformed-element sum (open recall gap)
+p12_two_loops	P	recall_gap_known	any	any	CardinalityReduction	any	any	two sequential loops (open frontend gap)
+n01_sum_masked_and	N	safe_abstain	any	any	none	0	0	masked sum: s += (buf[i] & 0x0F) (D5 class)
+n02_sum_ternary	N	safe_abstain	any	any	none	0	0	conditional sum, ternary arm (D5 class)
+n03_sum_if_ne	N	safe_abstain	any	any	none	0	0	conditional sum, if != 0 (D5 class)
+n04_sum_shifted	N	safe_abstain	any	any	none	0	0	shifted sum: s += (w[i] >> 3) (D5 class)
+n05_sum_scaled	N	safe_abstain	any	any	none	0	0	scaled sum: s += b[i] * 3 (D5 class)
+n06_sum_i32_nsw	N	contained_abstain	any	any	any	0	0	signed nsw sum: recognition allowed, authorization must refuse
+n07_running_max_u32	N	safe_abstain	any	any	none	0	0	running max (partial-truth candidate class)
+n08_count_equal_pairs_u16	N	safe_abstain	any	any	none	0	0	two-array relation (footprint completeness class)
+n09_store_maybe_alias	N	safe_abstain	any	any	none	0	0	may-alias store inside the loop
+n10_volatile_load	N	safe_abstain	any	any	none	0	0	volatile loads (effects)
+n11_stride3	N	safe_abstain	any	any	none	0	0	fixed stride 3
+n12_atomic_sum	N	safe_abstain	any	any	none	0	0	C11 atomic loads

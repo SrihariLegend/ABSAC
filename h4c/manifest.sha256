@@ -1,0 +1,9 @@
+# H4c sealed artifact manifest (generated before the one-shot blind run; sha256sum)
+# Implementation state at seal: 1da3b28 (F10 global-extent fix)
+59fbb91a2d77cf55fce6dcd2c202d3bca574fc3d0dbcd6e46cf6f7427b8b6fb1  h4c/tier_a.tsv
+ff5c1b60b4b0d821b4e39b3b2ae06795c36a2f30408d42b4436dfe1b963e43bf  h4c/tier_b.c
+2e2518065a780084bc5e800f234ed7859210ce9528c8b397b7e0e6a99690524e  h4c/tier_b.ll
+8e20c4f4fda555d2333845df6c93ef23fcae5af4cc7b88edc343167486534da8  h4c/expected.csv
+5ba4ad378b2f77a2a5b763b98a9f8481789fe2726563bb66ed57e1d02c2e5c31  h4c/README.md
+82debfb03ceb26c543a24ecb569700d0ff0dde2d14ca0b847c2593edb108cf57  docs/C3_FREEZE_RECORD.md
+b4cef2de60b849c75b880bf83b646dd397323d65df57955cedcb0047530e848d  sir/crates/sir_benchmarks/src/bin/h3_run.rs

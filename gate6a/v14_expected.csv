@@ -1,0 +1,3 @@
+kernel	class	expectation	expected_lower	expected_verify	expected_concepts	expected_candidates	expected_rewrites	key_property
+s01_search_a_while_accessing_b	P	recognized	yes	yes	FirstOccurrence	any	any	collection must bind the searched array, not the second accessed array
+s02_eq_key_with_extra	P	recognized	yes	yes	FirstOccurrence	any	any	scalar must bind the compared key, not the trailing integer parameter

@@ -1,0 +1,3 @@
+NATIVE s01_search_a_while_accessing_b: clean cases=48 rewrites=1
+NATIVE s02_eq_key_with_extra: clean cases=48 rewrites=1
+EMITC_SUMMARY clean=2 mismatched=0 lower_refused=0 harness_errors=0

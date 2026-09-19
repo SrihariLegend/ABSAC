@@ -1,0 +1,14 @@
+{
+  "id": "002_openssl_ct_memcmp",
+  "name": "OpenSSL constant-time memcmp",
+  "function": "openssl_ct_memcmp",
+  "return_type": "int",
+  "params": [
+    { "name": "a", "type": "const uint8_t *", "kind": "buffer", "size": 4096 },
+    { "name": "b", "type": "const uint8_t *", "kind": "buffer", "size": 4096 },
+    { "name": "len", "type": "uint64_t", "kind": "scalar", "value": 4096 }
+  ],
+  "iterations": 100000,
+  "warmup": 1000,
+  "absac_emit_cmd": "cargo run -p sir_benchmarks --bin emit_c -- 002_openssl_ct_memcmp"
+}

@@ -1,0 +1,9 @@
+kernel	class	expectation	expected_lower	expected_verify	expected_concepts	expected_candidates	expected_rewrites	key_property
+a01_merged_mask_u32_loop	P	recognized	yes	yes	ClearLowestSetBit;LowestSetBit;LowestClearBitMask;SetLowestClearBit	any	any	four mask patterns merged through a loop-invariant computed input
+a02_merged_pow2_u32_loop	P	recognized	yes	yes	ModuloPowerOfTwo;DividePowerOfTwo;ShiftMask	any	any	remainder/division/shift-mask merged through one computed input
+a03_chained_pow2_u32	P	recognized	yes	yes	ModuloPowerOfTwo;DividePowerOfTwo	any	any	chained power-of-two operations with distinct constants
+a04_merged_mask_u64	P	recognized	yes	yes	ClearLowestSetBit;LowestSetBit;LowestClearBitMask;SetLowestClearBit	any	any	64-bit merged mask patterns
+a05_merged_mask_rem_u16	P	recognized	yes	yes	ClearLowestSetBit;ModuloPowerOfTwo	any	any	16-bit merged mask and remainder
+n01_unrelated_shift_mask_u32	N	safe_abstain	any	any	none	none	none	ordinary accumulation with unrelated Shr+And must not become a zero-count scan
+n02_unrelated_shift_one_u32	N	safe_abstain	any	any	none	none	none	shift-by-one and mask not carried and not feeding termination must abstain
+n03_carried_shift_unrelated_probe	N	safe_abstain	any	any	none	none	none	carried shift with an unrelated non-terminating probe must abstain

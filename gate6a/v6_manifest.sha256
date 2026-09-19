@@ -1,0 +1,8 @@
+# Gate 6A-v6 sealed corpus manifest (generated before the frozen run).
+# Frozen candidate: HEAD 9fb1762 (F6-F8 emitter + multi-loop + constant-extent promotion).
+# Classification frozen before evaluation; post-run records live in docs/GATE6A_V6_RESULTS.md.
+e348384b676b005b0225803b57ffa418b3619aadd334192ea6bbb21e3963369e  gate6a/v6_corpus.c
+623bdd32d596d46e42896c1d3789ddabb412a1da31a8495216c1c10ad072e6ec  gate6a/v6_corpus.ll
+5dfaea2955feada7db2f7bbb60a86a9936da94149ae63e68da033c3455ef8d19  gate6a/v6_expected.csv
+226879d4adcb48f4481c63ab59e347d1c8ecb4799486bc2858872565f872eff3  gate6a/v6_README.md
+986620419dd38e11cd7f300b942a066e22eb37c51439408d8b92caad72ee033f  sir/crates/sir_benchmarks/src/bin/gate6a_run.rs

@@ -1,0 +1,8 @@
+# Gate 6A-v9 sealed corpus manifest (generated before the frozen run).
+# Frozen candidate: HEAD 00317ac (position-predicate extraction + scan assurance).
+# Classification frozen before evaluation; post-run records live in docs/GATE6A_V9_RESULTS.md.
+aa666ab183f5a17cac4019cdda27c0e2651d2a9ab06194a014dd0d9dc0690b18  gate6a/v9_corpus.c
+b573aa8fd65bb5a594c63292084d15cd8f474477ed632a4fded568da918e3be2  gate6a/v9_corpus.ll
+92865233cf7f212bd02db35d84a479d58a26f833599d06041b03b45b8d651f09  gate6a/v9_expected.csv
+54170dbb1822d935f0c1285f14f118a8d81c39156ade703629014b3f48c804d4  gate6a/v9_README.md
+986620419dd38e11cd7f300b942a066e22eb37c51439408d8b92caad72ee033f  sir/crates/sir_benchmarks/src/bin/gate6a_run.rs
