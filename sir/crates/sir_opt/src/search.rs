@@ -38,9 +38,12 @@ pub(crate) fn apply_one(
     facts: &sir_analysis::facts::FactDatabase,
 ) -> Option<(Function, u64)> {
     let plan = recognize(function, facts)?;
-    // Measured retention: at extent 64 the unrolled select chain lost to
-    // the baseline loop (82ns vs 244ns in the timing harness). Keep it
-    // only for short extents until a predictive cost model exists.
+    // Measured retention: unrolled select chains beat the memchr helper
+    // at extents 4–16 (1.22–1.27 vs 1.50 ns/op in the dispatch benchmark),
+    // so equality searches at those extents take definition 200; larger
+    // extents use the vectorized primitive (402). The select chain lost
+    // to the baseline loop at extent 64 (82ns vs 244ns), so it is refused
+    // above 16.
     if plan.definition == 200 && plan.extent > 16 {
         return None;
     }
@@ -335,7 +338,7 @@ fn recognize_loop(
         } else {
             return None;
         }
-    } else if memchr.is_some() {
+    } else if memchr.is_some() && extent > 16 {
         402
     } else {
         200

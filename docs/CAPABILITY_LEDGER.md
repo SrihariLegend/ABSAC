@@ -544,6 +544,14 @@ have now been restored into current `sir_mech` and tested.
   runtime-search fixture rewrites cleanly; base-14 rises 128 → 131
   rewrites with 230 clean / 0 mismatched on native and AArch64, fuzz
   stays 540 / 360 / 0, and v10 plus the fixture are sanitizer-clean.
+- **2026-09-20 — small-extent search choice (H4)**: unrolled select
+  chains measured faster than the vectorized primitive at extents 4, 8,
+  and 16 (1.22–1.27 vs 1.49–1.50 ns/op, 2M reps), so fixed-size
+  equality searches at extents ≤16 now take the proven select chain
+  (definition 200); larger extents keep the library primitive (402).
+  Base-14 is unchanged end to end (its equality searches are extents
+  48+), and tests, base-14 native/AArch64, fuzz, external, and
+  sanitizers all stay green at 230 / 131 / 0, 540 / 360 / 0, and 19.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
