@@ -132,6 +132,7 @@ fn build_driver(
     ir_ret: &str,
     ir_params: &[String],
     cases: usize,
+    low_bits: bool,
 ) -> String {
     let mut out = String::new();
     out.push_str(
@@ -179,12 +180,17 @@ fn build_driver(
     out.push_str("    uint64_t mismatches = 0;\n");
     out.push_str(&format!("    for (int t = 0; t < {cases}; t++) {{\n"));
     out.push_str("        uint64_t seed = 0x9E3779B97F4A7C15ULL ^ (uint64_t)t;\n");
-    out.push_str(
-        "        for (int b = 0; b < 8; b++) for (int i = 0; i < 2048; i++) {\n\
+    let fill = if low_bits {
+        "bufA[b][i] = (uint8_t)(seed & 1);"
+    } else {
+        "bufA[b][i] = (uint8_t)seed;"
+    };
+    out.push_str(&format!(
+        "        for (int b = 0; b < 8; b++) for (int i = 0; i < 2048; i++) {{\n\
          \x20           seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17;\n\
-         \x20           bufA[b][i] = (uint8_t)seed; bufB[b][i] = bufA[b][i];\n\
-         \x20       }\n",
-    );
+         \x20           {fill} bufB[b][i] = bufA[b][i];\n\
+         \x20       }}\n",
+    ));
 
     // Scalar declarations + argument lists.
     let mut ref_args: Vec<String> = Vec::new();
@@ -503,6 +509,7 @@ fn time_function(
     baseline: bool,
     fill: Option<u8>,
     cc: &str,
+    target: &str,
 ) -> Result<(String, usize), String> {
     let func =
         lower_function(ll, name).map_err(|e| e.lines().last().unwrap_or(&e).trim().to_string())?;
@@ -578,10 +585,9 @@ fn time_function(
         &emitted_path,
         &extra_source,
         !baseline,
+        target,
     )?;
-    let run = Command::new(&exe_path)
-        .output()
-        .map_err(|e| format!("run: {e}"))?;
+    let run = run_binary(&exe_path, target).map_err(|e| format!("run: {e}"))?;
     let stdout = String::from_utf8_lossy(&run.stdout);
     if !run.status.success() {
         return Err(format!(
@@ -610,7 +616,11 @@ fn compile_harness(
     emitted: &Path,
     extra: &Path,
     extra_is_ir: bool,
+    target: &str,
 ) -> Result<(), String> {
+    if target == "aarch64" && sanitize {
+        return Err("aarch64 target does not support sanitizers".to_string());
+    }
     let opt_level = std::env::var("SIR_OPT_LEVEL").unwrap_or_else(|_| "1".to_string());
     let opt_flag = format!("-O{opt_level}");
     let sanitizer_args: &[&str] = if sanitize {
@@ -622,13 +632,18 @@ fn compile_harness(
     } else {
         &[]
     };
-    let output = if cc == "gcc" {
+    let cross = target == "aarch64";
+    let output = if cross || cc == "gcc" {
+        let linker = if cross { "aarch64-linux-gnu-gcc" } else { "gcc" };
         let mut objects = Vec::new();
         if extra_is_ir {
             let object = extra.with_extension("o");
             let mut clang = Command::new("clang");
             clang.args([opt_flag.as_str(), "-w", "-falign-functions=64", "-c"]);
             clang.args(sanitizer_args);
+            if cross {
+                clang.arg("--target=aarch64-linux-gnu");
+            }
             clang.args([extra.to_str().unwrap(), "-o", object.to_str().unwrap()]);
             let compiled = clang
                 .output()
@@ -646,14 +661,16 @@ fn compile_harness(
         } else {
             objects.push(extra.to_path_buf());
         }
-        let mut gcc = Command::new("gcc");
+        let mut gcc = Command::new(linker);
         gcc.args([
             opt_flag.as_str(),
             "-w",
             "-falign-functions=64",
-            "-o",
-            exe.to_str().unwrap(),
         ]);
+        if cross {
+            gcc.arg("-static");
+        }
+        gcc.args(["-o", exe.to_str().unwrap()]);
         gcc.args(sanitizer_args);
         gcc.arg(driver.to_str().unwrap());
         gcc.arg(emitted.to_str().unwrap());
@@ -746,6 +763,7 @@ fn run_function(
     workdir: &Path,
     sanitize: bool,
     cc: &str,
+    target: &str,
 ) -> Outcome {
     let func = match lower_function(ll, name) {
         Ok(f) => f,
@@ -770,7 +788,17 @@ fn run_function(
         };
     }
     let ref_ll = rename_symbol(ll, name, "__ref");
-    let driver = build_driver(name, &optimized.function, &ir_ret, &ir_params, cases);
+    let low_bits = function_ir(ll, name)
+        .map(|function| function.contains("!range"))
+        .unwrap_or(false);
+    let driver = build_driver(
+        name,
+        &optimized.function,
+        &ir_ret,
+        &ir_params,
+        cases,
+        low_bits,
+    );
 
     // Define any external globals the module references.
     let mut driver = driver;
@@ -800,11 +828,12 @@ fn run_function(
         &emitted_path,
         &ref_path,
         true,
+        target,
     ) {
         return Outcome::HarnessError { reason };
     }
 
-    let run = match Command::new(&exe_path).output() {
+    let run = match run_binary(&exe_path, target) {
         Ok(o) => o,
         Err(e) => {
             return Outcome::HarnessError {
@@ -871,6 +900,24 @@ fn ns_value(line: &str, key: &str) -> Option<u64> {
         .find_map(|token| token.strip_prefix(&prefix)?.parse().ok())
 }
 
+fn run_binary(exe: &Path, target: &str) -> std::io::Result<std::process::Output> {
+    if target == "aarch64" {
+        Command::new("qemu-aarch64").arg(exe).output()
+    } else {
+        Command::new(exe).output()
+    }
+}
+
+/// Slice out one textual LLVM function body, used to detect input-domain
+/// metadata such as `!range` before generating differential inputs.
+fn function_ir<'a>(ll: &'a str, name: &str) -> Option<&'a str> {
+    let at = ll.find(&format!("@{name}("))?;
+    let definition = ll[..at].rfind("define")?;
+    let rest = &ll[definition..];
+    let end = rest.find("\n}\n").map(|index| index + 3).unwrap_or(rest.len());
+    Some(&rest[..end])
+}
+
 /// Rename every exact `@name` symbol reference, including calls,
 /// function-pointer arrays, and metadata such as `llvm.compiler.used`.
 /// Longer identifiers sharing the prefix are left untouched.
@@ -900,7 +947,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!(
-            "usage: emit_c_diff <corpus.ll> [--cases N] [--workdir DIR] [--function NAME] [--sanitize] [--cc clang|gcc] [--time] [--time-reps N] [--time-baseline] [--measured-retain] [--time-fill V]"
+            "usage: emit_c_diff <corpus.ll> [--cases N] [--workdir DIR] [--function NAME] [--sanitize] [--cc clang|gcc] [--target native|aarch64] [--time] [--time-reps N] [--time-baseline] [--measured-retain] [--time-fill V]"
         );
         std::process::exit(2);
     }
@@ -915,6 +962,7 @@ fn main() {
     let mut time_fill: Option<u8> = None;
     let mut time_reps = 200_000usize;
     let mut cc = "clang".to_string();
+    let mut target = "native".to_string();
     let mut i = 2;
     while i < args.len() {
         match args[i].as_str() {
@@ -971,6 +1019,16 @@ fn main() {
                 }
                 i += 2;
             }
+            "--target" if i + 1 < args.len() => {
+                match args[i + 1].as_str() {
+                    "native" | "aarch64" => target = args[i + 1].clone(),
+                    other => {
+                        eprintln!("unsupported target: {other} (expected native or aarch64)");
+                        std::process::exit(2);
+                    }
+                }
+                i += 2;
+            }
             other => {
                 eprintln!("unknown argument: {other}");
                 std::process::exit(2);
@@ -1005,6 +1063,7 @@ fn main() {
             &workdir,
             sanitize,
             &cc,
+            &target,
         ) {
             Outcome::Clean { cases, rewrites } => {
                 println!("NATIVE {name}: clean cases={cases} rewrites={rewrites}");
@@ -1018,6 +1077,7 @@ fn main() {
                         time_baseline,
                         time_fill,
                         &cc,
+                        &target,
                     ) {
                         Ok((line, _)) => {
                             println!("{line}");

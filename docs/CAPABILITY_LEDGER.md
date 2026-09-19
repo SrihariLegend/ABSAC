@@ -214,6 +214,21 @@ have now been restored into current `sir_mech` and tested.
   8ms and 16 bits in 285ms, but 32 bits takes 35.6s and 64 bits is
   infeasible. The production-width family therefore needs the
   induction/kernel proof (H3), not brute-force unrolling.
+- **2026-09-19 — AArch64 differential mode**: `emit_c_diff --target
+  aarch64` cross-compiles the emitted C and driver with
+  `aarch64-linux-gnu-gcc -static`, compiles the reference IR with
+  `clang --target=aarch64-linux-gnu`, and runs both under
+  `qemu-aarch64`. Base-14 is **221 clean / 0 mismatched**, matching
+  native, including the sum and memchr families.
+- **2026-09-19 — input-domain oracle fix**: the differential driver now
+  respects `!range` metadata (e.g. a `_Bool` array filled with 0/1
+  instead of arbitrary bytes). This removed a false AArch64 mismatch in
+  v10 `p04_runtime_search_bool`; the cross-arch gate is now trustworthy.
+- **2026-09-19 — external corpus probe**: Embench and PolyBench were
+  cloned to `/tmp/external`. Self-contained functions compare clean with
+  zero mismatches, but most real functions are still `lower_refused`
+  (globals, allocas, external calls, multi-loop/nested CFG). This is the
+  concrete evidence for the next lowering-breadth workstream.
 
 ## Reference commands
 

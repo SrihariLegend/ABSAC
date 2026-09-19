@@ -249,6 +249,11 @@ to **~7s**. The memchr pipeline is still **29.6M** against a 4.4M
 budget; the first-match scan equivalence is the remaining proof-cost
 item and is slated for the induction/kernel work in H3.
 
+Cross-arch evidence update: `emit_c_diff --target aarch64` now runs the
+full base-14 differential under qemu at **221 clean / 0 mismatched**,
+matching native. The harness also respects `!range` input metadata,
+removing a false AArch64 mismatch in v10.
+
 ### Phase 2 — Restore high-value families (≤22k LOC)
 Priority by measured value:
 1. Kernighan bitset popcount (14–17×) — the rotated zero-test loop now
