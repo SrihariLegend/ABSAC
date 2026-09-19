@@ -9,7 +9,9 @@ use sir_analysis::facts::FactDatabase;
 use sir_analysis::manager::AnalysisManager;
 use sir_nodes::Function;
 
-use crate::{all, any, arithmetic, count, parity, popcount, runtime_sum, search, sum};
+use crate::{
+    all, any, arithmetic, count, parity, popcount, runtime_count, runtime_sum, search, sum,
+};
 
 /// One successful family rewrite.
 pub struct Applied {
@@ -195,6 +197,23 @@ impl Family for RuntimeSumFamily {
     }
 }
 
+struct RuntimeCountFamily;
+impl Family for RuntimeCountFamily {
+    fn name(&self) -> &'static str {
+        "runtime-count"
+    }
+    fn definitions(&self) -> &'static [u64] {
+        &[405]
+    }
+    fn apply_one(&self, function: &Function, facts: &FactDatabase) -> Option<Applied> {
+        let (function, definition) = runtime_count::apply_one(function, facts)?;
+        Some(Applied {
+            function,
+            definition,
+        })
+    }
+}
+
 /// Built-in family registry. Adding a family is one module plus one
 /// entry here.
 pub fn registry() -> Vec<Box<dyn Family>> {
@@ -208,5 +227,6 @@ pub fn registry() -> Vec<Box<dyn Family>> {
         Box::new(ParityFamily),
         Box::new(PopcountFamily),
         Box::new(RuntimeSumFamily),
+        Box::new(RuntimeCountFamily),
     ]
 }

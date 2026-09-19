@@ -1099,6 +1099,25 @@ fn emit_expr(
                     len
                 )
             }
+            name if name.starts_with("sir_count_") && args.len() == 3 => {
+                let base = emit_operand(args[0], func, carrier_map);
+                let len = emit_operand(args[1], func, carrier_map);
+                let key = emit_operand(args[2], func, carrier_map);
+                let element = match name.rsplit('_').next().unwrap_or("u64") {
+                    "u8" => "uint8_t",
+                    "u16" => "uint16_t",
+                    "u32" => "uint32_t",
+                    _ => "uint64_t",
+                };
+                format!(
+                    "(({})__{} ((const {element} *)({}), (uint64_t)({}), ({element})({})))",
+                    c_type(&node.ty),
+                    name,
+                    base,
+                    len,
+                    key
+                )
+            }
             other => format!("__sir_unsupported_intrinsic_{}()", sanitize_ident(other)),
         },
         NodeKind::Popcount { operand } => {
@@ -1406,6 +1425,43 @@ pub fn emit_c(func: &Function) -> String {
              }}\n"
         ));
         out.push('\n');
+    }
+    for (suffix, element) in [
+        ("u8", "uint8_t"),
+        ("u16", "uint16_t"),
+        ("u32", "uint32_t"),
+        ("u64", "uint64_t"),
+    ] {
+        for (op_name, op) in [
+            ("eq", "=="),
+            ("ne", "!="),
+            ("lt", "<"),
+            ("le", "<="),
+            ("gt", ">"),
+            ("ge", ">="),
+        ] {
+            let intrinsic = format!("sir_count_{op_name}_{suffix}");
+            let used = func.arena.iter().any(
+                |node| matches!(&node.kind, NodeKind::Intrinsic { name, .. } if name == &intrinsic),
+            );
+            if !used {
+                continue;
+            }
+            let helper = format!("__{intrinsic}");
+            out.push_str(&format!(
+                "/* Runtime-bound predicate count. */\n\
+                 static uint64_t {helper}(const {element} *a, uint64_t n, {element} k) {{\n\
+                 \x20   uint64_t c0 = 0, c1 = 0, c2 = 0, c3 = 0, i = 0;\n\
+                 \x20   for (; i + 4 <= n; i += 4) {{\n\
+                 \x20       c0 += (a[i] {op} k); c1 += (a[i + 1] {op} k);\n\
+                 \x20       c2 += (a[i + 2] {op} k); c3 += (a[i + 3] {op} k);\n\
+                 \x20   }}\n\
+                 \x20   for (; i < n; i++) c0 += (a[i] {op} k);\n\
+                 \x20   return c0 + c1 + c2 + c3;\n\
+                 }}\n"
+            ));
+            out.push('\n');
+        }
     }
 
     // Function signature

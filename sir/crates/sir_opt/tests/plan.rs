@@ -35,6 +35,7 @@ mod cases {
         include!("cases/count_slice.rs");
         pub fn run() {
             fixed_extent_cardinality_unrolls_predicates();
+            runtime_bound_count_uses_helper();
         }
     }
     pub mod memchr {
