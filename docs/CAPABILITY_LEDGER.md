@@ -394,6 +394,11 @@ have now been restored into current `sir_mech` and tested.
   `gate6a/v22_popcount64.ll` rewrites 1 and is clean on native and
   AArch64; harness timing is parity because clang optimizes the baseline
   loop, so no speed claim.
+- **2026-09-20 — H3 SAT path closed**: a narrow-counter encoding of the
+  Kernighan step lemma improved width-64 from 53.2s to 48.4s — still
+  orders of magnitude from pipeline feasibility (8/16/32 = 3.5ms /
+  62ms / 1.06s). SAT encoding tweaks are not the H3 path; the induction
+  obligation needs kernel/proof-by-reflection work instead.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
