@@ -41,6 +41,8 @@ pub enum NodeKind {
     Constant(ConstantData),
     /// A function parameter. The index refers to the function's `params` list.
     Parameter { index: usize },
+    /// Address of a named global (byte-addressed base).
+    Global { name: String },
 
     // ── Arithmetic (binary) ─────────────────────────────────
     /// Integer or floating-point addition: `lhs + rhs`.
@@ -193,6 +195,7 @@ impl NodeKind {
         match self {
             NodeKind::Constant(_) => "Constant",
             NodeKind::Parameter { .. } => "Parameter",
+            NodeKind::Global { .. } => "Global",
             NodeKind::Add { .. } => "Add",
             NodeKind::Sub { .. } => "Sub",
             NodeKind::Mul { .. } => "Mul",
@@ -247,6 +250,7 @@ impl NodeKind {
         match self {
             NodeKind::Constant(_) => vec![],
             NodeKind::Parameter { .. } => vec![],
+            NodeKind::Global { .. } => vec![],
             NodeKind::Add { lhs, rhs }
             | NodeKind::Sub { lhs, rhs }
             | NodeKind::Mul { lhs, rhs }

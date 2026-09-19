@@ -233,6 +233,20 @@ impl Builder {
         self.alloc_node(NodeKind::Constant(data), ty, Effects::empty(), span)
     }
 
+    /// Address of a named global, modeled as a byte-addressed base.
+    pub fn global(&mut self, name: impl Into<String>, span: Span) -> NodeId {
+        let ty = Type::Pointer {
+            pointee: Box::new(Type::u8()),
+            mutable: true,
+        };
+        self.alloc_node(
+            NodeKind::Global { name: name.into() },
+            ty,
+            Effects::empty(),
+            span,
+        )
+    }
+
     // ── Arithmetic (binary) ─────────────────────────────────
 
     fn binary_arith(

@@ -114,6 +114,91 @@ fn gep_pointee_type(inst: &Instruction) -> Option<Type> {
     })
 }
 
+/// Names referenced as `@name` in function text. Intrinsic and call
+/// targets are skipped (a call target is followed by `(`); everything
+/// else is treated as global storage.
+fn collect_global_refs(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let bytes = line.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] != b'@' {
+                i += 1;
+                continue;
+            }
+            let start = i + 1;
+            let mut end = start;
+            while end < bytes.len()
+                && (bytes[end].is_ascii_alphanumeric() || b"_.$-".contains(&bytes[end]))
+            {
+                end += 1;
+            }
+            let name = &line[start..end];
+            let call_target = bytes.get(end) == Some(&b'(');
+            if !name.is_empty()
+                && !name.starts_with("llvm.")
+                && !name.starts_with("sir.")
+                && !call_target
+                && !out.iter().any(|n| n == name)
+            {
+                out.push(name.to_string());
+            }
+            i = end.max(i + 1);
+        }
+    }
+    out
+}
+
+/// Fold a constant `getelementptr (SRC, ptr @name, ..., i64 idx)`
+/// operand into `(global, element type, index)`.
+fn inline_global_gep(operand: &str) -> Option<(String, Type, u64)> {
+    let start = operand.find("getelementptr")?;
+    let rest = &operand[start..];
+    let open = rest.find('(')?;
+    let close = rest.rfind(')')?;
+    let inside = &rest[open + 1..close];
+    let parts: Vec<&str> = inside.split(',').map(str::trim).collect();
+    if parts.len() < 3 {
+        return None;
+    }
+    let source = parts[0].trim_start_matches("inbounds").trim();
+    let at = parts[1].find('@')?;
+    let name: String = parts[1][at + 1..]
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || "_.$-".contains(*c))
+        .collect();
+    if name.is_empty() {
+        return None;
+    }
+    let index: u64 = parts.last()?.split_whitespace().last()?.parse().ok()?;
+    let element = if source.starts_with('[') {
+        match gep_source_array_type(source)? {
+            Type::Array { element, .. } => *element,
+            other => other,
+        }
+    } else {
+        parse_type(source)?
+    };
+    Some((name, element, index))
+}
+
+/// Resolve a global name to its byte-addressed base node, creating it on
+/// first use.
+fn resolve_global(
+    name: &str,
+    value_map: &mut HashMap<String, NodeId>,
+    builder: &mut Builder,
+    span: Span,
+) -> NodeId {
+    if let Some(id) = value_map.get(name) {
+        return *id;
+    }
+    let id = builder.global(name.to_string(), span);
+    value_map.insert(name.to_string(), id);
+    id
+}
+
 /// Infer the pointee type (and mutability) of opaque `ptr` parameters
 /// from the element types of the GEPs/loads/stores that use them.
 ///
@@ -1019,7 +1104,7 @@ pub fn lower(text: &str) -> Result<Function, String> {
     let inferred_ptr_types = infer_ptr_param_types(&ir);
 
     // Build parameter list for SIR
-    let mut sir_params: Vec<(&str, Type)> = ir
+    let sir_params: Vec<(&str, Type)> = ir
         .params
         .iter()
         .map(|(name, ty)| {
@@ -1039,42 +1124,7 @@ pub fn lower(text: &str) -> Result<Function, String> {
         })
         .collect();
 
-    // Scan for global array references (e.g., @popcount_table) in the function body.
-    // These are added as extra implicit parameters so the SIR function can access them.
-    let mut globals: Vec<(String, Type)> = Vec::new();
-    for line in text.lines() {
-        if line.contains("getelementptr") && line.contains(" ptr @") {
-            if let Some(at) = line.find(" ptr @") {
-                let after = &line[at + 5..];
-                if let Some(comma) = after.find(',') {
-                    let gname = after[..comma].trim().trim_start_matches('@').to_string();
-                    if !gname.starts_with("llvm.") && !globals.iter().any(|(n, _)| n == &gname) {
-                        // The GEP source element type carries the global's
-                        // declared array shape (`inbounds [N x T]`). Fall back
-                        // to the historical 256-byte extent only for flat
-                        // scalar-element pointer GEPs that carry no extent.
-                        let ty = gep_source_array_type(line).unwrap_or(Type::Array {
-                            element: Box::new(Type::u8()),
-                            length: 256,
-                        });
-                        globals.push((gname, ty));
-                    }
-                }
-            }
-        }
-    }
-
-    // Add globals as extra array parameters with their declared extents.
-    let mut global_param_names: Vec<String> = Vec::new();
-    for (gname, _) in &globals {
-        global_param_names.push(format!("__glob_{}", gname));
-    }
-    for (pname, (_, gty)) in global_param_names.iter().zip(globals.iter()) {
-        sir_params.push((pname.as_str(), gty.clone()));
-    }
-
     let mut builder = Builder::new(&ir.name, &sir_params, ret_ty);
-    let n_orig_params = ir.params.len();
 
     // Value map: LLVM value name → SIR NodeId
     let mut value_map: HashMap<String, NodeId> = HashMap::new();
@@ -1085,11 +1135,12 @@ pub fn lower(text: &str) -> Result<Function, String> {
         value_map.insert(name.clone(), node_id);
     }
 
-    // Map global names to their extra parameter NodeIds
-    for (i, (gname, _)) in globals.iter().enumerate() {
-        let param_idx = n_orig_params + i;
-        let node_id = builder.parameter_index(param_idx).unwrap();
-        value_map.insert(gname.clone(), node_id);
+    // Globals are byte-addressed base nodes. Pre-scan the function body so
+    // every `@name` resolves through `get_node_id`; driver-provided storage
+    // supplies the bytes. Inline constant GEPs are folded in the memory arms.
+    for gname in collect_global_refs(&text) {
+        let node_id = builder.global(gname.clone(), Span::unknown());
+        value_map.insert(gname, node_id);
     }
 
     // Detect loop structure: find the back-edge block (the one that branches to itself or to a predecessor)
@@ -3981,9 +4032,20 @@ fn emit_instruction(
             }
             // Detect volatile keyword
             let is_volatile = inst.operands[0].contains("volatile");
-            let ptr_str = strip_type(&inst.operands[1]);
-            let ptr = get_node_id(&ptr_str, value_map, params, builder, None)
-                .ok_or(format!("cannot resolve load ptr '{}'", ptr_str))?;
+            let ptr = if let Some((name, element, index)) =
+                inline_global_gep(&inst.operands[1])
+            {
+                let base = resolve_global(&name, value_map, builder, span);
+                let index_node =
+                    builder.constant(ConstantData::u64(index), Type::u64(), span);
+                builder
+                    .array_access(base, index_node, element, span)
+                    .map_err(|e| format!("{:?}", e))?
+            } else {
+                let ptr_str = strip_type(&inst.operands[1]);
+                get_node_id(&ptr_str, value_map, params, builder, None)
+                    .ok_or(format!("cannot resolve load ptr '{}'", ptr_str))?
+            };
             let loaded_ty = operand_type(&inst.operands[0])
                 .unwrap_or_else(|| builder.function().get_node(ptr).map(|n| n.ty.clone()).unwrap_or(Type::u8()));
             let ptr_kind = builder
@@ -4033,7 +4095,14 @@ fn emit_instruction(
             }
             // operand 0: "inbounds i8" or "inbounds [256 x i8]" — the element type
             let elem_type_str = inst.operands[0].trim_start_matches("inbounds").trim();
-            let elem_ty = parse_type(elem_type_str).unwrap_or(Type::u8());
+            let elem_ty = if elem_type_str.starts_with('[') {
+                match gep_source_array_type(&inst.raw) {
+                    Some(Type::Array { element, .. }) => *element,
+                    other => other.unwrap_or_else(Type::u8),
+                }
+            } else {
+                parse_type(elem_type_str).unwrap_or(Type::u8())
+            };
 
             // operand 1: "ptr %0" or "ptr @table" — the base pointer
             let base_str = strip_type(&inst.operands[1]);
@@ -4078,11 +4147,22 @@ fn emit_instruction(
                 ));
             }
             let val_str = strip_type(&inst.operands[0]);
-            let ptr_str = strip_type(&inst.operands[1]);
             let val = get_node_id(&val_str, value_map, params, builder, None)
                 .ok_or(format!("cannot resolve store value '{}'", val_str))?;
-            let ptr = get_node_id(&ptr_str, value_map, params, builder, None)
-                .ok_or(format!("cannot resolve store ptr '{}'", ptr_str))?;
+            let ptr = if let Some((name, element, index)) =
+                inline_global_gep(&inst.operands[1])
+            {
+                let base = resolve_global(&name, value_map, builder, span);
+                let index_node =
+                    builder.constant(ConstantData::u64(index), Type::u64(), span);
+                builder
+                    .array_access(base, index_node, element, span)
+                    .map_err(|e| format!("{:?}", e))?
+            } else {
+                let ptr_str = strip_type(&inst.operands[1]);
+                get_node_id(&ptr_str, value_map, params, builder, None)
+                    .ok_or(format!("cannot resolve store ptr '{}'", ptr_str))?
+            };
             let pointer_like = builder
                 .function()
                 .get_node(ptr)

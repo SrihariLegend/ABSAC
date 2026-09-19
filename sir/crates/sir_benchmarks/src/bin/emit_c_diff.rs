@@ -44,22 +44,145 @@ fn function_names(ll: &str) -> Vec<String> {
     names
 }
 
-/// Internal globals declared `external` in the module: the driver must
-/// define them so the renamed reference IR links.
-fn external_globals(ll: &str) -> Vec<String> {
-    let mut names = Vec::new();
+/// Module-level global definitions. The C driver defines each one so
+/// both the renamed reference IR and the emitted C resolve the symbol.
+struct GlobalDecl {
+    name: String,
+    size: usize,
+    external: bool,
+    zero_initialized: bool,
+}
+
+/// Byte size of an LLVM integer/array/pointer type; `None` for shapes
+/// (structs, vectors) whose layout this driver does not model.
+fn llvm_type_size(ty: &str) -> Option<usize> {
+    let ty = ty.trim();
+    if ty.starts_with('[') {
+        let inner = ty.strip_prefix('[')?.strip_suffix(']')?;
+        let (length, element) = inner.split_once('x')?;
+        Some(length.trim().parse::<usize>().ok()? * llvm_type_size(element)?)
+    } else if let Some(bits) = ty.strip_prefix('i') {
+        Some(bits.parse::<usize>().ok()?.div_ceil(8))
+    } else if ty == "ptr" {
+        Some(8)
+    } else if ty == "float" {
+        Some(4)
+    } else if ty == "double" {
+        Some(8)
+    } else {
+        None
+    }
+}
+
+fn global_decls(ll: &str) -> Vec<GlobalDecl> {
+    let mut out: Vec<GlobalDecl> = Vec::new();
     for line in ll.lines() {
         let line = line.trim();
-        if !line.starts_with('@') || !line.contains("= external") {
+        if !line.starts_with('@') {
             continue;
         }
         let Some(eq) = line.find('=') else { continue };
-        let name = line[1..eq].trim().to_string();
-        if !name.contains('"') && !names.contains(&name) {
-            names.push(name);
+        let name = line[1..eq].trim();
+        if name.is_empty() || name.contains('"') || out.iter().any(|g| g.name == name) {
+            continue;
+        }
+        let rest = line[eq + 1..].trim();
+        let external = rest.starts_with("external");
+        let Some(global_at) = rest.find("global ") else {
+            continue;
+        };
+        let after = &rest[global_at + "global ".len()..];
+        let (ty, init) = if after.starts_with('[') {
+            let Some(close) = after.find(']') else { continue };
+            (&after[..=close], after[close + 1..].trim())
+        } else {
+            match after.split_once(char::is_whitespace) {
+                Some((ty, init)) => (ty, init.trim()),
+                None => (after, ""),
+            }
+        };
+        let Some(size) = llvm_type_size(ty) else { continue };
+        let initializer = init.split(',').next().unwrap_or("").trim();
+        let zero_initialized = external
+            || initializer.is_empty()
+            || initializer == "zeroinitializer"
+            || initializer == "0"
+            || initializer == "0.0"
+            || initializer == "null";
+        out.push(GlobalDecl {
+            name: name.to_string(),
+            size,
+            external,
+            zero_initialized,
+        });
+    }
+    out
+}
+
+/// Global names referenced by a function body.
+fn referenced_globals(body: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in body.lines() {
+        let bytes = line.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] != b'@' {
+                i += 1;
+                continue;
+            }
+            let start = i + 1;
+            let mut end = start;
+            while end < bytes.len()
+                && (bytes[end].is_ascii_alphanumeric() || b"_.$-".contains(&bytes[end]))
+            {
+                end += 1;
+            }
+            let name = &line[start..end];
+            let call_target = bytes.get(end) == Some(&b'(');
+            if !name.is_empty()
+                && !name.starts_with("llvm.")
+                && !name.starts_with("sir.")
+                && !call_target
+                && !out.iter().any(|n| n == name)
+            {
+                out.push(name.to_string());
+            }
+            i = end.max(i + 1);
         }
     }
-    names
+    out
+}
+
+/// Globals this function cannot lower with the current driver model:
+/// initialized (non-zero) internal data, or shapes whose layout is
+/// unknown. Read-only zero-initialized globals are supported.
+fn unsupported_global_use(ll: &str, name: &str) -> Option<String> {
+    let body = function_ir(ll, name)?;
+    let decls = global_decls(ll);
+    for referenced in referenced_globals(&body) {
+        let Some(decl) = decls.iter().find(|decl| decl.name == referenced) else {
+            continue;
+        };
+        if decl.external {
+            return Some(format!(
+                "unsupported: external global @{} (not modeled)",
+                referenced
+            ));
+        }
+        if !decl.zero_initialized {
+            return Some(format!(
+                "unsupported: global @{} has a non-zero initializer",
+                referenced
+            ));
+        }
+        if decl.size == 0 || decl.size > (1 << 20) {
+            return Some(format!(
+                "unsupported: global @{} has unsupported size {}",
+                referenced, decl.size
+            ));
+        }
+    }
+    None
 }
 
 /// `(return type, parameter types)` for a definition, raw LLVM tokens.
@@ -475,36 +598,33 @@ fn build_time_driver(
     out
 }
 
-/// Define external globals referenced by the reference IR, as the
-/// differential driver does.
-fn inject_external_globals(driver: &mut String, ll: &str, ref_buffer_base: Option<usize>) {
-    let globals = external_globals(ll);
-    if globals.is_empty() {
+/// Define C-side buffers for the zero-initialized internal globals a
+/// function references. The reference IR keeps its own definition; the
+/// emitted C gets a namespaced buffer with identical initial contents.
+fn inject_globals(driver: &mut String, ll: &str, name: &str) {
+    let Some(body) = function_ir(ll, name) else {
         return;
-    }
+    };
+    let globals = global_decls(ll);
     let mut defs = String::new();
-    for g in &globals {
-        defs.push_str(&format!("_Alignas(64) uint8_t {g}[4096];\n"));
+    for referenced in referenced_globals(&body) {
+        let Some(g) = globals.iter().find(|g| g.name == referenced) else {
+            continue;
+        };
+        if g.external {
+            continue;
+        }
+        if g.size == 0 || g.size > (1 << 20) {
+            continue;
+        }
+        defs.push_str(&format!(
+            "_Alignas(64) uint8_t {}[{}] = {{0}};\n",
+            emit::c_global_name(&g.name),
+            g.size
+        ));
     }
     let pos = driver.find("int main").unwrap_or(driver.len());
     driver.insert_str(pos, &defs);
-    // In ref mode the original IR reads the real globals, while the emitted C
-    // receives those globals as extra pointer parameters. Copy the same
-    // buffer contents into the injected globals so both sides see identical
-    // data; without this, global-reading functions fail the timing driver's
-    // equivalence check (and silently report no downstream measurement).
-    if let Some(base) = ref_buffer_base {
-        let mut init = String::new();
-        for (i, g) in globals.iter().enumerate() {
-            init.push_str(&format!(
-                "    memcpy({g}, (const void *)bufA[{}], 2048);\n",
-                base + i
-            ));
-        }
-        if let Some(fill_end) = driver.find("\n    }\n") {
-            driver.insert_str(fill_end + "\n    }\n".len(), &init);
-        }
-    }
 }
 
 /// Build and run the timing harness; returns the `EMITTIME` line on success.
@@ -518,6 +638,9 @@ fn time_function(
     cc: &str,
     target: &str,
 ) -> Result<(String, Vec<u64>), String> {
+            if let Some(reason) = unsupported_global_use(ll, name) {
+        return Err(reason);
+    }
     let func =
         lower_function(ll, name).map_err(|e| e.lines().last().unwrap_or(&e).trim().to_string())?;
     let Some((ir_ret, ir_params)) = ir_signature(ll, name) else {
@@ -565,18 +688,7 @@ fn time_function(
             ref_path,
         )
     };
-    let ref_buffer_base = if baseline {
-        None
-    } else {
-        Some(
-            func.params
-                .iter()
-                .take(ir_params.len())
-                .filter(|p| is_pointer_ty(&p.ty))
-                .count(),
-        )
-    };
-    inject_external_globals(&mut driver, ll, ref_buffer_base);
+    inject_globals(&mut driver, ll, name);
 
     let emitted_path = dir.join("emitted.c");
     let driver_path = dir.join("driver_time.c");
@@ -808,6 +920,9 @@ fn run_function(
     cc: &str,
     target: &str,
 ) -> Outcome {
+    if let Some(reason) = unsupported_global_use(ll, name) {
+        return Outcome::Refused { reason };
+    }
     let func = match lower_function(ll, name) {
         Ok(f) => f,
         Err(e) => {
@@ -843,9 +958,8 @@ fn run_function(
         low_bits,
     );
 
-    // Define any external globals the module references.
     let mut driver = driver;
-    inject_external_globals(&mut driver, ll, None);
+    inject_globals(&mut driver, ll, name);
 
     let emitted_path = dir.join("emitted.c");
     let ref_path = dir.join("ref.ll");

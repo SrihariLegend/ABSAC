@@ -14,6 +14,18 @@ use std::fmt::Write as _;
 use sir_types::{ConstantData, Effects, NodeId, Type};
 use std::collections::{HashMap, HashSet};
 
+/// C identifier for a global symbol. Emitted C gets its own namespaced
+/// buffer (the reference IR keeps its own definition), so symbols never
+/// alias across translation units; LLVM-only characters map to `_`.
+pub fn c_global_name(name: &str) -> String {
+    let mut out = String::from("__sirglobal_");
+    out.extend(
+        name.chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' }),
+    );
+    out
+}
+
 /// Post-order DFS over dataflow inputs restricted to `in_set`.
 ///
 /// Emission order must follow the dataflow graph, not arena order: the
@@ -1406,12 +1418,26 @@ fn emit_expr(
             )
         }
         NodeKind::ArrayAccess { base, index } => {
-            format!(
-                "{}[{}]",
-                emit_operand(*base, func, carrier_map),
-                emit_operand(*index, func, carrier_map)
-            )
+            let base_expr = emit_operand(*base, func, carrier_map);
+            if func
+                .get_node(*base)
+                .is_some_and(|node| matches!(node.kind, NodeKind::Global { .. }))
+            {
+                format!(
+                    "(({} *)({}))[{}]",
+                    c_type(&node.ty),
+                    base_expr,
+                    emit_operand(*index, func, carrier_map)
+                )
+            } else {
+                format!(
+                    "{}[{}]",
+                    base_expr,
+                    emit_operand(*index, func, carrier_map)
+                )
+            }
         }
+        NodeKind::Global { name } => c_global_name(name),
         NodeKind::Store { ptr, value } => {
             let target = if func
                 .get_node(*ptr)
@@ -1490,6 +1516,23 @@ pub fn emit_c(func: &Function) -> String {
     out.push_str("#include <stdint.h>\n");
     out.push_str("#include <stdbool.h>\n");
     out.push_str("#include <string.h>\n\n");
+
+    let mut globals: Vec<String> = func
+        .arena
+        .iter()
+        .filter_map(|node| match &node.kind {
+            NodeKind::Global { name } => Some(c_global_name(name)),
+            _ => None,
+        })
+        .collect();
+    globals.sort();
+    globals.dedup();
+    for global in globals {
+        let _ = writeln!(out, "extern uint8_t {global}[];");
+    }
+    if !out.ends_with("\n\n") {
+        out.push('\n');
+    }
 
     // Bitvector masks need the runtime helpers (Pack/ArrayCmpMask).
     let uses_bitvectors = func.arena.iter().any(|node| is_bitvector(&node.ty))

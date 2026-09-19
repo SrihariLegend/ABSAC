@@ -423,6 +423,14 @@ have now been restored into current `sir_mech` and tested.
   `n11_reverse_sum`; base-14 is back to 230 clean / 128 rewrites / 0
   mismatched). Focused signed fixtures are clean on native, AArch64,
   and sanitizers; fuzz remains 540 / 360 / 0.
+- **2026-09-20 — read-only globals**: a `Global` byte-base node plus
+  namespaced C-side buffers handles direct `@g` access and inline
+  constant GEPs. External globals and internally-defined globals with
+  non-zero initializers fail closed. Base-14 stays 230 clean / 128
+  rewrites / 0 mismatched on native and AArch64; fuzz stays 540 / 360
+  / 0; sanitizers are clean. External Embench clean rises 8 → 11
+  (statemate `interface`/`init`, matmult-int), with zero harness
+  errors.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
