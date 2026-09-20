@@ -12,7 +12,7 @@
 //! Exit code 0 iff every lowered function was differential-clean.
 
 use sir_benchmarks::emit;
-use sir_lower::lower_function;
+use sir_lower::{external_symbol, lower_function};
 use sir_nodes::Function;
 use sir_types::Type;
 use std::fs;
@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 static ALLOW_RUNTIME_SEARCH: AtomicBool = AtomicBool::new(false);
 static ALLOW_DEFS: OnceLock<Vec<u64>> = OnceLock::new();
@@ -42,6 +42,74 @@ fn function_names(ll: &str) -> Vec<String> {
         names.push(rest[..paren].to_string());
     }
     names
+}
+
+/// Direct call targets in one function. Calls to symbols not defined in the
+/// module are refused: the harness has no implementation to link them with.
+fn direct_callees(ll: &str, name: &str) -> Result<Vec<String>, String> {
+    let defined: HashSet<String> = function_names(ll).into_iter().collect();
+    let body =
+        function_ir(ll, name).ok_or_else(|| format!("could not find definition @{name}"))?;
+    let mut out = Vec::new();
+    for line in body.lines() {
+        if !line.contains("call ") {
+            continue;
+        }
+        let Some(at) = line.find('@') else { continue };
+        let rest = &line[at + 1..];
+        let Some(open) = rest.find('(') else { continue };
+        let target = rest[..open].trim();
+        if target.is_empty()
+            || target.starts_with("llvm.")
+            || matches!(target, "bcmp" | "memcmp")
+        {
+            continue;
+        }
+        if !defined.contains(target) {
+            return Err(format!("unsupported external call: @{target}"));
+        }
+        if !out.iter().any(|existing| existing == target) {
+            out.push(target.to_string());
+        }
+    }
+    Ok(out)
+}
+
+/// Lower a root function together with the local functions it calls.
+/// Entries are postordered: callees first, root last, so every callee body
+/// is available before the caller that invokes it is tested.
+fn lower_module(ll: &str, name: &str) -> Result<Vec<(String, Function)>, String> {
+    fn visit(
+        ll: &str,
+        name: &str,
+        root: &str,
+        active: &mut HashSet<String>,
+        done: &mut HashSet<String>,
+        out: &mut Vec<(String, Function)>,
+    ) -> Result<(), String> {
+        if done.contains(name) {
+            return Ok(());
+        }
+        if !active.insert(name.to_string()) {
+            return Err(format!("recursive call cycle at @{name}"));
+        }
+        for callee in direct_callees(ll, name)? {
+            visit(ll, &callee, root, active, done, out)?;
+        }
+        active.remove(name);
+        let mut func =
+            lower_function(ll, name).map_err(|e| e.lines().last().unwrap_or(&e).trim().to_string())?;
+        if name != root {
+            func.name = external_symbol(name);
+        }
+        out.push((name.to_string(), func));
+        done.insert(name.to_string());
+        Ok(())
+    }
+
+    let mut out = Vec::new();
+    visit(ll, name, name, &mut HashSet::new(), &mut HashSet::new(), &mut out)?;
+    Ok(out)
 }
 
 /// Module-level global definitions. The C driver defines each one so
@@ -251,21 +319,25 @@ fn unsupported_global_use(ll: &str, name: &str) -> Option<String> {
     None
 }
 
-/// Globals the selected function actually references.
-fn used_globals(ll: &str, name: &str) -> Vec<GlobalDecl> {
-    let Some(body) = function_ir(ll, name) else {
-        return Vec::new();
-    };
+/// Globals referenced by any function in the module, deduplicated by name.
+fn used_globals_all(ll: &str, names: &[String]) -> Vec<GlobalDecl> {
     let decls = global_decls(ll);
-    referenced_globals(&body)
-        .iter()
-        .filter_map(|referenced| {
-            decls
-                .iter()
-                .find(|decl| decl.name == *referenced)
-                .cloned()
-        })
-        .collect()
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for name in names {
+        let Some(body) = function_ir(ll, name) else {
+            continue;
+        };
+        for referenced in referenced_globals(&body) {
+            if !seen.insert(referenced.clone()) {
+                continue;
+            }
+            if let Some(decl) = decls.iter().find(|decl| decl.name == referenced) {
+                out.push(decl.clone());
+            }
+        }
+    }
+    out
 }
 
 /// `(return type, parameter types)` for a definition, raw LLVM tokens.
@@ -717,24 +789,30 @@ fn build_time_driver(
 /// Define C-side buffers for the zero-initialized internal globals a
 /// function references. The reference IR keeps its own definition; the
 /// emitted C gets a namespaced buffer with identical initial contents.
-fn inject_globals(driver: &mut String, ll: &str, name: &str) {
-    let Some(body) = function_ir(ll, name) else {
-        return;
-    };
+fn inject_globals(driver: &mut String, ll: &str, names: &[String]) {
     let globals = global_decls(ll);
+    let mut seen = HashSet::new();
     let mut defs = String::new();
-    for referenced in referenced_globals(&body) {
-        let Some(g) = globals.iter().find(|g| g.name == referenced) else {
+    for name in names {
+        let Some(body) = function_ir(ll, name) else {
             continue;
         };
-        if g.size == 0 || g.size > (1 << 20) {
-            continue;
+        for referenced in referenced_globals(&body) {
+            if !seen.insert(referenced.clone()) {
+                continue;
+            }
+            let Some(g) = globals.iter().find(|g| g.name == referenced) else {
+                continue;
+            };
+            if g.size == 0 || g.size > (1 << 20) {
+                continue;
+            }
+            defs.push_str(&format!(
+                "_Alignas(64) uint8_t {}[{}] = {{0}};\n",
+                emit::c_global_name(&g.name),
+                g.size
+            ));
         }
-        defs.push_str(&format!(
-            "_Alignas(64) uint8_t {}[{}] = {{0}};\n",
-            emit::c_global_name(&g.name),
-            g.size
-        ));
     }
     let pos = driver.find("int main").unwrap_or(driver.len());
     driver.insert_str(pos, &defs);
@@ -753,6 +831,9 @@ fn time_function(
 ) -> Result<(String, Vec<u64>), String> {
             if let Some(reason) = unsupported_global_use(ll, name) {
         return Err(reason);
+    }
+    if !direct_callees(ll, name)?.is_empty() {
+        return Err("timing: local calls are not supported yet".to_string());
     }
     let func =
         lower_function(ll, name).map_err(|e| e.lines().last().unwrap_or(&e).trim().to_string())?;
@@ -804,7 +885,7 @@ fn time_function(
             ref_path,
         )
     };
-    inject_globals(&mut driver, ll, name);
+    inject_globals(&mut driver, ll, &[name.to_string()]);
 
     let emitted_path = dir.join("emitted.c");
     let driver_path = dir.join("driver_time.c");
@@ -818,6 +899,7 @@ fn time_function(
         &exe_path,
         &driver_path,
         &emitted_path,
+        &[],
         &extra_source,
         !baseline,
         target,
@@ -849,6 +931,7 @@ fn compile_harness(
     exe: &Path,
     driver: &Path,
     emitted: &Path,
+    extra_c: &[PathBuf],
     extra: &Path,
     extra_is_ir: bool,
     target: &str,
@@ -917,6 +1000,9 @@ fn compile_harness(
         gcc.args(sanitizer_args);
         gcc.arg(driver.to_str().unwrap());
         gcc.arg(emitted.to_str().unwrap());
+        for source in extra_c {
+            gcc.arg(source.to_str().unwrap());
+        }
         for object in &objects {
             gcc.arg(object.to_str().unwrap());
         }
@@ -934,11 +1020,11 @@ fn compile_harness(
             exe.to_str().unwrap(),
         ]);
         clang.args(sanitizer_args);
-        clang.args([
-            driver.to_str().unwrap(),
-            emitted.to_str().unwrap(),
-            extra.to_str().unwrap(),
-        ]);
+        clang.args([driver.to_str().unwrap(), emitted.to_str().unwrap()]);
+        for source in extra_c {
+            clang.arg(source.to_str().unwrap());
+        }
+        clang.arg(extra.to_str().unwrap());
         clang.output().map_err(|e| format!("clang: {e}"))?
     };
     if !output.status.success() {
@@ -1036,24 +1122,32 @@ fn run_function(
     cc: &str,
     target: &str,
 ) -> Outcome {
-    if let Some(reason) = unsupported_global_use(ll, name) {
-        return Outcome::Refused { reason };
-    }
-    let func = match lower_function(ll, name) {
-        Ok(f) => f,
-        Err(e) => {
-            return Outcome::Refused {
-                reason: e.lines().last().unwrap_or(&e).trim().to_string(),
-            }
-        }
+    let module = match lower_module(ll, name) {
+        Ok(module) => module,
+        Err(reason) => return Outcome::Refused { reason },
     };
+    for (original, _) in &module {
+        if let Some(reason) = unsupported_global_use(ll, original) {
+            return Outcome::Refused { reason };
+        }
+    }
     let Some((ir_ret, ir_params)) = ir_signature(ll, name) else {
         return Outcome::HarnessError {
             reason: "could not parse IR signature".to_string(),
         };
     };
-    let optimized = optimize(&func);
+    let optimized_module: Vec<(String, RunResult)> = module
+        .iter()
+        .map(|(original, func)| (original.clone(), optimize(func)))
+        .collect();
+    let (_, optimized) = optimized_module
+        .last()
+        .expect("module always contains its root");
     let c_source = emit::emit_c(&optimized.function);
+    let module_names: Vec<String> = module
+        .iter()
+        .map(|(original, _)| original.clone())
+        .collect();
 
     let dir: PathBuf = workdir.join(name);
     if fs::create_dir_all(&dir).is_err() {
@@ -1061,7 +1155,7 @@ fn run_function(
             reason: format!("cannot create {}", dir.display()),
         };
     }
-    let globals = used_globals(ll, name);
+    let globals = used_globals_all(ll, &module_names);
     let ref_ll = expose_definition(
         &rename_symbol(&shadow_globals(ll, &globals), name, "__ref"),
         &format!("{name}__ref"),
@@ -1080,20 +1174,37 @@ fn run_function(
     );
 
     let mut driver = driver;
-    inject_globals(&mut driver, ll, name);
+    inject_globals(&mut driver, ll, &module_names);
 
-    let emitted_path = dir.join("emitted.c");
     let ref_path = dir.join("ref.ll");
     let driver_path = dir.join("driver.c");
     let exe_path = dir.join("exe");
-    if fs::write(&emitted_path, &c_source).is_err()
-        || fs::write(&ref_path, &ref_ll).is_err()
-        || fs::write(&driver_path, &driver).is_err()
-    {
+    let mut emitted_paths = Vec::new();
+    let count = optimized_module.len();
+    for (index, (_, result)) in optimized_module.iter().enumerate() {
+        let path = if index + 1 == count {
+            dir.join("emitted.c")
+        } else {
+            dir.join(format!("callee_{index}_{}.c", result.function.name))
+        };
+        let source = if index + 1 == count {
+            c_source.clone()
+        } else {
+            emit::emit_c(&result.function)
+        };
+        if fs::write(&path, source).is_err() {
+            return Outcome::HarnessError {
+                reason: format!("cannot write {}", path.display()),
+            };
+        }
+        emitted_paths.push(path);
+    }
+    if fs::write(&ref_path, &ref_ll).is_err() || fs::write(&driver_path, &driver).is_err() {
         return Outcome::HarnessError {
             reason: "cannot write harness sources".to_string(),
         };
     }
+    let root_path = emitted_paths.pop().expect("module has a root");
 
     // Native assurance hardening: under `sanitize` the ref/emitted pair runs
     // with ASan+UBSan and no recovery, so undefined behaviour aborts instead
@@ -1103,7 +1214,8 @@ fn run_function(
         sanitize,
         &exe_path,
         &driver_path,
-        &emitted_path,
+        &root_path,
+        &emitted_paths,
         &ref_path,
         true,
         target,

@@ -72,6 +72,24 @@ fn parse_type(s: &str) -> Option<Type> {
     }
 }
 
+/// C symbol used for a directly called function. Emitted C defines local
+/// callees under this name so it can never collide with the reference IR,
+/// which keeps the original symbol.
+pub fn external_symbol(name: &str) -> String {
+    if name
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+    {
+        format!("__sir_callee_{name}")
+    } else {
+        let mut out = String::from("__sir_callee_");
+        for byte in name.bytes() {
+            out.push_str(&format!("{byte:02x}"));
+        }
+        out
+    }
+}
+
 /// Extract the source array type from a GEP instruction
 /// (`getelementptr inbounds [64 x i8], ptr @g, ...` → `Array { u8, 64 }`).
 ///
@@ -7280,7 +7298,67 @@ fn emit_instruction(
                 }
                 return Ok(Some(value));
             }
-            Err(format!("unsupported call: {}", inst.raw))
+            // Direct call to another function. The harness refuses targets
+            // that are not defined in the module, so reaching this point
+            // means the callee is local and is emitted alongside the caller.
+            if callee.contains("...") || callee.starts_with('%') {
+                return Err(format!("unsupported indirect/variadic call: {}", inst.raw));
+            }
+            let joined = inst.operands.join(", ");
+            let at = joined
+                .find('@')
+                .ok_or_else(|| format!("call without callee: {}", inst.raw))?;
+            let rest = &joined[at + 1..];
+            let open = rest
+                .find('(')
+                .ok_or_else(|| format!("malformed call: {}", inst.raw))?;
+            let target = rest[..open].trim();
+            if target.is_empty() || target.split_whitespace().count() != 1 {
+                return Err(format!("malformed callee: {}", inst.raw));
+            }
+            let ret = joined[..at]
+                .split_whitespace()
+                .last()
+                .unwrap_or("void");
+            let ret_ty = if ret == "void" {
+                Type::Unit
+            } else {
+                parse_type(ret)
+                    .ok_or_else(|| format!("unsupported call result type '{ret}': {}", inst.raw))?
+            };
+            let inside =
+                call_arguments(inst).ok_or_else(|| format!("malformed call: {}", inst.raw))?;
+            let mut args = Vec::new();
+            for part in split_operands(&inside) {
+                let part = part.trim();
+                if part.contains("byval")
+                    || part.contains("sret")
+                    || part.contains("inalloca")
+                {
+                    return Err(format!("unsupported call argument attribute: {}", inst.raw));
+                }
+                let ty = operand_type(part);
+                let arg = if matches!(ty, Some(Type::Pointer { .. })) {
+                    resolve_pointer_operand(part, value_map, params, builder, span)
+                } else {
+                    get_node_id(&strip_type(part), value_map, params, builder, ty)
+                }
+                .ok_or_else(|| format!("cannot resolve call argument '{}': {}", part, inst.raw))?;
+                args.push(arg);
+            }
+            let node_id = builder
+                .external_call(
+                    external_symbol(target),
+                    &args,
+                    ret_ty,
+                    Effects::READ_MEMORY | Effects::WRITE_MEMORY,
+                    span,
+                )
+                .map_err(|e| format!("{:?}", e))?;
+            if let Some(name) = result_name {
+                value_map.insert(name, node_id);
+            }
+            Ok(Some(node_id))
         }
 
         _ => Err(format!(

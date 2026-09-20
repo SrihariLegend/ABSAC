@@ -1633,6 +1633,20 @@ fn emit_expr(
                 sanitize_ident(field)
             )
         }
+        // Direct call to a locally-defined function. The lowerer namespaces
+        // callees so emitted C cannot collide with the reference IR.
+        NodeKind::ExternalCall { name, args } => {
+            let args: Vec<String> = args
+                .iter()
+                .map(|arg| emit_operand(*arg, func, carrier_map))
+                .collect();
+            format!("{}({})", name, args.join(", "))
+        }
+        // The arena Call form has no emitter lowering; fail loudly instead
+        // of falling through to the silent `0` default.
+        NodeKind::Call { .. } => {
+            format!("__sir_unsupported_call_{}", node.id.as_u64())
+        }
         _ => "0".to_string(),
     }
 }
@@ -1657,6 +1671,21 @@ pub fn emit_c(func: &Function) -> String {
     globals.dedup();
     for global in globals {
         let _ = writeln!(out, "extern uint8_t {global}[];");
+    }
+    // Local callees are compiled as separate translation units; declare
+    // their return types (no parameter list, so qualifiers cannot clash).
+    let mut callees: Vec<(String, String)> = func
+        .arena
+        .iter()
+        .filter_map(|node| match &node.kind {
+            NodeKind::ExternalCall { name, .. } => Some((name.clone(), c_type(&node.ty))),
+            _ => None,
+        })
+        .collect();
+    callees.sort();
+    callees.dedup();
+    for (name, ret) in callees {
+        let _ = writeln!(out, "extern {ret} {name}();");
     }
     if !out.ends_with("\n\n") {
         out.push('\n');

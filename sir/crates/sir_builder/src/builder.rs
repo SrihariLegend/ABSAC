@@ -753,6 +753,27 @@ impl Builder {
             span,
         ))
     }
+
+    /// Call a function symbol by name (local calls are namespaced by the
+    /// harness so emitted C never collides with the reference IR).
+    pub fn external_call(
+        &mut self,
+        name: impl Into<String>,
+        args: &[NodeId],
+        ty: Type,
+        effects: Effects,
+        span: Span,
+    ) -> Result<NodeId, BuildError> {
+        Ok(self.alloc_node(
+            NodeKind::ExternalCall {
+                name: name.into(),
+                args: args.to_vec(),
+            },
+            ty,
+            effects,
+            span,
+        ))
+    }
     // ── Loops ───────────────────────────────────────────────
 
     pub fn r#loop(

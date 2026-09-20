@@ -637,6 +637,15 @@ have now been restored into current `sir_mech` and tested.
   (matmult 5, crc32 2, edn 8, statemate 7); the earlier 24 figure came
   from unrecorded IR-generation flags and is superseded. Guarded-entry
   sequential groups (`benchmark_body`) remain fail-closed.
+- **2026-09-20 — direct local calls**: the lowerer turns a direct call to
+  a module-defined function into a namespaced `ExternalCall`; the harness
+  lowers the callee dependency closure postorder, emits each callee as its
+  own translation unit, and links them with the caller. Shared globals are
+  unioned and shadowed once. External symbols, variadics, indirect calls,
+  recursion, and `byval`/`sret` arguments stay refused. matmult `Test`
+  (calls `Multiply`) is clean, raising the reproducible external count
+  22 → 23; base-14 stays 230 clean, fuzz stays 540 / 360 / 0, and the
+  full matrix (including sanitizers) passes.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
