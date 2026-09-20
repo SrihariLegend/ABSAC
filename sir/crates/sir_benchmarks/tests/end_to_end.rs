@@ -23,6 +23,7 @@ fn corpus_harness_reports_no_mismatches() {
             "0",
         ])
         .arg("--measured-retain")
+        .args(["--time-reps", "1000"])
         .arg("--profile-out")
         .arg(&profile)
         .arg("--workdir")
