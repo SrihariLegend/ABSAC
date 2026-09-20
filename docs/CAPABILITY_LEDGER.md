@@ -621,8 +621,22 @@ have now been restored into current `sir_mech` and tested.
   with run-once SIR loops, and carrier initializers substitute parent
   carriers without leaking child-scope temporaries. matmult-int
   `initialise_benchmark` is clean at 16 cases native/AArch64 and
-  sanitizer-clean; external Embench clean rises 23 → 24. Base-14 stays
-  230 / 131 / 0, fuzz stays 540 / 360 / 0, and `verify.sh full` passes.
+  sanitizer-clean; external Embench clean rises 23 → 24 under the then
+  current ad-hoc inputs. Base-14 stays 230 / 131 / 0, fuzz stays
+  540 / 360 / 0, and `verify.sh full` passes.
+- **2026-09-20 — reproducible external inputs and harness fixes**:
+  `scripts/fetch-external.sh` pins the Embench clone and compile flags
+  (`-O1 -fno-inline-functions -fno-vectorize -DGLOBAL_SCALE_FACTOR=1
+  -DLOCAL_SCALE_FACTOR=1`). Function-body extraction now matches the
+  `define` line rather than an earlier call site (it previously sliced
+  `warm_caches` for `benchmark_body`, so no globals were injected), and
+  the renamed reference definition drops `internal`/`private` so
+  internal functions link. Nest detection allows known intrinsics
+  (`memcpy`/`memset`/`memmove`/`lifetime`/`expect`). Under these
+  reproducible inputs the external Embench clean count is **22**
+  (matmult 5, crc32 2, edn 8, statemate 7); the earlier 24 figure came
+  from unrecorded IR-generation flags and is superseded. Guarded-entry
+  sequential groups (`benchmark_body`) remain fail-closed.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

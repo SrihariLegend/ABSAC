@@ -1258,6 +1258,16 @@ struct NestedShape {
     inner: usize,
 }
 
+fn supported_intrinsic_call(inst: &Instruction) -> bool {
+    inst.opcode == "call"
+        && (inst.raw.contains("llvm.memcpy")
+            || inst.raw.contains("llvm.memmove")
+            || inst.raw.contains("llvm.memset")
+            || inst.raw.contains("llvm.lifetime")
+            || inst.raw.contains("llvm.expect")
+            || inst.raw.contains("llvm.assume"))
+}
+
 /// Back edges in block-index order: `(latch, header)`.
 fn indexed_back_edges(ir: &IrFunction) -> Vec<(usize, usize)> {
     let count = ir.blocks.len();
@@ -1372,7 +1382,8 @@ fn detect_linear_chain(ir: &IrFunction) -> Option<Vec<(usize, usize)>> {
     let outer_latch = edges[0].0;
     for idx in outer..=outer_latch {
         for inst in &ir.blocks[idx].instructions {
-            if matches!(inst.opcode.as_str(), "call" | "switch")
+            if (inst.opcode == "call" && !supported_intrinsic_call(inst))
+                || inst.opcode == "switch"
                 || inst.raw.contains("double")
                 || inst.raw.contains("float")
                 || inst.raw.contains("atomic")
@@ -1468,7 +1479,8 @@ fn detect_sequential_groups(ir: &IrFunction) -> Option<Vec<Vec<(usize, usize)>>>
         }
         for idx in outer.1..=outer.0 {
             for inst in &ir.blocks[idx].instructions {
-                if matches!(inst.opcode.as_str(), "call" | "switch")
+                if (inst.opcode == "call" && !supported_intrinsic_call(inst))
+                    || inst.opcode == "switch"
                     || inst.raw.contains("double")
                     || inst.raw.contains("float")
                     || inst.raw.contains("atomic")
@@ -1562,7 +1574,8 @@ fn detect_nested_two_level(ir: &IrFunction) -> Option<NestedShape> {
     }
     for idx in outer..=outer_latch {
         for inst in &ir.blocks[idx].instructions {
-            if matches!(inst.opcode.as_str(), "call" | "switch")
+            if (inst.opcode == "call" && !supported_intrinsic_call(inst))
+                || inst.opcode == "switch"
                 || inst.raw.contains("double")
                 || inst.raw.contains("float")
                 || inst.raw.contains("atomic")
@@ -1754,7 +1767,14 @@ pub fn lower(text: &str) -> Result<Function, String> {
     }
 
     if let Some(groups) = detect_sequential_groups(&ir) {
-        if groups.len() > 1 && groups.iter().any(|group| group.len() > 1) {
+        let guarded_entry = ir.blocks[0]
+            .instructions
+            .iter()
+            .any(|inst| inst.opcode == "br" && inst.operands.len() >= 3);
+        if groups.len() > 1
+            && groups.iter().any(|group| group.len() > 1)
+            && !guarded_entry
+        {
             return lower_sequential_groups(&ir, &groups, &mut builder, &mut value_map)
                 .map(|_| builder.build());
         }

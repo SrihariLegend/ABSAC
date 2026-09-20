@@ -783,7 +783,10 @@ fn time_function(
             base_path,
         )
     } else {
-        let ref_ll = rename_symbol(ll, name, "__ref");
+        let ref_ll = expose_definition(
+            &rename_symbol(ll, name, "__ref"),
+            &format!("{name}__ref"),
+        );
         let ref_path = dir.join("ref.ll");
         fs::write(&ref_path, &ref_ll).map_err(|e| format!("write ref.ll: {e}"))?;
         (
@@ -1059,7 +1062,10 @@ fn run_function(
         };
     }
     let globals = used_globals(ll, name);
-    let ref_ll = rename_symbol(&shadow_globals(ll, &globals), name, "__ref");
+    let ref_ll = expose_definition(
+        &rename_symbol(&shadow_globals(ll, &globals), name, "__ref"),
+        &format!("{name}__ref"),
+    );
     let low_bits = function_ir(ll, name)
         .map(|function| function.contains("!range"))
         .unwrap_or(false);
@@ -1183,11 +1189,20 @@ fn run_binary(exe: &Path, target: &str) -> std::io::Result<std::process::Output>
 /// Slice out one textual LLVM function body, used to detect input-domain
 /// metadata such as `!range` before generating differential inputs.
 fn function_ir<'a>(ll: &'a str, name: &str) -> Option<&'a str> {
-    let at = ll.find(&format!("@{name}("))?;
-    let definition = ll[..at].rfind("define")?;
-    let rest = &ll[definition..];
-    let end = rest.find("\n}\n").map(|index| index + 3).unwrap_or(rest.len());
-    Some(&rest[..end])
+    let needle = format!("@{name}(");
+    let mut offset = 0usize;
+    for line in ll.split_inclusive('\n') {
+        if line.trim_start().starts_with("define ") && line.contains(&needle) {
+            let rest = &ll[offset..];
+            let end = rest
+                .find("\n}\n")
+                .map(|index| index + 3)
+                .unwrap_or(rest.len());
+            return Some(&rest[..end]);
+        }
+        offset += line.len();
+    }
+    None
 }
 
 /// Rename every exact `@name` symbol reference, including calls,
@@ -1213,6 +1228,22 @@ fn rename_symbol(text: &str, name: &str, suffix: &str) -> String {
     }
     out.push_str(rest);
     out
+}
+
+/// Drop `internal`/`private` from the selected definition so the renamed
+/// reference symbol is visible to the C driver.
+fn expose_definition(text: &str, name: &str) -> String {
+    let needle = format!("@{name}(");
+    text.lines()
+        .map(|line| {
+            if line.trim_start().starts_with("define ") && line.contains(&needle) {
+                line.replace("internal ", "").replace("private ", "")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn main() {
