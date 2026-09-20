@@ -464,20 +464,23 @@ fn build_driver(
     );
 
     out.push_str("int main(void) {\n");
-    out.push_str("    static _Alignas(64) uint8_t bufA[8][2048];\n");
-    out.push_str("    static _Alignas(64) uint8_t bufB[8][2048];\n");
+    // 32 bytes of identically-filled guard slab precede every buffer, so
+    // guarded negative indices read the same bytes on both sides instead
+    // of whatever happens to precede each array.
+    out.push_str("    static _Alignas(64) uint8_t bufA[8][2048 + 32];\n");
+    out.push_str("    static _Alignas(64) uint8_t bufB[8][2048 + 32];\n");
     out.push_str("    uint64_t mismatches = 0;\n");
     out.push_str(&format!("    for (int t = 0; t < {cases}; t++) {{\n"));
     out.push_str("        uint64_t seed = 0x9E3779B97F4A7C15ULL ^ (uint64_t)t;\n");
     let fill = if low_bits {
-        "bufA[b][i] = (uint8_t)(seed & 1);"
+        "bufA[b][i + 32] = (uint8_t)(seed & 1);"
     } else {
-        "bufA[b][i] = (uint8_t)seed;"
+        "bufA[b][i + 32] = (uint8_t)seed;"
     };
     out.push_str(&format!(
         "        for (int b = 0; b < 8; b++) for (int i = 0; i < 2048; i++) {{\n\
          \x20           seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17;\n\
-         \x20           {fill} bufB[b][i] = bufA[b][i];\n\
+         \x20           {fill} bufB[b][i + 32] = bufA[b][i + 32];\n\
          \x20       }}\n",
     ));
 
@@ -490,7 +493,11 @@ fn build_driver(
     for (i, p) in func.params.iter().enumerate() {
         if i >= ir_params.len() {
             // Extra SIR parameter (implicit global array); no IR counterpart.
-            new_args.push(format!("({})bufB[{}]", pointer_cast(&p.ty), ptr_slot));
+            new_args.push(format!(
+                "({})(bufB[{}] + 32)",
+                pointer_cast(&p.ty),
+                ptr_slot
+            ));
             global_slots.push(ptr_slot);
             ptr_slot += 1;
             continue;
@@ -498,11 +505,11 @@ fn build_driver(
         if is_pointer_ty(&p.ty) {
             let cast = pointer_cast(&p.ty);
             ref_args.push(format!(
-                "({})bufA[{}]",
+                "({})(bufA[{}] + 32)",
                 llvm_c_type(&ir_params[i]),
                 ptr_slot
             ));
-            new_args.push(format!("({})bufB[{}]", cast, ptr_slot));
+            new_args.push(format!("({})(bufB[{}] + 32)", cast, ptr_slot));
             ptr_slot += 1;
         } else {
             let cty = emit::c_type(&p.ty);
@@ -517,8 +524,8 @@ fn build_driver(
     // Implicit global arrays: the reference reads its own zero-initialized
     // definition, so the SIR global buffer must be zeroed too.
     for &slot in &global_slots {
-        out.push_str(&format!("        memset(bufA[{slot}], 0, 2048);\n"));
-        out.push_str(&format!("        memset(bufB[{slot}], 0, 2048);\n"));
+        out.push_str(&format!("        memset(bufA[{slot}] + 32, 0, 2048);\n"));
+        out.push_str(&format!("        memset(bufB[{slot}] + 32, 0, 2048);\n"));
     }
 
     let mut global_reset = String::new();
@@ -585,7 +592,7 @@ fn build_driver(
         out.push_str(&global_compare);
     }
     out.push_str(&format!(
-        "        for (int b = 0; b < {ptr_slot}; b++) if (memcmp(bufA[b], bufB[b], 2048)) {{\n\
+        "        for (int b = 0; b < {ptr_slot}; b++) if (memcmp(bufA[b] + 32, bufB[b] + 32, 2048)) {{\n\
          \x20           if (mismatches < 5) printf(\"EMITBUF {name} t=%d slot=%d\\n\", t, b);\n\
          \x20           mismatches++;\n\
          \x20       }}\n"
@@ -656,12 +663,12 @@ fn build_time_driver(
 
     out.push_str("int main(void) {\n");
     out.push_str(
-        "    static _Alignas(64) uint8_t bufA[8][2048];\n\
-         \x20   static _Alignas(64) uint8_t bufB[8][2048];\n\
+        "    static _Alignas(64) uint8_t bufA[8][2048 + 32];\n\
+         \x20   static _Alignas(64) uint8_t bufB[8][2048 + 32];\n\
          \x20   static const uint64_t lens[] = {0,1,2,3,4,5,7,8,16,31,32};\n\
          \x20   static const uint64_t keys[] = {1,2,3,5,7,11,13,16,31};\n\
          \x20   uint64_t seed = 0x9E3779B97F4A7C15ull;\n\
-         \x20   for (int i = 0; i < 8 * 2048; i++) {\n",
+         \x20   for (int i = 0; i < 8 * (2048 + 32); i++) {\n",
     );
     match fill {
         Some(value) => out.push_str(&format!(
@@ -682,18 +689,22 @@ fn build_time_driver(
     let mut scalar_index = 0usize;
     for (i, p) in func.params.iter().enumerate() {
         if i >= ir_params.len() {
-            new_args.push(format!("({})bufB[{}]", pointer_cast(&p.ty), ptr_slot));
+            new_args.push(format!(
+                "({})(bufB[{}] + 32)",
+                pointer_cast(&p.ty),
+                ptr_slot
+            ));
             ptr_slot += 1;
             continue;
         }
         if is_pointer_ty(&p.ty) {
             let cast = pointer_cast(&p.ty);
             ref_args.push(format!(
-                "({})bufA[{}]",
+                "({})(bufA[{}] + 32)",
                 llvm_c_type(&ir_params[i]),
                 ptr_slot
             ));
-            new_args.push(format!("({})bufB[{}]", cast, ptr_slot));
+            new_args.push(format!("({})(bufB[{}] + 32)", cast, ptr_slot));
             ptr_slot += 1;
         } else {
             let cty = emit::c_type(&p.ty);

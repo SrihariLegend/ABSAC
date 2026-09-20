@@ -662,6 +662,20 @@ have now been restored into current `sir_mech` and tested.
   (9 tests) runs in **~1.3 s** steady-state, down from ~9.3 s; base-14
   stays 230 / 131 / 0, fuzz 540 / 360 / 0, and `verify.sh full` passes
   with sanitizers.
+- **2026-09-20 — signed do-while domains and byte addressing**: signed
+  carry tests are reconstructed as shifted pre-tested domains
+  (`do { } while (c > k)` → `while (c > k + step)`), and an entry guard
+  is accepted only after the interval proof that both its edges match
+  the shifted test. This unlocks edn `latsynth` and base-14
+  `n11_reverse_sum` (9 → 10 external edn, base-14 230 → 237 clean).
+  Mixed-width access now byte-addresses through `uint8_t *` with signed
+  index casts, nested array types parse to their innermost element, and
+  the driver gives every buffer an identical 32-byte guard slab so
+  guarded negative reads are comparable under UBSan. Also fixed a
+  `PointerOffset` emitter shadowing bug that forced every offset through
+  the byte path. Reproducible external clean rises 27 → **28**; base-14
+  is 237 / 133 / 0, fuzz 540 / 360 / 0, sanitizers 0, and the 9-test
+  suite still runs in ~1.3 s.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

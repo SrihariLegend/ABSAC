@@ -462,6 +462,22 @@ fn emit_operand(
     }
 }
 
+/// Index expression for pointer/array arithmetic. LLVM GEP indices are
+/// signed two's-complement values, so cast to a signed type before adding:
+/// indexing with an unsigned wrapped value is C pointer-overflow UB even
+/// when the resulting address stays inside the harness guard slab.
+fn index_expr(
+    id: NodeId,
+    func: &Function,
+    carrier_map: &std::collections::HashMap<NodeId, String>,
+) -> String {
+    let operand = emit_operand(id, func, carrier_map);
+    match func.get_node(id).map(|node| &node.ty) {
+        Some(Type::Integer { .. }) => format!("((int64_t)({}))", operand),
+        _ => operand,
+    }
+}
+
 /// Render a pure integer/bool node graph as a single C expression.
 ///
 /// Returns `None` when any node is unsupported or not side-effect-free
@@ -1529,38 +1545,48 @@ fn emit_expr(
         }
         NodeKind::ArrayAccess { base, index } => {
             let base_expr = emit_operand(*base, func, carrier_map);
+            let index_expr = index_expr(*index, func, carrier_map);
             let base_node = func.get_node(*base);
             if base_node.is_some_and(|base| matches!(base.kind, NodeKind::Global { .. })) {
                 format!(
-                    "(({} *)({}))[{}]",
+                    "(({} *)((uint8_t *)({}) + ({})))[0]",
                     c_type(&node.ty),
                     base_expr,
-                    emit_operand(*index, func, carrier_map)
+                    index_expr
                 )
             } else if let Some(Type::Pointer { pointee, .. }) = base_node.map(|base| &base.ty) {
                 if pointee.as_ref() != &node.ty {
-                    // The GEP is in source-element units while the access
-                    // width differs (e.g. an i8 GEP feeding an i64 load):
-                    // scale through the source pointer, then reinterpret.
+                    // Mixed-width GEP: the lowerer scaled the index to
+                    // bytes, so address through uint8_t and reinterpret.
                     format!(
-                        "(({} *)({} + {}))[0]",
+                        "(({} *)((uint8_t *)({}) + ({})))[0]",
                         c_type(&node.ty),
                         base_expr,
-                        emit_operand(*index, func, carrier_map)
+                        index_expr
                     )
                 } else {
-                    format!("{}[{}]", base_expr, emit_operand(*index, func, carrier_map))
+                    format!("(({}) + ({}))[0]", base_expr, index_expr)
                 }
             } else {
-                format!("{}[{}]", base_expr, emit_operand(*index, func, carrier_map))
+                format!("(({}) + ({}))[0]", base_expr, index_expr)
             }
         }
         NodeKind::PointerOffset { base, index } => {
             let base_expr = emit_operand(*base, func, carrier_map);
-            let index_expr = emit_operand(*index, func, carrier_map);
-            if let Some(Type::Pointer { pointee, .. }) = func.get_node(*base).map(|node| &node.ty) {
-                if pointee.as_ref() != &node.ty {
-                    format!("(({}) ({} + {}))", c_type(&node.ty), base_expr, index_expr)
+            let index_expr = index_expr(*index, func, carrier_map);
+            let result_ty = node.ty.clone();
+            if let Some(Type::Pointer { pointee, .. }) = func.get_node(*base).map(|base| &base.ty) {
+                let result_pointee = match &result_ty {
+                    Type::Pointer { pointee, .. } => pointee.as_ref(),
+                    _ => return format!("/* non-pointer offset {} */ 0", node.id.as_u64()),
+                };
+                if pointee.as_ref() != result_pointee {
+                    format!(
+                        "(({}) ((uint8_t *)({}) + ({})))",
+                        c_type(&result_ty),
+                        base_expr,
+                        index_expr
+                    )
                 } else {
                     format!("({} + {})", base_expr, index_expr)
                 }

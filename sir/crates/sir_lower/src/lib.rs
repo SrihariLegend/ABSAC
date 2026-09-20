@@ -100,15 +100,48 @@ pub fn external_symbol(name: &str) -> String {
 /// 2026-09-16.
 fn gep_source_array_type(line: &str) -> Option<Type> {
     let start = line.find('[')?;
-    let rest = &line[start + 1..];
-    let end = rest.find(']')?;
-    let (length_str, element_str) = rest[..end].split_once('x')?;
+    parse_array_type(&line[start..])
+}
+
+/// Parse one (possibly nested) LLVM array type text.
+fn parse_array_type(text: &str) -> Option<Type> {
+    let rest = text.trim().strip_prefix('[')?;
+    let mut depth = 1usize;
+    let mut close = None;
+    for (index, ch) in rest.char_indices() {
+        match ch {
+            '[' => depth += 1,
+            ']' => {
+                depth -= 1;
+                if depth == 0 {
+                    close = Some(index);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let inner = &rest[..close?];
+    let (length_str, element_str) = inner.split_once('x')?;
     let length = length_str.trim().parse::<usize>().ok()?;
-    let element = parse_type(element_str.trim())?;
+    let element_str = element_str.trim();
+    let element = if element_str.starts_with('[') {
+        parse_array_type(element_str)?
+    } else {
+        parse_type(element_str)?
+    };
     Some(Type::Array {
         element: Box::new(element),
         length,
     })
+}
+
+/// Strip nested array dimensions to the accessed element type.
+fn innermost_element_type(ty: &Type) -> Type {
+    match ty {
+        Type::Array { element, .. } => innermost_element_type(element),
+        other => other.clone(),
+    }
 }
 
 /// Nested array dimensions and final element type for `[A x [B x T]]`.
@@ -236,7 +269,7 @@ fn gep_pointee_type(inst: &Instruction) -> Option<Type> {
         parse_type(elem_str)?
     };
     Some(match ty {
-        Type::Array { element, .. } if multi_index => *element,
+        Type::Array { .. } if multi_index => innermost_element_type(&ty),
         other => other,
     })
 }
@@ -351,10 +384,7 @@ fn inline_global_gep(operand: &str) -> Option<(String, Type, u64)> {
     }
     let index: u64 = parts.last()?.split_whitespace().last()?.parse().ok()?;
     let element = if source.starts_with('[') {
-        match gep_source_array_type(source)? {
-            Type::Array { element, .. } => *element,
-            other => other,
-        }
+        innermost_element_type(&gep_source_array_type(source)?)
     } else {
         parse_type(source)?
     };
@@ -388,7 +418,12 @@ fn resolve_pointer_operand(
 ) -> Option<NodeId> {
     if let Some((name, element, index)) = inline_global_gep(operand) {
         let base = resolve_global(&name, value_map, builder, span);
-        let index = builder.constant(ConstantData::u64(index), Type::u64(), span);
+        let size = type_size(&element)? as u64;
+        let index = builder.constant(
+            ConstantData::u64(index.checked_mul(size)?),
+            Type::u64(),
+            span,
+        );
         return builder.pointer_offset(base, index, element, span).ok();
     }
     let token = operand
@@ -1717,24 +1752,6 @@ pub fn lower(text: &str) -> Result<Function, String> {
                 })
         })
     });
-    let signed_control_flow = ir.blocks.iter().any(|block| {
-        block.instructions.iter().any(|inst| {
-            let raw = inst.raw.as_str();
-            raw.contains("icmp sgt")
-                || raw.contains("icmp sge")
-                || raw.contains("icmp slt")
-                || raw.contains("icmp sle")
-                || raw.contains("llvm.smax")
-                || raw.contains("llvm.smin")
-        })
-    });
-    if has_back_edge && signed_control_flow {
-        return Err(
-            "unsupported: signed comparison/min/max inside a loop (loop-domain signedness is not modeled)"
-                .to_string(),
-        );
-    }
-
     // Map return type
     let ret_ty = parse_type(&ir.ret_type).unwrap_or(Type::Unit);
 
@@ -2462,6 +2479,309 @@ fn post_tested_carry_domain(
         builder.lt(carry, shifted_node, span).ok()
     } else {
         builder.gt(carry, shifted_node, span).ok()
+    }
+}
+
+/// The condition of the unique conditional branch guarding entry to the
+/// loop. Returns `None` when the predecessor chain is ambiguous, so
+/// callers never guess which guard belongs to the loop.
+fn entry_guard_condition(ir: &IrFunction, loop_idx: usize) -> Option<String> {
+    let mut current = loop_idx;
+    let mut seen = HashSet::new();
+    loop {
+        if !seen.insert(current) {
+            return None;
+        }
+        let mut preds = Vec::new();
+        for idx in 0..current {
+            if successor_indices(ir, idx).contains(&current) {
+                preds.push(idx);
+            }
+        }
+        if preds.len() != 1 {
+            return None;
+        }
+        let pred = preds[0];
+        let term = ir.blocks[pred]
+            .instructions
+            .iter()
+            .rev()
+            .find(|inst| inst.opcode == "br")?;
+        if term.operands.len() >= 3 {
+            return Some(strip_type(&term.operands[0]));
+        }
+        if pred == 0 {
+            return None;
+        }
+        current = pred;
+    }
+}
+
+/// Signed constant of a node, if it is one.
+fn constant_i64(function: &Function, id: NodeId) -> Option<i64> {
+    match function.get_node(id).map(|node| &node.kind) {
+        // LLVM `iN` lowers to an unsigned SIR type, so signed constants
+        // arrive as their two's-complement bit pattern.
+        Some(NodeKind::Constant(data)) => data
+            .as_i64()
+            .or_else(|| data.as_u64().map(|value| value as i64)),
+        _ => None,
+    }
+}
+
+/// Signed width bounds of a node's type.
+fn signed_bounds(ty: &Type) -> Option<(i128, i128)> {
+    let bits = match ty {
+        Type::Integer { width, .. } => match width {
+            IntegerWidth::I8 => 8,
+            IntegerWidth::I16 => 16,
+            IntegerWidth::I32 => 32,
+            IntegerWidth::I64 => 64,
+            IntegerWidth::I128 => 128,
+        },
+        _ => return None,
+    };
+    if bits == 128 {
+        return Some((i128::MIN, i128::MAX));
+    }
+    Some((-(1i128 << (bits - 1)), (1i128 << (bits - 1)) - 1))
+}
+
+/// Reinterpret the element view of a GEP at the same address. The GEP
+/// index convention is bytes when the base pointee differs from the GEP
+/// element (the GEP arm scaled it), and element units otherwise.
+fn reinterpret_access(
+    builder: &mut Builder,
+    base: NodeId,
+    index: NodeId,
+    element_ty: &Type,
+    access_ty: Type,
+    span: Span,
+) -> Result<NodeId, String> {
+    // No reinterpretation needed: keep the natural element view.
+    if element_ty == &access_ty {
+        return builder
+            .array_access(base, index, access_ty, span)
+            .map_err(|e| format!("{:?}", e));
+    }
+    let already_bytes = builder
+        .function()
+        .get_node(base)
+        .and_then(|node| match &node.ty {
+            Type::Pointer { pointee, .. } => Some(pointee.as_ref() != element_ty),
+            _ => None,
+        })
+        .unwrap_or(false);
+    let byte_index = if already_bytes {
+        index
+    } else {
+        let size = type_size(element_ty).ok_or("mixed-width access: unknown element size")?;
+        if size == 1 {
+            index
+        } else {
+            let index_ty = builder
+                .function()
+                .get_node(index)
+                .map(|node| node.ty.clone())
+                .unwrap_or_else(Type::u64);
+            let factor = builder.constant(ConstantData::u64(size as u64), index_ty, span);
+            builder
+                .mul(index, factor, span)
+                .map_err(|e| format!("{:?}", e))?
+        }
+    };
+    let byte_ptr = builder
+        .pointer_offset(base, byte_index, Type::u8(), span)
+        .map_err(|e| format!("{:?}", e))?;
+    let zero = builder.constant(ConstantData::u64(0), Type::u64(), span);
+    builder
+        .array_access(byte_ptr, zero, access_ty, span)
+        .map_err(|e| format!("{:?}", e))
+}
+
+fn signed_predicate_holds(predicate: &str, lhs: i64, rhs: i64) -> bool {
+    match predicate {
+        "sir_sgt" => lhs > rhs,
+        "sir_sge" => lhs >= rhs,
+        "sir_slt" => lhs < rhs,
+        "sir_sle" => lhs <= rhs,
+        _ => false,
+    }
+}
+
+/// Prove that the entry guard is equivalent to the reconstructed pre-test
+/// at the initial carry. `init` must be `base + offset`, and `guard` a
+/// comparison of that same `base` against a constant, so both edges of
+/// the guard can be turned into interval bounds.
+fn guard_matches_shifted_test(
+    function: &Function,
+    guard: NodeId,
+    init: NodeId,
+    carry: NodeId,
+    shifted: i64,
+    predicate: &str,
+) -> bool {
+    let Some((base, offset)) = (match function.get_node(init).map(|node| &node.kind) {
+        Some(NodeKind::Add { lhs, rhs }) => {
+            if let Some(value) = constant_i64(function, *rhs) {
+                Some((*lhs, i128::from(value)))
+            } else {
+                constant_i64(function, *lhs).map(|value| (*rhs, i128::from(value)))
+            }
+        }
+        Some(NodeKind::Sub { lhs, rhs }) => {
+            constant_i64(function, *rhs).map(|value| (*lhs, -i128::from(value)))
+        }
+        // The initial carry may be the guarded base itself (offset 0).
+        _ if function.get_node(init).is_some() => Some((init, 0)),
+        _ => None,
+    }) else {
+        return false;
+    };
+    let Some((guard_predicate, guard_bound)) = (match function.get_node(guard).map(|n| &n.kind) {
+        Some(NodeKind::Intrinsic { name, args }) if args.len() == 2 => {
+            let plain = |name: &str| match name {
+                "sir_sgt" | "sir_sge" | "sir_slt" | "sir_sle" => Some(name.to_string()),
+                _ => None,
+            };
+            if args[0] == base {
+                constant_i64(function, args[1]).and_then(|k| plain(name).map(|p| (p, k)))
+            } else if args[1] == base {
+                let reversed = match name.as_str() {
+                    "sir_sgt" => "sir_slt",
+                    "sir_sge" => "sir_sle",
+                    "sir_slt" => "sir_sgt",
+                    "sir_sle" => "sir_sge",
+                    _ => return false,
+                };
+                constant_i64(function, args[0]).map(|k| (reversed.to_string(), k))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }) else {
+        return false;
+    };
+    let Some((min, max)) = signed_bounds(
+        function
+            .get_node(carry)
+            .map(|node| &node.ty)
+            .unwrap_or(&Type::u64()),
+    ) else {
+        return false;
+    };
+    let bound = i128::from(guard_bound) + offset;
+    let shifted = i128::from(shifted);
+    let in_range = |value: i128| value >= min && value <= max;
+    let (true_lower, true_upper, false_lower, false_upper) = match guard_predicate.as_str() {
+        "sir_sgt" => (Some(bound + 1), None, None, Some(bound)),
+        "sir_sge" => (Some(bound), None, None, Some(bound - 1)),
+        "sir_slt" => (None, Some(bound - 1), Some(bound), None),
+        "sir_sle" => (None, Some(bound), Some(bound + 1), None),
+        _ => return false,
+    };
+    if [true_lower, true_upper, false_lower, false_upper]
+        .into_iter()
+        .flatten()
+        .any(|value| !in_range(value))
+    {
+        return false;
+    }
+    // The guard's true edge must imply the pre-test, and its false edge
+    // must make it false; both are needed for equivalence.
+    let true_edge = match predicate {
+        "sir_sgt" => true_lower.is_some_and(|lo| lo >= shifted + 1),
+        "sir_sge" => true_lower.is_some_and(|lo| lo >= shifted),
+        "sir_slt" => true_upper.is_some_and(|hi| hi <= shifted - 1),
+        "sir_sle" => true_upper.is_some_and(|hi| hi <= shifted),
+        _ => false,
+    };
+    let false_edge = match predicate {
+        "sir_sgt" => false_upper.is_some_and(|hi| hi <= shifted),
+        "sir_sge" => false_upper.is_some_and(|hi| hi < shifted),
+        "sir_slt" => false_lower.is_some_and(|lo| lo >= shifted),
+        "sir_sle" => false_lower.is_some_and(|lo| lo > shifted),
+        _ => false,
+    };
+    true_edge && false_edge
+}
+
+/// Reconstruct a signed do-while (`do body while (carry > bound)`) as the
+/// equivalent pre-tested loop. The step must move away from the bound, and
+/// a guard, when present, must be proven equivalent to the shifted test.
+fn post_tested_signed_domain(
+    builder: &mut Builder,
+    termination: NodeId,
+    carried_init_nodes: &[NodeId],
+    carried_next_nodes: &[NodeId],
+    guard: Option<NodeId>,
+) -> Option<NodeId> {
+    let span = Span::unknown();
+    let plan = {
+        let function = builder.function();
+        let term = function.get_node(termination)?;
+        let NodeKind::Intrinsic { name, args } = &term.kind else {
+            return None;
+        };
+        if args.len() != 2
+            || !matches!(name.as_str(), "sir_sgt" | "sir_sge" | "sir_slt" | "sir_sle")
+        {
+            return None;
+        }
+        let carry = args[0];
+        let bound = constant_i64(function, args[1])?;
+        let index = carried_init_nodes
+            .iter()
+            .position(|candidate| *candidate == carry)?;
+        let next = *carried_next_nodes.get(index)?;
+        let step = match function.get_node(next).map(|node| &node.kind) {
+            Some(NodeKind::Add { lhs, rhs }) if *lhs == carry => constant_i64(function, *rhs)?,
+            Some(NodeKind::Add { lhs, rhs }) if *rhs == carry => constant_i64(function, *lhs)?,
+            Some(NodeKind::Sub { lhs, rhs }) if *lhs == carry => {
+                constant_i64(function, *rhs)?.checked_neg()?
+            }
+            _ => return None,
+        };
+        let ascending = matches!(name.as_str(), "sir_slt" | "sir_sle");
+        if (ascending && step <= 0) || (!ascending && step >= 0) {
+            return None;
+        }
+        let shifted = i128::from(bound) + i128::from(step);
+        let carry_ty = function.get_node(carry)?.ty.clone();
+        let (min, max) = signed_bounds(&carry_ty)?;
+        if shifted < min || shifted > max {
+            return None;
+        }
+        (
+            carry,
+            carry_ty,
+            name.clone(),
+            shifted as i64,
+            carried_init_nodes[index],
+        )
+    };
+    let (carry, carry_ty, predicate, shifted, init) = plan;
+    let shifted_node =
+        builder.constant(int_constant_data(&carry_ty, shifted as u64), carry_ty, span);
+    let test = builder
+        .intrinsic(
+            predicate.clone(),
+            &[carry, shifted_node],
+            Type::Bool,
+            Effects::empty(),
+            span,
+        )
+        .ok()?;
+    match guard {
+        Some(guard) => {
+            guard_matches_shifted_test(builder.function(), guard, init, carry, shifted, &predicate)
+                .then_some(test)
+        }
+        None => {
+            let initial = constant_i64(builder.function(), init)?;
+            signed_predicate_holds(&predicate, initial, shifted).then_some(test)
+        }
     }
 }
 
@@ -4868,6 +5188,8 @@ fn lower_loop_function(
             .ok_or(format!("cannot resolve carried next value '{}'", next_str))?;
         output_nodes.push(node_id);
     }
+    let entry_guard =
+        entry_guard_condition(ir, loop_idx).and_then(|name| value_map.get(&name).copied());
 
     // ── D4/F9: rotated-exit polarity normalization ──────────────
     // SIR semantics: a Loop continues while its termination evaluates
@@ -4915,7 +5237,17 @@ fn lower_loop_function(
                 // do-while: reconstruct the shifted pre-tested domain or
                 // refuse loudly — lowering it as-is would drop the
                 // forced first/last iteration (v6 finding).
-                if has_entry_guard(ir, loop_idx) {
+                // Signed do-while tests need the shifted domain even when
+                // the entry guard looks like the zero-check shortcut.
+                if let Some(rebuilt) = post_tested_signed_domain(
+                    builder,
+                    termination,
+                    &carried_init_nodes,
+                    &output_nodes,
+                    entry_guard,
+                ) {
+                    rebuilt
+                } else if has_entry_guard(ir, loop_idx) {
                     termination
                 } else {
                     match post_tested_carry_domain(
@@ -5293,7 +5625,7 @@ impl<'a> SwitchLowerer<'a> {
         let source = inst.operands[0].trim_start_matches("inbounds").trim();
         let element = if source.starts_with('[') {
             match gep_source_array_type(&inst.raw) {
-                Some(Type::Array { element, .. }) => *element,
+                Some(array) => innermost_element_type(&array),
                 _ => return Err(format!("switch CFG: malformed GEP type: {}", inst.raw)),
             }
         } else {
@@ -6716,9 +7048,14 @@ fn emit_instruction(
             // store destination; reusing it as the loaded value would tie
             // the two roles together (and break lvalue emission).
             let read = match ptr_kind {
-                NodeKind::ArrayAccess { base, index } => builder
-                    .array_access(base, index, loaded_ty, span)
-                    .map_err(|e| format!("{:?}", e))?,
+                NodeKind::ArrayAccess { base, index } => {
+                    let element_ty = builder
+                        .function()
+                        .get_node(ptr)
+                        .map(|node| node.ty.clone())
+                        .unwrap_or_else(|| loaded_ty.clone());
+                    reinterpret_access(builder, base, index, &element_ty, loaded_ty, span)?
+                }
                 _ if builder
                     .function()
                     .get_node(ptr)
@@ -6756,7 +7093,7 @@ fn emit_instruction(
             let elem_type_str = inst.operands[0].trim_start_matches("inbounds").trim();
             let elem_ty = if elem_type_str.starts_with('[') {
                 match gep_source_array_type(&inst.raw) {
-                    Some(Type::Array { element, .. }) => *element,
+                    Some(array) => innermost_element_type(&array),
                     other => other.unwrap_or_else(Type::u8),
                 }
             } else {
@@ -6943,9 +7280,8 @@ fn emit_instruction(
                     else {
                         return Err(format!("store destination missing: {}", inst.raw));
                     };
-                    let access = builder
-                        .array_access(base, index, value_ty, span)
-                        .map_err(|e| format!("{:?}", e))?;
+                    let access =
+                        reinterpret_access(builder, base, index, &element_ty, value_ty, span)?;
                     (access, val)
                 } else {
                     (ptr, val)
