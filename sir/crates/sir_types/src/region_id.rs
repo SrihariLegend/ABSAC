@@ -19,4 +19,3 @@ impl std::fmt::Display for RegionId {
         write!(f, "region#{}", self.0)
     }
 }
-

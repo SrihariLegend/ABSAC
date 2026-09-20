@@ -43,7 +43,15 @@ pub(crate) fn apply_one(
             plan.index_ty.clone(),
             Effects::empty(),
         );
-        let value = instantiate(function, &plan, plan.invariant, constant, &mut nodes, &mut next, 0)?;
+        let value = instantiate(
+            function,
+            &plan,
+            plan.invariant,
+            constant,
+            &mut nodes,
+            &mut next,
+            0,
+        )?;
         chain = Some(match chain {
             None => value,
             Some(acc) => push(
@@ -67,10 +75,7 @@ pub(crate) fn apply_one(
     )
 }
 
-fn recognize(
-    function: &Function,
-    facts: &sir_analysis::facts::FactDatabase,
-) -> Option<CountPlan> {
+fn recognize(function: &Function, facts: &sir_analysis::facts::FactDatabase) -> Option<CountPlan> {
     let loops: Vec<NodeId> = function
         .arena
         .iter()
@@ -118,7 +123,9 @@ fn recognize_loop(
     if !is_zero(function, reduction.variable) {
         return None;
     }
-    let position = carried_inputs.iter().position(|id| *id == reduction.variable)?;
+    let position = carried_inputs
+        .iter()
+        .position(|id| *id == reduction.variable)?;
     let output = *outputs.get(position)?;
     let carry_first = !matches!(
         &function.get_node(output)?.kind,
@@ -140,8 +147,7 @@ fn recognize_loop(
     if function.get_node(predicate)?.ty != Type::Bool {
         return None;
     }
-    let (element_access, base, index) =
-        find_element_access(function, predicate, counter.variable)?;
+    let (element_access, base, index) = find_element_access(function, predicate, counter.variable)?;
     let Type::Array { element, length } = &function.get_node(base)?.ty else {
         return None;
     };
@@ -199,9 +205,7 @@ fn instantiate(
         ));
     }
     let node = function.get_node(node_id)?;
-    let mut rec = |id: NodeId| {
-        instantiate(function, plan, id, index_local, nodes, next, depth + 1)
-    };
+    let mut rec = |id: NodeId| instantiate(function, plan, id, index_local, nodes, next, depth + 1);
     let kind = match &node.kind {
         NodeKind::Constant(data) => NodeKind::Constant(data.clone()),
         // Keep external parameters by their original NodeId: the

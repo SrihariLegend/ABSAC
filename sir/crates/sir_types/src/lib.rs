@@ -4,9 +4,9 @@
 //! source spans, metadata, and constant values used throughout SIR.
 
 pub mod constant;
-pub mod fnv;
 pub mod cost_profile;
 pub mod effects;
+pub mod fnv;
 pub mod metadata;
 pub mod node_id;
 pub mod region_id;

@@ -15,3 +15,11 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 authors = ["Srihari <srihari@example.com>"]
+
+# Tests are overwhelmingly solver time; optimizing dev/test builds keeps the
+# single-digit suite fast enough to run on every edit.
+[profile.dev]
+opt-level = 3
+
+[profile.test]
+opt-level = 3

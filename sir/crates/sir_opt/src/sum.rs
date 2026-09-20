@@ -47,10 +47,7 @@ pub(crate) fn apply_one(
     apply(function, &patch).map(|function| (function, plan.definition))
 }
 
-fn recognize(
-    function: &Function,
-    facts: &sir_analysis::facts::FactDatabase,
-) -> Option<SumPlan> {
+fn recognize(function: &Function, facts: &sir_analysis::facts::FactDatabase) -> Option<SumPlan> {
     let loops: Vec<NodeId> = function
         .arena
         .iter()
@@ -83,12 +80,7 @@ fn recognize_loop(
     else {
         return None;
     };
-    for id in body
-        .iter()
-        .chain(outputs)
-        .chain(carried_inputs)
-        .copied()
-    {
+    for id in body.iter().chain(outputs).chain(carried_inputs).copied() {
         let node = function.get_node(id)?;
         if !(node.effects - Effects::READ_MEMORY).is_empty() {
             return None;
@@ -99,17 +91,16 @@ fn recognize_loop(
     let counter = fact.reductions.iter().find(|reduction| {
         reduction.reduction_kind == "sum" && is_one(function, reduction.invariant_value)
     })?;
-    let element = fact
-        .reductions
-        .iter()
-        .find(|reduction| {
-            (reduction.reduction_kind == "sum" || reduction.reduction_kind == "sum_offset")
-                && reduction.invariant_value != counter.invariant_value
-        })?;
+    let element = fact.reductions.iter().find(|reduction| {
+        (reduction.reduction_kind == "sum" || reduction.reduction_kind == "sum_offset")
+            && reduction.invariant_value != counter.invariant_value
+    })?;
     if !is_zero(function, element.variable) {
         return None;
     }
-    let position = carried_inputs.iter().position(|id| *id == element.variable)?;
+    let position = carried_inputs
+        .iter()
+        .position(|id| *id == element.variable)?;
     let output = *outputs.get(position)?;
     if element.reduction_kind == "sum_offset"
         && !folded_offset_is_zero(function, output, element.variable)
@@ -252,9 +243,8 @@ fn clone_with_index(
         ));
     }
     let node = function.get_node(node_id)?;
-    let mut rec = |id: NodeId| {
-        clone_with_index(function, plan, id, index_local, nodes, next, depth + 1)
-    };
+    let mut rec =
+        |id: NodeId| clone_with_index(function, plan, id, index_local, nodes, next, depth + 1);
     let kind = match &node.kind {
         NodeKind::Constant(data) => NodeKind::Constant(data.clone()),
         NodeKind::Convert {
@@ -336,7 +326,13 @@ fn clone_with_index(
         },
         _ => return None,
     };
-    Some(push_node(nodes, next, kind, node.ty.clone(), Effects::empty()))
+    Some(push_node(
+        nodes,
+        next,
+        kind,
+        node.ty.clone(),
+        Effects::empty(),
+    ))
 }
 
 fn push_node(

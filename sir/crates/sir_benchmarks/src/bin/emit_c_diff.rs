@@ -15,12 +15,12 @@ use sir_benchmarks::emit;
 use sir_lower::{external_symbol, lower_function};
 use sir_nodes::Function;
 use sir_types::Type;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
-use std::collections::{BTreeMap, HashSet};
 
 static ALLOW_RUNTIME_SEARCH: AtomicBool = AtomicBool::new(false);
 static ALLOW_DEFS: OnceLock<Vec<u64>> = OnceLock::new();
@@ -48,8 +48,7 @@ fn function_names(ll: &str) -> Vec<String> {
 /// module are refused: the harness has no implementation to link them with.
 fn direct_callees(ll: &str, name: &str) -> Result<Vec<String>, String> {
     let defined: HashSet<String> = function_names(ll).into_iter().collect();
-    let body =
-        function_ir(ll, name).ok_or_else(|| format!("could not find definition @{name}"))?;
+    let body = function_ir(ll, name).ok_or_else(|| format!("could not find definition @{name}"))?;
     let mut out = Vec::new();
     for line in body.lines() {
         if !line.contains("call ") {
@@ -59,10 +58,7 @@ fn direct_callees(ll: &str, name: &str) -> Result<Vec<String>, String> {
         let rest = &line[at + 1..];
         let Some(open) = rest.find('(') else { continue };
         let target = rest[..open].trim();
-        if target.is_empty()
-            || target.starts_with("llvm.")
-            || matches!(target, "bcmp" | "memcmp")
-        {
+        if target.is_empty() || target.starts_with("llvm.") || matches!(target, "bcmp" | "memcmp") {
             continue;
         }
         if !defined.contains(target) {
@@ -97,8 +93,8 @@ fn lower_module(ll: &str, name: &str) -> Result<Vec<(String, Function)>, String>
             visit(ll, &callee, root, active, done, out)?;
         }
         active.remove(name);
-        let mut func =
-            lower_function(ll, name).map_err(|e| e.lines().last().unwrap_or(&e).trim().to_string())?;
+        let mut func = lower_function(ll, name)
+            .map_err(|e| e.lines().last().unwrap_or(&e).trim().to_string())?;
         if name != root {
             func.name = external_symbol(name);
         }
@@ -108,7 +104,14 @@ fn lower_module(ll: &str, name: &str) -> Result<Vec<(String, Function)>, String>
     }
 
     let mut out = Vec::new();
-    visit(ll, name, name, &mut HashSet::new(), &mut HashSet::new(), &mut out)?;
+    visit(
+        ll,
+        name,
+        name,
+        &mut HashSet::new(),
+        &mut HashSet::new(),
+        &mut out,
+    )?;
     Ok(out)
 }
 
@@ -829,7 +832,7 @@ fn time_function(
     cc: &str,
     target: &str,
 ) -> Result<(String, Vec<u64>), String> {
-            if let Some(reason) = unsupported_global_use(ll, name) {
+    if let Some(reason) = unsupported_global_use(ll, name) {
         return Err(reason);
     }
     if !direct_callees(ll, name)?.is_empty() {
@@ -864,10 +867,7 @@ fn time_function(
             base_path,
         )
     } else {
-        let ref_ll = expose_definition(
-            &rename_symbol(ll, name, "__ref"),
-            &format!("{name}__ref"),
-        );
+        let ref_ll = expose_definition(&rename_symbol(ll, name, "__ref"), &format!("{name}__ref"));
         let ref_path = dir.join("ref.ll");
         fs::write(&ref_path, &ref_ll).map_err(|e| format!("write ref.ll: {e}"))?;
         (
@@ -952,7 +952,11 @@ fn compile_harness(
     };
     let cross = target == "aarch64";
     let output = if cross || cc == "gcc" {
-        let linker = if cross { "aarch64-linux-gnu-gcc" } else { "gcc" };
+        let linker = if cross {
+            "aarch64-linux-gnu-gcc"
+        } else {
+            "gcc"
+        };
         let mut objects = Vec::new();
         if extra_is_ir {
             let object = extra.with_extension("o");
@@ -1522,15 +1526,7 @@ fn main() {
                 continue;
             }
         }
-        match run_function(
-            &ll,
-            &name,
-            cases,
-            &workdir,
-            sanitize,
-            &cc,
-            &target,
-        ) {
+        match run_function(&ll, &name, cases, &workdir, sanitize, &cc, &target) {
             Outcome::Clean { cases, rewrites } => {
                 println!("NATIVE {name}: clean cases={cases} rewrites={rewrites}");
                 clean += 1;

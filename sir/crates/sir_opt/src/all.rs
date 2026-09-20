@@ -46,7 +46,15 @@ pub(crate) fn apply_one(
             NodeKind::Constant(ConstantData::u64(index as u64)),
             plan.index_ty.clone(),
         );
-        let value = instantiate(function, &plan, plan.invariant, constant, &mut nodes, &mut next, 0)?;
+        let value = instantiate(
+            function,
+            &plan,
+            plan.invariant,
+            constant,
+            &mut nodes,
+            &mut next,
+            0,
+        )?;
         chain = push(
             &mut nodes,
             &mut next,
@@ -66,10 +74,7 @@ pub(crate) fn apply_one(
     )
 }
 
-fn recognize(
-    function: &Function,
-    facts: &sir_analysis::facts::FactDatabase,
-) -> Option<AllPlan> {
+fn recognize(function: &Function, facts: &sir_analysis::facts::FactDatabase) -> Option<AllPlan> {
     let loops: Vec<NodeId> = function
         .arena
         .iter()
@@ -104,7 +109,7 @@ fn recognize_loop(
     };
     for id in body.iter().chain(outputs).chain(carried_inputs).copied() {
         if !(function.get_node(id)?.effects - Effects::READ_MEMORY).is_empty() {
-        return None;
+            return None;
         }
     }
     let fact = facts.loops.get(&loop_id)?;
@@ -112,11 +117,12 @@ fn recognize_loop(
         reduction.reduction_kind == "sum" && is_one(function, reduction.invariant_value)
     })?;
     let reduction = fact.reductions.iter().find(|reduction| {
-        (reduction.reduction_kind == "select_reset"
-            || reduction.reduction_kind == "bitwise_and")
+        (reduction.reduction_kind == "select_reset" || reduction.reduction_kind == "bitwise_and")
             && reduction.invariant_value != counter.invariant_value
     })?;
-    let position = carried_inputs.iter().position(|id| *id == reduction.variable)?;
+    let position = carried_inputs
+        .iter()
+        .position(|id| *id == reduction.variable)?;
     // `select_reset` stores the reset value in the reduction fact; the
     // per-iteration indicator is the matching loop output slot.
     if constant_u64(function, reduction.variable) != Some(1) {
@@ -131,12 +137,14 @@ fn recognize_loop(
     else {
         return None;
     };
-    let indicator = (constant_u64(function, *true_val), constant_u64(function, *false_val));
+    let indicator = (
+        constant_u64(function, *true_val),
+        constant_u64(function, *false_val),
+    );
     if !matches!(indicator, (Some(0), Some(1)) | (Some(1), Some(0))) {
         return None;
     }
-    let (element_access, base, index) =
-        find_element_access(function, *cond, counter.variable)?;
+    let (element_access, base, index) = find_element_access(function, *cond, counter.variable)?;
     let Type::Array { element, length } = &function.get_node(base)?.ty else {
         return None;
     };
@@ -191,9 +199,7 @@ fn instantiate(
         ));
     }
     let node = function.get_node(node_id)?;
-    let mut rec = |id: NodeId| {
-        instantiate(function, plan, id, index_local, nodes, next, depth + 1)
-    };
+    let mut rec = |id: NodeId| instantiate(function, plan, id, index_local, nodes, next, depth + 1);
     let kind = match &node.kind {
         NodeKind::Constant(data) => NodeKind::Constant(data.clone()),
         NodeKind::Parameter { .. } => return Some(node_id.as_u64()),
@@ -249,13 +255,7 @@ fn push(nodes: &mut Vec<(u64, Node)>, next: &mut u64, kind: NodeKind, ty: Type) 
     *next += 1;
     nodes.push((
         id,
-        Node::new(
-            NodeId::new(id),
-            kind,
-            ty,
-            Effects::empty(),
-            Span::unknown(),
-        ),
+        Node::new(NodeId::new(id), kind, ty, Effects::empty(), Span::unknown()),
     ));
     id
 }
@@ -278,7 +278,7 @@ fn find_element_access(
                 continue;
             }
             if found.is_some() {
-        return None;
+                return None;
             }
             found = Some((id, *base, *index));
         }

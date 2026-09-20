@@ -138,7 +138,10 @@ fn rewrite_local(
         },
         NodeKind::Intrinsic { name, args } => NodeKind::Intrinsic {
             name: name.clone(),
-            args: args.iter().map(|id| adjust(id)).collect::<Option<Vec<_>>>()?,
+            args: args
+                .iter()
+                .map(|id| adjust(id))
+                .collect::<Option<Vec<_>>>()?,
         },
         other => other.clone(),
     })

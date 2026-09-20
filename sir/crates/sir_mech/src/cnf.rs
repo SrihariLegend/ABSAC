@@ -249,6 +249,17 @@ impl<'a> Encoder<'a> {
             Node::Bin(op, a, b) => {
                 let ab = self.encode(a);
                 let bb = self.encode(b);
+                // Division/remainder by a constant power of two are a
+                // shift and a mask; encode them structurally so the
+                // corresponding identities do not need the division
+                // circuit at all.
+                let pow2 = match self.bv.node(b) {
+                    Node::Const(v) if v != 0 && v.is_power_of_two() => {
+                        Some(v.trailing_zeros() as usize)
+                    }
+                    _ => None,
+                };
+                let width = self.bv.width(a) as usize;
                 match op {
                     BinOp::And => zip_gate(&mut self.cnf, &ab, &bb, Cnf::and2),
                     BinOp::Or => zip_gate(&mut self.cnf, &ab, &bb, Cnf::or2),
@@ -271,8 +282,26 @@ impl<'a> Encoder<'a> {
                     // zero the dividend (SMT-LIB bitvector semantics),
                     // which is exactly what the circuit computes when
                     // the divisor bits are all zero.
-                    BinOp::Udiv => udivrem_bits(&mut self.cnf, &ab, &bb).0,
-                    BinOp::Urem => udivrem_bits(&mut self.cnf, &ab, &bb).1,
+                    BinOp::Udiv => {
+                        if let Some(k) = pow2 {
+                            let fals = self.cnf.f();
+                            (0..width)
+                                .map(|i| if i + k < width { ab[i + k] } else { fals })
+                                .collect()
+                        } else {
+                            udivrem_bits(&mut self.cnf, &ab, &bb).0
+                        }
+                    }
+                    BinOp::Urem => {
+                        if let Some(k) = pow2 {
+                            let fals = self.cnf.f();
+                            (0..width)
+                                .map(|i| if i < k { ab[i] } else { fals })
+                                .collect()
+                        } else {
+                            udivrem_bits(&mut self.cnf, &ab, &bb).1
+                        }
+                    }
                     BinOp::Ult => vec![ult_bits(&mut self.cnf, &ab, &bb)],
                     BinOp::Ule => {
                         let lt = ult_bits(&mut self.cnf, &ab, &bb);

@@ -29,11 +29,17 @@ mod cases {
 
         pub fn run() {
             per_byte_lemma_proved_and_replayed();
-            popcount_is_sum_of_bits();
-            cardinality_chunk_lemma_proved();
             all_chunk_lemma_proved();
             sum_context_rewrite();
             schema_instantiation_composes();
+            // The two 32-lane bit-blasts are independent; run them on
+            // separate cores so the proof suite stays wall-clock short.
+            std::thread::scope(|scope| {
+                let popcount = scope.spawn(popcount_is_sum_of_bits);
+                let cardinality = scope.spawn(cardinality_chunk_lemma_proved);
+                popcount.join().expect("popcount lemma");
+                cardinality.join().expect("cardinality lemma");
+            });
         }
     }
 

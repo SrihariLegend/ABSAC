@@ -115,7 +115,9 @@ fn recognize_loop(
     if !is_zero_constant(function, reduction.variable) {
         return None;
     }
-    let counter_pos = carried_inputs.iter().position(|id| *id == counter.variable)?;
+    let counter_pos = carried_inputs
+        .iter()
+        .position(|id| *id == counter.variable)?;
     let accumulator_pos = carried_inputs
         .iter()
         .position(|id| *id == reduction.variable)?;
@@ -150,7 +152,13 @@ fn recognize_loop(
             operand,
             kind: sir_nodes::ConvertKind::ZeroExtend,
             ..
-        } if matches!(&function.get_node(*operand)?.kind, NodeKind::ArrayAccess { .. }) => *operand,
+        } if matches!(
+            &function.get_node(*operand)?.kind,
+            NodeKind::ArrayAccess { .. }
+        ) =>
+        {
+            *operand
+        }
         _ => return None,
     };
     let NodeKind::ArrayAccess { base, index } = &function.get_node(access)?.kind else {

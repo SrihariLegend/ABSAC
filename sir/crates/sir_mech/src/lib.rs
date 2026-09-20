@@ -27,9 +27,9 @@ pub mod term;
 pub use arith::{linearize, prove_entailment, ArithOutcome, LinForm};
 pub use bv::{BinOp, Bv, Term, VarId, MAX_WIDTH};
 pub use equiv::{
-    prove_contradiction, prove_equal, prove_implied_equal, prove_implication, prove_tautology,
+    prove_contradiction, prove_equal, prove_implication, prove_implied_equal, prove_tautology,
     CheckResult,
 };
-pub use sat::{solve_default, SatResult, DEFAULT_CONFLICT_BUDGET};
 pub use kernel::{Context, Derivation, Kernel, KernelError, Schema, SchemaId, Statement, Theorem};
+pub use sat::{solve_default, SatResult, DEFAULT_CONFLICT_BUDGET};
 pub use term::{Arena, BvOp, FuncId, Sort, Symbol, Tid};

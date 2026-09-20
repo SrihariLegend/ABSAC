@@ -79,10 +79,7 @@ pub(crate) fn apply_one(
     )
 }
 
-fn recognize(
-    function: &Function,
-    facts: &sir_analysis::facts::FactDatabase,
-) -> Option<ParityPlan> {
+fn recognize(function: &Function, facts: &sir_analysis::facts::FactDatabase) -> Option<ParityPlan> {
     let loops: Vec<NodeId> = function
         .arena
         .iter()
@@ -128,7 +125,9 @@ fn recognize_loop(
         .reductions
         .iter()
         .find(|reduction| reduction.reduction_kind == "bitwise_xor")?;
-    let position = carried_inputs.iter().position(|id| *id == reduction.variable)?;
+    let position = carried_inputs
+        .iter()
+        .position(|id| *id == reduction.variable)?;
     let output = *outputs.get(position)?;
     let carry_first = !matches!(
         &function.get_node(output)?.kind,
@@ -199,9 +198,7 @@ fn instantiate(
         ));
     }
     let node = function.get_node(node_id)?;
-    let mut rec = |id: NodeId| {
-        instantiate(function, plan, id, index_local, nodes, next, depth + 1)
-    };
+    let mut rec = |id: NodeId| instantiate(function, plan, id, index_local, nodes, next, depth + 1);
     let kind = match &node.kind {
         NodeKind::Constant(data) => NodeKind::Constant(data.clone()),
         NodeKind::Parameter { .. } => return Some(node_id.as_u64()),
@@ -272,7 +269,10 @@ fn push(
 ) -> u64 {
     let id = *next;
     *next += 1;
-    nodes.push((id, Node::new(NodeId::new(id), kind, ty, effects, Span::unknown())));
+    nodes.push((
+        id,
+        Node::new(NodeId::new(id), kind, ty, effects, Span::unknown()),
+    ));
     id
 }
 

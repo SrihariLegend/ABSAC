@@ -25,4 +25,3 @@ impl std::fmt::Display for NodeId {
         write!(f, "%{}", self.0)
     }
 }
-

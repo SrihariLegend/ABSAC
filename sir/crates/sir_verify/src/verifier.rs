@@ -393,7 +393,9 @@ impl<'a> Verifier<'a> {
 
                 // Convert: operand is any integer, result is target_ty. No type constraint
                 // between operand and result (they can differ — that's the point).
-                NodeKind::Convert { operand, target_ty, .. } => {
+                NodeKind::Convert {
+                    operand, target_ty, ..
+                } => {
                     if let Some(op_ty) = self.node_type(*operand) {
                         // Convert accepts any integer OR bool as the operand
                         // (zext i1 to i64 is valid — bool is the common case)
@@ -524,9 +526,7 @@ impl<'a> Verifier<'a> {
                 // Store: a pointer-like destination or an ArrayAccess
                 // lvalue whose element type matches the stored value.
                 NodeKind::Store { ptr, value } => {
-                    let pointer_like = self
-                        .node_type(*ptr)
-                        .is_some_and(|ty| ty.is_pointer_like());
+                    let pointer_like = self.node_type(*ptr).is_some_and(|ty| ty.is_pointer_like());
                     let array_lvalue = self
                         .func
                         .arena
@@ -534,10 +534,11 @@ impl<'a> Verifier<'a> {
                         .is_some_and(|node| matches!(node.kind, NodeKind::ArrayAccess { .. }));
                     if !(pointer_like || array_lvalue) {
                         if let Some(ty) = self.node_type(*ptr) {
-                            self.errors.push(VerificationError::InvalidPointerOperation {
-                                node: node.id,
-                                actual: ty,
-                            });
+                            self.errors
+                                .push(VerificationError::InvalidPointerOperation {
+                                    node: node.id,
+                                    actual: ty,
+                                });
                         }
                     } else if array_lvalue {
                         if let (Some(value_ty), Some(target_ty)) =
@@ -607,10 +608,11 @@ impl<'a> Verifier<'a> {
                 NodeKind::PointerOffset { base, index } => {
                     if let Some(ty) = self.node_type(*base) {
                         if !ty.is_pointer_like() {
-                            self.errors.push(VerificationError::InvalidPointerOperation {
-                                node: node.id,
-                                actual: ty,
-                            });
+                            self.errors
+                                .push(VerificationError::InvalidPointerOperation {
+                                    node: node.id,
+                                    actual: ty,
+                                });
                         }
                     }
                     if let Some(ty) = self.node_type(*index) {
@@ -625,7 +627,7 @@ impl<'a> Verifier<'a> {
                         }
                     }
                 }
-                
+
                 NodeKind::TupleExtract { tuple, index } => {
                     if let Some(ty) = self.node_type(*tuple) {
                         if !matches!(ty, Type::Tuple { .. }) {
@@ -642,49 +644,47 @@ impl<'a> Verifier<'a> {
                 }
 
                 // Tuple: node type must be Tuple with one element type per element.
-                NodeKind::Tuple { elements } => {
-                    match &node.ty {
-                        Type::Tuple { elements: expected } => {
-                            if expected.len() != elements.len() {
-                                self.errors.push(VerificationError::TypeMismatch {
-                                    node: node.id,
-                                    kind: node.kind.clone(),
-                                    input_index: 0,
-                                    expected: node.ty.clone(),
-                                    actual: Type::Tuple {
-                                        elements: elements
-                                            .iter()
-                                            .map(|e| self.node_type(*e).unwrap_or(Type::i32()))
-                                            .collect(),
-                                    },
-                                });
-                            } else {
-                                for (i, elem) in elements.iter().enumerate() {
-                                    if let Some(actual) = self.node_type(*elem) {
-                                        if actual != expected[i] {
-                                            self.errors.push(VerificationError::TypeMismatch {
-                                                node: node.id,
-                                                kind: node.kind.clone(),
-                                                input_index: i,
-                                                expected: expected[i].clone(),
-                                                actual,
-                                            });
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        other => {
+                NodeKind::Tuple { elements } => match &node.ty {
+                    Type::Tuple { elements: expected } => {
+                        if expected.len() != elements.len() {
                             self.errors.push(VerificationError::TypeMismatch {
                                 node: node.id,
                                 kind: node.kind.clone(),
                                 input_index: 0,
                                 expected: node.ty.clone(),
-                                actual: other.clone(),
+                                actual: Type::Tuple {
+                                    elements: elements
+                                        .iter()
+                                        .map(|e| self.node_type(*e).unwrap_or(Type::i32()))
+                                        .collect(),
+                                },
                             });
+                        } else {
+                            for (i, elem) in elements.iter().enumerate() {
+                                if let Some(actual) = self.node_type(*elem) {
+                                    if actual != expected[i] {
+                                        self.errors.push(VerificationError::TypeMismatch {
+                                            node: node.id,
+                                            kind: node.kind.clone(),
+                                            input_index: i,
+                                            expected: expected[i].clone(),
+                                            actual,
+                                        });
+                                    }
+                                }
+                            }
                         }
                     }
-                }
+                    other => {
+                        self.errors.push(VerificationError::TypeMismatch {
+                            node: node.id,
+                            kind: node.kind.clone(),
+                            input_index: 0,
+                            expected: node.ty.clone(),
+                            actual: other.clone(),
+                        });
+                    }
+                },
 
                 // Calls: args existence checked by reference check.
                 NodeKind::Call { .. }

@@ -82,4 +82,3 @@ impl std::fmt::Display for Span {
         write!(f, "{}-{}", self.start, self.end)
     }
 }
-

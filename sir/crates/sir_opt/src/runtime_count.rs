@@ -158,11 +158,13 @@ fn recognize_loop(
         return None;
     };
     let element_ty = function
-        .get_node(if matches!(&function.get_node(lhs)?.kind, NodeKind::ArrayAccess { .. }) {
-            lhs
-        } else {
-            rhs
-        })?
+        .get_node(
+            if matches!(&function.get_node(lhs)?.kind, NodeKind::ArrayAccess { .. }) {
+                lhs
+            } else {
+                rhs
+            },
+        )?
         .ty
         .clone();
     if function.get_node(key)?.ty != element_ty {
@@ -175,7 +177,9 @@ fn recognize_loop(
     ) {
         return None;
     }
-    let position = carried_inputs.iter().position(|id| *id == reduction.variable)?;
+    let position = carried_inputs
+        .iter()
+        .position(|id| *id == reduction.variable)?;
     let target = function
         .arena
         .iter()

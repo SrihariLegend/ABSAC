@@ -103,7 +103,15 @@ fn build_select_chain(function: &Function, plan: &SearchPlan) -> Option<Function
             NodeKind::Constant(ConstantData::u64(index as u64)),
             plan.index_ty.clone(),
         );
-        let predicate = instantiate(function, plan, plan.predicate, index_const, &mut nodes, &mut next, 0)?;
+        let predicate = instantiate(
+            function,
+            plan,
+            plan.predicate,
+            index_const,
+            &mut nodes,
+            &mut next,
+            0,
+        )?;
         result = push(
             &mut nodes,
             &mut next,
@@ -124,10 +132,7 @@ fn build_select_chain(function: &Function, plan: &SearchPlan) -> Option<Function
     )
 }
 
-fn recognize(
-    function: &Function,
-    facts: &sir_analysis::facts::FactDatabase,
-) -> Option<SearchPlan> {
+fn recognize(function: &Function, facts: &sir_analysis::facts::FactDatabase) -> Option<SearchPlan> {
     let loops: Vec<NodeId> = function
         .arena
         .iter()
@@ -199,7 +204,11 @@ fn recognize_loop(
     let index = carried_inputs[counter_pos];
     let found = carried_inputs[found_pos];
     let bound = carried_inputs[result_pos];
-    let extent = if runtime { 0 } else { constant_u64(function, bound)? as usize };
+    let extent = if runtime {
+        0
+    } else {
+        constant_u64(function, bound)? as usize
+    };
     if !runtime && (extent == 0 || fact.trip_count != Some(extent as u64)) {
         return None;
     }
@@ -301,16 +310,18 @@ fn recognize_loop(
             continue;
         }
         let node = function.get_node(id)?;
-        if let NodeKind::ArrayAccess { base, index: access_index } = &node.kind {
+        if let NodeKind::ArrayAccess {
+            base,
+            index: access_index,
+        } = &node.kind
+        {
             if *access_index != index {
                 continue;
             }
             let base_ty = &function.get_node(*base)?.ty;
             let (element, length) = match base_ty {
                 Type::Array { element, length } => (element.as_ref().clone(), Some(*length)),
-                Type::Pointer { pointee, .. } if **pointee == Type::u8() => {
-                    (Type::u8(), None)
-                }
+                Type::Pointer { pointee, .. } if **pointee == Type::u8() => (Type::u8(), None),
                 _ => return None,
             };
             if !runtime {
@@ -432,9 +443,7 @@ fn instantiate(
         ));
     }
     let node = function.get_node(node_id)?;
-    let mut rec = |id: NodeId| {
-        instantiate(function, plan, id, index_const, nodes, next, depth + 1)
-    };
+    let mut rec = |id: NodeId| instantiate(function, plan, id, index_const, nodes, next, depth + 1);
     let kind = match &node.kind {
         NodeKind::Constant(data) => NodeKind::Constant(data.clone()),
         NodeKind::Parameter { .. } => return Some(node_id.as_u64()),
@@ -492,13 +501,7 @@ fn push(nodes: &mut Vec<(u64, Node)>, next: &mut u64, kind: NodeKind, ty: Type) 
     *next += 1;
     nodes.push((
         id,
-        Node::new(
-            NodeId::new(id),
-            kind,
-            ty,
-            Effects::empty(),
-            Span::unknown(),
-        ),
+        Node::new(NodeId::new(id), kind, ty, Effects::empty(), Span::unknown()),
     ));
     id
 }

@@ -424,4 +424,3 @@ impl SolverHandle {
         solve_default(cnf)
     }
 }
-

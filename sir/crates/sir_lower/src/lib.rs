@@ -418,12 +418,10 @@ fn infer_ptr_param_types(ir: &IrFunction) -> HashMap<String, (Type, bool)> {
         .collect();
 
     /// Record a candidate pointee; conflicting views collapse to `None`.
-    fn note(
-        candidates: &mut HashMap<String, Option<Type>>,
-        name: &str,
-        ty: Option<Type>,
-    ) {
-        let entry = candidates.entry(name.to_string()).or_insert_with(|| ty.clone());
+    fn note(candidates: &mut HashMap<String, Option<Type>>, name: &str, ty: Option<Type>) {
+        let entry = candidates
+            .entry(name.to_string())
+            .or_insert_with(|| ty.clone());
         if entry.as_ref() != ty.as_ref() {
             *entry = None;
         }
@@ -941,11 +939,7 @@ fn get_node_id(
     // never resolve (n14_saturating_count).
     if ref_str == "true" || ref_str == "false" {
         let span = Span::unknown();
-        return Some(builder.constant(
-            ConstantData::boolean(ref_str == "true"),
-            Type::Bool,
-            span,
-        ));
+        return Some(builder.constant(ConstantData::boolean(ref_str == "true"), Type::Bool, span));
     }
     None
 }
@@ -1069,18 +1063,14 @@ fn strict_counted_bound(
 /// `counter <= K` comparison appearing anywhere in a conjunction.
 fn find_counter_bound_conjunct(func: &Function, term: NodeId, counter: NodeId) -> Option<u64> {
     match func.get_node(term).map(|n| &n.kind) {
-        Some(NodeKind::Lt { lhs, rhs }) | Some(NodeKind::Ne { lhs, rhs })
-            if *lhs == counter =>
-        {
+        Some(NodeKind::Lt { lhs, rhs }) | Some(NodeKind::Ne { lhs, rhs }) if *lhs == counter => {
             lower_constant_u64(func, *rhs)
         }
         Some(NodeKind::Le { lhs, rhs }) if *lhs == counter => {
             lower_constant_u64(func, *rhs)?.checked_add(1)
         }
-        Some(NodeKind::BoolAnd { lhs, rhs }) => {
-            find_counter_bound_conjunct(func, *lhs, counter)
-                .or_else(|| find_counter_bound_conjunct(func, *rhs, counter))
-        }
+        Some(NodeKind::BoolAnd { lhs, rhs }) => find_counter_bound_conjunct(func, *lhs, counter)
+            .or_else(|| find_counter_bound_conjunct(func, *rhs, counter)),
         _ => None,
     }
 }
@@ -1226,8 +1216,9 @@ fn promote_constant_extent_buffers(func: &mut Function) {
 /// Extract a specific function by name from LLVM IR text.
 fn extract_function_by_name(text: &str, name: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
+    let needle = format!("@{name}(");
     for (i, line) in lines.iter().enumerate() {
-        if line.contains("define ") && line.contains(&format!("@{}", name)) {
+        if line.contains("define ") && line.contains(&needle) {
             // Found the function — extract until closing brace
             for (j, end_line) in lines.iter().enumerate().skip(i + 1) {
                 if end_line.trim() == "}" {
@@ -1274,16 +1265,9 @@ struct NestedShape {
     outer: usize,
     outer_latch: usize,
     inner: usize,
-}
-
-fn supported_intrinsic_call(inst: &Instruction) -> bool {
-    inst.opcode == "call"
-        && (inst.raw.contains("llvm.memcpy")
-            || inst.raw.contains("llvm.memmove")
-            || inst.raw.contains("llvm.memset")
-            || inst.raw.contains("llvm.lifetime")
-            || inst.raw.contains("llvm.expect")
-            || inst.raw.contains("llvm.assume"))
+    /// Outer header branches to the outer latch when the inner loop's
+    /// pre-test would be false (`bound == 0`). Verified before setting.
+    guarded_inner: bool,
 }
 
 /// Back edges in block-index order: `(latch, header)`.
@@ -1368,7 +1352,11 @@ fn detect_linear_chain(ir: &IrFunction) -> Option<Vec<(usize, usize)>> {
             if inst.opcode != "phi" {
                 continue;
             }
-            match inst.operands.first().and_then(|operand| operand_type(operand)) {
+            match inst
+                .operands
+                .first()
+                .and_then(|operand| operand_type(operand))
+            {
                 Some(Type::Integer { .. }) => {}
                 _ => return None,
             }
@@ -1400,8 +1388,7 @@ fn detect_linear_chain(ir: &IrFunction) -> Option<Vec<(usize, usize)>> {
     let outer_latch = edges[0].0;
     for idx in outer..=outer_latch {
         for inst in &ir.blocks[idx].instructions {
-            if (inst.opcode == "call" && !supported_intrinsic_call(inst))
-                || inst.opcode == "switch"
+            if inst.opcode == "switch"
                 || inst.raw.contains("double")
                 || inst.raw.contains("float")
                 || inst.raw.contains("atomic")
@@ -1413,11 +1400,7 @@ fn detect_linear_chain(ir: &IrFunction) -> Option<Vec<(usize, usize)>> {
     Some(edges)
 }
 
-fn chain_pair_ok(
-    ir: &IrFunction,
-    parent: (usize, usize),
-    child: (usize, usize),
-) -> bool {
+fn chain_pair_ok(ir: &IrFunction, parent: (usize, usize), child: (usize, usize)) -> bool {
     let Some(terminator) = ir.blocks[parent.1]
         .instructions
         .iter()
@@ -1484,7 +1467,11 @@ fn detect_sequential_groups(ir: &IrFunction) -> Option<Vec<Vec<(usize, usize)>>>
     for group in &groups {
         let outer = group[0];
         for &(_, header) in group {
-            if !ir.blocks[header].instructions.iter().any(|inst| inst.opcode == "phi") {
+            if !ir.blocks[header]
+                .instructions
+                .iter()
+                .any(|inst| inst.opcode == "phi")
+            {
                 return None;
             }
             let terminator = ir.blocks[group[0].0]
@@ -1497,8 +1484,7 @@ fn detect_sequential_groups(ir: &IrFunction) -> Option<Vec<Vec<(usize, usize)>>>
         }
         for idx in outer.1..=outer.0 {
             for inst in &ir.blocks[idx].instructions {
-                if (inst.opcode == "call" && !supported_intrinsic_call(inst))
-                    || inst.opcode == "switch"
+                if inst.opcode == "switch"
                     || inst.raw.contains("double")
                     || inst.raw.contains("float")
                     || inst.raw.contains("atomic")
@@ -1515,14 +1501,7 @@ fn detect_sequential_groups(ir: &IrFunction) -> Option<Vec<Vec<(usize, usize)>>>
 /// inner header; the inner latch exits to the outer latch; the outer latch
 /// branches back to the outer header or out. Integer memory only.
 fn detect_nested_two_level(ir: &IrFunction) -> Option<NestedShape> {
-    let mut edges = Vec::new();
-    for idx in 0..ir.blocks.len() {
-        for succ in successor_indices(ir, idx) {
-            if succ <= idx {
-                edges.push((idx, succ));
-            }
-        }
-    }
+    let mut edges = indexed_back_edges(ir);
     if edges.len() != 2 {
         return None;
     }
@@ -1537,31 +1516,44 @@ fn detect_nested_two_level(ir: &IrFunction) -> Option<NestedShape> {
             if inst.opcode != "phi" {
                 continue;
             }
-            match inst.operands.first().and_then(|operand| operand_type(operand)) {
+            match inst
+                .operands
+                .first()
+                .and_then(|operand| operand_type(operand))
+            {
                 Some(Type::Integer { .. }) => {}
                 _ => return None,
             }
         }
     }
-    if outer >= inner || inner > outer_latch {
+    if outer >= inner || outer_latch == inner {
         return None;
     }
     let outer_terminator = ir.blocks[outer]
         .instructions
         .iter()
         .find(|inst| matches!(inst.opcode.as_str(), "br" | "switch" | "ret"))?;
-    if outer_terminator.opcode != "br" || outer_terminator.operands.len() != 1 {
+    if outer_terminator.opcode != "br" {
         return None;
     }
-    let outer_target = ir.block_map.get(
-        &outer_terminator.operands[0]
-            .trim_start_matches("label ")
-            .trim_start_matches('%')
-            .to_string(),
-    )?;
-    if *outer_target != inner {
+    let guarded_inner = if outer_terminator.operands.len() == 1 {
+        let outer_target = ir.block_map.get(
+            &outer_terminator.operands[0]
+                .trim_start_matches("label ")
+                .trim_start_matches('%')
+                .to_string(),
+        )?;
+        if *outer_target != inner {
+            return None;
+        }
+        false
+    } else if outer_terminator.operands.len() >= 3
+        && guarded_inner_skip_ok(ir, outer, outer_latch, inner)
+    {
+        true
+    } else {
         return None;
-    }
+    };
     let inner_terminator = ir.blocks[inner_latch]
         .instructions
         .iter()
@@ -1592,8 +1584,7 @@ fn detect_nested_two_level(ir: &IrFunction) -> Option<NestedShape> {
     }
     for idx in outer..=outer_latch {
         for inst in &ir.blocks[idx].instructions {
-            if (inst.opcode == "call" && !supported_intrinsic_call(inst))
-                || inst.opcode == "switch"
+            if inst.opcode == "switch"
                 || inst.raw.contains("double")
                 || inst.raw.contains("float")
                 || inst.raw.contains("atomic")
@@ -1606,7 +1597,104 @@ fn detect_nested_two_level(ir: &IrFunction) -> Option<NestedShape> {
         outer,
         outer_latch,
         inner,
+        guarded_inner,
     })
+}
+
+/// A guarded two-level nest: the outer header branches either to the inner
+/// header or straight to the outer latch. That is only equivalent to the
+/// pre-tested SIR composition when the guard is exactly the inner loop's
+/// zero-trip test: the outer condition compares the inner bound against
+/// zero, and the inner carried counter starts at zero.
+fn guarded_inner_skip_ok(ir: &IrFunction, outer: usize, outer_latch: usize, inner: usize) -> bool {
+    let Some(outer_term) = ir.blocks[outer]
+        .instructions
+        .iter()
+        .find(|inst| inst.opcode == "br" && inst.operands.len() >= 3)
+    else {
+        return false;
+    };
+    let targets: Vec<usize> = terminator_targets(outer_term)
+        .iter()
+        .filter_map(|label| ir.block_map.get(label).copied())
+        .collect();
+    if !targets.contains(&inner) || !targets.contains(&outer_latch) {
+        return false;
+    }
+    let value_token = |operand: &str| {
+        let mut value = strip_type(operand);
+        for predicate in [
+            "eq ", "ne ", "slt ", "sle ", "sgt ", "sge ", "ult ", "ule ", "ugt ", "uge ",
+        ] {
+            if let Some(rest) = value.strip_prefix(predicate) {
+                value = strip_type(rest);
+                break;
+            }
+        }
+        value
+    };
+    let is_zero = |operand: &str| parse_int_constant(&value_token(operand)) == Some(0);
+    let Some(cond) = instruction_by_result(ir, &strip_type(&outer_term.operands[0])) else {
+        return false;
+    };
+    if cond.opcode != "icmp" || !cond.raw.contains(" eq ") {
+        return false;
+    }
+    let parts = split_operands(&cond.operands.join(", "));
+    if parts.len() < 2 {
+        return false;
+    }
+    let bound = if is_zero(&parts[0]) {
+        &parts[1]
+    } else if is_zero(&parts[1]) {
+        &parts[0]
+    } else {
+        return false;
+    };
+    let bound = value_token(bound);
+
+    // The inner latch must test the same bound, and one inner phi must
+    // start at zero so `bound == 0` really means zero iterations.
+    let Some(inner_term) = ir.blocks[inner]
+        .instructions
+        .iter()
+        .find(|inst| inst.opcode == "br" && inst.operands.len() >= 3)
+    else {
+        return false;
+    };
+    let inner_targets: Vec<usize> = terminator_targets(inner_term)
+        .iter()
+        .filter_map(|label| ir.block_map.get(label).copied())
+        .collect();
+    if !inner_targets.contains(&inner) || !inner_targets.contains(&outer_latch) {
+        return false;
+    }
+    let Some(inner_cond) = instruction_by_result(ir, &strip_type(&inner_term.operands[0])) else {
+        return false;
+    };
+    if inner_cond.opcode != "icmp" || !inner_cond.raw.contains(" eq ") {
+        return false;
+    }
+    if !split_operands(&inner_cond.operands.join(", "))
+        .iter()
+        .any(|operand| value_token(operand) == bound)
+    {
+        return false;
+    }
+    ir.blocks[inner].instructions.iter().any(|inst| {
+        inst.opcode == "phi"
+            && phi_incomings(inst)
+                .iter()
+                .any(|(value, _)| parse_int_constant(&strip_type(value)) == Some(0))
+    })
+}
+
+/// Find the instruction that defines `name` (already stripped of its `%`).
+fn instruction_by_result<'a>(ir: &'a IrFunction, name: &str) -> Option<&'a Instruction> {
+    ir.blocks
+        .iter()
+        .flat_map(|block| block.instructions.iter())
+        .find(|inst| inst.result.as_deref() == Some(name))
 }
 /// Lower an LLVM IR function to SIR.
 pub fn lower(text: &str) -> Result<Function, String> {
@@ -1700,8 +1788,7 @@ pub fn lower(text: &str) -> Result<Function, String> {
     // operands stay with the existing (fail-closed) machinery.
     if !has_back_edge && ir.blocks.len() > 1 && acyclic_global_memory_cfg(&ir) {
         let return_ty = builder.function().return_ty.clone();
-        return lower_switch_cfg(&ir, &mut builder, value_map, return_ty)
-            .map(|_| builder.build());
+        return lower_switch_cfg(&ir, &mut builder, value_map, return_ty).map(|_| builder.build());
     }
 
     if let Some(shape) = detect_nested_two_level(&ir) {
@@ -1721,7 +1808,13 @@ pub fn lower(text: &str) -> Result<Function, String> {
                 if matches!(inst.opcode.as_str(), "phi" | "br" | "ret") {
                     continue;
                 }
-                emit_instruction(inst, &mut builder, &mut value_map, &ir.params, Span::unknown())?;
+                emit_instruction(
+                    inst,
+                    &mut builder,
+                    &mut value_map,
+                    &ir.params,
+                    Span::unknown(),
+                )?;
             }
         }
         lower_loop_chain(&ir, &chain, 0, &mut builder, &mut value_map)
@@ -1753,17 +1846,15 @@ pub fn lower(text: &str) -> Result<Function, String> {
                                 .return_value(unit, Span::unknown())
                                 .map_err(|e| format!("nested chain: {:?}", e))?;
                         } else {
+                            let ret_ty = builder.function().return_ty.clone();
                             let value = get_node_id(
                                 &strip_type(&inst.operands[0]),
                                 &value_map,
                                 &ir.params,
                                 &mut builder,
-                                None,
+                                Some(ret_ty),
                             )
-                            .ok_or(format!(
-                                "nested chain: unresolved return: {}",
-                                inst.raw
-                            ))?;
+                            .ok_or(format!("nested chain: unresolved return: {}", inst.raw))?;
                             builder
                                 .return_value(value, Span::unknown())
                                 .map_err(|e| format!("nested chain: {:?}", e))?;
@@ -1789,10 +1880,7 @@ pub fn lower(text: &str) -> Result<Function, String> {
             .instructions
             .iter()
             .any(|inst| inst.opcode == "br" && inst.operands.len() >= 3);
-        if groups.len() > 1
-            && groups.iter().any(|group| group.len() > 1)
-            && !guarded_entry
-        {
+        if groups.len() > 1 && groups.iter().any(|group| group.len() > 1) && !guarded_entry {
             return lower_sequential_groups(&ir, &groups, &mut builder, &mut value_map)
                 .map(|_| builder.build());
         }
@@ -1885,14 +1973,8 @@ pub fn lower(text: &str) -> Result<Function, String> {
         // candidates).
         let mut consumed_blocks: HashSet<String> = HashSet::new();
         for &lbi in &self_loop_blocks {
-            if lower_loop_function(
-                &ir,
-                lbi,
-                &mut builder,
-                &mut value_map,
-                &consumed_blocks,
-            )
-            .is_err()
+            if lower_loop_function(&ir, lbi, &mut builder, &mut value_map, &consumed_blocks)
+                .is_err()
             {
                 sequential_ok = false;
                 break;
@@ -1945,13 +2027,7 @@ pub fn lower(text: &str) -> Result<Function, String> {
     let loop_block_idx = self_loop_blocks.first().copied();
 
     let result = match loop_block_idx {
-        Some(lbi) => lower_loop_function(
-            &ir,
-            lbi,
-            &mut builder,
-            &mut value_map,
-            &HashSet::new(),
-        ),
+        Some(lbi) => lower_loop_function(&ir, lbi, &mut builder, &mut value_map, &HashSet::new()),
         None => lower_straight_line(&ir, &mut builder, &mut value_map),
     };
 
@@ -2026,7 +2102,8 @@ fn counted_termination(
     carried_next_nodes: &[NodeId],
 ) -> Option<NodeId> {
     use sir_nodes::NodeKind;
-    if let Some(NodeKind::Lt { lhs, rhs: _ }) = builder.function().get_node(condition).map(|n| &n.kind)
+    if let Some(NodeKind::Lt { lhs, rhs: _ }) =
+        builder.function().get_node(condition).map(|n| &n.kind)
     {
         if carried_init_nodes.contains(lhs) {
             // The source is a post-tested do-while: shift the domain so
@@ -2078,7 +2155,9 @@ fn rotated_zero_test_domain(
         if lower_constant_u64(builder.function(), zero_side) != Some(0) {
             continue;
         }
-        let index = output_nodes.iter().position(|output| *output == candidate)?;
+        let index = output_nodes
+            .iter()
+            .position(|output| *output == candidate)?;
         let carry = *carried_init_nodes.get(index)?;
         let ty = builder.function().get_node(carry)?.ty.clone();
         let span = Span::unknown();
@@ -2132,16 +2211,14 @@ fn rotated_successor_domain(
         else {
             continue;
         };
-        let (carry_index, carry, step) = if let Some(i) = carried_init_nodes
-            .iter()
-            .position(|c| c == augend)
-        {
-            (i, *augend, *addend)
-        } else if let Some(i) = carried_init_nodes.iter().position(|c| c == addend) {
-            (i, *addend, *augend)
-        } else {
-            continue;
-        };
+        let (carry_index, carry, step) =
+            if let Some(i) = carried_init_nodes.iter().position(|c| c == augend) {
+                (i, *augend, *addend)
+            } else if let Some(i) = carried_init_nodes.iter().position(|c| c == addend) {
+                (i, *addend, *augend)
+            } else {
+                continue;
+            };
         // The test must compare the carry's own successor value; an
         // unrelated `carry + k` in the condition would make the rebuilt
         // `carry < bound` domain wrong.
@@ -2277,8 +2354,7 @@ fn apply_exact_guard(
             } else {
                 (1u128 << amount) - 1
             };
-            let mask_node =
-                builder.constant(ConstantData::u64(mask as u64), ty.clone(), span);
+            let mask_node = builder.constant(ConstantData::u64(mask as u64), ty.clone(), span);
             let masked = builder
                 .bit_and(lhs, mask_node, span)
                 .map_err(|e| format!("{:?}", e))?;
@@ -2289,13 +2365,7 @@ fn apply_exact_guard(
         "udiv" | "sdiv" => {
             let remainder = if opcode == "sdiv" {
                 builder
-                    .intrinsic(
-                        "sir_srem",
-                        &[lhs, rhs],
-                        ty.clone(),
-                        Effects::empty(),
-                        span,
-                    )
+                    .intrinsic("sir_srem", &[lhs, rhs], ty.clone(), Effects::empty(), span)
                     .map_err(|e| format!("{:?}", e))?
             } else {
                 builder
@@ -2400,8 +2470,7 @@ fn post_tested_carry_domain(
 /// block)? Required before rebuilding a successor-tested loop as the
 /// pre-checked `c < n` domain.
 fn has_entry_guard(ir: &IrFunction, loop_block_idx: usize) -> bool {
-    let (Some(entry), Some(loop_block)) = (ir.blocks.first(), ir.blocks.get(loop_block_idx))
-    else {
+    let (Some(entry), Some(loop_block)) = (ir.blocks.first(), ir.blocks.get(loop_block_idx)) else {
         return false;
     };
     if entry.label == loop_block.label {
@@ -2565,7 +2634,11 @@ fn detect_peeled_search(ir: &IrFunction) -> Option<PeeledSearch> {
         if e_op != "ne" && e_op != "eq" {
             continue;
         }
-        let mut e_tokens: Vec<String> = e_cmp.operands.iter().map(|o| operand_value_token(o)).collect();
+        let mut e_tokens: Vec<String> = e_cmp
+            .operands
+            .iter()
+            .map(|o| operand_value_token(o))
+            .collect();
         if e_tokens.len() != 2 {
             continue;
         }
@@ -2643,7 +2716,8 @@ fn detect_peeled_search(ir: &IrFunction) -> Option<PeeledSearch> {
             else {
                 continue;
             };
-            if !((succ_inst.opcode == "add" && step == 1) || (succ_inst.opcode == "sub" && step == 1))
+            if !((succ_inst.opcode == "add" && step == 1)
+                || (succ_inst.opcode == "sub" && step == 1))
             {
                 continue;
             }
@@ -2664,25 +2738,28 @@ fn detect_peeled_search(ir: &IrFunction) -> Option<PeeledSearch> {
                 continue;
             }
             let l_succs = block_successors(l);
-            if l_succs.len() != 2
-                || !l_succs.contains(h_label)
-                || !l_succs.contains(&x_label)
-            {
+            if l_succs.len() != 2 || !l_succs.contains(h_label) || !l_succs.contains(&x_label) {
                 continue;
             }
             let Some(h_br) = h.instructions.iter().rev().find(|i| i.opcode == "br") else {
                 continue;
             };
             let h_cond = strip_type(&h_br.operands[0]);
-            let Some(h_cmp) = h.instructions.iter().find(|i| {
-                i.opcode == "icmp" && i.result.as_deref() == Some(h_cond.as_str())
-            }) else {
+            let Some(h_cmp) = h
+                .instructions
+                .iter()
+                .find(|i| i.opcode == "icmp" && i.result.as_deref() == Some(h_cond.as_str()))
+            else {
                 continue;
             };
             if h_cmp.operands.first()?.split_whitespace().next()? != "eq" {
                 continue;
             }
-            let h_tokens: Vec<String> = h_cmp.operands.iter().map(|o| operand_value_token(o)).collect();
+            let h_tokens: Vec<String> = h_cmp
+                .operands
+                .iter()
+                .map(|o| operand_value_token(o))
+                .collect();
             let bound_name = if h_tokens.first() == Some(&next_name) {
                 h_tokens.get(1).cloned()
             } else if h_tokens.get(1) == Some(&next_name) {
@@ -2719,11 +2796,11 @@ fn detect_peeled_search(ir: &IrFunction) -> Option<PeeledSearch> {
                     return false;
                 }
                 let inc = phi_incomings(phi);
-                inc.iter().any(|(v, l)| {
-                    l == h_label && strip_type(v) == bound_name
-                }) && inc.iter().any(|(v, l)| {
-                    l == &l_label && strip_type(v) == next_name
-                })
+                inc.iter()
+                    .any(|(v, l)| l == h_label && strip_type(v) == bound_name)
+                    && inc
+                        .iter()
+                        .any(|(v, l)| l == &l_label && strip_type(v) == next_name)
             }) else {
                 continue;
             };
@@ -2852,11 +2929,8 @@ fn build_peeled_search(
         .and_then(|o| o.split_whitespace().next())
         .unwrap_or("i64");
     let counter_ty = parse_type(counter_ty_str).ok_or("peeled search: bad counter type")?;
-    let counter_init = builder.constant(
-        int_constant_data(&counter_ty, 0),
-        counter_ty.clone(),
-        span,
-    );
+    let counter_init =
+        builder.constant(int_constant_data(&counter_ty, 0), counter_ty.clone(), span);
     let bound_node = get_node_id(
         &shape.bound_name,
         value_map,
@@ -2906,11 +2980,7 @@ fn build_peeled_search(
         not
     };
     let found_init = builder.constant(ConstantData::boolean(false), Type::Bool, span);
-    let index_init = builder.constant(
-        int_constant_data(&counter_ty, 0),
-        counter_ty.clone(),
-        span,
-    );
+    let index_init = builder.constant(int_constant_data(&counter_ty, 0), counter_ty.clone(), span);
     let not_found = builder
         .bool_not(found_init, span)
         .map_err(|e| format!("peeled search: {:?}", e))?;
@@ -3225,8 +3295,8 @@ fn lower_early_exit_search(
                 return None;
             }
             let step = parse_int_constant(&rhs)?;
-            let is_decrement = (inst.opcode == "sub" && step == 1)
-                || (inst.opcode == "add" && step == -1);
+            let is_decrement =
+                (inst.opcode == "sub" && step == 1) || (inst.opcode == "add" && step == -1);
             if !is_decrement {
                 return None;
             }
@@ -3288,9 +3358,7 @@ fn lower_early_exit_search(
                 // word-level recognizers use the Sub form to classify a
                 // scan as reverse (an Add with -1 would be mistaken for a
                 // forward scan by the position-search heuristic).
-                if inst.result.as_deref() == Some(successor_name.as_str())
-                    && inst.opcode == "add"
-                {
+                if inst.result.as_deref() == Some(successor_name.as_str()) && inst.opcode == "add" {
                     let one = builder.constant(
                         int_constant_data(&counter_ty, 1),
                         counter_ty.clone(),
@@ -3334,11 +3402,9 @@ fn lower_early_exit_search(
             let continuation = if h_exit_on_true {
                 let counter_zero = {
                     let function = builder.function();
-                    let is_zero =
-                        |id: NodeId| lower_constant_u64(function, id) == Some(0);
+                    let is_zero = |id: NodeId| lower_constant_u64(function, id) == Some(0);
                     match function.get_node(h_cond).map(|n| &n.kind) {
-                        Some(NodeKind::Eq { lhs, rhs })
-                        | Some(NodeKind::Ne { lhs, rhs }) => {
+                        Some(NodeKind::Eq { lhs, rhs }) | Some(NodeKind::Ne { lhs, rhs }) => {
                             (*lhs == counter_init && is_zero(*rhs))
                                 || (*rhs == counter_init && is_zero(*lhs))
                         }
@@ -3364,7 +3430,9 @@ fn lower_early_exit_search(
             } else if h_succs.get(1).map(|s| s == &m.label).unwrap_or(false) {
                 h_cond
             } else {
-                return Err("early-exit search: descending header branch is not the exit test".into());
+                return Err(
+                    "early-exit search: descending header branch is not the exit test".into(),
+                );
             };
             // Hit from the latch branch: continuing on true means hit = !cond.
             let l_continue_on_true = l_succs.first().map(|s| s == &h.label).unwrap_or(false);
@@ -3377,16 +3445,12 @@ fn lower_early_exit_search(
             } else if l_succs.first().map(|s| s == &m.label).unwrap_or(false) {
                 l_cond
             } else {
-                return Err("early-exit search: descending latch branch is not the hit test".into());
+                return Err(
+                    "early-exit search: descending latch branch is not the hit test".into(),
+                );
             };
-            let successor = get_node_id(
-                &successor_name,
-                value_map,
-                &ir.params,
-                builder,
-                None,
-            )
-            .ok_or("early-exit search: cannot resolve the descending successor")?;
+            let successor = get_node_id(&successor_name, value_map, &ir.params, builder, None)
+                .ok_or("early-exit search: cannot resolve the descending successor")?;
             let found_init = builder.constant(ConstantData::boolean(false), Type::Bool, span);
             let not_found = builder
                 .bool_not(found_init, span)
@@ -3534,11 +3598,7 @@ fn lower_early_exit_search(
         if !raw.contains("llvm.umin") {
             return Err("early-exit search: merge post-processing is not a umin clamp".into());
         }
-        let inside = raw
-            .split('(')
-            .nth(1)
-            .unwrap_or("")
-            .trim_end_matches(')');
+        let inside = raw.split('(').nth(1).unwrap_or("").trim_end_matches(')');
         let parts: Vec<String> = inside
             .split(',')
             .map(|s| s.trim().to_string())
@@ -3582,10 +3642,11 @@ fn lower_early_exit_search(
     // the merge's latch incoming (otherwise a guard on one value with a
     // different trip bound would let the synthesized loop iterate while
     // the source skipped).
-    let latch_successor = l
-        .instructions
-        .iter()
-        .find_map(|inst| (inst.opcode == "add").then(|| inst.result.clone()).flatten());
+    let latch_successor = l.instructions.iter().find_map(|inst| {
+        (inst.opcode == "add")
+            .then(|| inst.result.clone())
+            .flatten()
+    });
     let latch_bound_str = latch_successor.as_ref().and_then(|succ| {
         l.instructions
             .iter()
@@ -3639,14 +3700,11 @@ fn lower_early_exit_search(
                     .operands
                     .iter()
                     .any(|o| value_token(o) == latch_bound_str)
-                && inst
-                    .operands
-                    .iter()
-                    .any(|o| {
-                        parse_int_constant(&value_token(o))
-                            .map(|v| v == 0)
-                            .unwrap_or(false)
-                    })
+                && inst.operands.iter().any(|o| {
+                    parse_int_constant(&value_token(o))
+                        .map(|v| v == 0)
+                        .unwrap_or(false)
+                })
         });
         let observable_matches = match &post_form {
             PostForm::Identity => strip_type(value) == sentinel_str,
@@ -3765,7 +3823,11 @@ fn lower_early_exit_search(
     let successor = l
         .instructions
         .iter()
-        .find_map(|inst| (inst.opcode == "add").then(|| inst.result.clone()).flatten())
+        .find_map(|inst| {
+            (inst.opcode == "add")
+                .then(|| inst.result.clone())
+                .flatten()
+        })
         .ok_or("early-exit search: no latch successor")?;
     let successor = get_node_id(&successor, value_map, &ir.params, builder, None)
         .ok_or("early-exit search: cannot resolve the latch successor")?;
@@ -3878,12 +3940,13 @@ fn emit_plain_block(
                         .return_value(unit, span)
                         .map_err(|e| format!("{:?}", e))?;
                 } else {
+                    let ret_ty = builder.function().return_ty.clone();
                     let value = get_node_id(
                         &strip_type(&inst.operands[0]),
                         value_map,
                         &ir.params,
                         builder,
-                        None,
+                        Some(ret_ty),
                     )
                     .ok_or(format!("unresolved return: {}", inst.raw))?;
                     builder
@@ -3923,13 +3986,14 @@ fn emit_until_block(
             .find(|inst| inst.opcode == "br")
             .and_then(|inst| {
                 if inst.operands.len() == 1 {
-                    ir.block_map.get(
-                        &inst.operands[0]
-                            .trim_start_matches("label ")
-                            .trim_start_matches('%')
-                            .to_string(),
-                    )
-                    .copied()
+                    ir.block_map
+                        .get(
+                            &inst.operands[0]
+                                .trim_start_matches("label ")
+                                .trim_start_matches('%')
+                                .to_string(),
+                        )
+                        .copied()
                 } else {
                     None
                 }
@@ -3966,11 +4030,7 @@ fn lower_sequential_groups(
     value_map: &mut HashMap<String, NodeId>,
 ) -> Result<(), String> {
     let span = Span::unknown();
-    fn wrap_once(
-        builder: &mut Builder,
-        body: &[NodeId],
-        span: Span,
-    ) -> Result<(), String> {
+    fn wrap_once(builder: &mut Builder, body: &[NodeId], span: Span) -> Result<(), String> {
         if body.is_empty() {
             return Ok(());
         }
@@ -4411,8 +4471,30 @@ fn lower_nested_two_level(
         value_map.insert(phi.result.clone(), extract);
     }
 
-    // Post-latch blocks (function exit).
-    for idx in outer_latch.saturating_add(1)..ir.blocks.len() {
+    // Post-latch blocks (function exit). A guarded outer header may sit
+    // before its inner header in block order, and its exit target may also
+    // precede the latch; collect the real exit blocks explicitly instead of
+    // assuming they follow the latch.
+    let mut post_indices: Vec<usize> = (outer_latch.saturating_add(1)..ir.blocks.len()).collect();
+    if shape.guarded_inner {
+        post_indices.retain(|idx| *idx != inner);
+        if let Some(terminator) = ir.blocks[outer_latch]
+            .instructions
+            .iter()
+            .find(|inst| inst.opcode == "br" && inst.operands.len() >= 3)
+        {
+            if let Some(exit_idx) = terminator_targets(terminator)
+                .iter()
+                .filter_map(|label| ir.block_map.get(label).copied())
+                .find(|idx| *idx != outer)
+            {
+                post_indices.push(exit_idx);
+            }
+        }
+        post_indices.sort_unstable();
+        post_indices.dedup();
+    }
+    for idx in post_indices {
         let block = &ir.blocks[idx];
         if block.instructions.iter().any(|inst| inst.opcode == "phi") {
             return Err(format!(
@@ -4438,17 +4520,15 @@ fn lower_nested_two_level(
                             .return_value(unit, span)
                             .map_err(|e| format!("nested loop: {:?}", e))?;
                     } else {
+                        let ret_ty = builder.function().return_ty.clone();
                         let value = get_node_id(
                             &strip_type(&inst.operands[0]),
                             value_map,
                             &ir.params,
                             builder,
-                            None,
+                            Some(ret_ty),
                         )
-                        .ok_or(format!(
-                            "nested loop: unresolved return: {}",
-                            inst.raw
-                        ))?;
+                        .ok_or(format!("nested loop: unresolved return: {}", inst.raw))?;
                         builder
                             .return_value(value, span)
                             .map_err(|e| format!("nested loop: {:?}", e))?;
@@ -4807,12 +4887,7 @@ fn lower_loop_function(
     // trip counts from. Any rotated shape that is not this counted
     // pattern is refused loudly — never silently inverted.
     let termination = if continue_on_true {
-        match rotated_successor_domain(
-            builder,
-            termination,
-            &carried_init_nodes,
-            &output_nodes,
-        ) {
+        match rotated_successor_domain(builder, termination, &carried_init_nodes, &output_nodes) {
             Some((inclusive, carry, bound)) => {
                 if !has_entry_guard(ir, loop_idx) {
                     return Err(format!(
@@ -4864,9 +4939,9 @@ fn lower_loop_function(
         }
     } else {
         match rotated_counted_domain(builder, termination, &carried_init_nodes) {
-            Some((counter, bound)) => builder.lt(counter, bound, span).map_err(|e| {
-                format!("loop build error (F9 Lt reconstruction): {:?}", e)
-            })?,
+            Some((counter, bound)) => builder
+                .lt(counter, bound, span)
+                .map_err(|e| format!("loop build error (F9 Lt reconstruction): {:?}", e))?,
             None => match rotated_zero_test_domain(
                 builder,
                 termination,
@@ -5044,8 +5119,10 @@ fn lower_loop_function(
                         .unwrap_or(true);
                     if !is_void {
                         let ret_str = strip_type(&inst.operands[0]);
-                        let ret_node = get_node_id(&ret_str, value_map, &ir.params, builder, None)
-                            .ok_or(format!("cannot resolve return value '{}'", ret_str))?;
+                        let ret_ty = builder.function().return_ty.clone();
+                        let ret_node =
+                            get_node_id(&ret_str, value_map, &ir.params, builder, Some(ret_ty))
+                                .ok_or(format!("cannot resolve return value '{}'", ret_str))?;
                         builder
                             .return_value(ret_node, span)
                             .map_err(|e| format!("return error: {:?}", e))?;
@@ -5185,7 +5262,11 @@ impl<'a> SwitchLowerer<'a> {
         } else {
             self.global_elem.insert(name.clone(), ty.clone());
         }
-        Ok(MemLoc { global: name, ty, index })
+        Ok(MemLoc {
+            global: name,
+            ty,
+            index,
+        })
     }
 
     fn resolve_loc(&mut self, operand: &str, access_ty: &Type) -> Result<MemLoc, String> {
@@ -5209,9 +5290,7 @@ impl<'a> SwitchLowerer<'a> {
         if inst.operands.len() < 3 {
             return Err(format!("switch CFG: malformed GEP: {}", inst.raw));
         }
-        let source = inst.operands[0]
-            .trim_start_matches("inbounds")
-            .trim();
+        let source = inst.operands[0].trim_start_matches("inbounds").trim();
         let element = if source.starts_with('[') {
             match gep_source_array_type(&inst.raw) {
                 Some(Type::Array { element, .. }) => *element,
@@ -5327,9 +5406,9 @@ impl<'a> SwitchLowerer<'a> {
                     .operands
                     .first()
                     .and_then(|operand| operand_type(operand));
-                let wanted = incoming_label.as_ref().ok_or(
-                    "switch CFG: phi in entry block".to_string(),
-                )?;
+                let wanted = incoming_label
+                    .as_ref()
+                    .ok_or("switch CFG: phi in entry block".to_string())?;
                 let incomings = phi_incomings(inst);
                 let Some((value, _)) = incomings.iter().find(|(_, label)| label == wanted) else {
                     return Err(format!("switch CFG: phi missing edge from %{}", wanted));
@@ -5397,10 +5476,7 @@ impl<'a> SwitchLowerer<'a> {
                             .get_node(value)
                             .is_some_and(|node| node.ty != access_ty)
                         {
-                            return Err(format!(
-                                "switch CFG: store type mismatch: {}",
-                                inst.raw
-                            ));
+                            return Err(format!("switch CFG: store type mismatch: {}", inst.raw));
                         }
                         let loc = self.resolve_loc(&inst.operands[1], &access_ty)?;
                         state.memory.insert(loc.clone(), value);
@@ -5436,13 +5512,14 @@ impl<'a> SwitchLowerer<'a> {
                     let ret = if is_void {
                         None
                     } else {
+                        let ret_ty = self.builder.function().return_ty.clone();
                         Some(
                             get_node_id(
                                 &strip_type(&terminator.operands[0]),
                                 &state.values,
                                 &self.ir.params,
                                 self.builder,
-                                None,
+                                Some(ret_ty),
                             )
                             .ok_or_else(|| {
                                 format!("switch CFG: unresolved return: {}", terminator.raw)
@@ -5541,9 +5618,7 @@ impl<'a> SwitchLowerer<'a> {
                             let constant = tokens[i + 1]
                                 .trim_end_matches(',')
                                 .parse::<i64>()
-                                .map_err(|_| {
-                                    format!("switch CFG: non-constant case: {}", raw)
-                                })?;
+                                .map_err(|_| format!("switch CFG: non-constant case: {}", raw))?;
                             let label = tokens[i + 3].trim_start_matches('%').to_string();
                             cases.push((constant, label));
                             i += 4;
@@ -5573,7 +5648,12 @@ impl<'a> SwitchLowerer<'a> {
                     let default_cond = self.cond_and(state.cond, default_guard)?;
                     self.push_successor(&mut stack, &state, &default, default_cond)?;
                 }
-                _ => return Err(format!("switch CFG: unsupported terminator: {}", terminator.raw)),
+                _ => {
+                    return Err(format!(
+                        "switch CFG: unsupported terminator: {}",
+                        terminator.raw
+                    ))
+                }
             }
         }
         Ok(())
@@ -5633,8 +5713,7 @@ impl<'a> SwitchLowerer<'a> {
                 .return_value(unit, self.span)
                 .map_err(|e| format!("switch CFG: {:?}", e))?;
         } else {
-            let result = result
-                .ok_or_else(|| "switch CFG: no returning path".to_string())?;
+            let result = result.ok_or_else(|| "switch CFG: no returning path".to_string())?;
             self.builder
                 .return_value(result, self.span)
                 .map_err(|e| format!("switch CFG: {:?}", e))?;
@@ -5679,8 +5758,9 @@ impl<'a> SwitchLowerer<'a> {
                     let mut joined = None;
                     let mut present = 0usize;
                     for (pred, cond) in &entries {
-                        if let Some(value) =
-                            preds[*pred].as_ref().and_then(|state| state.values.get(&key))
+                        if let Some(value) = preds[*pred]
+                            .as_ref()
+                            .and_then(|state| state.values.get(&key))
                         {
                             present += 1;
                             joined = Some(match joined {
@@ -5945,9 +6025,7 @@ impl<'a> SwitchLowerer<'a> {
                             let constant = tokens[i + 1]
                                 .trim_end_matches(',')
                                 .parse::<i64>()
-                                .map_err(|_| {
-                                    format!("switch CFG: non-constant case: {}", raw)
-                                })?;
+                                .map_err(|_| format!("switch CFG: non-constant case: {}", raw))?;
                             let label = tokens[i + 3].trim_start_matches('%').to_string();
                             cases.push((constant, label));
                             i += 4;
@@ -5992,15 +6070,16 @@ impl<'a> SwitchLowerer<'a> {
                     ))
                 }
             }
-            preds[idx] = Some(BlockState {
-                values,
-                memory,
-            });
+            preds[idx] = Some(BlockState { values, memory });
         }
         Ok(())
     }
 
-    fn finish_blocks(mut self, ret_ty: &Type, seed: &HashMap<String, NodeId>) -> Result<(), String> {
+    fn finish_blocks(
+        mut self,
+        ret_ty: &Type,
+        seed: &HashMap<String, NodeId>,
+    ) -> Result<(), String> {
         let mut result: Option<NodeId> = None;
         let mut locations: HashSet<MemLoc> = HashSet::new();
         for exit in &self.exits {
@@ -6011,11 +6090,7 @@ impl<'a> SwitchLowerer<'a> {
             let initial = self.initial_load(&loc, seed)?;
             let mut value = initial;
             for exit in &self.exits {
-                let branch = exit
-                    .memory
-                    .get(&loc)
-                    .copied()
-                    .unwrap_or(initial);
+                let branch = exit.memory.get(&loc).copied().unwrap_or(initial);
                 value = self
                     .builder
                     .select(exit.reach, branch, value, self.span)
@@ -6058,8 +6133,7 @@ impl<'a> SwitchLowerer<'a> {
                 .return_value(unit, self.span)
                 .map_err(|e| format!("switch CFG: {:?}", e))?;
         } else {
-            let result =
-                result.ok_or_else(|| "switch CFG: no returning path".to_string())?;
+            let result = result.ok_or_else(|| "switch CFG: no returning path".to_string())?;
             self.builder
                 .return_value(result, self.span)
                 .map_err(|e| format!("switch CFG: {:?}", e))?;
@@ -6272,8 +6346,10 @@ fn lower_straight_line(
                     .unwrap_or(true);
                 if !is_void {
                     let ret_str = strip_type(&inst.operands[0]);
-                    let ret_node = get_node_id(&ret_str, value_map, &ir.params, builder, None)
-                        .ok_or(format!("cannot resolve return value '{}'", ret_str))?;
+                    let ret_ty = builder.function().return_ty.clone();
+                    let ret_node =
+                        get_node_id(&ret_str, value_map, &ir.params, builder, Some(ret_ty))
+                            .ok_or(format!("cannot resolve return value '{}'", ret_str))?;
                     builder
                         .return_value(ret_node, span)
                         .map_err(|e| format!("return error: {:?}", e))?;
@@ -6505,13 +6581,13 @@ fn emit_instruction(
                     .map_err(|e| format!("{:?}", e))?
             } else {
                 match cmp_type {
-                "eq" => builder.eq(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
-                "ne" => builder.ne(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
-                "ugt" => builder.gt(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
-                "uge" => builder.ge(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
-                "ult" => builder.lt(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
-                "ule" => builder.le(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
-                _ => return Err(format!("unsupported icmp type: {}", cmp_type)),
+                    "eq" => builder.eq(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
+                    "ne" => builder.ne(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
+                    "ugt" => builder.gt(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
+                    "uge" => builder.ge(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
+                    "ult" => builder.lt(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
+                    "ule" => builder.le(lhs, rhs, span).map_err(|e| format!("{:?}", e))?,
+                    _ => return Err(format!("unsupported icmp type: {}", cmp_type)),
                 }
             };
 
@@ -6613,12 +6689,9 @@ fn emit_instruction(
             }
             // Detect volatile keyword
             let is_volatile = inst.operands[0].contains("volatile");
-            let ptr = if let Some((name, element, index)) =
-                inline_global_gep(&inst.operands[1])
-            {
+            let ptr = if let Some((name, element, index)) = inline_global_gep(&inst.operands[1]) {
                 let base = resolve_global(&name, value_map, builder, span);
-                let index_node =
-                    builder.constant(ConstantData::u64(index), Type::u64(), span);
+                let index_node = builder.constant(ConstantData::u64(index), Type::u64(), span);
                 builder
                     .array_access(base, index_node, element, span)
                     .map_err(|e| format!("{:?}", e))?
@@ -6627,8 +6700,13 @@ fn emit_instruction(
                 get_node_id(&ptr_str, value_map, params, builder, None)
                     .ok_or(format!("cannot resolve load ptr '{}'", ptr_str))?
             };
-            let loaded_ty = operand_type(&inst.operands[0])
-                .unwrap_or_else(|| builder.function().get_node(ptr).map(|n| n.ty.clone()).unwrap_or(Type::u8()));
+            let loaded_ty = operand_type(&inst.operands[0]).unwrap_or_else(|| {
+                builder
+                    .function()
+                    .get_node(ptr)
+                    .map(|n| n.ty.clone())
+                    .unwrap_or(Type::u8())
+            });
             let ptr_kind = builder
                 .function()
                 .get_node(ptr)
@@ -6772,20 +6850,15 @@ fn emit_instruction(
                 .get(1)
                 .is_some_and(|count| !count.trim_start().starts_with("align"))
             {
-                return Err(format!(
-                    "unsupported: dynamic alloca count: {}",
-                    inst.raw
-                ));
+                return Err(format!("unsupported: dynamic alloca count: {}", inst.raw));
             }
             let ty = if type_str.starts_with('[') {
                 gep_source_array_type(&inst.raw)
                     .ok_or(format!("unsupported alloca type: {}", inst.raw))?
             } else {
-                parse_type(type_str)
-                    .ok_or(format!("unsupported alloca type: {}", inst.raw))?
+                parse_type(type_str).ok_or(format!("unsupported alloca type: {}", inst.raw))?
             };
-            let size = type_size(&ty)
-                .ok_or(format!("unsupported alloca layout: {}", inst.raw))?;
+            let size = type_size(&ty).ok_or(format!("unsupported alloca layout: {}", inst.raw))?;
             let align = inst
                 .raw
                 .split("align")
@@ -6793,8 +6866,7 @@ fn emit_instruction(
                 .and_then(|rest| rest.split_whitespace().next())
                 .and_then(|value| value.parse::<usize>().ok())
                 .unwrap_or(1);
-            let result_name =
-                result_name.ok_or(format!("alloca without result: {}", inst.raw))?;
+            let result_name = result_name.ok_or(format!("alloca without result: {}", inst.raw))?;
             let name = format!(
                 "__sir_local_{}",
                 result_name.trim_start_matches('%').replace('.', "_")
@@ -6824,12 +6896,9 @@ fn emit_instruction(
             let value_ty = operand_type(&inst.operands[0]);
             let val = get_node_id(&val_str, value_map, params, builder, value_ty)
                 .ok_or(format!("cannot resolve store value '{}'", val_str))?;
-            let ptr = if let Some((name, element, index)) =
-                inline_global_gep(&inst.operands[1])
-            {
+            let ptr = if let Some((name, element, index)) = inline_global_gep(&inst.operands[1]) {
                 let base = resolve_global(&name, value_map, builder, span);
-                let index_node =
-                    builder.constant(ConstantData::u64(index), Type::u64(), span);
+                let index_node = builder.constant(ConstantData::u64(index), Type::u64(), span);
                 builder
                     .array_access(base, index_node, element, span)
                     .map_err(|e| format!("{:?}", e))?
@@ -7143,8 +7212,7 @@ fn emit_instruction(
                         let b = get_node_id(&b_str, value_map, params, builder, op_ty)
                             .ok_or(format!("cannot resolve umax operand '{}'", b_str))?;
 
-                        let signed =
-                            callee.contains("llvm.smax") || callee.contains("llvm.smin");
+                        let signed = callee.contains("llvm.smax") || callee.contains("llvm.smin");
                         let max = callee.contains("llvm.umax") || callee.contains("llvm.smax");
                         let cmp = if signed {
                             let op = if max { "sir_sgt" } else { "sir_slt" };
@@ -7192,24 +7260,15 @@ fn emit_instruction(
                 let dst = resolve_pointer_operand(&parts[0], value_map, params, builder, span)
                     .ok_or_else(|| format!("cannot resolve memset/memcpy dst: {}", inst.raw))?;
                 let length_str = strip_type(&parts[2]);
-                let length = get_node_id(
-                    &length_str,
-                    value_map,
-                    params,
-                    builder,
-                    Some(Type::u64()),
-                )
-                .ok_or(format!("cannot resolve memset/memcpy length '{}'", length_str))?;
+                let length =
+                    get_node_id(&length_str, value_map, params, builder, Some(Type::u64())).ok_or(
+                        format!("cannot resolve memset/memcpy length '{}'", length_str),
+                    )?;
                 let node_id = if is_memset {
                     let value_str = strip_type(&parts[1]);
-                    let value = get_node_id(
-                        &value_str,
-                        value_map,
-                        params,
-                        builder,
-                        Some(Type::u8()),
-                    )
-                    .ok_or(format!("cannot resolve memset value '{}'", value_str))?;
+                    let value =
+                        get_node_id(&value_str, value_map, params, builder, Some(Type::u8()))
+                            .ok_or(format!("cannot resolve memset value '{}'", value_str))?;
                     builder
                         .intrinsic(
                             "sir_memset",
@@ -7221,9 +7280,7 @@ fn emit_instruction(
                         .map_err(|e| format!("{:?}", e))?
                 } else {
                     let src = resolve_pointer_operand(&parts[1], value_map, params, builder, span)
-                        .ok_or_else(|| {
-                            format!("cannot resolve memcpy src: {}", inst.raw)
-                        })?;
+                        .ok_or_else(|| format!("cannot resolve memcpy src: {}", inst.raw))?;
                     let name = if is_memmove {
                         "sir_memmove"
                     } else {
@@ -7253,14 +7310,9 @@ fn emit_instruction(
                 let b = resolve_pointer_operand(&parts[1], value_map, params, builder, span)
                     .ok_or_else(|| format!("cannot resolve bcmp rhs: {}", inst.raw))?;
                 let length_str = strip_type(&parts[2]);
-                let length = get_node_id(
-                    &length_str,
-                    value_map,
-                    params,
-                    builder,
-                    Some(Type::u64()),
-                )
-                .ok_or(format!("cannot resolve bcmp length '{}'", length_str))?;
+                let length =
+                    get_node_id(&length_str, value_map, params, builder, Some(Type::u64()))
+                        .ok_or(format!("cannot resolve bcmp length '{}'", length_str))?;
                 let node_id = builder
                     .intrinsic(
                         "sir_bcmp",
@@ -7285,14 +7337,8 @@ fn emit_instruction(
                     return Err(format!("llvm.expect without value: {}", inst.raw));
                 };
                 let value_ty = operand_type(first);
-                let value = get_node_id(
-                    &strip_type(first),
-                    value_map,
-                    params,
-                    builder,
-                    value_ty,
-                )
-                .ok_or(format!("cannot resolve expect value: {}", inst.raw))?;
+                let value = get_node_id(&strip_type(first), value_map, params, builder, value_ty)
+                    .ok_or(format!("cannot resolve expect value: {}", inst.raw))?;
                 if let Some(name) = result_name {
                     value_map.insert(name, value);
                 }
@@ -7316,10 +7362,7 @@ fn emit_instruction(
             if target.is_empty() || target.split_whitespace().count() != 1 {
                 return Err(format!("malformed callee: {}", inst.raw));
             }
-            let ret = joined[..at]
-                .split_whitespace()
-                .last()
-                .unwrap_or("void");
+            let ret = joined[..at].split_whitespace().last().unwrap_or("void");
             let ret_ty = if ret == "void" {
                 Type::Unit
             } else {
@@ -7331,10 +7374,7 @@ fn emit_instruction(
             let mut args = Vec::new();
             for part in split_operands(&inside) {
                 let part = part.trim();
-                if part.contains("byval")
-                    || part.contains("sret")
-                    || part.contains("inalloca")
-                {
+                if part.contains("byval") || part.contains("sret") || part.contains("inalloca") {
                     return Err(format!("unsupported call argument attribute: {}", inst.raw));
                 }
                 let ty = operand_type(part);

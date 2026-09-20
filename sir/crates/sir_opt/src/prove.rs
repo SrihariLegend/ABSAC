@@ -71,17 +71,11 @@ pub fn or_laws(width: u32) -> bool {
     let a = bv.var(VarId(0), width);
     let zero = bv.zero(width);
     let zero_or_a = bv.or(zero, a);
-    if !matches!(
-        sir_mech::prove_equal(&bv, zero_or_a, a),
-        CheckResult::Valid
-    ) {
+    if !matches!(sir_mech::prove_equal(&bv, zero_or_a, a), CheckResult::Valid) {
         return false;
     }
     let a_or_zero = bv.or(a, zero);
-    matches!(
-        sir_mech::prove_equal(&bv, a_or_zero, a),
-        CheckResult::Valid
-    )
+    matches!(sir_mech::prove_equal(&bv, a_or_zero, a), CheckResult::Valid)
 }
 
 /// Both 0/1 indicator identities used by All.

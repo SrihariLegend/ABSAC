@@ -10,25 +10,34 @@
 //! - Tuple results from loops are handled by emitting separate output vars
 
 use sir_nodes::{Function, Node, NodeKind};
-use std::fmt::Write as _;
 use sir_types::{ConstantData, Effects, NodeId, Type};
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write as _;
 
 /// C identifier for a global symbol. Emitted C gets its own namespaced
 /// buffer (the reference IR keeps its own definition), so symbols never
 /// alias across translation units; LLVM-only characters map to `_`.
 pub fn c_global_name(name: &str) -> String {
     let mut out = String::from("__sirglobal_");
-    out.extend(
-        name.chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' }),
-    );
+    out.extend(name.chars().map(|c| {
+        if c.is_ascii_alphanumeric() || c == '_' {
+            c
+        } else {
+            '_'
+        }
+    }));
     out
 }
 
 fn c_local_name(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -390,7 +399,11 @@ fn constant_literal(data: &ConstantData, ty: &Type) -> String {
                 ConstantData::Bool(value) => *value,
                 other => other.as_u64().unwrap_or(0) != 0,
             };
-            if value { "true".to_string() } else { "false".to_string() }
+            if value {
+                "true".to_string()
+            } else {
+                "false".to_string()
+            }
         }
         Type::BitVector { .. } => {
             let v = data.as_u64().unwrap_or(0);
@@ -581,10 +594,12 @@ fn emit_pure_expr_into(
             false_val,
         } => {
             out.push('(');
-            if !rec(out, *cond) || !{
-                out.push_str(" ? ");
-                true
-            } || !rec(out, *true_val)
+            if !rec(out, *cond)
+                || !{
+                    out.push_str(" ? ");
+                    true
+                }
+                || !rec(out, *true_val)
                 || !{
                     out.push_str(" : ");
                     true
@@ -982,18 +997,19 @@ fn try_emit_first_occurrence(
                     .map(|n| c_type(&n.ty))
                     .unwrap_or_else(|| "uint64_t".to_string());
                 let lid = loop_node.id.as_u64();
-                let _ = write!(out, 
+                let _ = write!(
+                    out,
                     "    uint64_t __sir_n{lid} = (uint64_t)({bound_len_expr});\n"
                 );
                 let _ = write!(out, "    if (__sir_n{lid} >= 32u) {{\n");
-                let _ = write!(out, 
+                let _ = write!(
+                    out,
                     "        const void *__sir_hit{lid} = memchr((const void *)({base_expr}), \
                      (int)({scalar_expr}), (size_t)__sir_n{lid});\n"
                 );
-                let _ = write!(out, 
-                    "        if (__sir_hit{lid} != (const void *)0) {{\n"
-                );
-                let _ = write!(out, 
+                let _ = write!(out, "        if (__sir_hit{lid} != (const void *)0) {{\n");
+                let _ = write!(
+                    out,
                     "            {res_var} = ({res_type})((const uint8_t *)__sir_hit{lid} - \
                      (const uint8_t *)({base_expr}));\n"
                 );
@@ -1001,7 +1017,8 @@ fn try_emit_first_occurrence(
                 out.push_str("        }\n");
                 out.push_str("    } else {\n");
                 let _ = write!(out, "        while (({idx_var}) < __sir_n{lid}) {{\n");
-                let _ = write!(out, 
+                let _ = write!(
+                    out,
                     "            if ({match_expr}) {{ {res_var} = {idx_var}; \
                      {found_var} = true; break; }}\n"
                 );
@@ -1014,7 +1031,8 @@ fn try_emit_first_occurrence(
     }
 
     let _ = write!(out, "    while ({bound_expr}) {{\n");
-    let _ = write!(out, 
+    let _ = write!(
+        out,
         "        if ({match_expr}) {{ {res_var} = {idx_var}; {found_var} = true; break; }}\n"
     );
     let _ = write!(out, "        {idx_var} = {next_expr};\n");
@@ -1294,9 +1312,7 @@ fn emit_expr(
                     b
                 )
             }
-            "sir_sum_u8" | "sir_sum_u16" | "sir_sum_u32" | "sir_sum_u64"
-                if args.len() == 2 =>
-            {
+            "sir_sum_u8" | "sir_sum_u16" | "sir_sum_u32" | "sir_sum_u64" if args.len() == 2 => {
                 let base = emit_operand(args[0], func, carrier_map);
                 let len = emit_operand(args[1], func, carrier_map);
                 let (helper, element) = match name.as_str() {
@@ -1521,9 +1537,7 @@ fn emit_expr(
                     base_expr,
                     emit_operand(*index, func, carrier_map)
                 )
-            } else if let Some(Type::Pointer { pointee, .. }) =
-                base_node.map(|base| &base.ty)
-            {
+            } else if let Some(Type::Pointer { pointee, .. }) = base_node.map(|base| &base.ty) {
                 if pointee.as_ref() != &node.ty {
                     // The GEP is in source-element units while the access
                     // width differs (e.g. an i8 GEP feeding an i64 load):
@@ -1535,26 +1549,16 @@ fn emit_expr(
                         emit_operand(*index, func, carrier_map)
                     )
                 } else {
-                    format!(
-                        "{}[{}]",
-                        base_expr,
-                        emit_operand(*index, func, carrier_map)
-                    )
+                    format!("{}[{}]", base_expr, emit_operand(*index, func, carrier_map))
                 }
             } else {
-                format!(
-                    "{}[{}]",
-                    base_expr,
-                    emit_operand(*index, func, carrier_map)
-                )
+                format!("{}[{}]", base_expr, emit_operand(*index, func, carrier_map))
             }
         }
         NodeKind::PointerOffset { base, index } => {
             let base_expr = emit_operand(*base, func, carrier_map);
             let index_expr = emit_operand(*index, func, carrier_map);
-            if let Some(Type::Pointer { pointee, .. }) =
-                func.get_node(*base).map(|node| &node.ty)
-            {
+            if let Some(Type::Pointer { pointee, .. }) = func.get_node(*base).map(|node| &node.ty) {
                 if pointee.as_ref() != &node.ty {
                     format!("(({}) ({} + {}))", c_type(&node.ty), base_expr, index_expr)
                 } else {
@@ -1571,7 +1575,11 @@ fn emit_expr(
                 .get_node(*ptr)
                 .is_some_and(|node| matches!(node.kind, NodeKind::ArrayAccess { .. }))
             {
-                emit_expr(func.get_node(*ptr).expect("store target"), func, carrier_map)
+                emit_expr(
+                    func.get_node(*ptr).expect("store target"),
+                    func,
+                    carrier_map,
+                )
             } else {
                 format!("*({})", emit_operand(*ptr, func, carrier_map))
             };
@@ -1588,15 +1596,9 @@ fn emit_expr(
                         .get_node(*operand)
                         .map(|source| source.ty.clone())
                         .unwrap_or_else(|| node.ty.clone());
-                    format!(
-                        "(({}) (({}) ({})))",
-                        target_c,
-                        signed_c_type(&source_ty),
-                        o
-                    )
+                    format!("(({}) (({}) ({})))", target_c, signed_c_type(&source_ty), o)
                 }
-                sir_nodes::ConvertKind::ZeroExtend
-                | sir_nodes::ConvertKind::Truncate => {
+                sir_nodes::ConvertKind::ZeroExtend | sir_nodes::ConvertKind::Truncate => {
                     format!("(({}) {})", target_c, o)
                 }
             }
@@ -1754,9 +1756,7 @@ pub fn emit_c(func: &Function) -> String {
         .arena
         .iter()
         .filter_map(|node| match &node.kind {
-            NodeKind::Intrinsic { name, .. }
-                if name == "sir_sdiv" || name == "sir_srem" =>
-            {
+            NodeKind::Intrinsic { name, .. } if name == "sir_sdiv" || name == "sir_srem" => {
                 int_bits(&node.ty)
             }
             _ => None,
@@ -1795,10 +1795,9 @@ pub fn emit_c(func: &Function) -> String {
         ("sir_sum_u32", "uint32_t", "__sir_sum_u32"),
         ("sir_sum_u64", "uint64_t", "__sir_sum_u64"),
     ] {
-        let used = func
-            .arena
-            .iter()
-            .any(|node| matches!(&node.kind, NodeKind::Intrinsic { name, .. } if name == intrinsic));
+        let used = func.arena.iter().any(
+            |node| matches!(&node.kind, NodeKind::Intrinsic { name, .. } if name == intrinsic),
+        );
         if !used {
             continue;
         }
@@ -1990,7 +1989,13 @@ pub fn emit_c(func: &Function) -> String {
             if node.ty == Type::Unit {
                 let _ = write!(out, "    (void)({expr});\n");
             } else {
-                let _ = write!(out, "    {} v{} = {};\n", c_type(&node.ty), id.as_u64(), expr);
+                let _ = write!(
+                    out,
+                    "    {} v{} = {};\n",
+                    c_type(&node.ty),
+                    id.as_u64(),
+                    expr
+                );
             }
             loop_ids.insert(id);
         }
@@ -2255,9 +2260,7 @@ fn emit_loop(
 
     // Walk the body in program order, expanding each statement's
     // dependencies and executing nested loops in place.
-    let emit_statement = |id: NodeId,
-                          emitted: &mut HashSet<NodeId>,
-                          out: &mut String| {
+    let emit_statement = |id: NodeId, emitted: &mut HashSet<NodeId>, out: &mut String| {
         if !emitted.insert(id) || store_targets.contains(&id) {
             return;
         }

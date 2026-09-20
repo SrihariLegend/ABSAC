@@ -646,6 +646,22 @@ have now been restored into current `sir_mech` and tested.
   (calls `Multiply`) is clean, raising the reproducible external count
   22 → 23; base-14 stays 230 clean, fuzz stays 540 / 360 / 0, and the
   full matrix (including sanitizers) passes.
+- **2026-09-20 — guarded nests, exact names, fast proofs**: the nested
+  detector now uses dominance back edges and accepts a guarded outer
+  header only when the skip guard is exactly the inner loop's zero-trip
+  test (`bound == 0` with a zero-initialized inner counter); matmult
+  `benchmark_body`, `warm_caches`, `benchmark`, and
+  `initialise_benchmark` become clean, taking matmult to 10/10 and the
+  reproducible external count 23 → **27**. `extract_function_by_name`
+  now matches `@name(`, fixing a latent prefix collision (`benchmark`
+  had been lowered as `benchmark_body`). Test time work: power-of-two
+  `udiv`/`urem` encode structurally, `Bv` folds constants and algebraic
+  identities, the two 32-lane kernel proofs run on separate cores, the
+  z3 differential proves its 40 random cases on both cores, and
+  dev/test builds compile at `opt-level = 3`. The single-digit suite
+  (9 tests) runs in **~1.3 s** steady-state, down from ~9.3 s; base-14
+  stays 230 / 131 / 0, fuzz 540 / 360 / 0, and `verify.sh full` passes
+  with sanitizers.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

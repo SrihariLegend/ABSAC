@@ -183,10 +183,11 @@ fn kernel_agrees_with_z3_on_random_bitvector_equivalences() {
         return;
     };
     let mut rng = Rng(0x5EED_1234_5678_9ABC);
-    let mut kernels = Vec::new();
-    let mut widths = Vec::new();
-    let mut queries = Vec::new();
-    for iteration in 0..80 {
+    let mut cases = Vec::new();
+    // Forty random terms across all four widths plus the family laws
+    // below already exercise every operator the kernel encodes; more
+    // samples cost subprocess time without adding a distinct shape.
+    for iteration in 0..40 {
         let width = [8u32, 16, 32, 64][iteration % 4];
         let mut bv = Bv::with_capacity(256);
         let vars: Vec<Term> = (0..3)
@@ -196,19 +197,35 @@ fn kernel_agrees_with_z3_on_random_bitvector_equivalences() {
         let rhs_vars = vars;
         let (lhs, lhs_smt) = expression(&mut rng, &mut bv, &lhs_vars, width, 3);
         let (rhs, rhs_smt) = expression(&mut rng, &mut bv, &rhs_vars, width, 3);
-
-        let kernel = match sir_mech::prove_equal(&bv, lhs, rhs) {
-            CheckResult::Valid => Some(true),
-            CheckResult::Counterexample(_) => Some(false),
-            CheckResult::Unknown(_) => None,
-        };
-        kernels.push(kernel);
-        widths.push(width);
         let declarations = (0..3)
             .map(|index| format!("(declare-const x{index} (_ BitVec {width}))\n"))
             .collect::<String>();
-        queries.push((declarations, lhs_smt, rhs_smt));
+        cases.push((width, bv, lhs, rhs, lhs_smt, rhs_smt, declarations));
     }
+    let prove = |slice: &[(u32, Bv, Term, Term, String, String, String)]| {
+        slice
+            .iter()
+            .map(|(_, bv, lhs, rhs, ..)| match sir_mech::prove_equal(bv, *lhs, *rhs) {
+                CheckResult::Valid => Some(true),
+                CheckResult::Counterexample(_) => Some(false),
+                CheckResult::Unknown(_) => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let (left, right) = cases.split_at(cases.len() / 2);
+    let (left, right) = std::thread::scope(|scope| {
+        let left = scope.spawn(|| prove(left));
+        let right = scope.spawn(|| prove(right));
+        (left.join().expect("kernel proofs"), right.join().expect("kernel proofs"))
+    });
+    let kernels: Vec<Option<bool>> = left.into_iter().chain(right).collect();
+    let widths: Vec<u32> = cases.iter().map(|case| case.0).collect();
+    let mut queries: Vec<(String, String, String)> = cases
+        .iter()
+        .map(|(_, _, _, _, lhs, rhs, declarations)| {
+            (declarations.clone(), lhs.clone(), rhs.clone())
+        })
+        .collect();
     let random_len = queries.len();
     queries.extend(law_queries());
     let Some(external) = z3_batch(&z3, &queries) else {

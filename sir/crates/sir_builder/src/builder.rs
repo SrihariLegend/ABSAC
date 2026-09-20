@@ -497,7 +497,16 @@ impl Builder {
         span: Span,
     ) -> Result<NodeId, BuildError> {
         let _ = self.get_node(operand)?;
-        Ok(self.alloc_node(NodeKind::Convert { operand, target_ty: target_ty.clone(), kind }, target_ty, Effects::empty(), span))
+        Ok(self.alloc_node(
+            NodeKind::Convert {
+                operand,
+                target_ty: target_ty.clone(),
+                kind,
+            },
+            target_ty,
+            Effects::empty(),
+            span,
+        ))
     }
 
     // ── Comparisons ─────────────────────────────────────────

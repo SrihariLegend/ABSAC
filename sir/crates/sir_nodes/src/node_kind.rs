@@ -44,7 +44,11 @@ pub enum NodeKind {
     /// Address of a named global (byte-addressed base).
     Global { name: String },
     /// Address of a fixed-size stack buffer (`alloca`).
-    LocalAlloca { name: String, size: usize, align: usize },
+    LocalAlloca {
+        name: String,
+        size: usize,
+        align: usize,
+    },
 
     // ── Arithmetic (binary) ─────────────────────────────────
     /// Integer or floating-point addition: `lhs + rhs`.

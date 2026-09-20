@@ -66,4 +66,3 @@ impl std::fmt::Display for Effects {
         write!(f, "{}", self.describe())
     }
 }
-

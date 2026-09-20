@@ -141,7 +141,11 @@ fn recognize_shift_mask(
     ty: &Type,
 ) -> Option<ArithmeticPlan> {
     let inner = function.get_node(lhs)?;
-    let NodeKind::Shl { lhs: x, rhs: inner_amount } = &inner.kind else {
+    let NodeKind::Shl {
+        lhs: x,
+        rhs: inner_amount,
+    } = &inner.kind
+    else {
         return None;
     };
     let outer = constant_u64(function, rhs)?;

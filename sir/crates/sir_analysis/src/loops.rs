@@ -30,8 +30,7 @@ pub fn run_loops(func: &Function) -> HashMap<NodeId, LoopFact> {
             carried_inputs,
         } = &node.kind
         {
-            let trip_count =
-                estimate_trip_count(func, *termination, carried_inputs, outputs);
+            let trip_count = estimate_trip_count(func, *termination, carried_inputs, outputs);
             let is_nested = is_nested_loop(func, body);
             let carried = carried_inputs.clone();
             let reductions = detect_reductions(func, carried_inputs, outputs);
@@ -247,7 +246,11 @@ fn detect_reductions(
                         None
                     }
                 }
-                NodeKind::Select { true_val, false_val, .. } => {
+                NodeKind::Select {
+                    true_val,
+                    false_val,
+                    ..
+                } => {
                     // Sticky-reset reduction: keep the carried value while a
                     // condition holds, reset to a constant identity otherwise.
                     // Form 1: select(c, carry, reset) — All(c) with init 1.
@@ -290,7 +293,11 @@ fn detect_reductions(
                             continue; // rhs - carry is not a carried reduction
                         }
                     }
-                    NodeKind::Select { true_val, false_val, .. } => {
+                    NodeKind::Select {
+                        true_val,
+                        false_val,
+                        ..
+                    } => {
                         // For a carry-preserving select, the "invariant value"
                         // is the reset arm (the constant the accumulator
                         // collapses to when the condition fails).
@@ -316,11 +323,7 @@ fn detect_reductions(
 
 /// `(carry + c) + element` (or the commuted forms): returns the element.
 /// `c` must be a constant literal.
-fn folded_add_offset(
-    func: &Function,
-    kind: &NodeKind,
-    carry: NodeId,
-) -> Option<NodeId> {
+fn folded_add_offset(func: &Function, kind: &NodeKind, carry: NodeId) -> Option<NodeId> {
     let NodeKind::Add { lhs, rhs } = kind else {
         return None;
     };

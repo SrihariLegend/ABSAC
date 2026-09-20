@@ -134,9 +134,7 @@ fn recognize_loop(function: &Function, loop_id: NodeId) -> Option<PopcountPlan> 
     let NodeKind::Ne { lhs, rhs } = &function.get_node(*termination)?.kind else {
         return None;
     };
-    if !((*lhs == value && is_zero(function, *rhs))
-        || (*rhs == value && is_zero(function, *lhs)))
-    {
+    if !((*lhs == value && is_zero(function, *rhs)) || (*rhs == value && is_zero(function, *lhs))) {
         return None;
     }
     // `x_next = x & (x - 1)`.
@@ -214,8 +212,11 @@ fn is_one(function: &Function, id: NodeId) -> bool {
 }
 
 fn is_minus_one(function: &Function, id: NodeId) -> bool {
-    let Some(NodeKind::Constant(ConstantData::Integer { value, width, signed })) =
-        function.get_node(id).map(|node| &node.kind)
+    let Some(NodeKind::Constant(ConstantData::Integer {
+        value,
+        width,
+        signed,
+    })) = function.get_node(id).map(|node| &node.kind)
     else {
         return false;
     };

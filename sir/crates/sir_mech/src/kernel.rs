@@ -433,11 +433,7 @@ impl Kernel {
                 .filter(|&h| h != neg),
         );
         Ok(Theorem {
-            statement: Statement::new(
-                hyps,
-                case_true.statement.lhs,
-                case_true.statement.rhs,
-            ),
+            statement: Statement::new(hyps, case_true.statement.lhs, case_true.statement.rhs),
             derivation: Derivation::CaseSplit {
                 cond,
                 case_true: Box::new(case_true.derivation.clone()),
@@ -1557,8 +1553,7 @@ impl Kernel {
                 if !st.hyps.contains(&cond) || !sf.hyps.contains(&neg) {
                     return Err(KernelError::Shape("replay case_split hypotheses".into()));
                 }
-                let mut hyps: Vec<Tid> =
-                    st.hyps.iter().copied().filter(|&h| h != cond).collect();
+                let mut hyps: Vec<Tid> = st.hyps.iter().copied().filter(|&h| h != cond).collect();
                 hyps.extend(sf.hyps.iter().copied().filter(|&h| h != neg));
                 Ok(Statement::new(hyps, st.lhs, st.rhs))
             }

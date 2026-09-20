@@ -6,8 +6,8 @@
 //! constructor validates its operands, so an ill-formed term cannot be
 //! represented.
 
-use std::collections::BTreeMap;
 use sir_types::fnv::FastHashMap;
+use std::collections::BTreeMap;
 use std::fmt;
 
 /// Largest supported bitvector width.
@@ -94,6 +94,62 @@ fn mask(width: u32) -> u64 {
         u64::MAX
     } else {
         (1u64 << width) - 1
+    }
+}
+
+/// Evaluate one binary operation on concrete values.
+fn eval_bin(op: BinOp, av: u64, bv: u64, width: u32) -> u64 {
+    match op {
+        BinOp::And => av & bv,
+        BinOp::Or => av | bv,
+        BinOp::Xor => av ^ bv,
+        BinOp::Add => av.wrapping_add(bv),
+        BinOp::Sub => av.wrapping_sub(bv),
+        BinOp::Mul => (u128::from(av) * u128::from(bv)) as u64,
+        BinOp::Shl => {
+            if bv >= u64::from(width) {
+                0
+            } else {
+                av.wrapping_shl(bv as u32)
+            }
+        }
+        BinOp::Lshr => {
+            if bv >= u64::from(width) {
+                0
+            } else {
+                av >> bv
+            }
+        }
+        BinOp::Ashr => {
+            let signed = sign_extend_u64(av, width);
+            let sh = if bv >= u64::from(width) {
+                (width - 1) as u32
+            } else {
+                bv as u32
+            };
+            (signed >> sh) as u64
+        }
+        // SMT-LIB bitvector semantics: division by zero is all-ones,
+        // remainder by zero is the dividend.
+        BinOp::Udiv => {
+            let d = bv & mask(width);
+            if d == 0 {
+                mask(width)
+            } else {
+                (av & mask(width)) / d
+            }
+        }
+        BinOp::Urem => {
+            let d = bv & mask(width);
+            if d == 0 {
+                av & mask(width)
+            } else {
+                (av & mask(width)) % d
+            }
+        }
+        BinOp::Ult => u64::from(av < bv),
+        BinOp::Ule => u64::from(av <= bv),
+        BinOp::Eq => u64::from(av == bv),
     }
 }
 
@@ -187,6 +243,37 @@ impl Bv {
         let wb = self.width(b);
         assert_eq!(wa, wb, "operand width mismatch for {}", op.symbol());
         let width = op.result_width(wa);
+        if let (Node::Const(x), Node::Const(y)) = (self.node(a), self.node(b)) {
+            return self.constant(eval_bin(op, x, y, wa), width);
+        }
+        let zero = self.zero(wa);
+        let ones = self.ones(wa);
+        match op {
+            BinOp::And if a == zero || b == zero => return zero,
+            BinOp::And if a == ones => return b,
+            BinOp::And if b == ones => return a,
+            BinOp::And | BinOp::Or if a == b => return a,
+            BinOp::Or if a == zero => return b,
+            BinOp::Or if b == zero => return a,
+            BinOp::Or if a == ones || b == ones => return ones,
+            BinOp::Xor if a == zero => return b,
+            BinOp::Xor if b == zero => return a,
+            BinOp::Xor if a == b => return zero,
+            BinOp::Add | BinOp::Sub | BinOp::Shl | BinOp::Lshr if b == zero => return a,
+            BinOp::Add if a == zero => return b,
+            BinOp::Sub if a == b => return zero,
+            BinOp::Mul if a == zero || b == zero => return zero,
+            BinOp::Mul if a == ones => return b,
+            BinOp::Mul if b == ones => return a,
+            BinOp::Udiv if b == zero => return ones,
+            BinOp::Udiv if b == ones => return a,
+            BinOp::Urem if b == zero => return a,
+            BinOp::Urem if b == ones => return zero,
+            BinOp::Eq if a == b => return self.constant(1, 1),
+            BinOp::Ult if a == b => return self.constant(0, 1),
+            BinOp::Ule if a == b => return self.constant(1, 1),
+            _ => {}
+        }
         self.push(Node::Bin(op, a, b), width)
     }
 
@@ -330,61 +417,7 @@ impl Bv {
             Node::Bin(op, a, b) => {
                 let av = self.eval(a, model);
                 let bv = self.eval(b, model);
-                match op {
-                    BinOp::And => av & bv,
-                    BinOp::Or => av | bv,
-                    BinOp::Xor => av ^ bv,
-                    BinOp::Add => av.wrapping_add(bv),
-                    BinOp::Sub => av.wrapping_sub(bv),
-                    BinOp::Mul => (u128::from(av) * u128::from(bv)) as u64,
-                    BinOp::Shl => {
-                        if bv >= u64::from(self.width(a)) {
-                            0
-                        } else {
-                            av.wrapping_shl(bv as u32)
-                        }
-                    }
-                    BinOp::Lshr => {
-                        if bv >= u64::from(self.width(a)) {
-                            0
-                        } else {
-                            av >> bv
-                        }
-                    }
-                    BinOp::Ashr => {
-                        let wa = self.width(a);
-                        let signed = sign_extend_u64(av, wa);
-                        let sh = if bv >= u64::from(wa) {
-                            (wa - 1) as u32
-                        } else {
-                            bv as u32
-                        };
-                        (signed >> sh) as u64
-                    }
-                    // SMT-LIB bitvector semantics: division by zero is
-                    // all-ones, remainder by zero is the dividend.
-                    BinOp::Udiv => {
-                        let w = self.width(a);
-                        let d = bv & mask(w);
-                        if d == 0 {
-                            mask(w)
-                        } else {
-                            (av & mask(w)) / d
-                        }
-                    }
-                    BinOp::Urem => {
-                        let w = self.width(a);
-                        let d = bv & mask(w);
-                        if d == 0 {
-                            av & mask(w)
-                        } else {
-                            (av & mask(w)) % d
-                        }
-                    }
-                    BinOp::Ult => u64::from(av < bv),
-                    BinOp::Ule => u64::from(av <= bv),
-                    BinOp::Eq => u64::from(av == bv),
-                }
+                eval_bin(op, av, bv, self.width(a))
             }
             Node::Ite(c, t, e) => {
                 if self.eval(c, model) != 0 {
