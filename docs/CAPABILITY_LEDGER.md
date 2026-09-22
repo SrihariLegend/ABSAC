@@ -753,6 +753,20 @@ have now been restored into current `sir_mech` and tested.
   (`i64,` parsed as size 0), which had blocked external scalar globals.
   `verify.sh full` passes (246 / 133 / 0 native+AArch64, fuzz
   540 / 360 / 0, external 32, sanitizers 0, 9 tests ~1.3 s).
+- **2026-09-22 — rejected loop-prelude pre-emission (jpegdct)**: two
+  emitter variants were tried to hoist preheader statements out of loop
+  scope so a three-level chain could read the entry alloca/GEPs:
+  (a) pre-emit every node with id below the first `Loop`, and
+  (b) additionally exclude any node that transitively depends on a loop
+  body (`depends_on_loop_body`). Both regressed loop-heavy functions
+  (`fir_no_red_ld`, `iir1`, and others) and still produced uses of
+  inner-loop carriers before their declaration. The reason is
+  structural: an outer loop's carrier initializer is allowed to read
+  values owned by an inner loop, so pre-loop emission needs a
+  loop-aware schedule, not a flat prelude. Both variants were reverted;
+  `jpegdct` stays refused (three back edges, outside the two-level
+  detector) and `verify_benchmark`/`FH_DU` remain blocked by the same
+  scoping design.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
