@@ -8,8 +8,9 @@
 use sir_nodes::{Function, Node, NodeKind};
 use sir_types::{ConstantData, Effects, NodeId, Span, Type};
 
+use std::sync::{Mutex, OnceLock};
+
 use crate::patch::{apply, Patch};
-use crate::prove;
 
 const KERNIGHAN_POPCOUNT: u64 = 7;
 
@@ -32,11 +33,10 @@ pub(crate) fn apply_one(
     _facts: &sir_analysis::facts::FactDatabase,
 ) -> Option<(Function, u64)> {
     let plan = recognize(function)?;
-    // Widths ≤16 carry a bounded machine proof. Production widths are
-    // contract-backed for now: the standard Kernighan clear-lowest-bit
-    // identity is checked by differential and sanitizer runs; the kernel
-    // induction proof remains H3.
-    if plan.width <= 16 && !prove::kernighan_laws(plan.width) {
+    // Widths ≤32 carry the kernel induction proof. Wider widths are
+    // contract-backed: the clear-lowest-bit identity is checked by
+    // differential and sanitizer runs.
+    if plan.width <= 32 && !kernighan_proved(plan.width) {
         return None;
     }
     let max = function.arena.ids().map(|id| id.0).max().unwrap_or(0);
@@ -87,6 +87,23 @@ pub(crate) fn apply_one(
         },
     )
     .map(|function| (function, KERNIGHAN_POPCOUNT))
+}
+
+/// The induction proof is width-parameterized and takes ~0.4 s at width
+/// 32, so cache the result per width for the process lifetime.
+fn kernighan_proved(width: u32) -> bool {
+    static CACHE: OnceLock<Mutex<Vec<(u32, bool)>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(Vec::new()));
+    if let Ok(entries) = cache.lock() {
+        if let Some(&(_, proved)) = entries.iter().find(|(w, _)| *w == width) {
+            return proved;
+        }
+    }
+    let proved = sir_mech::kernighan::kernighan_law(width);
+    if let Ok(mut entries) = cache.lock() {
+        entries.push((width, proved));
+    }
+    proved
 }
 
 fn recognize(function: &Function) -> Option<PopcountPlan> {

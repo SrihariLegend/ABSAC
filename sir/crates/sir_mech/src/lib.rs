@@ -21,6 +21,7 @@ pub mod bv;
 pub mod cnf;
 pub mod equiv;
 pub mod kernel;
+pub mod kernighan;
 pub mod sat;
 pub mod term;
 

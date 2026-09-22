@@ -16,6 +16,7 @@
 //! Gate 4B statements are exactly of this form, with the well-formedness
 //! preconditions appearing as hypotheses.
 
+use std::cell::RefCell;
 use std::collections::HashSet;
 
 use sir_types::fnv::FastHashMap;
@@ -171,6 +172,7 @@ pub struct Kernel {
     arena: Arena,
     schemas: Vec<Schema>,
     axioms: Vec<AxiomRecord>,
+    int_shadows: RefCell<FastHashMap<Symbol, (i128, i128)>>,
 }
 
 impl Default for Kernel {
@@ -185,6 +187,7 @@ impl Kernel {
             arena: Arena::new(),
             schemas: Vec::new(),
             axioms: Vec::new(),
+            int_shadows: RefCell::new(FastHashMap::default()),
         }
     }
 
@@ -653,7 +656,7 @@ impl Kernel {
         let mut terms: Vec<Tid> = assumptions.to_vec();
         terms.push(lhs);
         terms.push(rhs);
-        let (bv, translated) = self.translate_terms(&terms)?;
+        let (bv, translated) = self.translate_terms_bounded(assumptions, &terms)?;
         let n = assumptions.len();
         let outcome = crate::equiv::prove_implied_equal(
             &bv,
@@ -688,6 +691,64 @@ impl Kernel {
             out.push(self.translate(t, &mut bv, &mut memo)?);
         }
         Ok((bv, out))
+    }
+
+    /// Translate terms whose free Int variables are pinned to
+    /// `[0, 2^64)` by `hyps`, mapping each such variable to a fresh
+    /// 64-bit shadow. Unbounded Int variables are rejected: they have no
+    /// faithful fixed-width representation.
+    fn translate_terms_bounded(
+        &mut self,
+        hyps: &[Tid],
+        terms: &[Tid],
+    ) -> Result<(crate::bv::Bv, Vec<crate::bv::Term>), KernelError> {
+        let mut vars: Vec<Symbol> = Vec::new();
+        let mut seen = HashSet::new();
+        for &term in hyps.iter().chain(terms.iter()) {
+            self.collect_int_vars(term, &mut vars, &mut seen);
+        }
+        let mut shadows: FastHashMap<Symbol, (i128, i128)> = FastHashMap::default();
+        for var in vars {
+            let term = self.arena.var(var);
+            let zero = self.arena.int(0);
+            let nonneg = self.arena.le(zero, term);
+            let shifted_nonneg = {
+                let one = self.arena.int(1);
+                let shifted = self.arena.add(term, one);
+                self.arena.le(zero, shifted)
+            };
+            if !self.entails(hyps, nonneg) && !self.entails(hyps, shifted_nonneg) {
+                return Err(KernelError::Shape(format!(
+                    "bitblast: Int variable {} is not bounded to [0, 2^64) by the assumptions",
+                    self.arena.var_name(var)
+                )));
+            }
+            let mut upper = None;
+            for bits in 1..=64u32 {
+                let limit = self.arena.int(1i128 << bits);
+                let below = self.arena.lt(term, limit);
+                let shifted_below = {
+                    let one = self.arena.int(1);
+                    let shifted = self.arena.add(term, one);
+                    self.arena.lt(shifted, limit)
+                };
+                if self.entails(hyps, below) || self.entails(hyps, shifted_below) {
+                    upper = Some((1i128 << bits) - 1);
+                    break;
+                }
+            }
+            let upper = upper.ok_or_else(|| {
+                KernelError::Shape(format!(
+                    "bitblast: Int variable {} is not bounded above by the assumptions",
+                    self.arena.var_name(var)
+                ))
+            })?;
+            shadows.insert(var, (0, upper));
+        }
+        *self.int_shadows.borrow_mut() = shadows;
+        let out = self.translate_terms(terms);
+        self.int_shadows.borrow_mut().clear();
+        out
     }
 
     /// Discharge a hypothesis that is implied by the remaining
@@ -739,6 +800,31 @@ impl Kernel {
                 prove_entailment(&self.arena, hyps, goal) == ArithOutcome::Valid
             }
             _ => prove_entailment(&self.arena, hyps, goal) == ArithOutcome::Valid,
+        }
+    }
+
+    /// [`Kernel::entails`] plus a bit-blasting fallback for goals that
+    /// need bitvector reasoning (for example an induction measure over
+    /// `bv_to_int`).
+    fn entails_checked(&mut self, hyps: &[Tid], goal: Tid) -> bool {
+        if self.entails(hyps, goal) {
+            return true;
+        }
+        if self.arena.sort(goal) != Sort::Bool {
+            return false;
+        }
+        let t = self.arena.bool(true);
+        self.bitblast_implies(hyps, goal, t).is_ok()
+    }
+
+    fn collect_int_vars(&self, t: Tid, out: &mut Vec<Symbol>, seen: &mut HashSet<Symbol>) {
+        if let Node::Var(symbol) = self.arena.node(t) {
+            if self.arena.sort(t) == Sort::Int && seen.insert(*symbol) {
+                out.push(*symbol);
+            }
+        }
+        for child in self.arena.node(t).children() {
+            self.collect_int_vars(child, out, seen);
         }
     }
 
@@ -930,7 +1016,7 @@ impl Kernel {
                 if ctx.contains(&h_next) {
                     continue;
                 }
-                if prove_entailment(&self.arena, &ctx, h_next) != ArithOutcome::Valid {
+                if !self.entails_checked(&ctx, h_next) {
                     return Err(KernelError::Shape(format!(
                         "induction: hypothesis {} is not preserved at the successor step",
                         self.arena.display(h)
@@ -974,18 +1060,14 @@ impl Kernel {
                 subst.insert(k, r_instance);
                 let zero = self.arena.int(0);
                 let nonneg = self.arena.le(zero, r_instance);
-                if !check_ctx.contains(&nonneg)
-                    && prove_entailment(&self.arena, &check_ctx, nonneg) != ArithOutcome::Valid
-                {
+                if !check_ctx.contains(&nonneg) && !self.entails_checked(&check_ctx, nonneg) {
                     return Err(KernelError::Shape(format!(
                         "induction: instance measure {} is not known to be non-negative",
                         self.arena.display(r_instance)
                     )));
                 }
                 let below = self.arena.lt(r_instance, k_plus_one);
-                if !check_ctx.contains(&below)
-                    && prove_entailment(&self.arena, &check_ctx, below) != ArithOutcome::Valid
-                {
+                if !check_ctx.contains(&below) && !self.entails_checked(&check_ctx, below) {
                     return Err(KernelError::Shape(format!(
                         "induction: instance measure {} is not smaller than the step",
                         self.arena.display(r_instance)
@@ -996,7 +1078,7 @@ impl Kernel {
                     if check_ctx.contains(&inst) {
                         continue;
                     }
-                    if prove_entailment(&self.arena, &check_ctx, inst) != ArithOutcome::Valid {
+                    if !self.entails_checked(&check_ctx, inst) {
                         return Err(KernelError::Shape(format!(
                             "induction: instance premise {} is not available for {}",
                             self.arena.display(inst),
@@ -1184,6 +1266,10 @@ impl Kernel {
             }
             Node::Var(sym) => {
                 if matches!(self.arena.sort(t), Sort::Int) {
+                    if self.int_shadows.borrow().contains_key(&sym) {
+                        let id = crate::bv::VarId(0x4000_0000 + sym.0);
+                        return Ok(bv.var(id, 64));
+                    }
                     return Err(KernelError::Shape(format!(
                         "bitblast: bare Int variable {} not supported",
                         self.arena.var_name(sym)
@@ -1392,6 +1478,9 @@ impl Kernel {
     fn int_bounds(&self, t: Tid) -> Option<(i128, i128)> {
         match self.arena.node(t).clone() {
             Node::IntConst(v) => Some((v, v)),
+            Node::Var(symbol) if self.arena.sort(t) == Sort::Int => {
+                self.int_shadows.borrow().get(&symbol).copied()
+            }
             Node::BoolToInt(_) => Some((0, 1)),
             Node::BvToInt(a) => {
                 // Track the value range through the bitvector structure:
@@ -1631,7 +1720,7 @@ impl Kernel {
                     let mut terms: Vec<Tid> = goal.hyps.clone();
                     terms.push(goal.lhs);
                     terms.push(goal.rhs);
-                    let (bv, tr) = self.translate_terms(&terms)?;
+                    let (bv, tr) = self.translate_terms_bounded(&goal.hyps, &terms)?;
                     let n = goal.hyps.len();
                     match crate::equiv::prove_implied_equal(&bv, &tr[..n], tr[n], tr[n + 1]) {
                         CheckResult::Valid => Ok(goal),

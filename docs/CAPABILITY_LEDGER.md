@@ -812,6 +812,22 @@ have now been restored into current `sir_mech` and tested.
   9 tests ~1.3 s. The three run-flag search lowerers (peeled-found,
   mismatch, search-then-sum) now share the same loop skeleton and are a
   recorded dedup candidate for the next leanness pass.
+- **2026-09-22 — H3 Kernighan induction (width ≤32)**: `K` is the
+  loop's functional equation (`K(0)=0`, `x≠0 ⇒ K(x)=1+K(x&(x-1))`);
+  `K(x)=popcount(x)` is now proved by kernel strong induction on the
+  integer value of `x` and replay-checked with **no hypotheses**.
+  Width 16 drops from 285 ms of SAT unrolling to 34 ms, width 32 from
+  35.6 s to **0.43 s** (cached per process); the family gates on the
+  proof for ≤32. Width 64 still needs a >64-bit integer shadow for the
+  measure, so it stays contract-backed. The old bounded-unrolling law
+  was deleted. Kernel support: induction measure/premise checks fall
+  back to bit-blasting when linear arithmetic cannot decide them, and
+  free `Int` variables in bit-blast obligations must be pinned to
+  `[0, 2^64)` by the hypotheses (they are then shadowed by 64-bit BV
+  variables, including in replay). Evidence command:
+  `cargo run -p sir_mech --example kernighan_induction -- 32`.
+  Matrix unchanged: base-14 496/266/0, external 37, sanitizers 0,
+  9 tests ~1.36 s.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
