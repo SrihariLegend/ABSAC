@@ -2660,6 +2660,741 @@ fn completion_node_ty(builder: &Builder, node: NodeId) -> Type {
         .unwrap_or(Type::u64())
 }
 
+/// Pre-tested search over a runtime/constant bound whose miss path runs a
+/// fixed-size accumulation loop, then returns either the match index or the
+/// accumulated sum (p07/p16).
+fn sts_block_index(ir: &IrFunction, label: &str) -> Option<usize> {
+    ir.block_map.get(label).copied().or_else(|| {
+        (ir.blocks.first().map(|block| block.label.as_str()) == Some("entry")
+            && !label.is_empty()
+            && label.chars().all(|c| c.is_ascii_digit()))
+        .then_some(0usize)
+    })
+}
+
+struct SearchThenSumShape {
+    guard: Option<(String, bool)>,
+    bound: String,
+    peel: usize,
+    header: usize,
+    body: usize,
+    match_block: usize,
+    merge: usize,
+    sum_entry: usize,
+    sum_block: usize,
+    final_block: usize,
+    index_phi: String,
+    next_name: String,
+}
+
+fn detect_search_then_sum(ir: &IrFunction) -> Option<SearchThenSumShape> {
+    if ir.blocks.is_empty() {
+        return None;
+    }
+    let entry = &ir.blocks[0];
+    let entry_br = entry.instructions.iter().rev().find(|i| i.opcode == "br");
+    let mut guard = None;
+    let mut peel = 0usize;
+    let mut bound = None;
+    if let Some(br) = entry_br.filter(|br| br.operands.len() >= 3) {
+        let cond = strip_type(&br.operands[0]);
+        let guard_inst = entry
+            .instructions
+            .iter()
+            .find(|i| i.result.as_deref() == Some(cond.as_str()));
+        let zero_guard = guard_inst.and_then(|inst| {
+            if inst.opcode != "icmp" {
+                return None;
+            }
+            let pred = inst.operands.first()?.split_whitespace().next()?;
+            if pred != "ne" && pred != "eq" {
+                return None;
+            }
+            let parts: Vec<String> = inst
+                .operands
+                .iter()
+                .map(|o| operand_value_token(o))
+                .collect();
+            let candidate = if parse_int_constant(&parts[0]) == Some(0) {
+                parts.get(1)?.clone()
+            } else if parse_int_constant(&parts[1]) == Some(0) {
+                parts.first()?.clone()
+            } else {
+                return None;
+            };
+            Some((candidate, pred.to_string()))
+        });
+        if let Some((candidate, pred)) = zero_guard {
+            bound = Some(candidate);
+            let labels = terminator_targets(br);
+            if labels.len() != 2 {
+                return None;
+            }
+            let t0 = *ir.block_map.get(labels[0].as_str())?;
+            let t1 = *ir.block_map.get(labels[1].as_str())?;
+            let is_peel = |idx: usize| {
+                let b = &ir.blocks[idx];
+                !b.instructions
+                    .iter()
+                    .any(|i| matches!(i.opcode.as_str(), "phi" | "store" | "call"))
+                    && b.instructions.iter().any(|i| i.opcode == "load")
+                    && b.instructions.iter().any(|i| i.opcode == "icmp")
+            };
+            if is_peel(t0) && !is_peel(t1) {
+                peel = t0;
+                guard = Some((cond.clone(), pred == "ne"));
+            } else if is_peel(t1) && !is_peel(t0) {
+                peel = t1;
+                guard = Some((cond.clone(), pred == "eq"));
+            } else {
+                return None;
+            }
+        }
+    }
+    let peel_br = ir.blocks[peel]
+        .instructions
+        .iter()
+        .rev()
+        .find(|i| i.opcode == "br")?;
+    let peel_labels = terminator_targets(peel_br);
+    if peel_labels.len() != 2 {
+        return None;
+    }
+    for header_idx in peel_labels
+        .iter()
+        .filter_map(|label| ir.block_map.get(label).copied())
+    {
+        let header = &ir.blocks[header_idx];
+        let phis: Vec<&Instruction> = header
+            .instructions
+            .iter()
+            .filter(|i| i.opcode == "phi")
+            .collect();
+        if phis.len() != 1 {
+            continue;
+        }
+        let index_phi = phis[0].result.clone()?;
+        if !phi_incomings(phis[0]).iter().any(|(value, label)| {
+            sts_block_index(ir, label) == Some(peel)
+                && parse_int_constant(&strip_type(value)) == Some(0)
+        }) {
+            continue;
+        }
+        let header_br = header
+            .instructions
+            .iter()
+            .rev()
+            .find(|i| i.opcode == "br")?;
+        if header_br.operands.len() < 3 {
+            continue;
+        }
+        let done_name = strip_type(&header_br.operands[0]);
+        let done_inst = header
+            .instructions
+            .iter()
+            .find(|i| i.result.as_deref() == Some(done_name.as_str()))?;
+        if done_inst.opcode != "icmp" {
+            continue;
+        }
+        let mut next_name = None;
+        for inst in &header.instructions {
+            if inst.opcode == "add"
+                && strip_type(&inst.operands[0]) == index_phi
+                && parse_int_constant(&strip_type(&inst.operands[1])) == Some(1)
+            {
+                next_name = inst.result.clone();
+            }
+        }
+        let next_name = next_name?;
+        if bound.is_none() {
+            let parts: Vec<String> = done_inst
+                .operands
+                .iter()
+                .map(|o| operand_value_token(o))
+                .collect();
+            let candidate = if strip_type(&parts[0]) == next_name {
+                parts.get(1)?.clone()
+            } else if strip_type(&parts[1]) == next_name {
+                parts.first()?.clone()
+            } else {
+                continue;
+            };
+            bound = Some(candidate);
+        }
+        let header_targets: Vec<usize> = terminator_targets(header_br)
+            .iter()
+            .filter_map(|label| ir.block_map.get(label).copied())
+            .collect();
+        if header_targets.len() != 2 {
+            continue;
+        }
+        let mut body = None;
+        let mut sum_entry = None;
+        for &target in &header_targets {
+            let back = ir.blocks[target]
+                .instructions
+                .iter()
+                .rev()
+                .find(|i| i.opcode == "br")
+                .map(|br| {
+                    terminator_targets(br)
+                        .iter()
+                        .any(|label| ir.block_map.get(label) == Some(&header_idx))
+                })
+                .unwrap_or(false);
+            if back {
+                body = Some(target);
+            } else {
+                sum_entry = Some(target);
+            }
+        }
+        let (body, sum_entry) = (body?, sum_entry?);
+        if ir.blocks[body]
+            .instructions
+            .iter()
+            .any(|i| matches!(i.opcode.as_str(), "phi" | "store" | "call" | "ret"))
+        {
+            continue;
+        }
+        let body_br = ir.blocks[body]
+            .instructions
+            .iter()
+            .rev()
+            .find(|i| i.opcode == "br")?;
+        let body_targets: Vec<usize> = terminator_targets(body_br)
+            .iter()
+            .filter_map(|label| ir.block_map.get(label).copied())
+            .collect();
+        if body_targets.len() != 2 || !body_targets.contains(&header_idx) {
+            continue;
+        }
+        let match_block = *body_targets.iter().find(|target| **target != header_idx)?;
+        let match_b = &ir.blocks[match_block];
+        if match_b
+            .instructions
+            .iter()
+            .any(|i| matches!(i.opcode.as_str(), "phi" | "store" | "call" | "ret"))
+        {
+            continue;
+        }
+        let match_br = match_b
+            .instructions
+            .iter()
+            .rev()
+            .find(|i| i.opcode == "br")?;
+        let match_targets = terminator_targets(match_br);
+        if match_targets.len() != 1 {
+            continue;
+        }
+        let merge = *ir.block_map.get(match_targets[0].as_str())?;
+        let merge_b = &ir.blocks[merge];
+        let merge_phis: Vec<&Instruction> = merge_b
+            .instructions
+            .iter()
+            .filter(|i| i.opcode == "phi")
+            .collect();
+        if merge_phis.len() != 2 {
+            continue;
+        }
+        let merge_br = merge_b
+            .instructions
+            .iter()
+            .rev()
+            .find(|i| i.opcode == "br")?;
+        if merge_br.operands.len() < 3 {
+            continue;
+        }
+        let found_name = strip_type(&merge_br.operands[0]);
+        let found_phi = merge_phis
+            .iter()
+            .find(|p| p.result.as_deref() == Some(found_name.as_str()))?;
+        let index_phi2 = merge_phis
+            .iter()
+            .find(|p| p.result.as_deref() != Some(found_name.as_str()))?;
+        let match_found = phi_incomings(found_phi)
+            .into_iter()
+            .find(|(_, label)| sts_block_index(ir, label) == Some(match_block))
+            .map(|(value, _)| value);
+        if match_found.is_none() {
+            continue;
+        }
+        if !phi_incomings(index_phi2).iter().any(|(value, label)| {
+            sts_block_index(ir, label) == Some(match_block) && strip_type(value) == next_name
+        }) {
+            continue;
+        }
+        let merge_targets: Vec<usize> = terminator_targets(merge_br)
+            .iter()
+            .filter_map(|label| ir.block_map.get(label).copied())
+            .collect();
+        if merge_targets.len() != 2 {
+            continue;
+        }
+        let final_block = *merge_targets.iter().find(|target| **target != sum_entry)?;
+        let mut cursor = sum_entry;
+        let mut sum_block = None;
+        for _ in 0..4 {
+            let br = ir.blocks[cursor]
+                .instructions
+                .iter()
+                .rev()
+                .find(|i| i.opcode == "br")?;
+            let targets = terminator_targets(br);
+            if targets.len() != 1 {
+                break;
+            }
+            let next = *ir.block_map.get(targets[0].as_str())?;
+            let next_block = &ir.blocks[next];
+            let phi_count = next_block
+                .instructions
+                .iter()
+                .filter(|i| i.opcode == "phi")
+                .count();
+            let next_br = next_block
+                .instructions
+                .iter()
+                .rev()
+                .find(|i| i.opcode == "br")?;
+            let next_targets: Vec<usize> = terminator_targets(next_br)
+                .iter()
+                .filter_map(|label| ir.block_map.get(label).copied())
+                .collect();
+            if phi_count == 2 && next_targets.contains(&next) {
+                sum_block = Some(next);
+                break;
+            }
+            cursor = next;
+        }
+        let sum_block = sum_block?;
+        if !ir.blocks[sum_block]
+            .instructions
+            .iter()
+            .any(|i| i.opcode == "icmp")
+        {
+            continue;
+        }
+        return Some(SearchThenSumShape {
+            guard,
+            bound: bound?,
+            peel,
+            header: header_idx,
+            body,
+            match_block,
+            merge,
+            sum_entry,
+            sum_block,
+            final_block,
+            index_phi,
+            next_name,
+        });
+    }
+    None
+}
+
+fn lower_search_then_sum(
+    ir: &IrFunction,
+    shape: &SearchThenSumShape,
+    builder: &mut Builder,
+    value_map: &mut HashMap<String, NodeId>,
+) -> Result<(), String> {
+    let span = Span::unknown();
+    if shape.guard.is_some() {
+        emit_plain_block(ir, 0, builder, value_map)?;
+    }
+    let header = &ir.blocks[shape.header];
+    let phi = header
+        .instructions
+        .iter()
+        .find(|inst| inst.opcode == "phi")
+        .ok_or("search-then-sum: header phi")?;
+    let index_ty = phi
+        .operands
+        .first()
+        .and_then(|operand| operand_type(operand))
+        .ok_or("search-then-sum: index type")?;
+    let bound = get_node_id(
+        &shape.bound,
+        value_map,
+        &ir.params,
+        builder,
+        Some(index_ty.clone()),
+    )
+    .ok_or("search-then-sum: bound")?;
+    let run_init = if let Some((name, true_runs)) = &shape.guard {
+        let condition = *value_map
+            .get(name)
+            .ok_or("search-then-sum: guard condition")?;
+        if *true_runs {
+            condition
+        } else {
+            builder
+                .bool_not(condition, span)
+                .map_err(|e| format!("search-then-sum: {:?}", e))?
+        }
+    } else {
+        builder.constant(ConstantData::boolean(true), Type::Bool, span)
+    };
+    let hit_init = builder.constant(int_constant_data(&index_ty, 0), index_ty.clone(), span);
+    let search_init = builder.constant(int_constant_data(&index_ty, 1), index_ty.clone(), span);
+    let step = builder.constant(int_constant_data(&index_ty, 1), index_ty.clone(), span);
+    let peel_zero = builder.constant(int_constant_data(&index_ty, 0), index_ty.clone(), span);
+    let body_false = builder.constant(ConstantData::boolean(false), Type::Bool, span);
+    let found_init = builder.constant(ConstantData::boolean(false), Type::Bool, span);
+    let peel_init = builder.constant(ConstantData::boolean(false), Type::Bool, span);
+    // The search iterates `next = 1..=bound`; index 0 is covered by the peel.
+    let index_init = search_init;
+    value_map.insert(shape.next_name.clone(), index_init);
+    let body_start = builder
+        .function()
+        .arena
+        .ids()
+        .map(|id| id.0)
+        .max()
+        .unwrap_or(0);
+    for inst in &ir.blocks[shape.peel].instructions {
+        if matches!(inst.opcode.as_str(), "phi" | "br") {
+            continue;
+        }
+        emit_instruction(inst, builder, value_map, &ir.params, span)?;
+    }
+    let peel_br = ir.blocks[shape.peel]
+        .instructions
+        .iter()
+        .rev()
+        .find(|inst| inst.opcode == "br")
+        .ok_or("search-then-sum: peel branch")?;
+    let peel_match = get_node_id(
+        &strip_type(&peel_br.operands[0]),
+        value_map,
+        &ir.params,
+        builder,
+        Some(Type::Bool),
+    )
+    .ok_or("search-then-sum: peel match")?;
+    for inst in &ir.blocks[shape.body].instructions {
+        if matches!(inst.opcode.as_str(), "phi" | "br") {
+            continue;
+        }
+        emit_instruction(inst, builder, value_map, &ir.params, span)?;
+    }
+    let body_br = ir.blocks[shape.body]
+        .instructions
+        .iter()
+        .rev()
+        .find(|inst| inst.opcode == "br")
+        .ok_or("search-then-sum: body branch")?;
+    let match_body = get_node_id(
+        &strip_type(&body_br.operands[0]),
+        value_map,
+        &ir.params,
+        builder,
+        Some(Type::Bool),
+    )
+    .ok_or("search-then-sum: body match")?;
+    let in_range = builder
+        .lt(index_init, bound, span)
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    let match_eff = builder
+        .select(in_range, match_body, body_false, span)
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    let found_next = builder
+        .bool_or(peel_match, match_eff, span)
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    let body_hit = builder
+        .select(match_eff, index_init, hit_init, span)
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    let hit_next = builder
+        .select(peel_match, peel_zero, body_hit, span)
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    let done = builder
+        .bool_not(in_range, span)
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    let stop = builder
+        .bool_or(found_next, done, span)
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    let run_next = builder
+        .bool_not(stop, span)
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    let index_next = builder
+        .add(index_init, step, span)
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    let body_nodes: Vec<NodeId> = builder
+        .function()
+        .arena
+        .ids()
+        .filter(|id| id.0 > body_start && *id != run_init)
+        .collect();
+    let loop_ty = Type::Tuple {
+        elements: vec![
+            index_ty.clone(),
+            index_ty.clone(),
+            Type::Bool,
+            Type::Bool,
+            Type::Bool,
+        ],
+    };
+    let loop_node = builder
+        .r#loop(
+            &body_nodes,
+            run_init,
+            &[index_next, hit_next, found_next, run_next, peel_match],
+            &[index_init, hit_init, found_init, run_init, peel_init],
+            loop_ty,
+            span,
+        )
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    let index_out = builder
+        .tuple_extract(loop_node, 0, index_ty.clone(), span)
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    let hit_out = builder
+        .tuple_extract(loop_node, 1, index_ty.clone(), span)
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    let found_out = builder
+        .tuple_extract(loop_node, 2, Type::Bool, span)
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    let peel_out = builder
+        .tuple_extract(loop_node, 4, Type::Bool, span)
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    // Accumulation loop on the miss path.
+    let sum_block = &ir.blocks[shape.sum_block];
+    let sum_phis: Vec<&Instruction> = sum_block
+        .instructions
+        .iter()
+        .filter(|i| i.opcode == "phi")
+        .collect();
+    if sum_phis.len() != 2 {
+        return Err("search-then-sum: sum phis".into());
+    }
+    let sum_index_phi = sum_phis[0]
+        .result
+        .clone()
+        .ok_or("search-then-sum: sum index phi")?;
+    let sum_acc_phi = sum_phis[1]
+        .result
+        .clone()
+        .ok_or("search-then-sum: sum accumulator phi")?;
+    let sum_start = builder
+        .function()
+        .arena
+        .ids()
+        .map(|id| id.0)
+        .max()
+        .unwrap_or(0);
+    let sum_index_init = builder.constant(int_constant_data(&index_ty, 0), index_ty.clone(), span);
+    let sum_acc_init = builder.constant(int_constant_data(&index_ty, 0), index_ty.clone(), span);
+    value_map.insert(sum_index_phi.clone(), sum_index_init);
+    value_map.insert(sum_acc_phi.clone(), sum_acc_init);
+    for inst in &sum_block.instructions {
+        if matches!(inst.opcode.as_str(), "phi" | "br") {
+            continue;
+        }
+        emit_instruction(inst, builder, value_map, &ir.params, span)?;
+    }
+    let mut sum_index_next = None;
+    let mut sum_acc_next = None;
+    for inst in &sum_block.instructions {
+        if inst.opcode != "add" {
+            continue;
+        }
+        if inst
+            .operands
+            .iter()
+            .any(|o| operand_value_token(o) == sum_index_phi)
+            && inst
+                .operands
+                .iter()
+                .any(|o| parse_int_constant(&operand_value_token(o)) == Some(1))
+        {
+            sum_index_next = inst.result.clone();
+        }
+        if inst
+            .operands
+            .iter()
+            .any(|o| operand_value_token(o) == sum_acc_phi)
+        {
+            sum_acc_next = inst.result.clone();
+        }
+    }
+    let sum_index_next = sum_index_next.ok_or("search-then-sum: sum index next")?;
+    let sum_acc_next = sum_acc_next.ok_or("search-then-sum: sum accumulator next")?;
+    let sum_cmp = sum_block
+        .instructions
+        .iter()
+        .find(|inst| {
+            inst.opcode == "icmp"
+                && inst
+                    .operands
+                    .iter()
+                    .any(|o| operand_value_token(o) == sum_index_next)
+                && inst
+                    .operands
+                    .iter()
+                    .any(|o| parse_int_constant(&operand_value_token(o)).is_some())
+        })
+        .ok_or("search-then-sum: sum comparison")?;
+    let sum_bound = sum_cmp
+        .operands
+        .iter()
+        .map(|o| operand_value_token(o))
+        .find(|token| parse_int_constant(token).is_some())
+        .ok_or("search-then-sum: sum bound")?;
+    let sum_bound_value =
+        parse_int_constant(&sum_bound).ok_or("search-then-sum: sum bound value")?;
+    let sum_index_next_node = *value_map
+        .get(&sum_index_next)
+        .ok_or("search-then-sum: sum index next node")?;
+    let sum_acc_next_node = *value_map
+        .get(&sum_acc_next)
+        .ok_or("search-then-sum: sum accumulator next node")?;
+    let sum_bound_node = builder.constant(
+        int_constant_data(&index_ty, sum_bound_value as u64),
+        index_ty.clone(),
+        span,
+    );
+    let sum_done = builder
+        .eq(sum_index_next_node, sum_bound_node, span)
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    let sum_run_next = builder
+        .bool_not(sum_done, span)
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    let sum_true = builder.constant(ConstantData::boolean(true), Type::Bool, span);
+    let sum_nodes: Vec<NodeId> = builder
+        .function()
+        .arena
+        .ids()
+        .filter(|id| id.0 > sum_start && *id != sum_true)
+        .collect();
+    let sum_loop_ty = Type::Tuple {
+        elements: vec![index_ty.clone(), index_ty.clone(), Type::Bool],
+    };
+    let sum_loop = builder
+        .r#loop(
+            &sum_nodes,
+            sum_true,
+            &[sum_index_next_node, sum_acc_next_node, sum_run_next],
+            &[sum_index_init, sum_acc_init, sum_true],
+            sum_loop_ty,
+            span,
+        )
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    let sum_out = builder
+        .tuple_extract(sum_loop, 1, index_ty.clone(), span)
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    let sum_plus_bound = builder
+        .add(sum_out, sum_bound_node, span)
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    // Rebuild the match block with the loop-carried index and resolve both
+    // merge phis.
+    let index_before = builder
+        .sub(index_out, step, span)
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    value_map.insert(shape.index_phi.clone(), index_before);
+    value_map.insert(shape.next_name.clone(), index_out);
+    for inst in &ir.blocks[shape.match_block].instructions {
+        if matches!(inst.opcode.as_str(), "phi" | "br") {
+            continue;
+        }
+        emit_instruction(inst, builder, value_map, &ir.params, span)?;
+    }
+    let merge_block = &ir.blocks[shape.merge];
+    let merge_phis: Vec<&Instruction> = merge_block
+        .instructions
+        .iter()
+        .filter(|i| i.opcode == "phi")
+        .collect();
+    let merge_br = merge_block
+        .instructions
+        .iter()
+        .rev()
+        .find(|inst| inst.opcode == "br")
+        .ok_or("search-then-sum: merge branch")?;
+    let found_name = strip_type(&merge_br.operands[0]);
+    let found_phi = merge_phis
+        .iter()
+        .find(|p| p.result.as_deref() == Some(found_name.as_str()))
+        .ok_or("search-then-sum: found phi")?;
+    let g_value = phi_incomings(found_phi)
+        .into_iter()
+        .find(|(_, label)| sts_block_index(ir, label) == Some(shape.match_block))
+        .map(|(value, _)| strip_type(&value))
+        .ok_or("search-then-sum: match incoming")?;
+    let g_node = get_node_id(&g_value, value_map, &ir.params, builder, Some(Type::Bool))
+        .ok_or("search-then-sum: match value")?;
+    let peel_value = phi_incomings(found_phi)
+        .into_iter()
+        .find(|(_, label)| sts_block_index(ir, label) == Some(shape.peel))
+        .map(|(value, _)| value)
+        .ok_or("search-then-sum: peel incoming")?;
+    let peel_found = if let Some((guard_name, true_runs)) = &shape.guard {
+        if strip_type(&peel_value) == *guard_name {
+            let zero = builder.constant(int_constant_data(&index_ty, 0), index_ty.clone(), span);
+            let is_zero = builder
+                .eq(bound, zero, span)
+                .map_err(|e| format!("search-then-sum: {:?}", e))?;
+            if *true_runs {
+                builder
+                    .bool_not(is_zero, span)
+                    .map_err(|e| format!("search-then-sum: {:?}", e))?
+            } else {
+                is_zero
+            }
+        } else {
+            get_node_id(
+                &peel_value,
+                value_map,
+                &ir.params,
+                builder,
+                Some(Type::Bool),
+            )
+            .ok_or("search-then-sum: peel value")?
+        }
+    } else {
+        get_node_id(
+            &peel_value,
+            value_map,
+            &ir.params,
+            builder,
+            Some(Type::Bool),
+        )
+        .ok_or("search-then-sum: peel value")?
+    };
+    let found_merge = builder
+        .select(peel_out, peel_found, g_node, span)
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    let merge_labels = terminator_targets(merge_br);
+    let true_index = *ir
+        .block_map
+        .get(
+            merge_labels
+                .first()
+                .ok_or("search-then-sum: merge target")?
+                .as_str(),
+        )
+        .ok_or("search-then-sum: true target")?;
+    let true_is_sum = true_index == shape.sum_entry;
+    let (true_value, false_value) = if true_is_sum {
+        (sum_plus_bound, hit_out)
+    } else {
+        (hit_out, sum_plus_bound)
+    };
+    let merge_result = builder
+        .select(found_merge, true_value, false_value, span)
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    let result = builder
+        .select(found_out, merge_result, sum_plus_bound, span)
+        .map_err(|e| format!("search-then-sum: {:?}", e))?;
+    let final_phi = ir.blocks[shape.final_block]
+        .instructions
+        .iter()
+        .find(|inst| inst.opcode == "phi")
+        .ok_or("search-then-sum: final phi")?;
+    if let Some(name) = &final_phi.result {
+        value_map.insert(name.clone(), result);
+    }
+    emit_plain_block(ir, shape.final_block, builder, value_map)?;
+    Ok(())
+}
+
 /// A strict two-level counted nest: outer header branches directly to the
 /// inner header; the inner latch exits to the outer latch; the outer latch
 /// branches back to the outer header or out. Integer memory only.
@@ -3048,6 +3783,11 @@ pub fn lower(text: &str) -> Result<Function, String> {
 
     if let Some(shape) = detect_mismatch_search(&ir) {
         return lower_mismatch_search(&ir, &shape, &mut builder, &mut value_map)
+            .map(|_| builder.build());
+    }
+
+    if let Some(shape) = detect_search_then_sum(&ir) {
+        return lower_search_then_sum(&ir, &shape, &mut builder, &mut value_map)
             .map(|_| builder.build());
     }
 

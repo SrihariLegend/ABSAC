@@ -799,6 +799,19 @@ have now been restored into current `sir_mech` and tested.
   edn 13/13, crc32 6/6, matmult 10/10), with 0 mismatches and 0
   sanitizer violations. Base-14 stays 246 / 133 / 0, fuzz 540 / 360 / 0
   (AArch64 60/160), 9 tests ~1.3 s.
+- **2026-09-22 — pre-tested search-then-sum (p07/p16)**: a runtime or
+  constant bound is scanned for the first equal byte with an optional
+  zero-guard and first-element peel; the miss path runs a fixed-size
+  accumulation loop. The scan is one run-flag loop over `next = 1..=bound`
+  with the pure peel recomputed inside, the match block is rebuilt with
+  the loop-carried index, and the original merge branch targets select
+  either the match index or the post-loop sum. This covers p07's
+  zero/exhausted path and p16's `index > 38` sentinel without modeling
+  them separately. Base-14 246 → **248** (496 clean / 266 rewrites
+  native + AArch64), external stays **37**, 0 sanitizer violations,
+  9 tests ~1.3 s. The three run-flag search lowerers (peeled-found,
+  mismatch, search-then-sum) now share the same loop skeleton and are a
+  recorded dedup candidate for the next leanness pass.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
