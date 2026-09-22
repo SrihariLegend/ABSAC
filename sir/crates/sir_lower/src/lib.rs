@@ -18,7 +18,6 @@
 //! - Structs, vectors
 //! - Early-exit loops (break with non-trivial value)
 
-use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 
 use sir_builder::Builder;
@@ -2049,26 +2048,6 @@ fn detect_loop_chain(ir: &IrFunction) -> Option<Vec<(usize, usize)>> {
     (cursor == outer).then_some(edges)
 }
 
-thread_local! {
-    /// Deep multi-level chains are verified as standalone roots but their
-    /// composition as callees is not: they have to be lowered back into
-    /// their parent loop-carrying scope. Callees run with this disabled,
-    /// which keeps callers fail-closed instead of mis-lowered.
-    static DEEP_CHAINS_DISABLED: Cell<bool> = const { Cell::new(false) };
-}
-
-/// Run `f` with deep-chain lowering disabled.
-pub fn with_deep_chains_disabled<T>(f: impl FnOnce() -> T) -> T {
-    let previous = DEEP_CHAINS_DISABLED.with(|flag| flag.replace(true));
-    let result = f();
-    DEEP_CHAINS_DISABLED.with(|flag| flag.set(previous));
-    result
-}
-
-fn deep_chains_disabled() -> bool {
-    DEEP_CHAINS_DISABLED.with(|flag| flag.get())
-}
-
 fn lower_deep_loop_chain(
     ir: &IrFunction,
     chain: &[(usize, usize)],
@@ -2660,11 +2639,9 @@ pub fn lower(text: &str) -> Result<Function, String> {
             .map(|_| builder.build());
     }
 
-    if !deep_chains_disabled() {
-        if let Some(chain) = detect_loop_chain(&ir) {
-            return lower_deep_loop_chain(&ir, &chain, &mut builder, &mut value_map)
-                .map(|_| builder.build());
-        }
+    if let Some(chain) = detect_loop_chain(&ir) {
+        return lower_deep_loop_chain(&ir, &chain, &mut builder, &mut value_map)
+            .map(|_| builder.build());
     }
 
     // Detect loop structure: find the back-edge block (the one that branches to itself or to a predecessor)

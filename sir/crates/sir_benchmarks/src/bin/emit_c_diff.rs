@@ -102,12 +102,8 @@ fn lower_module(ll: &str, name: &str) -> Result<Vec<(String, Function)>, String>
             visit(ll, &callee, root, active, done, out)?;
         }
         active.remove(name);
-        let lowered = if name == root {
-            lower_function(ll, name)
-        } else {
-            sir_lower::with_deep_chains_disabled(|| lower_function(ll, name))
-        };
-        let mut func = lowered.map_err(|e| e.lines().last().unwrap_or(&e).trim().to_string())?;
+        let mut func = lower_function(ll, name)
+            .map_err(|e| e.lines().last().unwrap_or(&e).trim().to_string())?;
         if name != root {
             func.name = external_symbol(name);
         }
