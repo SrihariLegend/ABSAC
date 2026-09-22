@@ -744,6 +744,15 @@ have now been restored into current `sir_mech` and tested.
   BEEBS RNG support object is provided under `sir/support/`. crc32 rises
   2 → **6** clean (including sanitize), external Embench 28 → **32**;
   base-14 stays 245 / 133 / 0, fuzz 540 / 360 / 0, 9 tests ~1.3 s.
+- **2026-09-22 — peeled found-search with index store**: the
+  entry-guard/peel/pre-tested-body/store-index/merge shape now lowers as
+  one run-flag loop over indices `0..n`, with the match store emitted as
+  `select(match, i, old)` and the merge returning the found flag.
+  Unlocks v3 `n10_early_exit_write`: base-14 245 → **246** clean. Also
+  fixed `global_decls` keeping a trailing comma on scalar global types
+  (`i64,` parsed as size 0), which had blocked external scalar globals.
+  `verify.sh full` passes (246 / 133 / 0 native+AArch64, fuzz
+  540 / 360 / 0, external 32, sanitizers 0, 9 tests ~1.3 s).
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

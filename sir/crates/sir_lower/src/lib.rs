@@ -1580,6 +1580,393 @@ fn detect_sequential_groups(ir: &IrFunction) -> Option<Vec<Vec<(usize, usize)>>>
     Some(groups)
 }
 
+/// Peeled found-search with an index store (n10_early_exit_write):
+/// entry guard, first-element peel, pre-tested body loop, and a merge that
+/// returns whether a match was found while storing the index.
+struct PeeledFoundShape {
+    bound: String,
+    guard_true_runs: bool,
+    index_phi: String,
+    next_name: String,
+    store_global: String,
+    header: usize,
+    body: usize,
+    store_block: usize,
+    merge: usize,
+}
+
+fn detect_peeled_found(ir: &IrFunction) -> Option<PeeledFoundShape> {
+    let entry = ir.blocks.first()?;
+    let entry_br = entry
+        .instructions
+        .iter()
+        .rev()
+        .find(|inst| inst.opcode == "br")?;
+    if entry_br.operands.len() < 3 {
+        return None;
+    }
+    let guard_name = strip_type(&entry_br.operands[0]);
+    let guard = entry.instructions.iter().find(|inst| {
+        inst.opcode == "icmp" && inst.result.as_deref() == Some(guard_name.as_str())
+    })?;
+    let guard_pred = guard.operands.first()?.split_whitespace().next()?;
+    if guard_pred != "ne" && guard_pred != "eq" {
+        return None;
+    }
+    let guard_parts: Vec<String> = guard
+        .operands
+        .iter()
+        .map(|operand| operand_value_token(operand))
+        .collect();
+    let bound = if parse_int_constant(&guard_parts[0]) == Some(0) {
+        guard_parts.get(1)?.clone()
+    } else if parse_int_constant(&guard_parts[1]) == Some(0) {
+        guard_parts.first()?.clone()
+    } else {
+        return None;
+    };
+    let entry_targets: Vec<usize> = terminator_targets(entry_br)
+        .iter()
+        .filter_map(|label| ir.block_map.get(label).copied())
+        .collect();
+    if entry_targets.len() != 2 {
+        return None;
+    }
+    let guard_true_label = entry_br.operands[1]
+        .trim_start_matches("label ")
+        .trim_start_matches('%');
+    for &peel in &entry_targets {
+        let merge = *entry_targets.iter().find(|target| **target != peel)?;
+        let peel_block = &ir.blocks[peel];
+        if peel_block
+            .instructions
+            .iter()
+            .any(|inst| matches!(inst.opcode.as_str(), "phi" | "ret" | "call"))
+        {
+            continue;
+        }
+        let peel_br = peel_block
+            .instructions
+            .iter()
+            .rev()
+            .find(|inst| inst.opcode == "br")?;
+        if peel_br.operands.len() < 3 {
+            continue;
+        }
+        let peel_targets: Vec<usize> = terminator_targets(peel_br)
+            .iter()
+            .filter_map(|label| ir.block_map.get(label).copied())
+            .collect();
+        if peel_targets.len() != 2 {
+            continue;
+        }
+        for &header in &peel_targets {
+            let store_block = *peel_targets.iter().find(|target| **target != header)?;
+            let header_block = &ir.blocks[header];
+            let phis: Vec<&Instruction> = header_block
+                .instructions
+                .iter()
+                .filter(|inst| inst.opcode == "phi")
+                .collect();
+            if phis.len() != 1 {
+                continue;
+            }
+            let index_phi = phis[0].result.clone()?;
+            if !phi_incomings(phis[0]).iter().any(|(value, label)| {
+                label == &peel_block.label && parse_int_constant(&strip_type(value)) == Some(0)
+            }) {
+                continue;
+            }
+            let header_br = header_block
+                .instructions
+                .iter()
+                .rev()
+                .find(|inst| inst.opcode == "br")?;
+            if header_br.operands.len() < 3 {
+                continue;
+            }
+            let header_targets: Vec<usize> = terminator_targets(header_br)
+                .iter()
+                .filter_map(|label| ir.block_map.get(label).copied())
+                .collect();
+            if header_targets.len() != 2 || !header_targets.contains(&merge) {
+                continue;
+            }
+            let body = *header_targets.iter().find(|target| **target != merge)?;
+            let body_block = &ir.blocks[body];
+            if body_block
+                .instructions
+                .iter()
+                .any(|inst| matches!(inst.opcode.as_str(), "phi" | "store" | "call" | "ret"))
+            {
+                continue;
+            }
+            let body_br = body_block
+                .instructions
+                .iter()
+                .rev()
+                .find(|inst| inst.opcode == "br")?;
+            if body_br.operands.len() < 3 {
+                continue;
+            }
+            let body_targets: Vec<usize> = terminator_targets(body_br)
+                .iter()
+                .filter_map(|label| ir.block_map.get(label).copied())
+                .collect();
+            if body_targets.len() != 2 || !body_targets.contains(&header) {
+                continue;
+            }
+            let mid = *body_targets.iter().find(|target| **target != header)?;
+            let mid_block = &ir.blocks[mid];
+            let mid_br = mid_block
+                .instructions
+                .iter()
+                .rev()
+                .find(|inst| inst.opcode == "br")?;
+            if mid_br.operands.len() != 1 {
+                continue;
+            }
+            let mid_target = ir.block_map.get(
+                mid_br.operands[0]
+                    .trim_start_matches("label ")
+                    .trim_start_matches('%'),
+            )?;
+            if *mid_target != store_block {
+                continue;
+            }
+            // Header increment: next = index + 1.
+            let mut next_name = None;
+            for inst in &header_block.instructions {
+                if inst.opcode == "add"
+                    && strip_type(&inst.operands[0]) == index_phi
+                    && parse_int_constant(&strip_type(&inst.operands[1])) == Some(1)
+                {
+                    next_name = inst.result.clone();
+                }
+            }
+            let next_name = next_name?;
+            // Body load + compare: base[index] == target.
+            let body_cmp_name = strip_type(&body_br.operands[0]);
+            let body_cmp = body_block
+                .instructions
+                .iter()
+                .find(|inst| inst.result.as_deref() == Some(body_cmp_name.as_str()))?;
+            if !body_cmp.raw.contains("icmp eq") {
+                continue;
+            }
+            let target_is_known = body_cmp.operands.iter().any(|operand| {
+                let token = operand_value_token(operand);
+                let name = token.trim_start_matches('%');
+                ir.params
+                    .iter()
+                    .any(|(param, _)| param.trim_start_matches('%') == name)
+                    || parse_int_constant(&strip_type(&token)).is_some()
+            });
+            if !target_is_known {
+                continue;
+            }
+            let store_phi = &ir.blocks[store_block];
+            let store = store_phi
+                .instructions
+                .iter()
+                .find(|inst| inst.opcode == "store")?;
+            let token = strip_type(&store.operands[1]);
+            let store_global = token.strip_prefix('@')?.to_string();
+            let store_br = store_phi
+                .instructions
+                .iter()
+                .rev()
+                .find(|inst| inst.opcode == "br")?;
+            let store_targets: Vec<usize> = terminator_targets(store_br)
+                .iter()
+                .filter_map(|label| ir.block_map.get(label).copied())
+                .collect();
+            if !store_targets.contains(&merge) {
+                continue;
+            }
+            let merge_phi = ir.blocks[merge]
+                .instructions
+                .iter()
+                .find(|inst| inst.opcode == "phi")?;
+            if !phi_incomings(merge_phi)
+                .iter()
+                .any(|(_, label)| label == &ir.blocks[store_block].label)
+            {
+                continue;
+            }
+            return Some(PeeledFoundShape {
+                bound,
+                guard_true_runs: guard_true_label == ir.blocks[peel].label,
+                index_phi: index_phi.clone(),
+                next_name,
+                store_global,
+                header,
+                body,
+                store_block,
+                merge,
+            });
+        }
+    }
+    None
+}
+
+fn lower_peeled_found(
+    ir: &IrFunction,
+    shape: &PeeledFoundShape,
+    builder: &mut Builder,
+    value_map: &mut HashMap<String, NodeId>,
+) -> Result<(), String> {
+    let span = Span::unknown();
+    emit_plain_block(ir, 0, builder, value_map)?;
+    let header = &ir.blocks[shape.header];
+    let phi = header
+        .instructions
+        .iter()
+        .find(|inst| inst.opcode == "phi")
+        .ok_or("peeled found: header phi")?;
+    let index_ty = phi
+        .operands
+        .first()
+        .and_then(|operand| operand_type(operand))
+        .ok_or("peeled found: index type")?;
+    let index_init = builder.constant(int_constant_data(&index_ty, 0), index_ty.clone(), span);
+    value_map.insert(shape.index_phi.clone(), index_init);
+    let bound = get_node_id(
+        &shape.bound,
+        value_map,
+        &ir.params,
+        builder,
+        Some(index_ty.clone()),
+    )
+    .ok_or("peeled found: bound")?;
+    let guard_name = strip_type(
+        &ir.blocks[0]
+            .instructions
+            .iter()
+            .rev()
+            .find(|inst| inst.opcode == "br")
+            .ok_or("peeled found: entry branch")?
+            .operands[0],
+    );
+    let guard = value_map
+        .get(&guard_name)
+        .copied()
+        .ok_or("peeled found: guard condition")?;
+    let run_init = if shape.guard_true_runs {
+        guard
+    } else {
+        builder
+            .bool_not(guard, span)
+            .map_err(|e| format!("peeled found: {:?}", e))?
+    };
+    let found_init = builder.constant(ConstantData::boolean(false), Type::Bool, span);
+    let body_start = builder
+        .function()
+        .arena
+        .ids()
+        .map(|id| id.0)
+        .max()
+        .unwrap_or(0);
+    // The peel check is redundant: iterate from index 0.
+    value_map.insert(shape.next_name.clone(), index_init);
+    let body = &ir.blocks[shape.body];
+    for inst in &body.instructions {
+        if matches!(inst.opcode.as_str(), "phi" | "br") {
+            continue;
+        }
+        emit_instruction(inst, builder, value_map, &ir.params, span)?;
+    }
+    let body_br = body
+        .instructions
+        .iter()
+        .rev()
+        .find(|inst| inst.opcode == "br")
+        .ok_or("peeled found: body branch")?;
+    let match_node = get_node_id(
+        &strip_type(&body_br.operands[0]),
+        value_map,
+        &ir.params,
+        builder,
+        Some(Type::Bool),
+    )
+    .ok_or("peeled found: match condition")?;
+    // Store the match index: `@out = match ? i : @out`.
+    let store_node = ir.blocks[shape.store_block]
+        .instructions
+        .iter()
+        .find(|inst| inst.opcode == "store")
+        .ok_or("peeled found: store instruction")?;
+    let store_ty = operand_type(&store_node.operands[0]).ok_or("peeled found: store type")?;
+    let base = resolve_global(&shape.store_global, value_map, builder, span);
+    let zero = builder.constant(ConstantData::u64(0), Type::u64(), span);
+    let read = builder
+        .array_access(base, zero, store_ty.clone(), span)
+        .map_err(|e| format!("peeled found: {:?}", e))?;
+    let index_node = get_node_id(
+        &shape.index_phi,
+        value_map,
+        &ir.params,
+        builder,
+        Some(store_ty.clone()),
+    )
+    .ok_or("peeled found: index value")?;
+    let stored = builder
+        .select(match_node, index_node, read, span)
+        .map_err(|e| format!("peeled found: {:?}", e))?;
+    let zero = builder.constant(ConstantData::u64(0), Type::u64(), span);
+    let target_access = builder
+        .array_access(base, zero, store_ty, span)
+        .map_err(|e| format!("peeled found: {:?}", e))?;
+    builder
+        .store(target_access, stored, span)
+        .map_err(|e| format!("peeled found: {:?}", e))?;
+    let one = builder.constant(int_constant_data(&index_ty, 1), index_ty.clone(), span);
+    let index_next = builder
+        .add(index_init, one, span)
+        .map_err(|e| format!("peeled found: {:?}", e))?;
+    let done = builder
+        .eq(index_next, bound, span)
+        .map_err(|e| format!("peeled found: {:?}", e))?;
+    let stop = builder
+        .bool_or(match_node, done, span)
+        .map_err(|e| format!("peeled found: {:?}", e))?;
+    let run_next = builder
+        .bool_not(stop, span)
+        .map_err(|e| format!("peeled found: {:?}", e))?;
+    let body_nodes: Vec<NodeId> = builder
+        .function()
+        .arena
+        .ids()
+        .filter(|id| id.0 > body_start && *id != run_init)
+        .collect();
+    let loop_ty = Type::Tuple {
+        elements: vec![index_ty.clone(), Type::Bool, Type::Bool],
+    };
+    let loop_node = builder
+        .r#loop(
+            &body_nodes,
+            run_init,
+            &[index_next, run_next, match_node],
+            &[index_init, run_init, found_init],
+            loop_ty,
+            span,
+        )
+        .map_err(|e| format!("peeled found: {:?}", e))?;
+    let found_out = builder
+        .tuple_extract(loop_node, 2, Type::Bool, span)
+        .map_err(|e| format!("peeled found: {:?}", e))?;
+    let merge_phi = ir.blocks[shape.merge]
+        .instructions
+        .iter()
+        .find(|inst| inst.opcode == "phi")
+        .ok_or("peeled found: merge phi")?;
+    if let Some(name) = &merge_phi.result {
+        value_map.insert(name.clone(), found_out);
+    }
+    emit_plain_block(ir, shape.merge, builder, value_map)?;
+    Ok(())
+}
+
 /// A strict two-level counted nest: outer header branches directly to the
 /// inner header; the inner latch exits to the outer latch; the outer latch
 /// branches back to the outer header or out. Integer memory only.
@@ -1958,6 +2345,11 @@ pub fn lower(text: &str) -> Result<Function, String> {
 
     if let Some(shape) = detect_conditional_body_loop(&ir) {
         return lower_conditional_body_loop(&ir, &shape, &mut builder, &mut value_map)
+            .map(|_| builder.build());
+    }
+
+    if let Some(shape) = detect_peeled_found(&ir) {
+        return lower_peeled_found(&ir, &shape, &mut builder, &mut value_map)
             .map(|_| builder.build());
     }
 

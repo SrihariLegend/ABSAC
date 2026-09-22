@@ -220,6 +220,7 @@ fn global_decls(ll: &str) -> Vec<GlobalDecl> {
         let Some((ty, _init)) = split_llvm_type(after) else {
             continue;
         };
+        let ty = ty.trim_end_matches(',');
         let size = llvm_type_size(ty).unwrap_or(0);
         out.push(GlobalDecl {
             name: name.to_string(),
