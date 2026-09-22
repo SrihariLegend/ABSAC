@@ -18,9 +18,10 @@ use sir_types::Type;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 static ALLOW_RUNTIME_SEARCH: AtomicBool = AtomicBool::new(false);
 static ALLOW_DEFS: OnceLock<Vec<u64>> = OnceLock::new();
@@ -1241,9 +1242,14 @@ fn run_function(
     let run = match run_binary(&exe_path, target) {
         Ok(o) => o,
         Err(e) => {
+            if e.kind() == std::io::ErrorKind::TimedOut {
+                return Outcome::Refused {
+                    reason: format!("run did not terminate: {e}"),
+                };
+            }
             return Outcome::HarnessError {
                 reason: format!("run: {e}"),
-            }
+            };
         }
     };
     let stdout = String::from_utf8_lossy(&run.stdout).to_string();
@@ -1306,10 +1312,33 @@ fn ns_value(line: &str, key: &str) -> Option<u64> {
 }
 
 fn run_binary(exe: &Path, target: &str) -> std::io::Result<std::process::Output> {
-    if target == "aarch64" {
-        Command::new("qemu-aarch64").arg(exe).output()
+    let mut command = if target == "aarch64" {
+        let mut command = Command::new("qemu-aarch64");
+        command.arg(exe);
+        command
     } else {
-        Command::new(exe).output()
+        Command::new(exe)
+    };
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command.spawn()?;
+    let timeout = std::env::var("SIR_RUN_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(10);
+    let start = Instant::now();
+    loop {
+        if child.try_wait()?.is_some() {
+            return child.wait_with_output();
+        }
+        if start.elapsed() >= Duration::from_secs(timeout) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("timeout after {timeout}s"),
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(20));
     }
 }
 

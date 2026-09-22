@@ -701,6 +701,15 @@ have now been restored into current `sir_mech` and tested.
   (v8/v9/v10/v11 `n09`, v7 `n13`, v6 `n12`); `verify.sh full` passes
   with base-14 243 / 133 / 0, fuzz 540 / 360 / 0, external 28, and the
   9-test suite still ~1.3 s.
+- **2026-09-22 — harness run timeout**: differential/lifetime runs now
+  wait at most `SIR_RUN_TIMEOUT_SECS` (default 10) for a child before
+  killing it; timeouts are reported as `lower_refused (run did not
+  terminate)` rather than hanging the matrix or counting as harness
+  errors. This is the safety net for nonterminating references such as
+  statemate `FH_DU` on arbitrary driver globals and v7
+  `n04_runtime_step_do_while` with step 0. `verify.sh full` passes
+  unchanged (base-14 243 / 133 / 0, fuzz 540 / 360 / 0, external 28,
+  sanitizers 0).
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
