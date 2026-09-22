@@ -233,7 +233,7 @@ Phase 1 progress:
   from the CNF model and `decode_model` panicked; the decoder now maps
   them to zero, which is a valid model for an unconstrained variable.
 
-Phase 1 status: **31,732 LOC, 9 crates, 9 passed / 0 failed / 0
+Phase 1 status: **31,747 LOC, 9 crates, 9 passed / 0 failed / 0
 ignored**, 14-corpus **133 rewrites / 249 clean / 0 mismatched / 0
 harness errors**, and fuzz corpora v17–v19b **360 rewrites / 540 clean /
 0 mismatched** (761 clean total). The LOC guide is a guide, not a

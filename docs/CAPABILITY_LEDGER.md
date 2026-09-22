@@ -965,6 +965,14 @@ have now been restored into current `sir_mech` and tested.
   the new invalid-state entries were stack-checked to fault in the
   **reference** first (null/structured inputs), not in emitted code.
   Base-14 stays 498/266, fuzz 540/360, 9 tests ~1.36 s.
+- **2026-09-23 — pointer-typed global scratch initialization**: driver
+  globals declared as `ptr` are no longer random bytes (invalid
+  addresses); they are set to a shared 4 KiB scratch buffer before each
+  side, so pointer-table functions run in a defined state. qrduino
+  `ismasked` becomes clean (native, AArch64, sanitizer-clean), and the
+  qrduino invalid-state error disappears. All-19: **111 clean / 207
+  refused / 0 mismatched / 3 invalid-state** (was 110/207/0/4).
+  Base-14 stays 498/266, fuzz 540/360, 9 tests ~1.36 s.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

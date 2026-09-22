@@ -131,6 +131,7 @@ struct GlobalDecl {
     name: String,
     ty: String,
     size: usize,
+    pointer: bool,
 }
 
 /// Byte size of an LLVM integer/array/pointer type; `None` for shapes
@@ -230,6 +231,7 @@ fn global_decls(ll: &str) -> Vec<GlobalDecl> {
             name: name.to_string(),
             ty: ty.to_string(),
             size,
+            pointer: ty.trim() == "ptr",
         });
     }
     out
@@ -483,6 +485,7 @@ fn build_driver(
          \x20   return keys[(t * 3 + k * 5) % 9];\n\
          }}\n\n",
     ));
+    out.push_str("static _Alignas(64) uint8_t __sir_ptr_scratch[4096];\n\n");
 
     out.push_str("int main(void) {\n");
     // 32 bytes of identically-filled guard slab precede every buffer, so
@@ -557,12 +560,20 @@ fn build_driver(
             continue;
         }
         let cname = emit::c_global_name(&g.name);
-        global_reset.push_str(&format!(
-            "        memset({cname}, 0, {});\n\
-             \x20       {{ uint64_t gs = 0x9E3779B97F4A7C15ULL ^ (uint64_t)t ^ {i}ULL;\n\
-             \x20         for (int j = 0; j < {}; j++) {{ gs ^= gs << 13; gs ^= gs >> 7; gs ^= gs << 17; {cname}[j] = (uint8_t)(gs >> 32); }} }}\n",
-            g.size, g.size
-        ));
+        if g.pointer {
+            global_reset.push_str(&format!(
+                "        memset({cname}, 0, {});\n\
+                 \x20       *(void **)(void *){cname} = (void *)__sir_ptr_scratch;\n",
+                g.size
+            ));
+        } else {
+            global_reset.push_str(&format!(
+                "        memset({cname}, 0, {});\n\
+                 \x20       {{ uint64_t gs = 0x9E3779B97F4A7C15ULL ^ (uint64_t)t ^ {i}ULL;\n\
+                 \x20         for (int j = 0; j < {}; j++) {{ gs ^= gs << 13; gs ^= gs >> 7; gs ^= gs << 17; {cname}[j] = (uint8_t)(gs >> 32); }} }}\n",
+                g.size, g.size
+            ));
+        }
         global_snapshot.push_str(&format!(
             "        static uint8_t __snap{i}[{}]; memcpy(__snap{i}, {cname}, {});\n",
             g.size, g.size
@@ -684,6 +695,7 @@ fn build_same_address_driver(
          \x20   return keys[(t * 3 + k * 5) % 9];\n\
          }}\n\n"
     ));
+    out.push_str("static _Alignas(64) uint8_t __sir_ptr_scratch[4096];\n\n");
     out.push_str("int main(void) {\n");
     out.push_str("    static _Alignas(64) uint8_t buf[8][2048 + 32];\n");
     out.push_str("    static _Alignas(64) uint8_t initbuf[8][2048 + 32];\n");
@@ -742,12 +754,20 @@ fn build_same_address_driver(
             continue;
         }
         let cname = emit::c_global_name(&g.name);
-        global_reset.push_str(&format!(
-            "        memset({cname}, 0, {});\n\
-             \x20       {{ uint64_t gs = 0x9E3779B97F4A7C15ULL ^ (uint64_t)t ^ {i}ULL;\n\
-             \x20         for (int j = 0; j < {}; j++) {{ gs ^= gs << 13; gs ^= gs >> 7; gs ^= gs << 17; {cname}[j] = (uint8_t)(gs >> 32); }} }}\n",
-            g.size, g.size
-        ));
+        if g.pointer {
+            global_reset.push_str(&format!(
+                "        memset({cname}, 0, {});\n\
+                 \x20       *(void **)(void *){cname} = (void *)__sir_ptr_scratch;\n",
+                g.size
+            ));
+        } else {
+            global_reset.push_str(&format!(
+                "        memset({cname}, 0, {});\n\
+                 \x20       {{ uint64_t gs = 0x9E3779B97F4A7C15ULL ^ (uint64_t)t ^ {i}ULL;\n\
+                 \x20         for (int j = 0; j < {}; j++) {{ gs ^= gs << 13; gs ^= gs >> 7; gs ^= gs << 17; {cname}[j] = (uint8_t)(gs >> 32); }} }}\n",
+                g.size, g.size
+            ));
+        }
         global_snapshot.push_str(&format!(
             "        static uint8_t __snap{i}[{}]; memcpy(__snap{i}, {cname}, {});\n",
             g.size, g.size
