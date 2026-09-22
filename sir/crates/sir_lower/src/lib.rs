@@ -4882,8 +4882,9 @@ struct FirstMatchShape {
     latch: usize,
     merge: usize,
     index_phi: String,
-    bound: i64,
-    store_global: String,
+    early_value: String,
+    exit_value: String,
+    store_global: Option<String>,
 }
 
 fn detect_first_match_side_effect(ir: &IrFunction) -> Option<FirstMatchShape> {
@@ -4953,6 +4954,7 @@ fn detect_first_match_side_effect(ir: &IrFunction) -> Option<FirstMatchShape> {
                     .to_string(),
             )?;
             let mut store_global = None;
+            let mut store_count = 0usize;
             for inst in &early_block.instructions {
                 if inst.opcode != "store" || inst.operands.len() < 2 {
                     continue;
@@ -4962,17 +4964,15 @@ fn detect_first_match_side_effect(ir: &IrFunction) -> Option<FirstMatchShape> {
                 }
                 let token = strip_type(&inst.operands[1]);
                 if let Some(name) = token.strip_prefix('@') {
+                    store_count += 1;
                     if store_global.is_none() {
                         store_global = Some(name.to_string());
-                    } else {
-                        store_global = None;
-                        break;
                     }
                 }
             }
-            let Some(store_global) = store_global else {
+            if store_count > 1 {
                 continue;
-            };
+            }
             // Latch: no phi, branches back to the header or to the merge,
             // and computes `next = index + constant` with an equality test.
             let latch_block = &ir.blocks[latch];
@@ -5027,7 +5027,7 @@ fn detect_first_match_side_effect(ir: &IrFunction) -> Option<FirstMatchShape> {
                     _ => {}
                 }
             }
-            let (Some(_step), Some(bound)) = (step, bound) else {
+            let (Some(_step), Some(_bound)) = (step, bound) else {
                 continue;
             };
             let merge_block = ir.blocks.get(merge)?;
@@ -5048,18 +5048,20 @@ fn detect_first_match_side_effect(ir: &IrFunction) -> Option<FirstMatchShape> {
                 .iter()
                 .find(|(_, label)| label == &latch_block.label)
                 .map(|(value, _)| strip_type(value));
-            if from_early.as_deref() != Some(index_phi.as_str())
-                || from_latch.as_deref().and_then(parse_int_constant) != Some(bound)
-            {
+            let Some(early_value) = from_early else {
                 continue;
-            }
+            };
+            let Some(exit_value) = from_latch else {
+                continue;
+            };
             return Some(FirstMatchShape {
                 header: h,
                 early,
                 latch,
                 merge,
                 index_phi: index_phi.clone(),
-                bound,
+                early_value,
+                exit_value,
                 store_global,
             });
         }
@@ -5152,7 +5154,7 @@ fn lower_first_match_side_effect(
                     .ok_or("first-match: load without result")?;
                 let token = strip_type(&inst.operands[1]);
                 if let Some(name) = token.strip_prefix('@') {
-                    if name == shape.store_global {
+                    if shape.store_global.as_deref() == Some(name) {
                         memory.insert(name.to_string(), value);
                     }
                 }
@@ -5172,7 +5174,7 @@ fn lower_first_match_side_effect(
                 let Some(name) = token.strip_prefix('@') else {
                     return Err("first-match: non-global side-effect store".into());
                 };
-                if name != shape.store_global {
+                if shape.store_global.as_deref() != Some(name) {
                     return Err("first-match: unexpected side-effect global".into());
                 }
                 let old = *memory
@@ -5249,6 +5251,33 @@ fn lower_first_match_side_effect(
     let index_next = builder
         .select(match_node, init_node, next_index, span)
         .map_err(|e| format!("first-match: {:?}", e))?;
+    let early_node = value_map
+        .get(&shape.early_value)
+        .copied()
+        .ok_or("first-match: early value did not emit")?;
+    let early_ty = builder
+        .function()
+        .get_node(early_node)
+        .map(|node| node.ty.clone())
+        .filter(|ty| matches!(ty, Type::Integer { .. }))
+        .ok_or("first-match: unsupported early value type")?;
+    let early_dummy = builder.constant(int_constant_data(&early_ty, 0), early_ty.clone(), span);
+    let exit_node = if let Some(value) = parse_int_constant(&shape.exit_value) {
+        builder.constant(
+            int_constant_data(&early_ty, value as u64),
+            early_ty.clone(),
+            span,
+        )
+    } else {
+        get_node_id(
+            &shape.exit_value,
+            value_map,
+            &ir.params,
+            builder,
+            Some(early_ty.clone()),
+        )
+        .ok_or("first-match: unresolved exit value")?
+    };
     let body: Vec<NodeId> = builder
         .function()
         .arena
@@ -5256,31 +5285,26 @@ fn lower_first_match_side_effect(
         .filter(|id| id.0 > body_start && *id != run_init)
         .collect();
     let loop_ty = Type::Tuple {
-        elements: vec![index_ty.clone(), Type::Bool, Type::Bool],
+        elements: vec![index_ty.clone(), Type::Bool, Type::Bool, early_ty.clone()],
     };
     let loop_node = builder
         .r#loop(
             &body,
             run_init,
-            &[index_next, run_next, match_node],
-            &[init_node, run_init, found_init],
+            &[index_next, run_next, match_node, early_node],
+            &[init_node, run_init, found_init, early_dummy],
             loop_ty,
             span,
         )
         .map_err(|e| format!("first-match: {:?}", e))?;
-    let index_out = builder
-        .tuple_extract(loop_node, 0, index_ty.clone(), span)
-        .map_err(|e| format!("first-match: {:?}", e))?;
     let found_out = builder
         .tuple_extract(loop_node, 2, Type::Bool, span)
         .map_err(|e| format!("first-match: {:?}", e))?;
-    let bound_node = builder.constant(
-        int_constant_data(&index_ty, shape.bound as u64),
-        index_ty.clone(),
-        span,
-    );
+    let early_out = builder
+        .tuple_extract(loop_node, 3, early_ty, span)
+        .map_err(|e| format!("first-match: {:?}", e))?;
     let result = builder
-        .select(found_out, index_out, bound_node, span)
+        .select(found_out, early_out, exit_node, span)
         .map_err(|e| format!("first-match: {:?}", e))?;
     let merge = &ir.blocks[shape.merge];
     let merge_phi = merge
@@ -5290,6 +5314,16 @@ fn lower_first_match_side_effect(
         .ok_or("first-match: merge phi")?;
     if let Some(name) = &merge_phi.result {
         value_map.insert(name.clone(), result);
+    }
+    if let Some((_, header)) = indexed_back_edges(ir)
+        .into_iter()
+        .find(|(_, header)| *header >= shape.merge)
+    {
+        let skip: HashSet<String> = ir.blocks[..header]
+            .iter()
+            .map(|block| block.label.clone())
+            .collect();
+        return lower_loop_function(ir, header, builder, value_map, &skip);
     }
     for idx in shape.merge..ir.blocks.len() {
         emit_plain_block(ir, idx, builder, value_map)?;

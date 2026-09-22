@@ -720,6 +720,16 @@ have now been restored into current `sir_mech` and tested.
   `n04_sum_index_conditional`: base-14 243 → **244** clean,
   `verify.sh full` passes (244 / 133 / 0 native+AArch64, fuzz
   540 / 360 / 0, external 28, sanitizers 0, 9 tests ~1.3 s).
+- **2026-09-22 — first-match generalized to search-then-loop**: the
+  first-match lowerer now allows a match block with **no** store, carries
+  the match block's value as a fourth loop output, and selects the merge
+  result from that output against an arbitrary exit value instead of
+  hardcoding `index` vs `bound`. When the merge flows into a second
+  loop, the remainder is handed back to `lower_loop_function` with the
+  preceding blocks skipped, composing the two loops sequentially.
+  Unlocks v16 `c01_search_then_sum`: base-14 244 → **245** clean,
+  `verify.sh full` passes (245 / 133 / 0 native+AArch64, fuzz
+  540 / 360 / 0, external 28, sanitizers 0, 9 tests ~1.3 s).
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
