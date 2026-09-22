@@ -18,6 +18,7 @@
 //! - Structs, vectors
 //! - Early-exit loops (break with non-trivial value)
 
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 
 use sir_builder::Builder;
@@ -1967,6 +1968,325 @@ fn lower_peeled_found(
     Ok(())
 }
 
+/// Linear loop chain, outermost first: nested levels sit between a header
+/// and its latch. Every level is a do-while, modeled with a carried run
+/// flag so constant and runtime bounds share one path.
+fn detect_loop_chain(ir: &IrFunction) -> Option<Vec<(usize, usize)>> {
+    let mut edges = indexed_back_edges(ir);
+    if edges.len() < 3 {
+        return None;
+    }
+    edges.sort_by_key(|(_, header)| *header);
+    for pair in edges.windows(2) {
+        let (outer_latch, outer) = pair[0];
+        let (inner_latch, inner) = pair[1];
+        if !(outer < inner && inner_latch < outer_latch && inner <= inner_latch) {
+            return None;
+        }
+    }
+    for &(latch, header) in &edges {
+        if header > latch {
+            return None;
+        }
+        for phi in ir.blocks[header]
+            .instructions
+            .iter()
+            .filter(|inst| inst.opcode == "phi")
+        {
+            match phi
+                .operands
+                .first()
+                .and_then(|operand| operand_type(operand))
+            {
+                Some(Type::Integer { .. }) | Some(Type::Pointer { .. }) | Some(Type::Bool) => {}
+                _ => return None,
+            }
+        }
+        let term = ir.blocks[latch]
+            .instructions
+            .iter()
+            .rev()
+            .find(|inst| inst.opcode == "br")?;
+        if term.operands.len() < 3
+            || !terminator_targets(term).iter().any(|label| {
+                ir.block_map
+                    .get(label)
+                    .is_some_and(|index| *index == header)
+            })
+        {
+            return None;
+        }
+    }
+    let (outer_latch, outer) = edges[0];
+    for idx in outer..=outer_latch {
+        for inst in &ir.blocks[idx].instructions {
+            if matches!(inst.opcode.as_str(), "switch" | "ret")
+                || inst.raw.contains("double")
+                || inst.raw.contains("float")
+                || inst.raw.contains("atomic")
+                || inst.raw.contains("volatile")
+                || (inst.opcode == "call" && !inst.raw.contains("llvm."))
+            {
+                return None;
+            }
+        }
+    }
+    let mut cursor = 0usize;
+    while cursor < outer {
+        if ir.blocks[cursor]
+            .instructions
+            .iter()
+            .any(|inst| matches!(inst.opcode.as_str(), "phi" | "ret"))
+        {
+            return None;
+        }
+        let succs = successor_indices(ir, cursor);
+        if succs.len() != 1 {
+            return None;
+        }
+        cursor = succs[0];
+    }
+    (cursor == outer).then_some(edges)
+}
+
+thread_local! {
+    /// Deep multi-level chains are verified as standalone roots but their
+    /// composition as callees is not: they have to be lowered back into
+    /// their parent loop-carrying scope. Callees run with this disabled,
+    /// which keeps callers fail-closed instead of mis-lowered.
+    static DEEP_CHAINS_DISABLED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Run `f` with deep-chain lowering disabled.
+pub fn with_deep_chains_disabled<T>(f: impl FnOnce() -> T) -> T {
+    let previous = DEEP_CHAINS_DISABLED.with(|flag| flag.replace(true));
+    let result = f();
+    DEEP_CHAINS_DISABLED.with(|flag| flag.set(previous));
+    result
+}
+
+fn deep_chains_disabled() -> bool {
+    DEEP_CHAINS_DISABLED.with(|flag| flag.get())
+}
+
+fn lower_deep_loop_chain(
+    ir: &IrFunction,
+    chain: &[(usize, usize)],
+    builder: &mut Builder,
+    value_map: &mut HashMap<String, NodeId>,
+) -> Result<(), String> {
+    let span = Span::unknown();
+    fn emit_block(
+        ir: &IrFunction,
+        idx: usize,
+        builder: &mut Builder,
+        value_map: &mut HashMap<String, NodeId>,
+        nodes: &mut Vec<NodeId>,
+        span: Span,
+    ) -> Result<(), String> {
+        for inst in &ir.blocks[idx].instructions {
+            if matches!(inst.opcode.as_str(), "phi" | "br" | "ret") {
+                continue;
+            }
+            if let Some(node) = emit_instruction(inst, builder, value_map, &ir.params, span)? {
+                nodes.push(node);
+            }
+        }
+        Ok(())
+    }
+    fn build_level(
+        ir: &IrFunction,
+        chain: &[(usize, usize)],
+        level: usize,
+        builder: &mut Builder,
+        value_map: &mut HashMap<String, NodeId>,
+        span: Span,
+    ) -> Result<NodeId, String> {
+        let (latch, header) = chain[level];
+        let mut body_nodes: Vec<NodeId> = Vec::new();
+        if level == 0 {
+            // Preheader statements stay inside the outermost body: the
+            // chain exit returns void, so no outer-scope name is needed.
+            for idx in 0..header {
+                emit_block(ir, idx, builder, value_map, &mut body_nodes, span)?;
+            }
+        }
+        let header_block = &ir.blocks[header];
+        let mut inits = Vec::new();
+        let mut nexts = Vec::new();
+        let mut results = Vec::new();
+        let mut types = Vec::new();
+        for phi in header_block
+            .instructions
+            .iter()
+            .filter(|inst| inst.opcode == "phi")
+        {
+            let ty = phi
+                .operands
+                .first()
+                .and_then(|operand| operand_type(operand))
+                .ok_or("loop chain: phi type")?;
+            let result = phi.result.clone().ok_or("loop chain: phi result")?;
+            let mut init = None;
+            let mut next = None;
+            for (value, label) in phi_incomings(phi) {
+                if label == ir.blocks[latch].label {
+                    next = Some(strip_type(&value));
+                } else if init.is_none() {
+                    init = Some(strip_type(&value));
+                }
+            }
+            let init = init.ok_or("loop chain: phi entry")?;
+            let next = next.ok_or("loop chain: phi next")?;
+            let node = get_node_id(&init, value_map, &ir.params, builder, Some(ty.clone()))
+                .ok_or(format!("loop chain: unresolved entry '{init}'"))?;
+            value_map.insert(result.clone(), node);
+            inits.push(node);
+            nexts.push(next);
+            results.push(result);
+            types.push(ty);
+        }
+        if results.is_empty() {
+            return Err("loop chain: header without phis".into());
+        }
+        emit_block(ir, header, builder, value_map, &mut body_nodes, span)?;
+        if level + 1 < chain.len() {
+            let (_, child_header) = chain[level + 1];
+            for idx in header + 1..child_header {
+                emit_block(ir, idx, builder, value_map, &mut body_nodes, span)?;
+            }
+            let child_start = builder
+                .function()
+                .arena
+                .ids()
+                .map(|id| id.0)
+                .max()
+                .unwrap_or(0);
+            let _child = build_level(ir, chain, level + 1, builder, value_map, span)?;
+            body_nodes.extend(
+                builder
+                    .function()
+                    .arena
+                    .ids()
+                    .filter(|id| id.0 > child_start),
+            );
+            let (child_latch, _) = chain[level + 1];
+            for idx in child_latch + 1..=latch {
+                emit_block(ir, idx, builder, value_map, &mut body_nodes, span)?;
+            }
+        }
+        let mut outputs = Vec::new();
+        for (index, next) in nexts.iter().enumerate() {
+            outputs.push(
+                get_node_id(
+                    next,
+                    value_map,
+                    &ir.params,
+                    builder,
+                    Some(types[index].clone()),
+                )
+                .ok_or(format!("loop chain: unresolved next '{next}'"))?,
+            );
+        }
+        let term = ir.blocks[latch]
+            .instructions
+            .iter()
+            .rev()
+            .find(|inst| inst.opcode == "br" && inst.operands.len() >= 3)
+            .ok_or("loop chain: latch branch")?;
+        let condition = get_node_id(
+            &strip_type(&term.operands[0]),
+            value_map,
+            &ir.params,
+            builder,
+            Some(Type::Bool),
+        )
+        .ok_or("loop chain: latch condition")?;
+        let true_label = term.operands[1]
+            .trim_start_matches("label ")
+            .trim_start_matches('%');
+        let run_next = if true_label == ir.blocks[header].label {
+            condition
+        } else {
+            builder
+                .bool_not(condition, span)
+                .map_err(|e| format!("loop chain: {:?}", e))?
+        };
+        outputs.push(run_next);
+        let run_init = builder.constant(ConstantData::boolean(true), Type::Bool, span);
+        inits.push(run_init);
+        types.push(Type::Bool);
+        body_nodes.push(run_next);
+        let loop_id = builder
+            .r#loop(
+                &body_nodes,
+                run_init,
+                &outputs,
+                &inits,
+                Type::Tuple { elements: types },
+                span,
+            )
+            .map_err(|e| format!("loop chain: {:?}", e))?;
+        for (index, result) in results.iter().enumerate() {
+            let ty = builder
+                .function()
+                .get_node(outputs[index])
+                .map(|node| node.ty.clone())
+                .unwrap_or(Type::u64());
+            let extract = builder
+                .tuple_extract(loop_id, index, ty, span)
+                .map_err(|e| format!("loop chain: {:?}", e))?;
+            value_map.insert(result.clone(), extract);
+            value_map.insert(nexts[index].clone(), extract);
+        }
+        Ok(loop_id)
+    }
+    build_level(ir, chain, 0, builder, value_map, span)?;
+    let (outer_latch, outer) = chain[0];
+    if let Some(exit) = ir.blocks[outer_latch]
+        .instructions
+        .iter()
+        .rev()
+        .find(|inst| inst.opcode == "br" && inst.operands.len() >= 3)
+        .and_then(|term| {
+            terminator_targets(term)
+                .iter()
+                .filter_map(|label| ir.block_map.get(label).copied())
+                .find(|idx| *idx != outer)
+        })
+    {
+        let mut current = exit;
+        let mut seen = HashSet::new();
+        while seen.insert(current) {
+            emit_plain_block(ir, current, builder, value_map)?;
+            let block = &ir.blocks[current];
+            if block.instructions.iter().any(|inst| inst.opcode == "ret") {
+                break;
+            }
+            let Some(branch) = block
+                .instructions
+                .iter()
+                .rev()
+                .find(|inst| inst.opcode == "br")
+            else {
+                break;
+            };
+            if branch.operands.len() != 1 {
+                break;
+            }
+            let Some(next) = ir.block_map.get(
+                branch.operands[0]
+                    .trim_start_matches("label ")
+                    .trim_start_matches('%'),
+            ) else {
+                break;
+            };
+            current = *next;
+        }
+    }
+    Ok(())
+}
+
 /// A strict two-level counted nest: outer header branches directly to the
 /// inner header; the inner latch exits to the outer latch; the outer latch
 /// branches back to the outer header or out. Integer memory only.
@@ -2351,6 +2671,13 @@ pub fn lower(text: &str) -> Result<Function, String> {
     if let Some(shape) = detect_peeled_found(&ir) {
         return lower_peeled_found(&ir, &shape, &mut builder, &mut value_map)
             .map(|_| builder.build());
+    }
+
+    if !deep_chains_disabled() {
+        if let Some(chain) = detect_loop_chain(&ir) {
+            return lower_deep_loop_chain(&ir, &chain, &mut builder, &mut value_map)
+                .map(|_| builder.build());
+        }
     }
 
     // Detect loop structure: find the back-edge block (the one that branches to itself or to a predecessor)

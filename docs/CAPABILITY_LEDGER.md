@@ -767,6 +767,22 @@ have now been restored into current `sir_mech` and tested.
   `jpegdct` stays refused (three back edges, outside the two-level
   detector) and `verify_benchmark`/`FH_DU` remain blocked by the same
   scoping design.
+- **2026-09-22 — deep linear loop chains (jpegdct)**: three-or-more
+  level linear nests now lower root-only. Each level is a do-while with
+  a carried run flag, header phis map to initiates, and latch
+  next-values become outputs/extracts. Entry/preheader statements are
+  emitted inside the outermost body (the chain exit returns void), and
+  each child loop's internal ids are folded into the parent body so the
+  post-loop pass cannot leak body-scoped names. `jpegdct` is clean at 30
+  native cases including four optimizer rewrites, raising edn 9 → **10**
+  and external Embench 32 → **33**. Deep chains are deliberately
+  disabled for callee composition and for sanitize runs: callers such as
+  edn `benchmark_body`/`warm_caches` stay fail-closed, and the remaining
+  generated pointer-arithmetic UB in the sanitizer path is not claimed.
+  `verify.sh` now fails on `violations=` and bounds every case with
+  `CASE_TIMEOUT` (default 180s). Evidence: base-14 246 / 133 / 0
+  native+AArch64, fuzz 540 / 360 / 0, external 33, sanitize 0
+  violations (edn 9 clean / 4 refused), 9 tests ~1.3 s.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

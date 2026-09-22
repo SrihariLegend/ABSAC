@@ -102,8 +102,12 @@ fn lower_module(ll: &str, name: &str) -> Result<Vec<(String, Function)>, String>
             visit(ll, &callee, root, active, done, out)?;
         }
         active.remove(name);
-        let mut func = lower_function(ll, name)
-            .map_err(|e| e.lines().last().unwrap_or(&e).trim().to_string())?;
+        let lowered = if name == root {
+            lower_function(ll, name)
+        } else {
+            sir_lower::with_deep_chains_disabled(|| lower_function(ll, name))
+        };
+        let mut func = lowered.map_err(|e| e.lines().last().unwrap_or(&e).trim().to_string())?;
         if name != root {
             func.name = external_symbol(name);
         }
@@ -1169,7 +1173,12 @@ fn run_function(
     cc: &str,
     target: &str,
 ) -> Outcome {
-    let module = match lower_module(ll, name) {
+    let lowered_module = if sanitize {
+        sir_lower::with_deep_chains_disabled(|| lower_module(ll, name))
+    } else {
+        lower_module(ll, name)
+    };
+    let module = match lowered_module {
         Ok(module) => module,
         Err(reason) => return Outcome::Refused { reason },
     };

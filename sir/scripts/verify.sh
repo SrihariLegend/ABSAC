@@ -21,10 +21,16 @@ run_case() {
     local label="$1"
     shift
     local out
-    out=$("$BIN" "$@" 2>&1)
+    out=$(timeout "${CASE_TIMEOUT:-180}" "$BIN" "$@" 2>&1)
+    local status=$?
+    if [ "$status" -eq 124 ]; then
+        echo "FAIL $label timeout"
+        fail=1
+        return
+    fi
     local summary
     summary=$(printf '%s\n' "$out" | grep -o 'EMITC_SUMMARY.*' | tail -1)
-    if printf '%s\n' "$out" | grep -qE 'mismatched=[1-9]|harness_errors=[1-9]'; then
+    if printf '%s\n' "$out" | grep -qE 'mismatched=[1-9]|harness_errors=[1-9]|violations=[1-9]'; then
         echo "FAIL $label"
         printf '%s\n' "$out" | tail -20
         fail=1
