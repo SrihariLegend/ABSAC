@@ -868,7 +868,16 @@ have now been restored into current `sir_mech` and tested.
   unchecked array index out of bounds on both sides, so it is an
   invalid-state probe, not a miscompile (ASan agrees; aha-mont64 and
   wikisort are sanitizer-clean). Pinned external stays 37, base-14
-  498/266, fuzz unchanged, 9 tests ~1.36 s.
+ 498/266, fuzz unchanged, 9 tests ~1.36 s.
+- **2026-09-22 — named-struct stride GEPs (wikisort)**: the lowerer now
+  parses `%name = type {...}` layouts (size/alignment, nested arrays and
+  structs, packed structs) from the enclosing module and scales
+  direct struct-stride GEPs by the real element size. wikisort
+  `BlockSwap` moves from fail-closed to **clean** (32 cases native +
+  AArch64), held-out Embench 50 → **51** clean / 228 refused / 0
+  mismatched / 1 invalid-state. Array-of-struct GEPs and struct field
+  accesses still fail closed (no field-offset model). Base-14 stays
+  249/133, pinned external 37, 9 tests ~1.36 s.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

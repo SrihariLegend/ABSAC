@@ -18,11 +18,141 @@
 //! - Structs, vectors
 //! - Early-exit loops (break with non-trivial value)
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use sir_builder::Builder;
 use sir_nodes::{Function, NodeKind};
 use sir_types::{ConstantData, Effects, IntegerWidth, NodeId, Span, Type};
+
+thread_local! {
+    /// Size/alignment of named struct types from the enclosing module.
+    /// The lowerer only receives one function at a time, so `lower_function`
+    /// parses the module's type definitions once and installs them here.
+    static STRUCT_LAYOUTS: RefCell<HashMap<String, (usize, usize)>> =
+        RefCell::new(HashMap::new());
+}
+
+struct StructLayoutGuard;
+
+impl StructLayoutGuard {
+    fn set(layouts: HashMap<String, (usize, usize)>) -> Self {
+        STRUCT_LAYOUTS.with(|slot| *slot.borrow_mut() = layouts);
+        StructLayoutGuard
+    }
+}
+
+impl Drop for StructLayoutGuard {
+    fn drop(&mut self) {
+        STRUCT_LAYOUTS.with(|slot| slot.borrow_mut().clear());
+    }
+}
+
+fn struct_layout(name: &str) -> Option<(usize, usize)> {
+    STRUCT_LAYOUTS.with(|slot| slot.borrow().get(name).copied())
+}
+
+/// Parse `%name = type { ... }` definitions and compute size/alignment.
+fn parse_struct_layouts(module: &str) -> HashMap<String, (usize, usize)> {
+    let mut definitions: HashMap<String, String> = HashMap::new();
+    for line in module.lines() {
+        let line = line.trim();
+        if !line.starts_with('%') || !line.contains(" = type ") {
+            continue;
+        }
+        let Some((name, body)) = line.split_once(" = type ") else {
+            continue;
+        };
+        definitions.insert(name.trim().to_string(), body.trim().to_string());
+    }
+    let mut out = HashMap::new();
+    for name in definitions.keys() {
+        if let Some((size, align)) = layout_of(name, &definitions, &mut HashSet::new()) {
+            out.insert(name.clone(), (size, align));
+        }
+    }
+    out
+}
+
+fn layout_of(
+    ty: &str,
+    definitions: &HashMap<String, String>,
+    visiting: &mut HashSet<String>,
+) -> Option<(usize, usize)> {
+    let ty = ty.trim();
+    if let Some(rest) = ty.strip_prefix('[') {
+        let close = rest.rfind(']')?;
+        let inner = rest[..close].trim();
+        let (count, element) = inner.split_once('x')?;
+        let count: usize = count.trim().parse().ok()?;
+        let (size, align) = layout_of(element, definitions, visiting)?;
+        return Some((size.checked_mul(count)?, align));
+    }
+    if let Some(rest) = ty.strip_prefix('%') {
+        let name = format!("%{rest}");
+        if !visiting.insert(name.clone()) {
+            return None;
+        }
+        let body = definitions.get(&name)?;
+        let layout = layout_of(body, definitions, visiting);
+        visiting.remove(&name);
+        return layout;
+    }
+    if ty.starts_with('<') || ty.starts_with('{') {
+        let packed = ty.starts_with('<');
+        let inner = ty
+            .trim_start_matches('<')
+            .trim_start_matches('{')
+            .trim_end_matches('>')
+            .trim_end_matches('}')
+            .trim();
+        let mut offset = 0usize;
+        let mut max_align = 1usize;
+        for field in split_type_fields(inner) {
+            let (size, align) = layout_of(&field, definitions, visiting)?;
+            let align = if packed { 1 } else { align };
+            let padded = offset.div_ceil(align) * align;
+            offset = padded.checked_add(size)?;
+            max_align = max_align.max(align);
+        }
+        let align = if packed { 1 } else { max_align };
+        return Some((offset.div_ceil(align) * align, align));
+    }
+    if let Some(bits) = ty.strip_prefix('i') {
+        let bits: usize = bits.parse().ok()?;
+        let size = bits.div_ceil(8);
+        let align = size.next_power_of_two().min(16);
+        return Some((size, align));
+    }
+    match ty {
+        "ptr" => Some((8, 8)),
+        "float" => Some((4, 4)),
+        "double" => Some((8, 8)),
+        _ => None,
+    }
+}
+
+fn split_type_fields(inner: &str) -> Vec<String> {
+    let mut fields = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0usize;
+    for (index, ch) in inner.char_indices() {
+        match ch {
+            '[' | '{' | '<' | '(' => depth += 1,
+            ']' | '}' | '>' | ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                fields.push(inner[start..index].trim().to_string());
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    let tail = inner[start..].trim();
+    if !tail.is_empty() {
+        fields.push(tail.to_string());
+    }
+    fields
+}
 
 /// A single LLVM IR instruction.
 #[derive(Clone, Debug)]
@@ -1017,6 +1147,7 @@ pub fn lower_function(text: &str, func_name: &str) -> Result<Function, String> {
     if func_text.is_empty() {
         return Err(format!("function '{}' not found", func_name));
     }
+    let _layouts = StructLayoutGuard::set(parse_struct_layouts(text));
     let mut func = lower(&func_text)?;
 
     // Calls to functions defined in the module keep their namespaced
@@ -3621,9 +3752,13 @@ pub fn lower(text: &str) -> Result<Function, String> {
             // byte-scaled GEP would silently use the wrong element size.
             if inst.opcode == "getelementptr" {
                 if let Some(source) = inst.operands.first().map(|o| strip_type(o)) {
-                    if source.starts_with('%')
+                    let named_struct = source.starts_with('%');
+                    let supported_struct = named_struct
+                        && inst.operands.len() == 3
+                        && struct_layout(&source).is_some();
+                    if (named_struct && !supported_struct)
                         || source.starts_with('{')
-                        || source.contains("struct")
+                        || (source.starts_with('[') && source.contains('%'))
                     {
                         return Err(format!(
                             "unsupported: aggregate-typed getelementptr source '{}': {}",
@@ -10098,7 +10233,20 @@ fn emit_instruction(
             }
             // operand 0: "inbounds i8" or "inbounds [256 x i8]" — the element type
             let elem_type_str = inst.operands[0].trim_start_matches("inbounds").trim();
-            let elem_ty = if elem_type_str.starts_with('[') {
+            let struct_stride = if elem_type_str.starts_with('%') {
+                Some(
+                    struct_layout(elem_type_str)
+                        .ok_or_else(|| {
+                            format!("unsupported: unknown struct layout for {}", inst.raw)
+                        })?
+                        .0,
+                )
+            } else {
+                None
+            };
+            let elem_ty = if struct_stride.is_some() {
+                Type::u8()
+            } else if elem_type_str.starts_with('[') {
                 match gep_source_array_type(&inst.raw) {
                     Some(array) => innermost_element_type(&array),
                     other => other.unwrap_or_else(Type::u8),
@@ -10116,7 +10264,24 @@ fn emit_instruction(
             // GEPs (arrays/2D pointers) fold their dimensions into one
             // linear index, so `[20 x i64], ptr p, i64 i, i64 j` becomes
             // `i * 20 + j` rather than dropping the row index.
-            let index = if inst.operands.len() >= 4 {
+            let index = if let Some(stride) = struct_stride {
+                let index_str = strip_type(&inst.operands[2]);
+                let index_node = get_node_id(&index_str, value_map, params, builder, None)
+                    .ok_or(format!("cannot resolve gep index '{}'", index_str))?;
+                if stride <= 1 {
+                    index_node
+                } else {
+                    let index_ty = builder
+                        .function()
+                        .get_node(index_node)
+                        .map(|node| node.ty.clone())
+                        .unwrap_or(Type::u64());
+                    let factor = builder.constant(ConstantData::u64(stride as u64), index_ty, span);
+                    builder
+                        .mul(index_node, factor, span)
+                        .map_err(|e| format!("{:?}", e))?
+                }
+            } else if inst.operands.len() >= 4 {
                 gep_linear_index(
                     builder,
                     elem_type_str,
