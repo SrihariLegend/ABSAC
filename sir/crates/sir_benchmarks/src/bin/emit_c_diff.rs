@@ -1173,12 +1173,7 @@ fn run_function(
     cc: &str,
     target: &str,
 ) -> Outcome {
-    let lowered_module = if sanitize {
-        sir_lower::with_deep_chains_disabled(|| lower_module(ll, name))
-    } else {
-        lower_module(ll, name)
-    };
-    let module = match lowered_module {
+    let module = match lower_module(ll, name) {
         Ok(module) => module,
         Err(reason) => return Outcome::Refused { reason },
     };

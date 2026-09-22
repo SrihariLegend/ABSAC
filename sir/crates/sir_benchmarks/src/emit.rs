@@ -179,6 +179,43 @@ pub fn c_type(ty: &Type) -> String {
     }
 }
 
+/// Byte size of a C-emittable type (for pointer arithmetic scaling).
+fn c_size_of(ty: &Type) -> Option<usize> {
+    match ty {
+        Type::Bool => Some(1),
+        Type::Integer { width, .. } => Some(match width {
+            sir_types::IntegerWidth::I8 => 1,
+            sir_types::IntegerWidth::I16 => 2,
+            sir_types::IntegerWidth::I32 => 4,
+            sir_types::IntegerWidth::I64 => 8,
+            sir_types::IntegerWidth::I128 => 16,
+        }),
+        Type::Pointer { .. } => Some(8),
+        Type::Array { element, length } => Some(c_size_of(element)? * length),
+        _ => None,
+    }
+}
+
+/// Pointer expression with wrapping integer arithmetic. LLVM GEP indices
+/// are two's-complement offsets; C pointer addition with a wrapped offset
+/// is undefined behaviour even when the resulting address is in range, so
+/// address arithmetic goes through `uintptr_t`.
+fn ptr_offset_expr(
+    cast: &str,
+    size_ty: &Type,
+    base: &str,
+    index: &str,
+    already_bytes: bool,
+) -> String {
+    let offset = if already_bytes {
+        format!("(uintptr_t)(int64_t)({index})")
+    } else {
+        let size = c_size_of(size_ty).unwrap_or(1);
+        format!("((uint64_t)(int64_t)({index}) * (uint64_t){size})")
+    };
+    format!("(({})((uintptr_t)({}) + ({})))", cast, base, offset)
+}
+
 /// Signed C type of the same width, used as the mid-cast for
 /// `SignExtend` so the extension is arithmetic rather than zero-fill.
 fn signed_c_type(ty: &Type) -> String {
@@ -1546,29 +1583,32 @@ fn emit_expr(
         NodeKind::ArrayAccess { base, index } => {
             let base_expr = emit_operand(*base, func, carrier_map);
             let index_expr = index_expr(*index, func, carrier_map);
+            let element_ptr = format!("{} *", c_type(&node.ty));
             let base_node = func.get_node(*base);
             if base_node.is_some_and(|base| matches!(base.kind, NodeKind::Global { .. })) {
                 format!(
-                    "(({} *)((uint8_t *)({}) + ({})))[0]",
-                    c_type(&node.ty),
-                    base_expr,
-                    index_expr
+                    "{}[0]",
+                    ptr_offset_expr(&element_ptr, &node.ty, &base_expr, &index_expr, true)
                 )
             } else if let Some(Type::Pointer { pointee, .. }) = base_node.map(|base| &base.ty) {
                 if pointee.as_ref() != &node.ty {
                     // Mixed-width GEP: the lowerer scaled the index to
-                    // bytes, so address through uint8_t and reinterpret.
+                    // bytes, so address through integers and reinterpret.
                     format!(
-                        "(({} *)((uint8_t *)({}) + ({})))[0]",
-                        c_type(&node.ty),
-                        base_expr,
-                        index_expr
+                        "{}[0]",
+                        ptr_offset_expr(&element_ptr, &node.ty, &base_expr, &index_expr, true)
                     )
                 } else {
-                    format!("(({}) + ({}))[0]", base_expr, index_expr)
+                    format!(
+                        "{}[0]",
+                        ptr_offset_expr(&element_ptr, &node.ty, &base_expr, &index_expr, false)
+                    )
                 }
             } else {
-                format!("(({}) + ({}))[0]", base_expr, index_expr)
+                format!(
+                    "{}[0]",
+                    ptr_offset_expr(&element_ptr, &node.ty, &base_expr, &index_expr, false)
+                )
             }
         }
         NodeKind::PointerOffset { base, index } => {
@@ -1581,17 +1621,30 @@ fn emit_expr(
                     _ => return format!("/* non-pointer offset {} */ 0", node.id.as_u64()),
                 };
                 if pointee.as_ref() != result_pointee {
-                    format!(
-                        "(({}) ((uint8_t *)({}) + ({})))",
-                        c_type(&result_ty),
-                        base_expr,
-                        index_expr
+                    ptr_offset_expr(
+                        &c_type(&result_ty),
+                        result_pointee,
+                        &base_expr,
+                        &index_expr,
+                        true,
                     )
                 } else {
-                    format!("({} + {})", base_expr, index_expr)
+                    ptr_offset_expr(
+                        &c_type(&result_ty),
+                        result_pointee,
+                        &base_expr,
+                        &index_expr,
+                        false,
+                    )
                 }
             } else {
-                format!("({} + {})", base_expr, index_expr)
+                ptr_offset_expr(
+                    &c_type(&result_ty),
+                    &result_ty,
+                    &base_expr,
+                    &index_expr,
+                    false,
+                )
             }
         }
         NodeKind::Global { name } => c_global_name(name),
@@ -1987,6 +2040,21 @@ pub fn emit_c(func: &Function) -> String {
                 loop_ids.insert(*termination);
                 loop_ids.extend(outputs.iter().copied());
                 carried_seeds.extend(carried_inputs.iter().copied());
+            }
+        }
+        // Nested loops are emitted by their own `emit_loop`; their internal
+        // nodes must never be re-emitted by the post-loop pass.
+        for node in func.arena.iter() {
+            if let NodeKind::Loop {
+                body,
+                termination,
+                outputs,
+                ..
+            } = &node.kind
+            {
+                loop_ids.extend(body.iter().copied());
+                loop_ids.insert(*termination);
+                loop_ids.extend(outputs.iter().copied());
             }
         }
         // Carrier initializers may read preheader loads (e.g. a loop-carried

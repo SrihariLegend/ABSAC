@@ -2155,21 +2155,8 @@ fn lower_deep_loop_chain(
             for idx in header + 1..child_header {
                 emit_block(ir, idx, builder, value_map, &mut body_nodes, span)?;
             }
-            let child_start = builder
-                .function()
-                .arena
-                .ids()
-                .map(|id| id.0)
-                .max()
-                .unwrap_or(0);
-            let _child = build_level(ir, chain, level + 1, builder, value_map, span)?;
-            body_nodes.extend(
-                builder
-                    .function()
-                    .arena
-                    .ids()
-                    .filter(|id| id.0 > child_start),
-            );
+            let child = build_level(ir, chain, level + 1, builder, value_map, span)?;
+            body_nodes.push(child);
             let (child_latch, _) = chain[level + 1];
             for idx in child_latch + 1..=latch {
                 emit_block(ir, idx, builder, value_map, &mut body_nodes, span)?;

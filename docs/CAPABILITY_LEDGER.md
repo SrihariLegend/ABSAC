@@ -773,16 +773,19 @@ have now been restored into current `sir_mech` and tested.
   next-values become outputs/extracts. Entry/preheader statements are
   emitted inside the outermost body (the chain exit returns void), and
   each child loop's internal ids are folded into the parent body so the
-  post-loop pass cannot leak body-scoped names. `jpegdct` is clean at 30
-  native cases including four optimizer rewrites, raising edn 9 → **10**
-  and external Embench 32 → **33**. Deep chains are deliberately
-  disabled for callee composition and for sanitize runs: callers such as
-  edn `benchmark_body`/`warm_caches` stay fail-closed, and the remaining
-  generated pointer-arithmetic UB in the sanitizer path is not claimed.
-  `verify.sh` now fails on `violations=` and bounds every case with
-  `CASE_TIMEOUT` (default 180s). Evidence: base-14 246 / 133 / 0
-  native+AArch64, fuzz 540 / 360 / 0, external 33, sanitize 0
-  violations (edn 9 clean / 4 refused), 9 tests ~1.3 s.
+  post-loop pass cannot leak body-scoped names. Generated address
+  arithmetic now goes through `uintptr_t` with explicit two's-complement
+  byte offsets, and the emitter's loop-id set covers every nested loop's
+  internals, so post-loop emission cannot reference body-scoped names or
+  trigger pointer-offset UB. `jpegdct` is clean at 30 native cases
+  including four optimizer rewrites **and sanitizer-clean (0
+  violations)**, raising edn 9 → **10** and external Embench 32 → **33**.
+  Deep chains remain disabled for callee composition: callers such as
+  edn `benchmark_body`/`warm_caches` stay fail-closed. `verify.sh` fails
+  on `violations=` and bounds every case with `CASE_TIMEOUT` (default
+  180s). Evidence: base-14 246 / 133 / 0 native+AArch64, fuzz
+  540 / 360 / 0 (plus AArch64 60/160), external 33, sanitize 0
+  violations (edn 10 clean / 3 refused), 9 tests ~1.3 s.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
