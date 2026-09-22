@@ -676,6 +676,21 @@ have now been restored into current `sir_mech` and tested.
   the byte path. Reproducible external clean rises 27 → **28**; base-14
   is 237 / 133 / 0, fuzz 540 / 360 / 0, sanitizers 0, and the 9-test
   suite still runs in ~1.3 s.
+- **2026-09-22 — rejected global-state loop engine (FH_DU)**: a
+  predicated do-while engine was implemented for the FH_DU state
+  machine: phi values selected from predecessor edge conditions,
+  conditional stores merged by select, a carried run flag for the
+  post-body latch test, and prelude emission for body-reachable
+  globals. It lowered FH_DU but `benchmark_body` mismatched 67 globals
+  and the prelude change also perturbed existing loop emission, so the
+  whole experiment was reverted to `10b9667`. FH_DU is not independently
+  testable either: with arbitrary driver globals the **reference** loops
+  forever; only `benchmark_body` (which memsets Bitlist and calls
+  init/interface first) reaches a terminating state. H3 probe from the
+  same pass: direct Kernighan unrolling at width 32 takes 7.1 s; the
+  single clear-lowest-bit step lemma takes 0.32 s at width 32 and 9.9 s
+  at width 64; width-64 unrolling does not finish. Induction remains
+  the only viable path for production-width Kernighan.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
