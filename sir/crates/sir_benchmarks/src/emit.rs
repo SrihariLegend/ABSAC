@@ -1226,6 +1226,10 @@ fn emit_expr(
         // semantic SIR operation it selects. Unknown names fail loudly
         // at compile time instead of silently emitting 0.
         NodeKind::Intrinsic { name, args } => match name.as_str() {
+            "sir_ptrcase" if args.len() == 1 => {
+                let x = emit_operand(args[0], func, carrier_map);
+                format!("(({})({}))", c_type(&node.ty), x)
+            }
             "sir_ashr" if args.len() == 2 => {
                 let x = emit_operand(args[0], func, carrier_map);
                 let k = emit_operand(args[1], func, carrier_map);

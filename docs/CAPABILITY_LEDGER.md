@@ -952,6 +952,19 @@ have now been restored into current `sir_mech` and tested.
   **108 clean / 211 refused / 0 mismatched / 2 invalid-state** (was
   107/212/0/2). Base-14 stays 498/266 and fuzz 540/360; 9 tests
   ~1.36 s.
+- **2026-09-23 — guarded dynamic pointer-base predication**: the path
+  enumerator now predicates loads and stores through pointer values
+  that differ per path by selecting a scratch (`__sir_pred_dummy`)
+  address when the path guard is false; memory entries carry both the
+  value and the base pointer, and `finish` merges them with path
+  selects. A small internal `sir_ptrcase` intrinsic keeps pointer
+  types canonical across const/mutable spellings, and pointer-typed
+  locations share one canonical memory key. All-19 Embench:
+  **110 clean / 207 refused / 0 mismatched / 4 invalid-state** (was
+  108/211/0/2); sglib 14 clean (+`dllist_add_after` and one more), and
+  the new invalid-state entries were stack-checked to fault in the
+  **reference** first (null/structured inputs), not in emitted code.
+  Base-14 stays 498/266, fuzz 540/360, 9 tests ~1.36 s.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
