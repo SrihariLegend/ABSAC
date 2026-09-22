@@ -3847,7 +3847,9 @@ pub fn lower(text: &str) -> Result<Function, String> {
     // operands stay with the existing (fail-closed) machinery.
     if !has_back_edge
         && ir.blocks.len() > 1
-        && (acyclic_global_memory_cfg(&ir) || acyclic_scalar_cfg(&ir))
+        && (acyclic_global_memory_cfg(&ir)
+            || acyclic_predicable_memory_cfg(&ir)
+            || acyclic_scalar_cfg(&ir))
     {
         let return_ty = builder.function().return_ty.clone();
         return lower_switch_cfg(&ir, &mut builder, value_map, return_ty).map(|_| builder.build());
@@ -8651,10 +8653,30 @@ fn lower_loop_function(
     Ok(())
 }
 
-/// A constant global memory location: symbol + element type + element index.
+/// A memory location the path enumerator can name: a global symbol or a
+/// pointer parameter, plus a constant element index and element type.
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum MemBase {
+    Global(String),
+    Param(String),
+    /// Pointer loaded in the entry block and therefore stable across all
+    /// paths; keyed by its IR SSA name.
+    Loaded(String),
+}
+
+impl MemBase {
+    fn key(&self) -> String {
+        match self {
+            MemBase::Global(name) => format!("@{name}"),
+            MemBase::Param(name) => format!("%{name}"),
+            MemBase::Loaded(name) => format!("load {name}"),
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct MemLoc {
-    global: String,
+    base: MemBase,
     ty: Type,
     index: u64,
 }
@@ -8694,7 +8716,8 @@ struct SwitchLowerer<'a> {
     true_cond: NodeId,
     false_cond: NodeId,
     gep_locs: HashMap<String, MemLoc>,
-    global_elem: HashMap<String, Type>,
+    base_nodes: HashMap<String, NodeId>,
+    global_elem: HashMap<(String, u64), Type>,
     initial_loads: HashMap<MemLoc, NodeId>,
     paths: Vec<SwitchPath>,
     exits: Vec<ExitState>,
@@ -8743,34 +8766,37 @@ impl<'a> SwitchLowerer<'a> {
             .map_err(|e| format!("switch CFG: {:?}", e))
     }
 
-    fn note_loc(&mut self, name: String, ty: Type, index: u64) -> Result<MemLoc, String> {
-        if let Some(previous) = self.global_elem.get(&name) {
+    fn note_loc(&mut self, base: MemBase, ty: Type, index: u64) -> Result<MemLoc, String> {
+        let key = (base.key(), index);
+        if let Some(previous) = self.global_elem.get(&key) {
             if previous != &ty {
                 return Err(format!(
-                    "switch CFG: global @{} accessed with mixed element types",
-                    name
+                    "switch CFG: memory {} accessed with mixed element types",
+                    key.0
                 ));
             }
         } else {
-            self.global_elem.insert(name.clone(), ty.clone());
+            self.global_elem.insert(key, ty.clone());
         }
-        Ok(MemLoc {
-            global: name,
-            ty,
-            index,
-        })
+        Ok(MemLoc { base, ty, index })
     }
 
     fn resolve_loc(&mut self, operand: &str, access_ty: &Type) -> Result<MemLoc, String> {
         if let Some((name, ty, index)) = inline_global_gep(operand) {
-            return self.note_loc(name, ty, index);
+            return self.note_loc(MemBase::Global(name), ty, index);
         }
         let base = strip_type(operand);
         if let Some(loc) = self.gep_locs.get(&base) {
             return Ok(loc.clone());
         }
         if let Some(name) = base.strip_prefix('@') {
-            return self.note_loc(name.to_string(), access_ty.clone(), 0);
+            return self.note_loc(MemBase::Global(name.to_string()), access_ty.clone(), 0);
+        }
+        if self.ir.params.iter().any(|(name, _)| name == &base) {
+            return self.note_loc(MemBase::Param(base), access_ty.clone(), 0);
+        }
+        if self.base_nodes.contains_key(&base) {
+            return self.note_loc(MemBase::Loaded(base), access_ty.clone(), 0);
         }
         Err(format!(
             "switch CFG: non-global memory operand '{}'",
@@ -8801,14 +8827,18 @@ impl<'a> SwitchLowerer<'a> {
             .filter(|index| *index >= 0)
             .ok_or_else(|| format!("switch CFG: non-constant GEP index: {}", inst.raw))?
             as u64;
-        let name = if let Some(name) = base.strip_prefix('@') {
-            name.to_string()
+        let base = if let Some(name) = base.strip_prefix('@') {
+            MemBase::Global(name.to_string())
         } else if let Some(loc) = self.gep_locs.get(&base) {
-            loc.global.clone()
+            loc.base.clone()
+        } else if self.ir.params.iter().any(|(name, _)| name == &base) {
+            MemBase::Param(base)
+        } else if self.base_nodes.contains_key(&base) {
+            MemBase::Loaded(base)
         } else {
             return Ok(());
         };
-        let loc = self.note_loc(name, element, index)?;
+        let loc = self.note_loc(base, element, index)?;
         if let Some(result) = &inst.result {
             self.gep_locs.insert(result.clone(), loc);
         }
@@ -8823,25 +8853,35 @@ impl<'a> SwitchLowerer<'a> {
         if let Some(id) = self.initial_loads.get(loc) {
             return Ok(*id);
         }
-        let global = seed
-            .get(&loc.global)
-            .copied()
-            .or_else(|| {
-                get_node_id(
-                    &format!("@{}", loc.global),
-                    seed,
-                    &self.ir.params,
-                    self.builder,
-                    None,
-                )
-            })
-            .ok_or(format!("switch CFG: unknown global @{}", loc.global))?;
+        let base = match &loc.base {
+            MemBase::Global(name) => seed
+                .get(name)
+                .copied()
+                .or_else(|| {
+                    get_node_id(
+                        &format!("@{name}"),
+                        seed,
+                        &self.ir.params,
+                        self.builder,
+                        None,
+                    )
+                })
+                .ok_or(format!("switch CFG: unknown global @{name}"))?,
+            MemBase::Param(name) => seed
+                .get(name)
+                .copied()
+                .ok_or(format!("switch CFG: unknown parameter %{name}"))?,
+            MemBase::Loaded(name) => *self
+                .base_nodes
+                .get(name)
+                .ok_or(format!("switch CFG: unknown loaded base {name}"))?,
+        };
         let index = self
             .builder
             .constant(ConstantData::u64(loc.index), Type::u64(), self.span);
         let access = self
             .builder
-            .array_access(global, index, loc.ty.clone(), self.span)
+            .array_access(base, index, loc.ty.clone(), self.span)
             .map_err(|e| format!("switch CFG: {:?}", e))?;
         // `ArrayAccess` is both the lvalue and the current-value read in
         // the existing lowering; the initial memory state is the location
@@ -8949,6 +8989,16 @@ impl<'a> SwitchLowerer<'a> {
                         };
                         if let Some(result) = &inst.result {
                             state.values.insert(result.clone(), value);
+                            let ptr = strip_type(&inst.operands[1]);
+                            let stable_base = self.ir.params.iter().any(|(name, _)| name == &ptr)
+                                || ptr.starts_with('@')
+                                || self.gep_locs.contains_key(&ptr);
+                            if state.block == 0
+                                && stable_base
+                                && matches!(access_ty, Type::Pointer { .. })
+                            {
+                                self.base_nodes.entry(result.clone()).or_insert(value);
+                            }
                         }
                     }
                     "store" => {
@@ -9191,16 +9241,26 @@ impl<'a> SwitchLowerer<'a> {
             }
         }
         for (loc, value) in finals {
-            let global = seed
-                .get(&loc.global)
-                .copied()
-                .ok_or(format!("switch CFG: unknown global @{}", loc.global))?;
+            let base = match &loc.base {
+                MemBase::Global(name) => seed
+                    .get(name)
+                    .copied()
+                    .ok_or(format!("switch CFG: unknown global @{name}"))?,
+                MemBase::Param(name) => seed
+                    .get(name)
+                    .copied()
+                    .ok_or(format!("switch CFG: unknown parameter %{name}"))?,
+                MemBase::Loaded(name) => *self
+                    .base_nodes
+                    .get(name)
+                    .ok_or(format!("switch CFG: unknown loaded base {name}"))?,
+            };
             let index = self
                 .builder
                 .constant(ConstantData::u64(loc.index), Type::u64(), self.span);
             let access = self
                 .builder
-                .array_access(global, index, loc.ty.clone(), self.span)
+                .array_access(base, index, loc.ty.clone(), self.span)
                 .map_err(|e| format!("switch CFG: {:?}", e))?;
             self.builder
                 .store(access, value, self.span)
@@ -9374,6 +9434,14 @@ impl<'a> SwitchLowerer<'a> {
                         };
                         if let Some(result) = &inst.result {
                             values.insert(result.clone(), value);
+                            let ptr = strip_type(&inst.operands[1]);
+                            let stable_base = self.ir.params.iter().any(|(name, _)| name == &ptr)
+                                || ptr.starts_with('@')
+                                || self.gep_locs.contains_key(&ptr);
+                            if idx == 0 && stable_base && matches!(access_ty, Type::Pointer { .. })
+                            {
+                                self.base_nodes.entry(result.clone()).or_insert(value);
+                            }
                         }
                     }
                     "store" => {
@@ -9611,16 +9679,26 @@ impl<'a> SwitchLowerer<'a> {
             }
         }
         for (loc, value) in finals {
-            let global = seed
-                .get(&loc.global)
-                .copied()
-                .ok_or(format!("switch CFG: unknown global @{}", loc.global))?;
+            let base = match &loc.base {
+                MemBase::Global(name) => seed
+                    .get(name)
+                    .copied()
+                    .ok_or(format!("switch CFG: unknown global @{name}"))?,
+                MemBase::Param(name) => seed
+                    .get(name)
+                    .copied()
+                    .ok_or(format!("switch CFG: unknown parameter %{name}"))?,
+                MemBase::Loaded(name) => *self
+                    .base_nodes
+                    .get(name)
+                    .ok_or(format!("switch CFG: unknown loaded base {name}"))?,
+            };
             let index = self
                 .builder
                 .constant(ConstantData::u64(loc.index), Type::u64(), self.span);
             let access = self
                 .builder
-                .array_access(global, index, loc.ty.clone(), self.span)
+                .array_access(base, index, loc.ty.clone(), self.span)
                 .map_err(|e| format!("switch CFG: {:?}", e))?;
             self.builder
                 .store(access, value, self.span)
@@ -9776,6 +9854,7 @@ fn lower_switch_cfg(
         true_cond,
         false_cond,
         gep_locs: HashMap::new(),
+        base_nodes: HashMap::new(),
         global_elem: HashMap::new(),
         initial_loads: HashMap::new(),
         paths: Vec::new(),
@@ -9851,6 +9930,70 @@ fn acyclic_scalar_cfg(ir: &IrFunction) -> bool {
         }
     }
     has_control
+}
+
+/// Acyclic CFG whose memory operands are globals or pointer parameters
+/// reached through constant-offset GEPs. These can be predicated with the
+/// path enumerator; pointer values loaded from memory are not included.
+fn acyclic_predicable_memory_cfg(ir: &IrFunction) -> bool {
+    let mut safe: HashSet<String> = ir
+        .params
+        .iter()
+        .filter(|(_, ty)| ty.starts_with("ptr"))
+        .map(|(name, _)| name.clone())
+        .collect();
+    let mut has_memory = false;
+    let mut has_control = false;
+    // Entry-block pointer loads are the same address on every path; the
+    // path enumerator records their nodes and can key memory by SSA name.
+    if let Some(entry) = ir.blocks.first() {
+        for inst in &entry.instructions {
+            if inst.opcode != "load" {
+                continue;
+            }
+            let Some(ptr) = inst.operands.get(1) else {
+                continue;
+            };
+            if inline_global_gep(ptr).is_some() || safe.contains(&strip_type(ptr)) {
+                if let Some(result) = &inst.result {
+                    safe.insert(result.clone());
+                }
+            }
+        }
+    }
+    for block in &ir.blocks {
+        for inst in &block.instructions {
+            match inst.opcode.as_str() {
+                "getelementptr" if inst.operands.len() >= 3 => {
+                    let base = strip_type(&inst.operands[1]);
+                    let known = base.starts_with('@') || safe.contains(&base);
+                    let index = if inst.operands.len() >= 4 {
+                        strip_type(inst.operands.last().unwrap())
+                    } else {
+                        strip_type(&inst.operands[2])
+                    };
+                    if known && parse_int_constant(&index).is_some() {
+                        if let Some(result) = &inst.result {
+                            safe.insert(result.clone());
+                        }
+                    }
+                }
+                "load" | "store" => {
+                    has_memory = true;
+                    let Some(ptr) = inst.operands.get(1) else {
+                        return false;
+                    };
+                    if inline_global_gep(ptr).is_none() && !safe.contains(&strip_type(ptr)) {
+                        return false;
+                    }
+                }
+                "br" if inst.operands.len() >= 3 => has_control = true,
+                "switch" => has_control = true,
+                _ => {}
+            }
+        }
+    }
+    has_memory && has_control
 }
 
 /// Acyclic CFG with control flow and memory, regardless of whether the

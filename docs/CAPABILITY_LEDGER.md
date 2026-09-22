@@ -943,6 +943,15 @@ have now been restored into current `sir_mech` and tested.
   refused / 0 mismatched / 2 invalid-state** (was 106/209/0/6); sglib
   12 clean / 1 invalid-state, 0 mismatched. Base-14 stays 498/266,
   fuzz 540/360, 9 tests ~1.36 s.
+- **2026-09-23 — pointer-base path predication**: the acyclic path
+  enumerator now keys memory by pointer-parameter bases and by
+  entry-block pointer loads (stable across all paths), in addition to
+  globals, when offsets are constant. Dynamically loaded pointer bases
+  (GEPs into pointers loaded after the entry block) still fail closed.
+  slre `op_len` moves to clean (sanitizer-clean); all-19 Embench is
+  **108 clean / 211 refused / 0 mismatched / 2 invalid-state** (was
+  107/212/0/2). Base-14 stays 498/266 and fuzz 540/360; 9 tests
+  ~1.36 s.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
