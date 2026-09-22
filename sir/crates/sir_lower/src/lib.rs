@@ -4152,6 +4152,30 @@ fn rotated_successor_domain(
     None
 }
 
+/// For an unguarded successor-tested rotation, the rebuilt pre-tested
+/// domain is equivalent to the source do-while when it already holds at
+/// the carried init (the source's forced first iteration is then also
+/// the first pre-tested iteration). Constant-provable only.
+fn domain_holds_at_init(builder: &Builder, inclusive: bool, carry: NodeId, bound: NodeId) -> bool {
+    let function = builder.function();
+    let constant = |id: NodeId| {
+        function.get_node(id).and_then(|node| match &node.kind {
+            NodeKind::Constant(data) => data.as_u64(),
+            _ => None,
+        })
+    };
+    match (constant(carry), constant(bound)) {
+        (Some(carry), Some(bound)) => {
+            if inclusive {
+                carry <= bound
+            } else {
+                carry < bound
+            }
+        }
+        _ => false,
+    }
+}
+
 /// Integer constant data of the same SIR type as `ty` (for reconstructed
 /// bounds).
 fn int_constant_data(ty: &Type, val: u64) -> ConstantData {
@@ -8156,7 +8180,9 @@ fn lower_loop_function(
     let termination = if continue_on_true {
         match rotated_successor_domain(builder, termination, &carried_init_nodes, &output_nodes) {
             Some((inclusive, carry, bound)) => {
-                if !has_entry_guard(ir, loop_idx) {
+                if !has_entry_guard(ir, loop_idx)
+                    && !domain_holds_at_init(builder, inclusive, carry, bound)
+                {
                     return Err(format!(
                         "unsupported: unguarded successor-tested loop (`next` compared to \
                          the bound with a true back-edge and no pre-loop `n == 0` exit); \

@@ -13,7 +13,7 @@
 
 use sir_benchmarks::emit;
 use sir_lower::{external_symbol, lower_function};
-use sir_nodes::Function;
+use sir_nodes::{Function, NodeKind};
 use sir_types::Type;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
@@ -626,6 +626,44 @@ fn build_driver(
     out
 }
 
+/// True when a loop advances a carried value by a runtime operand. Such
+/// loops terminate only for a nonzero step; keep the scalar driver
+/// domain nonzero so the differential compares terminating executions.
+fn runtime_step_loop(func: &Function) -> bool {
+    for node in func.arena.iter() {
+        let NodeKind::Loop {
+            carried_inputs,
+            outputs,
+            ..
+        } = &node.kind
+        else {
+            continue;
+        };
+        for &output in outputs {
+            let Some(out_node) = func.get_node(output) else {
+                continue;
+            };
+            let NodeKind::Add { lhs, rhs } = &out_node.kind else {
+                continue;
+            };
+            let step = if carried_inputs.contains(lhs) {
+                rhs
+            } else if carried_inputs.contains(rhs) {
+                lhs
+            } else {
+                continue;
+            };
+            if !matches!(
+                func.get_node(*step).map(|node| &node.kind),
+                Some(NodeKind::Constant(_))
+            ) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// Timing driver: same argument setup as the differential driver, but times a
 /// fixed repetition count of `name__ref` and `name` in one process so both see
 /// identical inputs, buffers, and clock conditions.
@@ -1221,7 +1259,7 @@ fn run_function(
         // Functions with `undef` phi entries have undefined behaviour on
         // the zero input; keep the scalar domain nonzero so the
         // differential compares defined executions only.
-        ll.contains(" undef"),
+        ll.contains(" undef") || runtime_step_loop(&optimized.function),
     );
 
     let mut driver = driver;

@@ -836,6 +836,17 @@ have now been restored into current `sir_mech` and tested.
   -- 64` proves and replays in **27.8 s**. The pipeline still gates
   only ≤32 so ordinary compiles stay fast; 64 remains contract-backed
   at optimization time. Width 32 stays 0.42 s; 9 tests ~1.36 s.
+- **2026-09-22 — unguarded do-while with a provable first iteration
+  (n04)**: a successor-tested rotation (`next = carry + step`,
+  continue while `next < bound`) can be lowered as the reconstructed
+  pre-tested domain when that domain already holds at the carried init
+  (constant-provable, e.g. `0 < 64`); the source's forced first
+  iteration is then exactly the first pre-tested iteration. Runtime
+  steps keep the scalar driver domain nonzero because step 0 is a
+  nonterminating source, and the emitted domain is sanitizer-clean.
+  This was the last non-atomic, non-`unreachable` base-14 refusal:
+  base-14 248 → **249** (498 clean / 266 rewrites native + AArch64),
+  external stays 37, 9 tests ~1.36 s.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
