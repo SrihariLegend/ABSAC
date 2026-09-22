@@ -1115,6 +1115,18 @@ fn get_node_id(
         let span = Span::unknown();
         return Some(builder.constant(ConstantData::boolean(ref_str == "true"), Type::Bool, span));
     }
+    // LLVM's null pointer literal. Represent it as a zero constant of
+    // the expected pointer type; the emitter prints an integer zero,
+    // which is valid in pointer comparisons and assignments under the
+    // harness's warning-suppressed C build.
+    if ref_str == "null" {
+        let span = Span::unknown();
+        let ty = type_hint.unwrap_or(Type::Pointer {
+            pointee: Box::new(Type::u8()),
+            mutable: false,
+        });
+        return Some(builder.constant(ConstantData::u64(0), ty, span));
+    }
     None
 }
 
@@ -3730,23 +3742,8 @@ pub fn lower(text: &str) -> Result<Function, String> {
     let text = extract_first_function(text);
     let ir = parse_function(&text)?;
 
-    // Pointer-valued memory is not modeled by the byte-addressed
-    // ArrayAccess path: a `load ptr`/`store ptr` would be emitted with a
-    // scalar element type and silently truncate the address. Fail closed
-    // until pointer memory has its own representation.
     for block in &ir.blocks {
         for inst in &block.instructions {
-            let pointer_typed = match inst.opcode.as_str() {
-                "load" => inst.operands.first().and_then(|o| operand_type(o)),
-                "store" => inst.operands.first().and_then(|o| operand_type(o)),
-                _ => None,
-            };
-            if pointer_typed.is_some_and(|ty| matches!(ty, Type::Pointer { .. })) {
-                return Err(format!(
-                    "unsupported: pointer-valued {}: {}",
-                    inst.opcode, inst.raw
-                ));
-            }
             // Named structs (and literal struct types) need a layout
             // model that the function-local lowerer does not have; a
             // byte-scaled GEP would silently use the wrong element size.

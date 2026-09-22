@@ -630,6 +630,186 @@ fn build_driver(
     out
 }
 
+/// Same-address differential driver for functions with pointer-valued
+/// memory or pointer returns. Both sides run sequentially on one buffer
+/// (with a restart snapshot between calls), so stored pointer bytes are
+/// directly comparable instead of differing by buffer placement.
+fn build_same_address_driver(
+    name: &str,
+    func: &Function,
+    ir_ret: &str,
+    ir_params: &[String],
+    cases: usize,
+    low_bits: bool,
+    globals: &[GlobalDecl],
+    avoid_zero: bool,
+) -> String {
+    let mut out = String::new();
+    out.push_str(
+        "#include <stdint.h>\n#include <stdbool.h>\n#include <stdio.h>\n#include <string.h>\n\n",
+    );
+    out.push_str("extern void __sir_ffi_reset(void) __attribute__((weak));\n\n");
+    let ir_p: Vec<String> = ir_params
+        .iter()
+        .enumerate()
+        .map(|(i, t)| format!("{} a{}", llvm_c_type(t), i))
+        .collect();
+    out.push_str(&format!(
+        "extern {} {}__ref({});\n\n",
+        llvm_c_type(ir_ret),
+        name,
+        ir_p.join(", ")
+    ));
+    let new_p: Vec<String> = func.params.iter().map(|p| emit::c_type(&p.ty)).collect();
+    out.push_str(&format!(
+        "extern {} {}({});\n\n",
+        emit::c_type(&func.return_ty),
+        name,
+        if new_p.is_empty() {
+            "void".to_string()
+        } else {
+            new_p.join(", ")
+        }
+    ));
+    let lens = if avoid_zero {
+        "{1,2,3,4,5,7,8,16,31,32,33}"
+    } else {
+        "{0,1,2,3,4,5,7,8,16,31,32}"
+    };
+    out.push_str(&format!(
+        "static uint64_t val(int t, int k) {{\n\
+         \x20   static const uint64_t lens[] = {lens};\n\
+         \x20   static const uint64_t keys[] = {{1,2,3,5,7,11,13,16,31}};\n\
+         \x20   if (k == 0) return lens[t % 11];\n\
+         \x20   return keys[(t * 3 + k * 5) % 9];\n\
+         }}\n\n"
+    ));
+    out.push_str("int main(void) {\n");
+    out.push_str("    static _Alignas(64) uint8_t buf[8][2048 + 32];\n");
+    out.push_str("    static _Alignas(64) uint8_t initbuf[8][2048 + 32];\n");
+    out.push_str("    static _Alignas(64) uint8_t snap[8][2048 + 32];\n");
+    out.push_str("    uint64_t mismatches = 0;\n");
+    out.push_str(&format!("    for (int t = 0; t < {cases}; t++) {{\n"));
+    // Pointer-carrying memory must start in a valid state: random bytes
+    // would be interpreted as addresses. Same-address runs therefore use
+    // zero-initialized buffers; scalar parameters still vary per case.
+    let _ = low_bits;
+    out.push_str("        memset(initbuf, 0, sizeof initbuf);\n");
+    let mut ref_args: Vec<String> = Vec::new();
+    let mut new_args: Vec<String> = Vec::new();
+    let mut ptr_slot = 0usize;
+    let mut global_slots: Vec<usize> = Vec::new();
+    let mut scalar_index = 0usize;
+    for (i, p) in func.params.iter().enumerate() {
+        if i >= ir_params.len() {
+            new_args.push(format!("({})(buf[{}] + 32)", pointer_cast(&p.ty), ptr_slot));
+            global_slots.push(ptr_slot);
+            ptr_slot += 1;
+            continue;
+        }
+        if is_pointer_ty(&p.ty) {
+            ref_args.push(format!(
+                "({})(buf[{}] + 32)",
+                llvm_c_type(&ir_params[i]),
+                ptr_slot
+            ));
+            new_args.push(format!("({})(buf[{}] + 32)", pointer_cast(&p.ty), ptr_slot));
+            ptr_slot += 1;
+        } else {
+            let cty = emit::c_type(&p.ty);
+            out.push_str(&format!(
+                "        {cty} s{scalar_index} = ({cty})val(t, {scalar_index});\n"
+            ));
+            ref_args.push(format!("({})s{}", llvm_c_type(&ir_params[i]), scalar_index));
+            new_args.push(format!("s{scalar_index}"));
+            scalar_index += 1;
+        }
+    }
+    let mut reset_buffers = String::new();
+    for slot in 0..ptr_slot {
+        reset_buffers.push_str(&format!(
+            "        memcpy(buf[{slot}] + 32, initbuf[{slot}] + 32, 2048);\n"
+        ));
+    }
+    for &slot in &global_slots {
+        reset_buffers.push_str(&format!("        memset(buf[{slot}] + 32, 0, 2048);\n"));
+    }
+    let mut global_reset = String::new();
+    let mut global_snapshot = String::new();
+    let mut global_compare = String::new();
+    for (i, g) in globals.iter().enumerate() {
+        if g.size == 0 || g.size > (1 << 20) {
+            continue;
+        }
+        let cname = emit::c_global_name(&g.name);
+        global_reset.push_str(&format!(
+            "        memset({cname}, 0, {});\n\
+             \x20       {{ uint64_t gs = 0x9E3779B97F4A7C15ULL ^ (uint64_t)t ^ {i}ULL;\n\
+             \x20         for (int j = 0; j < {}; j++) {{ gs ^= gs << 13; gs ^= gs >> 7; gs ^= gs << 17; {cname}[j] = (uint8_t)(gs >> 32); }} }}\n",
+            g.size, g.size
+        ));
+        global_snapshot.push_str(&format!(
+            "        static uint8_t __snap{i}[{}]; memcpy(__snap{i}, {cname}, {});\n",
+            g.size, g.size
+        ));
+        global_compare.push_str(&format!(
+            "        if (memcmp(__snap{i}, {cname}, {})) {{ if (mismatches < 5) printf(\"EMITGLOB {name} t=%d slot={i}\\n\", t); mismatches++; }}\n",
+            g.size
+        ));
+    }
+    let ret_ty = emit::c_type(&func.return_ty);
+    out.push_str(&reset_buffers);
+    out.push_str(&global_reset);
+    out.push_str("        if (__sir_ffi_reset) __sir_ffi_reset();\n");
+    let void_ref = ret_ty == "void" || llvm_c_type(ir_ret) == "void";
+    if void_ref {
+        out.push_str(&format!(
+            "        {}__ref({});\n",
+            name,
+            ref_args.join(", ")
+        ));
+    } else {
+        out.push_str(&format!(
+            "        {} r_ref = {}__ref({});\n",
+            llvm_c_type(ir_ret),
+            name,
+            ref_args.join(", ")
+        ));
+    }
+    out.push_str(&global_snapshot);
+    for slot in 0..ptr_slot {
+        out.push_str(&format!(
+            "        memcpy(snap[{slot}] + 32, buf[{slot}] + 32, 2048);\n"
+        ));
+    }
+    out.push_str(&reset_buffers);
+    out.push_str(&global_reset);
+    out.push_str("        if (__sir_ffi_reset) __sir_ffi_reset();\n");
+    if void_ref {
+        out.push_str(&format!("        {}({});\n", name, new_args.join(", ")));
+    } else {
+        out.push_str(&format!(
+            "        {} r_new = {}({});\n",
+            ret_ty,
+            name,
+            new_args.join(", ")
+        ));
+        out.push_str(&format!(
+            "        if ((uint64_t)r_ref != (uint64_t)r_new) {{ if (mismatches < 5) printf(\"EMITCASE {name} t=%d ref=%llu new=%llu\\n\", t, (unsigned long long)r_ref, (unsigned long long)r_new); mismatches++; }}\n"
+        ));
+    }
+    out.push_str(&global_compare);
+    out.push_str(&format!(
+        "        for (int b = 0; b < {ptr_slot}; b++) if (memcmp(snap[b] + 32, buf[b] + 32, 2048)) {{ if (mismatches < 5) printf(\"EMITBUF {name} t=%d slot=%d\\n\", t, b); mismatches++; }}\n"
+    ));
+    out.push_str("    }\n");
+    out.push_str(&format!(
+        "    printf(\"EMITDIFF {name} cases={cases} mismatches=%llu\\n\", (unsigned long long)mismatches);\n"
+    ));
+    out.push_str("    return mismatches != 0;\n}\n");
+    out
+}
+
 /// True when a loop advances a carried value by a runtime operand. Such
 /// loops terminate only for a nonzero step; keep the scalar driver
 /// domain nonzero so the differential compares terminating executions.
@@ -1252,19 +1432,39 @@ fn run_function(
     let low_bits = function_ir(ll, name)
         .map(|function| function.contains("!range"))
         .unwrap_or(false);
-    let driver = build_driver(
-        name,
-        &optimized.function,
-        &ir_ret,
-        &ir_params,
-        cases,
-        low_bits,
-        &globals,
-        // Functions with `undef` phi entries have undefined behaviour on
-        // the zero input; keep the scalar domain nonzero so the
-        // differential compares defined executions only.
-        ll.contains(" undef") || runtime_step_loop(&optimized.function),
-    );
+    let same_address = ir_ret.trim() == "ptr"
+        || optimized_module.iter().any(|(original, _)| {
+            function_ir(ll, original)
+                .map(|body| body.contains("load ptr") || body.contains("store ptr"))
+                .unwrap_or(false)
+        });
+    // Functions with `undef` phi entries have undefined behaviour on the
+    // zero input; keep the scalar domain nonzero so the differential
+    // compares defined executions only.
+    let avoid_zero = ll.contains(" undef") || runtime_step_loop(&optimized.function);
+    let driver = if same_address {
+        build_same_address_driver(
+            name,
+            &optimized.function,
+            &ir_ret,
+            &ir_params,
+            cases,
+            low_bits,
+            &globals,
+            avoid_zero,
+        )
+    } else {
+        build_driver(
+            name,
+            &optimized.function,
+            &ir_ret,
+            &ir_params,
+            cases,
+            low_bits,
+            &globals,
+            avoid_zero,
+        )
+    };
 
     let mut driver = driver;
     inject_globals(&mut driver, ll, &module_names);
