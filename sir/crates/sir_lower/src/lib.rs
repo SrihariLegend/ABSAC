@@ -3599,6 +3599,42 @@ pub fn lower(text: &str) -> Result<Function, String> {
     let text = extract_first_function(text);
     let ir = parse_function(&text)?;
 
+    // Pointer-valued memory is not modeled by the byte-addressed
+    // ArrayAccess path: a `load ptr`/`store ptr` would be emitted with a
+    // scalar element type and silently truncate the address. Fail closed
+    // until pointer memory has its own representation.
+    for block in &ir.blocks {
+        for inst in &block.instructions {
+            let pointer_typed = match inst.opcode.as_str() {
+                "load" => inst.operands.first().and_then(|o| operand_type(o)),
+                "store" => inst.operands.first().and_then(|o| operand_type(o)),
+                _ => None,
+            };
+            if pointer_typed.is_some_and(|ty| matches!(ty, Type::Pointer { .. })) {
+                return Err(format!(
+                    "unsupported: pointer-valued {}: {}",
+                    inst.opcode, inst.raw
+                ));
+            }
+            // Named structs (and literal struct types) need a layout
+            // model that the function-local lowerer does not have; a
+            // byte-scaled GEP would silently use the wrong element size.
+            if inst.opcode == "getelementptr" {
+                if let Some(source) = inst.operands.first().map(|o| strip_type(o)) {
+                    if source.starts_with('%')
+                        || source.starts_with('{')
+                        || source.contains("struct")
+                    {
+                        return Err(format!(
+                            "unsupported: aggregate-typed getelementptr source '{}': {}",
+                            source, inst.raw
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
     // Signed comparisons control loop domains in ways the reconstruction
     // paths do not model yet. Refuse signed control flow wholesale for
     // now; signed value operations (ashr, smax/smin in straight-line
@@ -3913,7 +3949,7 @@ pub fn lower(text: &str) -> Result<Function, String> {
                 };
                 ir.block_map
                     .get(target.trim().trim_start_matches('%'))
-                    .map(|&target_idx| target_idx < idx)
+                    .map(|&target_idx| target_idx <= idx)
                     .unwrap_or(false)
             })
         })

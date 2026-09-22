@@ -157,7 +157,13 @@ pub fn c_type(ty: &Type) -> String {
                 sir_types::IntegerWidth::I16 => format!("{}16_t", prefix),
                 sir_types::IntegerWidth::I32 => format!("{}32_t", prefix),
                 sir_types::IntegerWidth::I64 => format!("{}64_t", prefix),
-                sir_types::IntegerWidth::I128 => format!("{}64_t", prefix), // no 128-bit C type, fall back
+                sir_types::IntegerWidth::I128 => {
+                    if *signed {
+                        "__int128".to_string()
+                    } else {
+                        "unsigned __int128".to_string()
+                    }
+                }
             }
         }
         Type::Unit => "void".to_string(),

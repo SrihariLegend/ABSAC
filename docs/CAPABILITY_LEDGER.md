@@ -847,6 +847,28 @@ have now been restored into current `sir_mech` and tested.
   This was the last non-atomic, non-`unreachable` base-14 refusal:
   base-14 248 → **249** (498 clean / 266 rewrites native + AArch64),
   external stays 37, 9 tests ~1.36 s.
+- **2026-09-22 — held-out Embench expansion (integrity fixes)**: the
+  fetch script now compiles all 19 Embench benchmarks, and the 15 new
+  probes exposed four real problems:
+  1. `i128` was silently emitted as a 64-bit C type (aha-mont64
+     `mulul64`/`montmul` mismatched 4/4). The emitter now uses
+     `unsigned __int128`/`__int128`.
+  2. Self-loop back-edges (`br label %self`, no phi) were not counted
+     as back-edges, so an unmodeled infinite branch fell through to the
+     straight-line walker and executed the wrong path (sglib
+     `sglib_iq_add` emitted undeclared temporaries and dropped the
+     branch). Self-loops now select the fail-closed early-exit path.
+  3. Pointer-valued `load ptr`/`store ptr` (sglib intrusive lists) were
+     byte-truncated; they now fail closed.
+  4. Named-struct GEPs (wikisort `BlockSwap`) were byte-scaled with no
+     layout model; aggregate-typed GEPs now fail closed.
+  Results over the 15 new probes: **50 clean / 229 refused / 0
+  mismatched / 1 invalid-state harness error** (280 functions; cases 1).
+  The one error is `sglib_iq_first_element`: random bytes drive its
+  unchecked array index out of bounds on both sides, so it is an
+  invalid-state probe, not a miscompile (ASan agrees; aha-mont64 and
+  wikisort are sanitizer-clean). Pinned external stays 37, base-14
+  498/266, fuzz unchanged, 9 tests ~1.36 s.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

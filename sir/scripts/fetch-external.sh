@@ -12,7 +12,13 @@ fi
 cd "$DEST/embench"
 FLAGS=(-O1 -fno-inline-functions -fno-vectorize -fno-slp-vectorize
        -DGLOBAL_SCALE_FACTOR=1 -DLOCAL_SCALE_FACTOR=1)
-for entry in "matmult-int:matmult-int.c" "crc32:crc_32.c" "edn:libedn.c" "statemate:libstatemate.c"; do
+for entry in \
+    "matmult-int:matmult-int.c" "crc32:crc_32.c" "edn:libedn.c" "statemate:libstatemate.c" \
+    "aha-mont64:mont64.c" "depthconv:depthconv.c" "huffbench:libhuffbench.c" "md5sum:md5.c" \
+    "nettle-aes:nettle-aes.c" "nettle-sha256:nettle-sha256.c" "nsichneu:libnsichneu.c" \
+    "picojpeg:libpicojpeg.c" "qrduino:qrencode.c" "sglib-combined:combined.c" \
+    "slre:libslre.c" "tarfind:tarfind.c" "ud:libud.c" "wikisort:libwikisort.c" \
+    "xgboost:testbench.c"; do
     name="${entry%%:*}"
     source="${entry##*:}"
     clang "${FLAGS[@]}" -I support -I "src/$name" -S -emit-llvm \
