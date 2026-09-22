@@ -710,6 +710,16 @@ have now been restored into current `sir_mech` and tested.
   `n04_runtime_step_do_while` with step 0. `verify.sh full` passes
   unchanged (base-14 243 / 133 / 0, fuzz 540 / 360 / 0, external 28,
   sanitizers 0).
+- **2026-09-22 — conditional-body counted loops**: headers that branch
+  between a straight-line storable body and their latch now lower as a
+  pre-tested SIR loop: the header condition becomes a select over the
+  body value, the latch merge is `select(body_active, body, header)`,
+  and the counter increment drives `index < bound`. Detector is narrow
+  (two integer phis: counter + accumulator; straight-line store-free
+  body; zero-compare entry guard; unit stride). Unlocks v5
+  `n04_sum_index_conditional`: base-14 243 → **244** clean,
+  `verify.sh full` passes (244 / 133 / 0 native+AArch64, fuzz
+  540 / 360 / 0, external 28, sanitizers 0, 9 tests ~1.3 s).
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

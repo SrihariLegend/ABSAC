@@ -1908,6 +1908,11 @@ pub fn lower(text: &str) -> Result<Function, String> {
             .map(|_| builder.build());
     }
 
+    if let Some(shape) = detect_conditional_body_loop(&ir) {
+        return lower_conditional_body_loop(&ir, &shape, &mut builder, &mut value_map)
+            .map(|_| builder.build());
+    }
+
     // Detect loop structure: find the back-edge block (the one that branches to itself or to a predecessor)
     // Simple pattern: entry → header (loop) → exit
     // header has a phi for each carried value, a conditional branch at the end
@@ -5070,6 +5075,13 @@ fn lower_first_match_side_effect(
 ) -> Result<(), String> {
     let span = Span::unknown();
     for idx in 0..shape.header {
+        if ir.blocks[idx]
+            .instructions
+            .iter()
+            .any(|inst| inst.opcode == "ret")
+        {
+            continue;
+        }
         emit_plain_block(ir, idx, builder, value_map)?;
     }
     let header = &ir.blocks[shape.header];
@@ -5281,6 +5293,422 @@ fn lower_first_match_side_effect(
     }
     for idx in shape.merge..ir.blocks.len() {
         emit_plain_block(ir, idx, builder, value_map)?;
+    }
+    Ok(())
+}
+
+/// Conditional-body counted loop: the header chooses between a
+/// straight-line body and the latch; the latch merges the body's
+/// accumulator value with the header's and increments a counter.
+struct ConditionalBodyShape {
+    header: usize,
+    body: usize,
+    latch: usize,
+    exit: usize,
+    index_phi: String,
+    accumulator_phi: String,
+    latch_phi: String,
+    bound: String,
+}
+
+fn detect_conditional_body_loop(ir: &IrFunction) -> Option<ConditionalBodyShape> {
+    let entry = ir.blocks.first()?;
+    let entry_br = entry
+        .instructions
+        .iter()
+        .rev()
+        .find(|inst| inst.opcode == "br")?;
+    if entry_br.operands.len() < 3 {
+        return None;
+    }
+    let guard_cond = strip_type(&entry_br.operands[0]);
+    let guard_cmp = entry.instructions.iter().find(|inst| {
+        inst.opcode == "icmp" && inst.result.as_deref() == Some(guard_cond.as_str())
+    })?;
+    if guard_cmp.operands.first()?.split_whitespace().next()? != "eq" {
+        return None;
+    }
+    let guard_tokens: Vec<String> = guard_cmp
+        .operands
+        .iter()
+        .map(|operand| operand_value_token(operand))
+        .collect();
+    let bound = if parse_int_constant(&guard_tokens[0]) == Some(0) {
+        guard_tokens.get(1)?.clone()
+    } else if parse_int_constant(&guard_tokens[1]) == Some(0) {
+        guard_tokens.first()?.clone()
+    } else {
+        return None;
+    };
+    let entry_targets: Vec<usize> = terminator_targets(entry_br)
+        .iter()
+        .filter_map(|label| ir.block_map.get(label).copied())
+        .collect();
+    if entry_targets.len() != 2 {
+        return None;
+    }
+    for &header in &entry_targets {
+        let exit = *entry_targets.iter().find(|target| **target != header)?;
+        let header_block = &ir.blocks[header];
+        let phis: Vec<&Instruction> = header_block
+            .instructions
+            .iter()
+            .filter(|inst| inst.opcode == "phi")
+            .collect();
+        if phis.len() != 2 {
+            continue;
+        }
+        let header_br = header_block
+            .instructions
+            .iter()
+            .rev()
+            .find(|inst| inst.opcode == "br")?;
+        if header_br.operands.len() < 3 {
+            continue;
+        }
+        let header_targets: Vec<usize> = terminator_targets(header_br)
+            .iter()
+            .filter_map(|label| ir.block_map.get(label).copied())
+            .collect();
+        if header_targets.len() != 2 {
+            continue;
+        }
+        for &body in &header_targets {
+            let latch = *header_targets.iter().find(|target| **target != body)?;
+            let body_block = &ir.blocks[body];
+            if body_block
+                .instructions
+                .iter()
+                .any(|inst| matches!(inst.opcode.as_str(), "phi" | "store" | "call" | "ret"))
+            {
+                continue;
+            }
+            let body_br = body_block
+                .instructions
+                .iter()
+                .rev()
+                .find(|inst| inst.opcode == "br")?;
+            if body_br.operands.len() != 1 {
+                continue;
+            }
+            let body_target = ir.block_map.get(
+                body_br.operands[0]
+                    .trim_start_matches("label ")
+                    .trim_start_matches('%'),
+            )?;
+            if *body_target != latch {
+                continue;
+            }
+            let latch_block = &ir.blocks[latch];
+            let latch_phis: Vec<&Instruction> = latch_block
+                .instructions
+                .iter()
+                .filter(|inst| inst.opcode == "phi")
+                .collect();
+            if latch_phis.len() != 1 {
+                continue;
+            }
+            let latch_br = latch_block
+                .instructions
+                .iter()
+                .rev()
+                .find(|inst| inst.opcode == "br")?;
+            if latch_br.operands.len() < 3 {
+                continue;
+            }
+            let latch_targets: Vec<usize> = terminator_targets(latch_br)
+                .iter()
+                .filter_map(|label| ir.block_map.get(label).copied())
+                .collect();
+            if !latch_targets.contains(&header) || !latch_targets.contains(&exit) {
+                continue;
+            }
+            let mut index_phi = None;
+            let mut accumulator_phi = None;
+            for phi in &phis {
+                let Some(name) = phi.result.clone() else {
+                    continue;
+                };
+                let is_index = latch_block.instructions.iter().any(|inst| {
+                    inst.opcode == "add"
+                        && strip_type(&inst.operands[0]) == name
+                        && parse_int_constant(&strip_type(&inst.operands[1])) == Some(1)
+                });
+                if is_index {
+                    index_phi = Some(name);
+                } else {
+                    accumulator_phi = Some(name);
+                }
+            }
+            let (Some(index_phi), Some(accumulator_phi)) = (index_phi, accumulator_phi) else {
+                continue;
+            };
+            let latch_phi = latch_phis[0]
+                .result
+                .clone()
+                .ok_or("conditional body: latch phi without result")
+                .ok()?;
+            if phi_incomings(latch_phis[0]).len() != 2 {
+                continue;
+            }
+            let exit_block = ir.blocks.get(exit)?;
+            if !exit_block
+                .instructions
+                .iter()
+                .any(|inst| inst.opcode == "ret")
+            {
+                continue;
+            }
+            return Some(ConditionalBodyShape {
+                header,
+                body,
+                latch,
+                exit,
+                index_phi,
+                accumulator_phi,
+                latch_phi,
+                bound,
+            });
+        }
+    }
+    None
+}
+
+fn lower_conditional_body_loop(
+    ir: &IrFunction,
+    shape: &ConditionalBodyShape,
+    builder: &mut Builder,
+    value_map: &mut HashMap<String, NodeId>,
+) -> Result<(), String> {
+    let span = Span::unknown();
+    for idx in 0..shape.header {
+        if ir.blocks[idx]
+            .instructions
+            .iter()
+            .any(|inst| inst.opcode == "ret")
+        {
+            continue;
+        }
+        emit_plain_block(ir, idx, builder, value_map)?;
+    }
+    let header = &ir.blocks[shape.header];
+    let mut index_ty = None;
+    let mut accumulator_ty = None;
+    for phi in header
+        .instructions
+        .iter()
+        .filter(|inst| inst.opcode == "phi")
+    {
+        let ty = phi
+            .operands
+            .first()
+            .and_then(|operand| operand_type(operand))
+            .ok_or("conditional body: phi type")?;
+        if phi.result.as_deref() == Some(shape.index_phi.as_str()) {
+            index_ty = Some(ty);
+        } else if phi.result.as_deref() == Some(shape.accumulator_phi.as_str()) {
+            accumulator_ty = Some(ty);
+        }
+    }
+    let index_ty = index_ty.ok_or("conditional body: index type")?;
+    let accumulator_ty = accumulator_ty.ok_or("conditional body: accumulator type")?;
+    let mut index_init_node = None;
+    let mut accumulator_init_node = None;
+    for phi in header
+        .instructions
+        .iter()
+        .filter(|inst| inst.opcode == "phi")
+    {
+        let entry_value = phi_incomings(phi)
+            .into_iter()
+            .find(|(_, label)| label != &ir.blocks[shape.latch].label)
+            .map(|(value, _)| value)
+            .ok_or("conditional body: phi entry")?;
+        let node = get_node_id(
+            &strip_type(&entry_value),
+            value_map,
+            &ir.params,
+            builder,
+            Some(if phi.result.as_deref() == Some(shape.index_phi.as_str()) {
+                index_ty.clone()
+            } else {
+                accumulator_ty.clone()
+            }),
+        )
+        .ok_or("conditional body: unresolved phi entry")?;
+        if phi.result.as_deref() == Some(shape.index_phi.as_str()) {
+            index_init_node = Some(node);
+        } else {
+            accumulator_init_node = Some(node);
+        }
+    }
+    let index_init = index_init_node.ok_or("conditional body: index entry missing")?;
+    let accumulator_init =
+        accumulator_init_node.ok_or("conditional body: accumulator entry missing")?;
+    value_map.insert(shape.index_phi.clone(), index_init);
+    value_map.insert(shape.accumulator_phi.clone(), accumulator_init);
+    let bound_node = get_node_id(
+        &shape.bound,
+        value_map,
+        &ir.params,
+        builder,
+        Some(index_ty.clone()),
+    )
+    .ok_or("conditional body: unresolved bound")?;
+    let body_start = builder
+        .function()
+        .arena
+        .ids()
+        .map(|id| id.0)
+        .max()
+        .unwrap_or(0);
+
+    for inst in &header.instructions {
+        if matches!(inst.opcode.as_str(), "phi" | "br") {
+            continue;
+        }
+        emit_instruction(inst, builder, value_map, &ir.params, span)?;
+    }
+    let header_br = header
+        .instructions
+        .iter()
+        .rev()
+        .find(|inst| inst.opcode == "br")
+        .ok_or("conditional body: header branch")?;
+    let condition = get_node_id(
+        &strip_type(&header_br.operands[0]),
+        value_map,
+        &ir.params,
+        builder,
+        Some(Type::Bool),
+    )
+    .ok_or("conditional body: header condition")?;
+    let true_target = header_br.operands[1]
+        .trim_start_matches("label ")
+        .trim_start_matches('%');
+    let body_active = if ir.block_map.get(true_target).copied() == Some(shape.body) {
+        condition
+    } else {
+        let not = builder
+            .bool_not(condition, span)
+            .map_err(|e| format!("conditional body: {:?}", e))?;
+        not
+    };
+    let body = &ir.blocks[shape.body];
+    for inst in &body.instructions {
+        if matches!(inst.opcode.as_str(), "phi" | "br") {
+            continue;
+        }
+        emit_instruction(inst, builder, value_map, &ir.params, span)?;
+    }
+    let latch = &ir.blocks[shape.latch];
+    let latch_phi = latch
+        .instructions
+        .iter()
+        .find(|inst| inst.opcode == "phi")
+        .ok_or("conditional body: latch phi missing")?;
+    let incomings = phi_incomings(latch_phi);
+    let body_value = incomings
+        .iter()
+        .find(|(_, label)| label == &body.label)
+        .map(|(value, _)| strip_type(value))
+        .ok_or("conditional body: latch body value")?;
+    let header_value = incomings
+        .iter()
+        .find(|(_, label)| label == &header.label)
+        .map(|(value, _)| strip_type(value))
+        .ok_or("conditional body: latch header value")?;
+    let body_node = get_node_id(
+        &body_value,
+        value_map,
+        &ir.params,
+        builder,
+        Some(accumulator_ty.clone()),
+    )
+    .ok_or("conditional body: unresolved body value")?;
+    let header_node = get_node_id(
+        &header_value,
+        value_map,
+        &ir.params,
+        builder,
+        Some(accumulator_ty.clone()),
+    )
+    .ok_or("conditional body: unresolved header value")?;
+    let accumulator_next = builder
+        .select(body_active, body_node, header_node, span)
+        .map_err(|e| format!("conditional body: {:?}", e))?;
+    let one = builder.constant(int_constant_data(&index_ty, 1), index_ty.clone(), span);
+    let index_next = builder
+        .add(index_init, one, span)
+        .map_err(|e| format!("conditional body: {:?}", e))?;
+    let termination = builder
+        .lt(index_init, bound_node, span)
+        .map_err(|e| format!("conditional body: {:?}", e))?;
+    let body_nodes: Vec<NodeId> = builder
+        .function()
+        .arena
+        .ids()
+        .filter(|id| id.0 > body_start && *id != termination)
+        .collect();
+    let loop_ty = Type::Tuple {
+        elements: vec![index_ty.clone(), accumulator_ty.clone()],
+    };
+    let loop_node = builder
+        .r#loop(
+            &body_nodes,
+            termination,
+            &[index_next, accumulator_next],
+            &[index_init, accumulator_init],
+            loop_ty,
+            span,
+        )
+        .map_err(|e| format!("conditional body: {:?}", e))?;
+    let index_out = builder
+        .tuple_extract(loop_node, 0, index_ty, span)
+        .map_err(|e| format!("conditional body: {:?}", e))?;
+    let accumulator_out = builder
+        .tuple_extract(loop_node, 1, accumulator_ty, span)
+        .map_err(|e| format!("conditional body: {:?}", e))?;
+    value_map.insert(shape.index_phi.clone(), index_out);
+    value_map.insert(shape.latch_phi.clone(), accumulator_out);
+    let exit = &ir.blocks[shape.exit];
+    if let Some(exit_phi) = exit.instructions.iter().find(|inst| {
+        inst.opcode == "phi"
+            && phi_incomings(inst)
+                .iter()
+                .any(|(_, label)| label == &ir.blocks[shape.latch].label)
+    }) {
+        if let Some(name) = &exit_phi.result {
+            value_map.insert(name.clone(), accumulator_out);
+        }
+    }
+    let mut current = shape.exit;
+    let mut seen = HashSet::new();
+    while seen.insert(current) {
+        emit_plain_block(ir, current, builder, value_map)?;
+        let block = &ir.blocks[current];
+        if block.instructions.iter().any(|inst| inst.opcode == "ret") {
+            break;
+        }
+        let Some(terminator) = block
+            .instructions
+            .iter()
+            .rev()
+            .find(|inst| inst.opcode == "br")
+        else {
+            break;
+        };
+        if terminator.operands.len() != 1 {
+            break;
+        }
+        let Some(next) = ir.block_map.get(
+            terminator.operands[0]
+                .trim_start_matches("label ")
+                .trim_start_matches('%'),
+        ) else {
+            break;
+        };
+        current = *next;
     }
     Ok(())
 }
