@@ -3837,7 +3837,10 @@ pub fn lower(text: &str) -> Result<Function, String> {
     // become Select conditions, and constant global accesses become
     // predicated memory states. Loop functions and non-constant memory
     // operands stay with the existing (fail-closed) machinery.
-    if !has_back_edge && ir.blocks.len() > 1 && acyclic_global_memory_cfg(&ir) {
+    if !has_back_edge
+        && ir.blocks.len() > 1
+        && (acyclic_global_memory_cfg(&ir) || acyclic_scalar_cfg(&ir))
+    {
         let return_ty = builder.function().return_ty.clone();
         return lower_switch_cfg(&ir, &mut builder, value_map, return_ty).map(|_| builder.build());
     }
@@ -8884,7 +8887,16 @@ impl<'a> SwitchLowerer<'a> {
                     .as_ref()
                     .ok_or("switch CFG: phi in entry block".to_string())?;
                 let incomings = phi_incomings(inst);
-                let Some((value, _)) = incomings.iter().find(|(_, label)| label == wanted) else {
+                let entry_alias = |label: &str| {
+                    wanted == "entry"
+                        && !label.is_empty()
+                        && label.chars().all(|c| c.is_ascii_digit())
+                        && !self.ir.block_map.contains_key(label)
+                };
+                let Some((value, _)) = incomings
+                    .iter()
+                    .find(|(_, label)| label == wanted || entry_alias(label))
+                else {
                     return Err(format!("switch CFG: phi missing edge from %{}", wanted));
                 };
                 let value = get_node_id(
@@ -9800,6 +9812,30 @@ fn acyclic_global_memory_cfg(ir: &IrFunction) -> bool {
         }
     }
     has_memory && has_control
+}
+
+/// Acyclic scalar CFG with branch/phi joins and no memory. The path
+/// enumerator already models branch guards and phi selects; routing
+/// these functions through it replaces the straight-line walker's
+/// "cannot resolve return value" failures.
+fn acyclic_scalar_cfg(ir: &IrFunction) -> bool {
+    let mut has_control = false;
+    for block in &ir.blocks {
+        for inst in &block.instructions {
+            match inst.opcode.as_str() {
+                "br" if inst.operands.len() >= 3 => has_control = true,
+                "switch" => has_control = true,
+                "load" | "store" | "alloca" | "call" | "atomicrmw" | "cmpxchg" => {
+                    return false;
+                }
+                _ if inst.raw.contains("atomic") || inst.raw.contains("volatile") => {
+                    return false;
+                }
+                _ => {}
+            }
+        }
+    }
+    has_control
 }
 
 /// Lower a function without loops (straight-line or multi-block without back-edges).

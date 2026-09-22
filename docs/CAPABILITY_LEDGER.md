@@ -891,6 +891,16 @@ have now been restored into current `sir_mech` and tested.
   is 16/12/0 with the RNG support. The invalid-state probe remains
   `sglib_iq_first_element` (unchecked random index, both sides).
   Base-14 stays 249/133, pinned external 37, 9 tests ~1.36 s.
+- **2026-09-22 — acyclic scalar CFGs (path enumeration)**: the
+  branch/phi path enumerator previously ran only for acyclic CFGs with
+  global memory, so no-memory multi-block functions fell through to the
+  straight-line walker and failed with `cannot resolve return value
+  '%N'`. Acyclic scalar branch/phi CFGs now use the same enumerator
+  (branch guards become selects, phi joins become edge selects). This
+  adds 4 held-out clean functions (picojpeg 7 → **10**; wikisort
+  TestingPathological), with the all-19 probe at **99 clean / 221
+  refused / 0 mismatched / 1 invalid-state**. Base-14 stays 498/266
+  native + AArch64 and fuzz stays 540/360; 9 tests ~1.36 s.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
