@@ -828,6 +828,14 @@ have now been restored into current `sir_mech` and tested.
   `cargo run -p sir_mech --example kernighan_induction -- 32`.
   Matrix unchanged: base-14 496/266/0, external 37, sanitizers 0,
   9 tests ~1.36 s.
+- **2026-09-22 — H3 Kernighan width 64 (offline)**: the induction now
+  stops at `2^64 - 2` so the `v + 1` measure still fits the kernel's
+  64-bit shadow, and the excluded all-ones pattern is proved by a
+  64-step unfolding of the recurrence; the two cases are combined with
+  `case_split`. `cargo run -p sir_mech --example kernighan_induction
+  -- 64` proves and replays in **27.8 s**. The pipeline still gates
+  only ≤32 so ordinary compiles stay fast; 64 remains contract-backed
+  at optimization time. Width 32 stays 0.42 s; 9 tests ~1.36 s.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

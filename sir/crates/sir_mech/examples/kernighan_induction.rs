@@ -10,9 +10,13 @@ fn main() {
         .and_then(|arg| arg.parse().ok())
         .unwrap_or(32);
     let started = Instant::now();
-    let proved = sir_mech::kernighan::kernighan_law(width);
+    let outcome = sir_mech::kernighan::kernighan_theorem(width);
     println!(
-        "kernighan width={width} proved={proved} in {:.3}s",
+        "kernighan width={width} proved={} in {:.3}s",
+        outcome.is_ok(),
         started.elapsed().as_secs_f64()
     );
+    if let Err(error) = outcome {
+        eprintln!("{error:?}");
+    }
 }

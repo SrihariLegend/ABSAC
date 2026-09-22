@@ -233,7 +233,7 @@ Phase 1 progress:
   from the CNF model and `decode_model` panicked; the decoder now maps
   them to zero, which is a valid model for an unconstrained variable.
 
-Phase 1 status: **30,136 LOC, 9 crates, 9 passed / 0 failed / 0
+Phase 1 status: **30,291 LOC, 9 crates, 9 passed / 0 failed / 0
 ignored**, 14-corpus **128 rewrites / 230 clean / 0 mismatched / 0
 harness errors**, and fuzz corpora v17–v19b **360 rewrites / 540 clean /
 0 mismatched** (761 clean total). The LOC guide is a guide, not a
@@ -260,10 +260,12 @@ metadata, removing a false AArch64 mismatch in v10.
 ### Phase 2 — Restore high-value families (≤22k LOC)
 Priority by measured value:
 1. Kernighan bitset popcount (14–17×) — definition 7 now covers all
-   widths: ≤32 with the replay-checked kernel induction (16 = 34 ms,
-   32 = 0.43 s cached), 64 contract-backed pending a >64-bit measure
-   shadow. Bounded SAT unrolling scaled only to 16 bits (16 = 285 ms;
-   32 = 35.6 s; 64 infeasible) and was deleted.
+   widths: ≤32 gate on the replay-checked kernel induction (16 = 34 ms,
+   32 = 0.43 s cached); 64 has the same proof offline (27.8 s including
+   replay, via the all-ones case split) but stays contract-backed at
+   optimization time so compiles stay fast. Bounded SAT unrolling
+   scaled only to 16 bits (16 = 285 ms; 32 = 35.6 s; 64 infeasible)
+   and was deleted.
 2. Runtime-bound reductions/search (contract-backed) — runtime sums are
    restored as definition 404; runtime search is
    found-flag shape now lowers and rewrites to `sir_memchr`; measured

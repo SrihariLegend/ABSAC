@@ -732,7 +732,12 @@ impl Kernel {
                     let shifted = self.arena.add(term, one);
                     self.arena.lt(shifted, limit)
                 };
-                if self.entails(hyps, below) || self.entails(hyps, shifted_below) {
+                if self.entails(hyps, shifted_below) {
+                    // `v + 1 < 2^bits` gives `v <= 2^bits - 2` over Int.
+                    upper = Some((1i128 << bits) - 2);
+                    break;
+                }
+                if self.entails(hyps, below) {
                     upper = Some((1i128 << bits) - 1);
                     break;
                 }
