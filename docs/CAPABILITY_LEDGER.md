@@ -878,6 +878,19 @@ have now been restored into current `sir_mech` and tested.
   mismatched / 1 invalid-state. Array-of-struct GEPs and struct field
   accesses still fail closed (no field-offset model). Base-14 stays
   249/133, pinned external 37, 9 tests ~1.36 s.
+- **2026-09-22 — harness struct layouts + per-corpus support probe**:
+  the driver's global-size parser reuses the lowerer's module layout
+  map, so globals like wikisort's `[400 x %struct.Test]` are sized
+  correctly (wikisort baseline 10 → **11** clean; `verify_benchmark`
+  now clean). `scripts/probe-external.sh` runs all 19 Embench corpora
+  with the support object each needs (`beebs_rng.c` for crc32/wikisort,
+  `beebsc.c` for huffbench/md5sum/tarfind) and reports totals:
+  **95 clean / 225 refused / 0 mismatched / 1 invalid-state** across
+  all 19; held-out alone **58 clean / 221 refused / 0 mismatched / 1
+  invalid-state** (no-support held-out baseline 52/227/0/1). wikisort
+  is 16/12/0 with the RNG support. The invalid-state probe remains
+  `sglib_iq_first_element` (unchecked random index, both sides).
+  Base-14 stays 249/133, pinned external 37, 9 tests ~1.36 s.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

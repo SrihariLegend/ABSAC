@@ -12,10 +12,10 @@
 //! Exit code 0 iff every lowered function was differential-clean.
 
 use sir_benchmarks::emit;
-use sir_lower::{external_symbol, lower_function};
+use sir_lower::{external_symbol, lower_function, parse_struct_layouts};
 use sir_nodes::{Function, NodeKind};
 use sir_types::Type;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -135,12 +135,15 @@ struct GlobalDecl {
 
 /// Byte size of an LLVM integer/array/pointer type; `None` for shapes
 /// (structs, vectors) whose layout this driver does not model.
-fn llvm_type_size(ty: &str) -> Option<usize> {
+fn llvm_type_size(ty: &str, layouts: &HashMap<String, (usize, usize)>) -> Option<usize> {
     let ty = ty.trim();
+    if let Some(name) = ty.strip_prefix('%') {
+        return layouts.get(&format!("%{name}")).map(|(size, _)| *size);
+    }
     if ty.starts_with('[') {
         let inner = ty.strip_prefix('[')?.strip_suffix(']')?;
         let (length, element) = inner.split_once('x')?;
-        Some(length.trim().parse::<usize>().ok()? * llvm_type_size(element)?)
+        Some(length.trim().parse::<usize>().ok()? * llvm_type_size(element, layouts)?)
     } else if let Some(inner) = ty.strip_prefix("<{").and_then(|t| t.strip_suffix("}>")) {
         let mut total = 0usize;
         let mut depth = 0usize;
@@ -150,13 +153,13 @@ fn llvm_type_size(ty: &str) -> Option<usize> {
                 '[' | '{' | '<' => depth += 1,
                 ']' | '}' | '>' => depth = depth.saturating_sub(1),
                 ',' if depth == 0 => {
-                    total += llvm_type_size(&inner[start..index])?;
+                    total += llvm_type_size(&inner[start..index], layouts)?;
                     start = index + 1;
                 }
                 _ => {}
             }
         }
-        total += llvm_type_size(&inner[start..])?;
+        total += llvm_type_size(&inner[start..], layouts)?;
         Some(total)
     } else if let Some(bits) = ty.strip_prefix('i') {
         Some(bits.parse::<usize>().ok()?.div_ceil(8))
@@ -198,6 +201,7 @@ fn split_llvm_type(text: &str) -> Option<(&str, &str)> {
 
 fn global_decls(ll: &str) -> Vec<GlobalDecl> {
     let mut out: Vec<GlobalDecl> = Vec::new();
+    let layouts = parse_struct_layouts(ll);
     for line in ll.lines() {
         let line = line.trim();
         if !line.starts_with('@') {
@@ -221,7 +225,7 @@ fn global_decls(ll: &str) -> Vec<GlobalDecl> {
             continue;
         };
         let ty = ty.trim_end_matches(',');
-        let size = llvm_type_size(ty).unwrap_or(0);
+        let size = llvm_type_size(ty, &layouts).unwrap_or(0);
         out.push(GlobalDecl {
             name: name.to_string(),
             ty: ty.to_string(),

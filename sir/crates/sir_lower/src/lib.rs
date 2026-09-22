@@ -53,7 +53,7 @@ fn struct_layout(name: &str) -> Option<(usize, usize)> {
 }
 
 /// Parse `%name = type { ... }` definitions and compute size/alignment.
-fn parse_struct_layouts(module: &str) -> HashMap<String, (usize, usize)> {
+pub fn parse_struct_layouts(module: &str) -> HashMap<String, (usize, usize)> {
     let mut definitions: HashMap<String, String> = HashMap::new();
     for line in module.lines() {
         let line = line.trim();
