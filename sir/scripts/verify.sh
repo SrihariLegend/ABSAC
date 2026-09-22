@@ -67,8 +67,12 @@ done
 echo "== external Embench native"
 for name in matmult-int crc32 edn statemate; do
     [ -f "$EXTERNAL/$name.ll" ] || continue
+    extra=()
+    if [ "$name" = crc32 ]; then
+        extra=(--ffi-support "$SIR_DIR/support/beebs_rng.c")
+    fi
     run_case "external/$name" "$EXTERNAL/$name.ll" \
-        --cases 3 --workdir "$TMPDIR/verify/external_$name"
+        --cases 3 --workdir "$TMPDIR/verify/external_$name" "${extra[@]}"
 done
 
 if [ "$MODE" = "full" ]; then
@@ -88,10 +92,14 @@ if [ "$MODE" = "full" ]; then
             --cases 8 --target aarch64 --workdir "$TMPDIR/verify/fuzz_a64_$name"
     done
     echo "== sanitizers"
-    for name in matmult-int edn statemate; do
+    for name in matmult-int crc32 edn statemate; do
         [ -f "$EXTERNAL/$name.ll" ] || continue
+        extra=()
+        if [ "$name" = crc32 ]; then
+            extra=(--ffi-support "$SIR_DIR/support/beebs_rng.c")
+        fi
         run_case "sanitize/$name" "$EXTERNAL/$name.ll" \
-            --cases 3 --sanitize --workdir "$TMPDIR/verify/sanitize_$name"
+            --cases 3 --sanitize --workdir "$TMPDIR/verify/sanitize_$name" "${extra[@]}"
     done
 fi
 
@@ -99,6 +107,7 @@ echo "== hashes"
 manifest="$TMPDIR/verify/manifest.sha256"
 {
     find "$SIR_DIR/crates" -name '*.rs' -print0 | sort -z | xargs -0 sha256sum
+    find "$SIR_DIR/support" -type f -print0 | sort -z | xargs -0 sha256sum
     find "$CORPUS" -name '*.ll' -print0 | sort -z | xargs -0 sha256sum
     if [ -d "$EXTERNAL" ]; then
         find "$EXTERNAL" -maxdepth 1 -name '*.ll' -print0 | sort -z | xargs -0 sha256sum

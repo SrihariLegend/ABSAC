@@ -918,6 +918,15 @@ fn get_node_id(
             return Some(NodeId::new(i as u64));
         }
     }
+    // `undef` is an arbitrary value. Choose a typed zero: paths that
+    // observe it are undefined behaviour in the source, and the
+    // differential driver excludes those inputs for undef-tainted
+    // modules.
+    if ref_str == "undef" {
+        let ty = type_hint.unwrap_or(Type::u64());
+        let zero = builder.constant(int_constant_data(&ty, 0), ty, Span::unknown());
+        return Some(zero);
+    }
     // Check if it's an integer constant
     if let Some(val) = parse_int_constant(&ref_str) {
         let span = Span::unknown();
@@ -1009,6 +1018,45 @@ pub fn lower_function(text: &str, func_name: &str) -> Result<Function, String> {
         return Err(format!("function '{}' not found", func_name));
     }
     let mut func = lower(&func_text)?;
+
+    // Calls to functions defined in the module keep their namespaced
+    // emitted symbol; calls to foreign functions keep the original
+    // symbol so a supplied support object can resolve them.
+    let local: HashSet<String> = text
+        .lines()
+        .filter(|line| line.trim_start().starts_with("define ") && line.contains(" @"))
+        .filter_map(|line| {
+            let at = line.find('@')?;
+            let rest = &line[at + 1..];
+            let open = rest.find('(')?;
+            Some(rest[..open].to_string())
+        })
+        .collect();
+    let renames: Vec<NodeId> = func
+        .arena
+        .iter()
+        .filter_map(|node| match &node.kind {
+            NodeKind::ExternalCall { name, .. } => name
+                .strip_prefix("__sir_callee_")
+                .filter(|original| {
+                    original
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+                })
+                .filter(|original| !local.contains(*original))
+                .map(|_| node.id),
+            _ => None,
+        })
+        .collect();
+    for id in renames {
+        if let Some(node) = func.arena.get_mut(id) {
+            if let NodeKind::ExternalCall { name, .. } = &mut node.kind {
+                if let Some(original) = name.strip_prefix("__sir_callee_") {
+                    *name = original.to_string();
+                }
+            }
+        }
+    }
 
     // Sound dynamic-extent recall slice (constant extents): promote a
     // pointer parameter to a fixed array view when every access to it
@@ -4749,11 +4797,12 @@ fn lower_nested_two_level(
             .ids()
             .filter(|id| id.0 >= inner_loop_id),
     );
+    let inner_loop_node = NodeId::new(inner_loop_id);
 
     // Resolve outer next values from the latch and derive the pre-tested
     // termination from the latch's exit test.
     let mut outer_nexts: Vec<NodeId> = Vec::new();
-    for phi in &outer_phis {
+    for (index, phi) in outer_phis.iter().enumerate() {
         let next = get_node_id(
             &strip_type(&phi.next),
             value_map,
@@ -4762,7 +4811,73 @@ fn lower_nested_two_level(
             Some(phi.ty.clone()),
         )
         .ok_or(format!("nested loop: unresolved phi next '{}'", phi.next))?;
-        outer_nexts.push(next);
+        // A value produced inside the inner body must leave the inner loop
+        // through a loop output, otherwise the emitted C declares it in
+        // the inner scope and the parent cannot read it.
+        let in_inner_body = builder
+            .function()
+            .get_node(inner_loop_node)
+            .is_some_and(|node| match &node.kind {
+                NodeKind::Loop { body, .. } => body.contains(&next),
+                _ => false,
+            });
+        if !in_inner_body {
+            outer_nexts.push(next);
+            continue;
+        }
+        let next_ty = builder
+            .function()
+            .get_node(next)
+            .map(|node| node.ty.clone())
+            .ok_or("nested loop: inner value missing")?;
+        let init = outer_inits[index];
+        let init_ty = builder
+            .function()
+            .get_node(init)
+            .map(|node| node.ty.clone())
+            .ok_or("nested loop: outer init missing")?;
+        if init_ty != next_ty {
+            return Err("nested loop: inner output type mismatch".into());
+        }
+        let existing = builder
+            .function()
+            .get_node(inner_loop_node)
+            .and_then(|node| match &node.kind {
+                NodeKind::Loop { outputs, .. } => outputs.iter().position(|output| *output == next),
+                _ => None,
+            });
+        let output_index = if let Some(existing) = existing {
+            existing
+        } else {
+            let outputs_len = builder
+                .function()
+                .get_node(inner_loop_node)
+                .and_then(|node| match &node.kind {
+                    NodeKind::Loop { outputs, .. } => Some(outputs.len()),
+                    _ => None,
+                })
+                .ok_or("nested loop: inner loop missing")?;
+            if let Some(node) = builder.function_mut().arena.get_mut(inner_loop_node) {
+                if let NodeKind::Loop {
+                    outputs,
+                    carried_inputs,
+                    ..
+                } = &mut node.kind
+                {
+                    outputs.push(next);
+                    carried_inputs.push(init);
+                }
+                if let Type::Tuple { elements } = &mut node.ty {
+                    elements.push(next_ty.clone());
+                }
+            }
+            outputs_len
+        };
+        let extract = builder
+            .tuple_extract(inner_loop_node, output_index, next_ty, span)
+            .map_err(|e| format!("nested loop: {:?}", e))?;
+        value_map.insert(strip_type(&phi.next), extract);
+        outer_nexts.push(extract);
     }
     let latch_terminator = ir.blocks[outer_latch]
         .instructions
@@ -4799,6 +4914,10 @@ fn lower_nested_two_level(
             .tuple_extract(outer_loop, index, phi.ty.clone(), span)
             .map_err(|e| format!("nested loop: {:?}", e))?;
         value_map.insert(phi.result.clone(), extract);
+        // The latch phi that produced this next value may be re-emitted in
+        // the post-latch chain; it must now read the OUTER loop's output,
+        // not the inner loop's body-scoped value.
+        value_map.insert(strip_type(&phi.next), extract);
     }
 
     // Post-latch blocks (function exit). A guarded outer header may sit
@@ -4819,18 +4938,125 @@ fn lower_nested_two_level(
                 .find(|idx| *idx != outer)
             {
                 post_indices.push(exit_idx);
+                // Follow a straight-line exit chain (e.g. the exit block's
+                // unconditional branch to the returning block).
+                let mut cursor = exit_idx;
+                let mut steps = 0usize;
+                while steps < ir.blocks.len() {
+                    let block = &ir.blocks[cursor];
+                    if block.instructions.iter().any(|inst| inst.opcode == "ret") {
+                        break;
+                    }
+                    let Some(branch) = block
+                        .instructions
+                        .iter()
+                        .rev()
+                        .find(|inst| inst.opcode == "br")
+                    else {
+                        break;
+                    };
+                    if branch.operands.len() != 1 {
+                        break;
+                    }
+                    let Some(next) = ir.block_map.get(
+                        branch.operands[0]
+                            .trim_start_matches("label ")
+                            .trim_start_matches('%'),
+                    ) else {
+                        break;
+                    };
+                    cursor = *next;
+                    if !post_indices.contains(&cursor) {
+                        post_indices.push(cursor);
+                    }
+                    steps += 1;
+                }
             }
         }
         post_indices.sort_unstable();
         post_indices.dedup();
     }
+    // Guarded nests may merge the entry-guard result with the loop result
+    // in a post-loop phi (crc32's `n == 0 ? 0 : loop_result`).
+    let post_guard = (|| -> Option<(NodeId, bool)> {
+        let entry = ir.blocks.first()?;
+        let branch = entry
+            .instructions
+            .iter()
+            .rev()
+            .find(|inst| inst.opcode == "br" && inst.operands.len() >= 3)?;
+        let cond = value_map.get(&strip_type(&branch.operands[0])).copied()?;
+        let true_label = branch.operands[1]
+            .trim_start_matches("label ")
+            .trim_start_matches('%');
+        let true_idx = ir.block_map.get(true_label).copied()?;
+        Some((cond, post_indices.contains(&true_idx)))
+    })();
     for idx in post_indices {
         let block = &ir.blocks[idx];
-        if block.instructions.iter().any(|inst| inst.opcode == "phi") {
-            return Err(format!(
-                "nested loop: unsupported post-loop phi in {}",
-                block.label
-            ));
+        for phi in block
+            .instructions
+            .iter()
+            .filter(|inst| inst.opcode == "phi")
+        {
+            let incomings = phi_incomings(phi);
+            if incomings.len() != 2 {
+                return Err(format!(
+                    "nested loop: unsupported post-loop phi in {}",
+                    block.label
+                ));
+            }
+            let (Some((guard, guard_true_is_pre)), Some(name)) = (post_guard, phi.result.clone())
+            else {
+                return Err(format!(
+                    "nested loop: post-loop phi without an entry guard in {}",
+                    block.label
+                ));
+            };
+            let phi_ty = phi
+                .operands
+                .first()
+                .and_then(|operand| operand_type(operand))
+                .ok_or("nested loop: post-loop phi type")?;
+            let mut pre_value = None;
+            let mut post_value = None;
+            for (value, label) in incomings {
+                let value = strip_type(&value);
+                let is_pre = ir
+                    .blocks
+                    .iter()
+                    .position(|candidate| candidate.label == label)
+                    .map_or(true, |index| index < outer);
+                if is_pre {
+                    pre_value = Some(value);
+                } else {
+                    post_value = Some(value);
+                }
+            }
+            let (Some(pre_value), Some(post_value)) = (pre_value, post_value) else {
+                return Err("nested loop: post-loop phi lacks a pre/post pair".into());
+            };
+            let pre_node = get_node_id(
+                &pre_value,
+                value_map,
+                &ir.params,
+                builder,
+                Some(phi_ty.clone()),
+            )
+            .ok_or("nested loop: unresolved pre-loop phi value")?;
+            let post_node = get_node_id(&post_value, value_map, &ir.params, builder, Some(phi_ty))
+                .ok_or("nested loop: unresolved post-loop phi value")?;
+            let select_guard = if guard_true_is_pre {
+                guard
+            } else {
+                builder
+                    .bool_not(guard, span)
+                    .map_err(|e| format!("nested loop: {:?}", e))?
+            };
+            let merged = builder
+                .select(select_guard, pre_node, post_node, span)
+                .map_err(|e| format!("nested loop: {:?}", e))?;
+            value_map.insert(name, merged);
         }
         for inst in &block.instructions {
             match inst.opcode.as_str() {

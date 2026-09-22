@@ -730,6 +730,20 @@ have now been restored into current `sir_mech` and tested.
   Unlocks v16 `c01_search_then_sum`: base-14 244 → **245** clean,
   `verify.sh full` passes (245 / 133 / 0 native+AArch64, fuzz
   540 / 360 / 0, external 28, sanitizers 0, 9 tests ~1.3 s).
+- **2026-09-22 — foreign support objects (crc32)**: `emit_c_diff` gains
+  `--ffi-support PATH`, links a support C object into both sides, and
+  calls a weak `__sir_ffi_reset()` before each side so stateful support
+  code starts identically. The lowerer keeps the original symbol for
+  calls whose target is not defined in the module (same-module callees
+  stay namespaced). Nested-loop lowering now exposes inner-body values
+  as inner outputs, remaps the latch phi to the outer output before
+  post-latch re-emission, and selects post-loop guard phis
+  (`n == 0 ? 0 : loop_result`). `undef` lowers to a typed zero, and
+  undef-tainted modules use a nonzero scalar input domain because the
+  zero path is undefined behaviour in the source. A small independent
+  BEEBS RNG support object is provided under `sir/support/`. crc32 rises
+  2 → **6** clean (including sanitize), external Embench 28 → **32**;
+  base-14 stays 245 / 133 / 0, fuzz 540 / 360 / 0, 9 tests ~1.3 s.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

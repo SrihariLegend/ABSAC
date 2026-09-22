@@ -26,6 +26,11 @@ use std::time::{Duration, Instant};
 static ALLOW_RUNTIME_SEARCH: AtomicBool = AtomicBool::new(false);
 static ALLOW_DEFS: OnceLock<Vec<u64>> = OnceLock::new();
 static PER_FUNCTION_ALLOW: OnceLock<BTreeMap<String, BTreeMap<u64, bool>>> = OnceLock::new();
+static FFI_SUPPORT: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+fn ffi_support() -> Option<PathBuf> {
+    FFI_SUPPORT.get().and_then(|support| support.clone())
+}
 
 /// Function names defined in the module (`define ... @name(`).
 fn function_names(ll: &str) -> Vec<String> {
@@ -63,6 +68,9 @@ fn direct_callees(ll: &str, name: &str) -> Result<Vec<String>, String> {
             continue;
         }
         if !defined.contains(target) {
+            if FFI_SUPPORT.get().is_some_and(|support| support.is_some()) {
+                continue;
+            }
             return Err(format!("unsupported external call: @{target}"));
         }
         if !out.iter().any(|existing| existing == target) {
@@ -423,11 +431,13 @@ fn build_driver(
     cases: usize,
     low_bits: bool,
     globals: &[GlobalDecl],
+    avoid_zero: bool,
 ) -> String {
     let mut out = String::new();
     out.push_str(
         "#include <stdint.h>\n#include <stdbool.h>\n#include <stdio.h>\n#include <string.h>\n\n",
     );
+    out.push_str("extern void __sir_ffi_reset(void) __attribute__((weak));\n\n");
 
     // Reference prototype (renamed original IR).
     let ir_p: Vec<String> = ir_params
@@ -455,14 +465,19 @@ fn build_driver(
         new_params
     ));
 
-    out.push_str(
-        "static uint64_t val(int t, int k) {\n\
-         \x20   static const uint64_t lens[] = {0,1,2,3,4,5,7,8,16,31,32};\n\
-         \x20   static const uint64_t keys[] = {1,2,3,5,7,11,13,16,31};\n\
+    let lens = if avoid_zero {
+        "{1,2,3,4,5,7,8,16,31,32,33}"
+    } else {
+        "{0,1,2,3,4,5,7,8,16,31,32}"
+    };
+    out.push_str(&format!(
+        "static uint64_t val(int t, int k) {{\n\
+         \x20   static const uint64_t lens[] = {lens};\n\
+         \x20   static const uint64_t keys[] = {{1,2,3,5,7,11,13,16,31}};\n\
          \x20   if (k == 0) return lens[t % 11];\n\
          \x20   return keys[(t * 3 + k * 5) % 9];\n\
-         }\n\n",
-    );
+         }}\n\n",
+    ));
 
     out.push_str("int main(void) {\n");
     // 32 bytes of identically-filled guard slab precede every buffer, so
@@ -556,6 +571,7 @@ fn build_driver(
     let ret_ty = emit::c_type(&func.return_ty);
     if ret_ty == "void" || llvm_c_type(ir_ret) == "void" {
         out.push_str(&global_reset);
+        out.push_str("        if (__sir_ffi_reset) __sir_ffi_reset();\n");
         out.push_str(&format!(
             "        {}__ref({});\n",
             name,
@@ -563,10 +579,12 @@ fn build_driver(
         ));
         out.push_str(&global_snapshot);
         out.push_str(&global_reset);
+        out.push_str("        if (__sir_ffi_reset) __sir_ffi_reset();\n");
         out.push_str(&format!("        {}({});\n", name, new_args.join(", ")));
         out.push_str(&global_compare);
     } else {
         out.push_str(&global_reset);
+        out.push_str("        if (__sir_ffi_reset) __sir_ffi_reset();\n");
         out.push_str(&format!(
             "        {} r_ref = {}__ref({});\n",
             llvm_c_type(ir_ret),
@@ -575,6 +593,7 @@ fn build_driver(
         ));
         out.push_str(&global_snapshot);
         out.push_str(&global_reset);
+        out.push_str("        if (__sir_ffi_reset) __sir_ffi_reset();\n");
         out.push_str(&format!(
             "        {} r_new = {}({});\n",
             ret_ty,
@@ -625,6 +644,7 @@ fn build_time_driver(
         "#include <stdint.h>\n#include <stdbool.h>\n#include <stdio.h>\n\
          #include <string.h>\n#include <time.h>\n\n",
     );
+    out.push_str("extern void __sir_ffi_reset(void) __attribute__((weak));\n\n");
 
     let ir_p: Vec<String> = ir_params
         .iter()
@@ -725,11 +745,17 @@ fn build_time_driver(
     };
     let ret_ty = emit::c_type(&func.return_ty);
     if ret_ty == "void" || llvm_c_type(ir_ret) == "void" {
+        out.push_str("    if (__sir_ffi_reset) __sir_ffi_reset();\n");
         out.push_str(&format!("    {}({});\n", left, left_args.join(", ")));
+        out.push_str("    if (__sir_ffi_reset) __sir_ffi_reset();\n");
         out.push_str(&format!("    {}({});\n", name, new_args.join(", ")));
     } else {
         out.push_str(&format!(
-            "    if ((uint64_t){}({}) != (uint64_t){}({})) {{\n\
+            "    if (__sir_ffi_reset) __sir_ffi_reset();\n\
+             \x20   uint64_t left_ret = (uint64_t){}({});\n\
+             \x20   if (__sir_ffi_reset) __sir_ffi_reset();\n\
+             \x20   uint64_t right_ret = (uint64_t){}({});\n\
+             \x20   if (left_ret != right_ret) {{\n\
              \x20       printf(\"{label}_MISMATCH {name}\\n\");\n\
              \x20       return 2;\n\
              \x20   }}\n",
@@ -905,13 +931,17 @@ fn time_function(
     fs::write(&emitted_path, &c_source).map_err(|e| format!("write emitted.c: {e}"))?;
     fs::write(&driver_path, &driver).map_err(|e| format!("write driver_time.c: {e}"))?;
 
+    let mut extra_c = Vec::new();
+    if let Some(support) = ffi_support() {
+        extra_c.push(support);
+    }
     compile_harness(
         cc,
         false,
         &exe_path,
         &driver_path,
         &emitted_path,
-        &[],
+        &extra_c,
         &extra_source,
         !baseline,
         target,
@@ -1187,6 +1217,10 @@ fn run_function(
         cases,
         low_bits,
         &globals,
+        // Functions with `undef` phi entries have undefined behaviour on
+        // the zero input; keep the scalar domain nonzero so the
+        // differential compares defined executions only.
+        ll.contains(" undef"),
     );
 
     let mut driver = driver;
@@ -1221,6 +1255,9 @@ fn run_function(
         };
     }
     let root_path = emitted_paths.pop().expect("module has a root");
+    if let Some(support) = ffi_support() {
+        emitted_paths.push(support);
+    }
 
     // Native assurance hardening: under `sanitize` the ref/emitted pair runs
     // with ASan+UBSan and no recovery, so undefined behaviour aborts instead
@@ -1406,7 +1443,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!(
-            "usage: emit_c_diff <corpus.ll> [--cases N] [--workdir DIR] [--function NAME] [--sanitize] [--cc clang|gcc] [--target native|aarch64] [--allow-runtime-search] [--allow-defs LIST] [--profile-in PATH] [--profile-out PATH] [--time] [--time-reps N] [--time-baseline] [--measured-retain] [--time-fill V]"
+            "usage: emit_c_diff <corpus.ll> [--cases N] [--workdir DIR] [--function NAME] [--sanitize] [--cc clang|gcc] [--target native|aarch64] [--allow-runtime-search] [--allow-defs LIST] [--ffi-support PATH] [--profile-in PATH] [--profile-out PATH] [--time] [--time-reps N] [--time-baseline] [--measured-retain] [--time-fill V]"
         );
         std::process::exit(2);
     }
@@ -1459,6 +1496,10 @@ fn main() {
             "--allow-runtime-search" => {
                 ALLOW_RUNTIME_SEARCH.store(true, Ordering::Relaxed);
                 i += 1;
+            }
+            "--ffi-support" if i + 1 < args.len() => {
+                let _ = FFI_SUPPORT.set(Some(PathBuf::from(&args[i + 1])));
+                i += 2;
             }
             "--allow-defs" if i + 1 < args.len() => {
                 let definitions: Vec<u64> = args[i + 1]

@@ -90,6 +90,13 @@ impl Builder {
         &self.func
     }
 
+    /// Mutable access for structural loop edits that keep the node's type
+    /// and output lists in sync (used when a nested loop must expose a
+    /// body value to its parent).
+    pub fn function_mut(&mut self) -> &mut Function {
+        &mut self.func
+    }
+
     // ── Finalization ────────────────────────────────────────
 
     /// Finalize construction and return the `Function`.
