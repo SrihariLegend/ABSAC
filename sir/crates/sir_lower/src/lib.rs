@@ -1903,6 +1903,11 @@ pub fn lower(text: &str) -> Result<Function, String> {
         }
     }
 
+    if let Some(shape) = detect_first_match_side_effect(&ir) {
+        return lower_first_match_side_effect(&ir, &shape, &mut builder, &mut value_map)
+            .map(|_| builder.build());
+    }
+
     // Detect loop structure: find the back-edge block (the one that branches to itself or to a predecessor)
     // Simple pattern: entry → header (loop) → exit
     // header has a phi for each carried value, a conditional branch at the end
@@ -4859,6 +4864,423 @@ fn lower_nested_two_level(
                 }
             }
         }
+    }
+    Ok(())
+}
+
+/// First-match search with a side-effect block: the header tests one
+/// element, the match edge runs a straight-line global update and exits,
+/// the miss edge counts on. The merge returns the index.
+struct FirstMatchShape {
+    header: usize,
+    early: usize,
+    latch: usize,
+    merge: usize,
+    index_phi: String,
+    bound: i64,
+    store_global: String,
+}
+
+fn detect_first_match_side_effect(ir: &IrFunction) -> Option<FirstMatchShape> {
+    for (h, header) in ir.blocks.iter().enumerate() {
+        let phis: Vec<&Instruction> = header
+            .instructions
+            .iter()
+            .filter(|inst| inst.opcode == "phi")
+            .collect();
+        if phis.len() != 1 {
+            continue;
+        }
+        let index_phi = phis[0].result.clone()?;
+        let index_ty = phis[0]
+            .operands
+            .first()
+            .and_then(|operand| operand_type(operand))?;
+        if !matches!(index_ty, Type::Integer { .. }) {
+            continue;
+        }
+        let h_br = header
+            .instructions
+            .iter()
+            .rev()
+            .find(|inst| inst.opcode == "br")?;
+        if h_br.operands.len() < 3 {
+            continue;
+        }
+        let h_targets: Vec<usize> = terminator_targets(h_br)
+            .iter()
+            .filter_map(|label| ir.block_map.get(label).copied())
+            .collect();
+        if h_targets.len() != 2 {
+            continue;
+        }
+        for &early in &h_targets {
+            let latch = *h_targets.iter().find(|target| **target != early)?;
+            let incomings = phi_incomings(phis[0]);
+            if !incomings
+                .iter()
+                .any(|(_, label)| label == &ir.blocks[latch].label)
+            {
+                continue;
+            }
+            // Early block: straight-line to the merge with one direct
+            // global store and no calls.
+            let early_block = &ir.blocks[early];
+            if early_block
+                .instructions
+                .iter()
+                .any(|inst| matches!(inst.opcode.as_str(), "phi" | "call" | "ret"))
+            {
+                continue;
+            }
+            let early_term = early_block
+                .instructions
+                .iter()
+                .rev()
+                .find(|inst| inst.opcode == "br")?;
+            if early_term.operands.len() != 1 {
+                continue;
+            }
+            let merge = *ir.block_map.get(
+                &early_term.operands[0]
+                    .trim_start_matches("label ")
+                    .trim_start_matches('%')
+                    .to_string(),
+            )?;
+            let mut store_global = None;
+            for inst in &early_block.instructions {
+                if inst.opcode != "store" || inst.operands.len() < 2 {
+                    continue;
+                }
+                if inst.raw.contains("volatile") || inst.raw.contains("atomic") {
+                    continue;
+                }
+                let token = strip_type(&inst.operands[1]);
+                if let Some(name) = token.strip_prefix('@') {
+                    if store_global.is_none() {
+                        store_global = Some(name.to_string());
+                    } else {
+                        store_global = None;
+                        break;
+                    }
+                }
+            }
+            let Some(store_global) = store_global else {
+                continue;
+            };
+            // Latch: no phi, branches back to the header or to the merge,
+            // and computes `next = index + constant` with an equality test.
+            let latch_block = &ir.blocks[latch];
+            if latch_block
+                .instructions
+                .iter()
+                .any(|inst| inst.opcode == "phi")
+            {
+                continue;
+            }
+            let latch_term = latch_block
+                .instructions
+                .iter()
+                .rev()
+                .find(|inst| inst.opcode == "br")?;
+            if latch_term.operands.len() < 3 {
+                continue;
+            }
+            let latch_targets: Vec<usize> = terminator_targets(latch_term)
+                .iter()
+                .filter_map(|label| ir.block_map.get(label).copied())
+                .collect();
+            if !latch_targets.contains(&h) || !latch_targets.contains(&merge) {
+                continue;
+            }
+            let mut step = None;
+            let mut bound = None;
+            for inst in &latch_block.instructions {
+                match inst.opcode.as_str() {
+                    "add" if inst.operands.len() >= 2 => {
+                        if strip_type(&inst.operands[0]) == index_phi
+                            || strip_type(&inst.operands[1]) == index_phi
+                        {
+                            let other = if strip_type(&inst.operands[0]) == index_phi {
+                                &inst.operands[1]
+                            } else {
+                                &inst.operands[0]
+                            };
+                            step =
+                                parse_int_constant(&strip_type(other)).filter(|value| *value > 0);
+                        }
+                    }
+                    "icmp" if inst.raw.contains(" eq ") => {
+                        let parts = split_operands(&inst.operands.join(", "));
+                        if let Some(operand) = parts
+                            .iter()
+                            .find(|operand| parse_int_constant(&strip_type(operand)).is_some())
+                        {
+                            bound = parse_int_constant(&strip_type(operand));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let (Some(_step), Some(bound)) = (step, bound) else {
+                continue;
+            };
+            let merge_block = ir.blocks.get(merge)?;
+            let merge_phis: Vec<&Instruction> = merge_block
+                .instructions
+                .iter()
+                .filter(|inst| inst.opcode == "phi")
+                .collect();
+            if merge_phis.len() != 1 {
+                continue;
+            }
+            let merge_incomings = phi_incomings(merge_phis[0]);
+            let from_early = merge_incomings
+                .iter()
+                .find(|(_, label)| label == &early_block.label)
+                .map(|(value, _)| strip_type(value));
+            let from_latch = merge_incomings
+                .iter()
+                .find(|(_, label)| label == &latch_block.label)
+                .map(|(value, _)| strip_type(value));
+            if from_early.as_deref() != Some(index_phi.as_str())
+                || from_latch.as_deref().and_then(parse_int_constant) != Some(bound)
+            {
+                continue;
+            }
+            return Some(FirstMatchShape {
+                header: h,
+                early,
+                latch,
+                merge,
+                index_phi: index_phi.clone(),
+                bound,
+                store_global,
+            });
+        }
+    }
+    None
+}
+
+fn lower_first_match_side_effect(
+    ir: &IrFunction,
+    shape: &FirstMatchShape,
+    builder: &mut Builder,
+    value_map: &mut HashMap<String, NodeId>,
+) -> Result<(), String> {
+    let span = Span::unknown();
+    for idx in 0..shape.header {
+        emit_plain_block(ir, idx, builder, value_map)?;
+    }
+    let header = &ir.blocks[shape.header];
+    let phi = header
+        .instructions
+        .iter()
+        .find(|inst| inst.opcode == "phi")
+        .ok_or("first-match: header phi missing")?;
+    let index_ty = phi
+        .operands
+        .first()
+        .and_then(|operand| operand_type(operand))
+        .ok_or("first-match: index type")?;
+    let init = phi_incomings(phi)
+        .into_iter()
+        .find(|(_, label)| label != &ir.blocks[shape.latch].label)
+        .map(|(value, _)| value)
+        .ok_or("first-match: phi entry")?;
+    let init_node = get_node_id(
+        &strip_type(&init),
+        value_map,
+        &ir.params,
+        builder,
+        Some(index_ty.clone()),
+    )
+    .ok_or("first-match: unresolved index entry")?;
+    value_map.insert(shape.index_phi.clone(), init_node);
+    let run_init = builder.constant(ConstantData::boolean(true), Type::Bool, span);
+    let found_init = builder.constant(ConstantData::boolean(false), Type::Bool, span);
+    let body_start = builder
+        .function()
+        .arena
+        .ids()
+        .map(|id| id.0)
+        .max()
+        .unwrap_or(0);
+
+    // Header test: emit everything except the phi/branch.
+    for inst in &header.instructions {
+        if matches!(inst.opcode.as_str(), "phi" | "br") {
+            continue;
+        }
+        emit_instruction(inst, builder, value_map, &ir.params, span)?;
+    }
+    let h_br = header
+        .instructions
+        .iter()
+        .rev()
+        .find(|inst| inst.opcode == "br")
+        .ok_or("first-match: header branch")?;
+    let match_node = get_node_id(
+        &strip_type(&h_br.operands[0]),
+        value_map,
+        &ir.params,
+        builder,
+        Some(Type::Bool),
+    )
+    .ok_or("first-match: match condition")?;
+
+    // Early side-effect block, with its stores selected on the match.
+    let early = &ir.blocks[shape.early];
+    let mut memory: HashMap<String, NodeId> = HashMap::new();
+    for inst in &early.instructions {
+        match inst.opcode.as_str() {
+            "br" => continue,
+            "load" if inst.operands.len() >= 2 => {
+                let value = emit_instruction(inst, builder, value_map, &ir.params, span)?
+                    .ok_or("first-match: load without result")?;
+                let token = strip_type(&inst.operands[1]);
+                if let Some(name) = token.strip_prefix('@') {
+                    if name == shape.store_global {
+                        memory.insert(name.to_string(), value);
+                    }
+                }
+            }
+            "store" if inst.operands.len() >= 2 => {
+                let value_ty =
+                    operand_type(&inst.operands[0]).ok_or("first-match: store value type")?;
+                let value = get_node_id(
+                    &strip_type(&inst.operands[0]),
+                    value_map,
+                    &ir.params,
+                    builder,
+                    Some(value_ty.clone()),
+                )
+                .ok_or("first-match: store value")?;
+                let token = strip_type(&inst.operands[1]);
+                let Some(name) = token.strip_prefix('@') else {
+                    return Err("first-match: non-global side-effect store".into());
+                };
+                if name != shape.store_global {
+                    return Err("first-match: unexpected side-effect global".into());
+                }
+                let old = *memory
+                    .get(name)
+                    .ok_or("first-match: side-effect load not seen")?;
+                let merged = builder
+                    .select(match_node, value, old, span)
+                    .map_err(|e| format!("first-match: {:?}", e))?;
+                let base = resolve_global(name, value_map, builder, span);
+                let zero = builder.constant(ConstantData::u64(0), Type::u64(), span);
+                let target = builder
+                    .array_access(base, zero, value_ty, span)
+                    .map_err(|e| format!("first-match: {:?}", e))?;
+                builder
+                    .store(target, merged, span)
+                    .map_err(|e| format!("first-match: {:?}", e))?;
+                memory.insert(name.to_string(), merged);
+            }
+            _ => {
+                emit_instruction(inst, builder, value_map, &ir.params, span)?;
+            }
+        }
+    }
+
+    // Latch arithmetic and exit test.
+    let latch = &ir.blocks[shape.latch];
+    for inst in &latch.instructions {
+        if matches!(inst.opcode.as_str(), "phi" | "br") {
+            continue;
+        }
+        emit_instruction(inst, builder, value_map, &ir.params, span)?;
+    }
+    let latch_term = latch
+        .instructions
+        .iter()
+        .rev()
+        .find(|inst| inst.opcode == "br")
+        .ok_or("first-match: latch branch")?;
+    let done = get_node_id(
+        &strip_type(&latch_term.operands[0]),
+        value_map,
+        &ir.params,
+        builder,
+        Some(Type::Bool),
+    )
+    .ok_or("first-match: exit condition")?;
+    let next_index = {
+        // The latch add is the value used by the exit equality; resolve it
+        // from the add instruction rather than arena order.
+        let add = latch
+            .instructions
+            .iter()
+            .find(|inst| {
+                inst.opcode == "add"
+                    && (strip_type(&inst.operands[0]) == shape.index_phi
+                        || strip_type(&inst.operands[1]) == shape.index_phi)
+            })
+            .ok_or("first-match: latch increment")?;
+        let result = add
+            .result
+            .clone()
+            .ok_or("first-match: latch increment result")?;
+        value_map
+            .get(&result)
+            .copied()
+            .ok_or("first-match: latch increment value")?
+    };
+    let stop = builder
+        .bool_or(match_node, done, span)
+        .map_err(|e| format!("first-match: {:?}", e))?;
+    let run_next = builder
+        .bool_not(stop, span)
+        .map_err(|e| format!("first-match: {:?}", e))?;
+    let index_next = builder
+        .select(match_node, init_node, next_index, span)
+        .map_err(|e| format!("first-match: {:?}", e))?;
+    let body: Vec<NodeId> = builder
+        .function()
+        .arena
+        .ids()
+        .filter(|id| id.0 > body_start && *id != run_init)
+        .collect();
+    let loop_ty = Type::Tuple {
+        elements: vec![index_ty.clone(), Type::Bool, Type::Bool],
+    };
+    let loop_node = builder
+        .r#loop(
+            &body,
+            run_init,
+            &[index_next, run_next, match_node],
+            &[init_node, run_init, found_init],
+            loop_ty,
+            span,
+        )
+        .map_err(|e| format!("first-match: {:?}", e))?;
+    let index_out = builder
+        .tuple_extract(loop_node, 0, index_ty.clone(), span)
+        .map_err(|e| format!("first-match: {:?}", e))?;
+    let found_out = builder
+        .tuple_extract(loop_node, 2, Type::Bool, span)
+        .map_err(|e| format!("first-match: {:?}", e))?;
+    let bound_node = builder.constant(
+        int_constant_data(&index_ty, shape.bound as u64),
+        index_ty.clone(),
+        span,
+    );
+    let result = builder
+        .select(found_out, index_out, bound_node, span)
+        .map_err(|e| format!("first-match: {:?}", e))?;
+    let merge = &ir.blocks[shape.merge];
+    let merge_phi = merge
+        .instructions
+        .iter()
+        .find(|inst| inst.opcode == "phi")
+        .ok_or("first-match: merge phi")?;
+    if let Some(name) = &merge_phi.result {
+        value_map.insert(name.clone(), result);
+    }
+    for idx in shape.merge..ir.blocks.len() {
+        emit_plain_block(ir, idx, builder, value_map)?;
     }
     Ok(())
 }

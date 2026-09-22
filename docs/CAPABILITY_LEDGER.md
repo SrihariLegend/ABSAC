@@ -691,6 +691,16 @@ have now been restored into current `sir_mech` and tested.
   single clear-lowest-bit step lemma takes 0.32 s at width 32 and 9.9 s
   at width 64; width-64 unrolling does not finish. Induction remains
   the only viable path for production-width Kernighan.
+- **2026-09-22 — first-match side-effect loops**: the separate-latch
+  header/early/latch/merge pattern (`n09`/`n12`/`n13`) now lowers as a
+  three-carried SIR loop (index, run flag, found flag); the match edge's
+  direct global update is emitted as a select on the match condition,
+  and the merge result is `found ? index : bound`. Detector stays narrow:
+  one integer header phi, constant stride and bound, one direct
+  non-volatile global store, no calls. Base-14 clean rises 237 → **243**
+  (v8/v9/v10/v11 `n09`, v7 `n13`, v6 `n12`); `verify.sh full` passes
+  with base-14 243 / 133 / 0, fuzz 540 / 360 / 0, external 28, and the
+  9-test suite still ~1.3 s.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
