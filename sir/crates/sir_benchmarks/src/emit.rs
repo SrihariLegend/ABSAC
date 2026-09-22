@@ -2066,7 +2066,14 @@ pub fn emit_c(func: &Function) -> String {
             .filter(|node| matches!(node.kind, NodeKind::Loop { .. }))
             .map(|node| node.id)
             .collect();
-        let pre_set = dependency_closure(&carried_seeds, func, &loop_ids);
+        let mut pre_set = dependency_closure(&carried_seeds, func, &loop_ids);
+        // Global base nodes are loop-invariant and may be read by post-loop
+        // code; declare them before the loops.
+        for node in func.arena.iter() {
+            if matches!(node.kind, NodeKind::Global { .. }) {
+                pre_set.insert(node.id);
+            }
+        }
         let prelude: Vec<NodeId> = pre_set
             .iter()
             .copied()
@@ -2077,6 +2084,7 @@ pub fn emit_c(func: &Function) -> String {
             })
             .collect();
         let empty_map = HashMap::new();
+        let prelude_ids: HashSet<NodeId> = prelude.iter().copied().collect();
         for id in topo_order(&prelude, &pre_set, func) {
             let node = func.get_node(id).expect("arena node");
             let expr = emit_expr(node, func, &empty_map);
@@ -2100,7 +2108,7 @@ pub fn emit_c(func: &Function) -> String {
                 &mut out,
                 loop_ordinal(func, loop_n.id),
                 &HashMap::new(),
-                &HashSet::new(),
+                &prelude_ids,
             );
             loop_ids.extend(emitted_ids);
         }

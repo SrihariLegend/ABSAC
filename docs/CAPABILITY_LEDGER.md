@@ -786,6 +786,19 @@ have now been restored into current `sir_mech` and tested.
   and bounds every case with `CASE_TIMEOUT` (default 180s). Evidence:
   base-14 246 / 133 / 0 native+AArch64, fuzz 540 / 360 / 0 (plus
   AArch64 60/160), external 36, sanitize 0 violations, 9 tests ~1.3 s.
+- **2026-09-22 — mismatch-search loops (verify_benchmark)**: the
+  header/latch/completion/merge shape now lowers as a run-flag search
+  for the first unequal element, with the completion chain emitted after
+  the loop and `merge = found ? 0 : completion`. Because the preheader
+  is constant-only (alloca/memset/store of a literal), it is safe to
+  re-execute inside the body, which avoids the loop-scope problem.
+  Whole-body node coverage (id range) keeps post-loop emission from
+  leaking body temporaries, and emitter preludes now hoist `Global` base
+  nodes so completion chains can read them. Unlocks statemate
+  `verify_benchmark`: external Embench 36 → **37** (statemate 8/13,
+  edn 13/13, crc32 6/6, matmult 10/10), with 0 mismatches and 0
+  sanitizer violations. Base-14 stays 246 / 133 / 0, fuzz 540 / 360 / 0
+  (AArch64 60/160), 9 tests ~1.3 s.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

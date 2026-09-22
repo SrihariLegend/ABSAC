@@ -2253,6 +2253,413 @@ fn lower_deep_loop_chain(
     Ok(())
 }
 
+/// Mismatch-search loop: a header compares one element, the latch counts on
+/// while equal, and a straight-line completion chain feeds a merge that
+/// returns zero on the first mismatch.
+struct MismatchSearchShape {
+    header: usize,
+    latch: usize,
+    completion: usize,
+    merge: usize,
+    index_phi: String,
+    match_on_true: bool,
+}
+
+fn detect_mismatch_search(ir: &IrFunction) -> Option<MismatchSearchShape> {
+    for (header, block) in ir.blocks.iter().enumerate() {
+        let phis: Vec<&Instruction> = block
+            .instructions
+            .iter()
+            .filter(|inst| inst.opcode == "phi")
+            .collect();
+        if phis.len() != 1 {
+            continue;
+        }
+        let index_phi = phis[0].result.clone()?;
+        if !matches!(
+            phis[0]
+                .operands
+                .first()
+                .and_then(|operand| operand_type(operand)),
+            Some(Type::Integer { .. })
+        ) {
+            continue;
+        }
+        let header_br = block
+            .instructions
+            .iter()
+            .rev()
+            .find(|inst| inst.opcode == "br" && inst.operands.len() >= 3)?;
+        let cond = strip_type(&header_br.operands[0]);
+        let cmp = block
+            .instructions
+            .iter()
+            .find(|inst| inst.opcode == "icmp" && inst.result.as_deref() == Some(cond.as_str()))?;
+        if !cmp.raw.contains("icmp eq") {
+            continue;
+        }
+        let targets: Vec<usize> = terminator_targets(header_br)
+            .iter()
+            .filter_map(|label| ir.block_map.get(label).copied())
+            .collect();
+        if targets.len() != 2 {
+            continue;
+        }
+        let true_target = ir.block_map.get(
+            header_br.operands[1]
+                .trim_start_matches("label ")
+                .trim_start_matches('%'),
+        )?;
+        for &latch in &targets {
+            let merge = *targets.iter().find(|target| **target != latch)?;
+            let latch_block = &ir.blocks[latch];
+            if latch_block
+                .instructions
+                .iter()
+                .any(|inst| inst.opcode == "phi")
+            {
+                continue;
+            }
+            let latch_br = latch_block
+                .instructions
+                .iter()
+                .rev()
+                .find(|inst| inst.opcode == "br" && inst.operands.len() >= 3)?;
+            let latch_targets: Vec<usize> = terminator_targets(latch_br)
+                .iter()
+                .filter_map(|label| ir.block_map.get(label).copied())
+                .collect();
+            if !latch_targets.contains(&header) {
+                continue;
+            }
+            let completion = *latch_targets.iter().find(|target| **target != header)?;
+            let latch_cond = strip_type(&latch_br.operands[0]);
+            let latch_cmp = latch_block.instructions.iter().find(|inst| {
+                inst.opcode == "icmp" && inst.result.as_deref() == Some(latch_cond.as_str())
+            })?;
+            let _bound = latch_cmp
+                .operands
+                .iter()
+                .filter_map(|operand| parse_int_constant(&strip_type(operand)))
+                .next()?;
+            let has_increment = latch_block.instructions.iter().any(|inst| {
+                inst.opcode == "add"
+                    && strip_type(&inst.operands[0]) == index_phi
+                    && parse_int_constant(&strip_type(&inst.operands[1])) == Some(1)
+            });
+            if !has_increment {
+                continue;
+            }
+            // Completion chain: straight-line, no stores/calls, reaching merge.
+            let mut cursor = completion;
+            let mut seen = HashSet::new();
+            let mut chain_ok = true;
+            loop {
+                if !seen.insert(cursor) {
+                    chain_ok = false;
+                    break;
+                }
+                if cursor == merge {
+                    break;
+                }
+                let block = &ir.blocks[cursor];
+                if block.instructions.iter().any(|inst| {
+                    inst.opcode == "store"
+                        || (inst.opcode == "call" && !inst.raw.contains("llvm."))
+                        || inst.opcode == "phi"
+                }) {
+                    chain_ok = false;
+                    break;
+                }
+                let Some(branch) = block
+                    .instructions
+                    .iter()
+                    .rev()
+                    .find(|inst| inst.opcode == "br")
+                else {
+                    chain_ok = false;
+                    break;
+                };
+                if branch.operands.len() != 1 {
+                    chain_ok = false;
+                    break;
+                }
+                let Some(next) = ir.block_map.get(
+                    branch.operands[0]
+                        .trim_start_matches("label ")
+                        .trim_start_matches('%'),
+                ) else {
+                    chain_ok = false;
+                    break;
+                };
+                cursor = *next;
+            }
+            if !chain_ok {
+                continue;
+            }
+            // Preheader must be idempotent: constants/memset only.
+            let mut pre_ok = true;
+            for idx in 0..header {
+                if [latch, completion, merge].contains(&idx) {
+                    continue;
+                }
+                for inst in &ir.blocks[idx].instructions {
+                    match inst.opcode.as_str() {
+                        "alloca" | "getelementptr" | "bitcast" | "br" => {}
+                        "store" => {
+                            if inst
+                                .operands
+                                .first()
+                                .and_then(|operand| parse_int_constant(&strip_type(operand)))
+                                .is_none()
+                            {
+                                pre_ok = false;
+                            }
+                        }
+                        "call" => {
+                            if !inst.raw.contains("llvm.memset")
+                                && !inst.raw.contains("llvm.lifetime")
+                            {
+                                pre_ok = false;
+                            }
+                        }
+                        _ => pre_ok = false,
+                    }
+                }
+            }
+            if !pre_ok {
+                continue;
+            }
+            let merge_block = ir.blocks.get(merge)?;
+            let merge_phi = merge_block
+                .instructions
+                .iter()
+                .find(|inst| inst.opcode == "phi")?;
+            let incomings = phi_incomings(merge_phi);
+            if !incomings.iter().any(|(_, label)| label == &block.label)
+                || !incomings
+                    .iter()
+                    .any(|(_, label)| *label == ir.blocks[completion].label)
+            {
+                continue;
+            }
+            return Some(MismatchSearchShape {
+                header,
+                latch,
+                completion,
+                merge,
+                index_phi,
+                match_on_true: *true_target == latch,
+            });
+        }
+    }
+    None
+}
+
+fn lower_mismatch_search(
+    ir: &IrFunction,
+    shape: &MismatchSearchShape,
+    builder: &mut Builder,
+    value_map: &mut HashMap<String, NodeId>,
+) -> Result<(), String> {
+    let span = Span::unknown();
+    let body_start = builder
+        .function()
+        .arena
+        .ids()
+        .map(|id| id.0)
+        .max()
+        .unwrap_or(0);
+    let mut body_nodes: Vec<NodeId> = Vec::new();
+    // Preheader statements are idempotent (constants/memset), so running
+    // them inside the loop body preserves their observable effect.
+    for idx in 0..shape.header {
+        if [shape.latch, shape.completion, shape.merge].contains(&idx) {
+            continue;
+        }
+        for inst in &ir.blocks[idx].instructions {
+            if matches!(inst.opcode.as_str(), "phi" | "br" | "ret") {
+                continue;
+            }
+            if let Some(node) = emit_instruction(inst, builder, value_map, &ir.params, span)? {
+                body_nodes.push(node);
+            }
+        }
+    }
+    let header = &ir.blocks[shape.header];
+    let phi = header
+        .instructions
+        .iter()
+        .find(|inst| inst.opcode == "phi")
+        .ok_or("mismatch search: header phi")?;
+    let index_ty = phi
+        .operands
+        .first()
+        .and_then(|operand| operand_type(operand))
+        .ok_or("mismatch search: index type")?;
+    let index_init = builder.constant(int_constant_data(&index_ty, 0), index_ty.clone(), span);
+    value_map.insert(shape.index_phi.clone(), index_init);
+    for inst in &header.instructions {
+        if matches!(inst.opcode.as_str(), "phi" | "br") {
+            continue;
+        }
+        emit_instruction(inst, builder, value_map, &ir.params, span)?;
+    }
+    let header_br = header
+        .instructions
+        .iter()
+        .rev()
+        .find(|inst| inst.opcode == "br")
+        .ok_or("mismatch search: header branch")?;
+    let equal = get_node_id(
+        &strip_type(&header_br.operands[0]),
+        value_map,
+        &ir.params,
+        builder,
+        Some(Type::Bool),
+    )
+    .ok_or("mismatch search: equality")?;
+    let continue_match = if shape.match_on_true {
+        equal
+    } else {
+        builder
+            .bool_not(equal, span)
+            .map_err(|e| format!("mismatch search: {:?}", e))?
+    };
+    let latch = &ir.blocks[shape.latch];
+    for inst in &latch.instructions {
+        if matches!(inst.opcode.as_str(), "phi" | "br") {
+            continue;
+        }
+        emit_instruction(inst, builder, value_map, &ir.params, span)?;
+    }
+    let latch_br = latch
+        .instructions
+        .iter()
+        .rev()
+        .find(|inst| inst.opcode == "br")
+        .ok_or("mismatch search: latch branch")?;
+    let done = get_node_id(
+        &strip_type(&latch_br.operands[0]),
+        value_map,
+        &ir.params,
+        builder,
+        Some(Type::Bool),
+    )
+    .ok_or("mismatch search: exit test")?;
+    let increment = latch
+        .instructions
+        .iter()
+        .find(|inst| {
+            inst.opcode == "add"
+                && strip_type(&inst.operands[0]) == shape.index_phi
+                && parse_int_constant(&strip_type(&inst.operands[1])) == Some(1)
+        })
+        .and_then(|inst| inst.result.clone())
+        .ok_or("mismatch search: increment")?;
+    let index_next = value_map
+        .get(&increment)
+        .copied()
+        .ok_or("mismatch search: increment value")?;
+    let not_done = builder
+        .bool_not(done, span)
+        .map_err(|e| format!("mismatch search: {:?}", e))?;
+    let run_next = builder
+        .bool_and(continue_match, not_done, span)
+        .map_err(|e| format!("mismatch search: {:?}", e))?;
+    let found_next = builder
+        .bool_not(continue_match, span)
+        .map_err(|e| format!("mismatch search: {:?}", e))?;
+    let run_init = builder.constant(ConstantData::boolean(true), Type::Bool, span);
+    let found_init = builder.constant(ConstantData::boolean(false), Type::Bool, span);
+    body_nodes = builder
+        .function()
+        .arena
+        .ids()
+        .filter(|id| id.0 > body_start && *id != run_init)
+        .collect();
+    let loop_node = builder
+        .r#loop(
+            &body_nodes,
+            run_init,
+            &[index_next, run_next, found_next],
+            &[index_init, run_init, found_init],
+            Type::Tuple {
+                elements: vec![index_ty.clone(), Type::Bool, Type::Bool],
+            },
+            span,
+        )
+        .map_err(|e| format!("mismatch search: {:?}", e))?;
+    let found = builder
+        .tuple_extract(loop_node, 2, Type::Bool, span)
+        .map_err(|e| format!("mismatch search: {:?}", e))?;
+    let index_out = builder
+        .tuple_extract(loop_node, 0, index_ty.clone(), span)
+        .map_err(|e| format!("mismatch search: {:?}", e))?;
+    value_map.insert(shape.index_phi.clone(), index_out);
+    value_map.insert(increment.clone(), index_out);
+    // Completion chain after the loop.
+    let mut cursor = shape.completion;
+    let mut seen = HashSet::new();
+    while seen.insert(cursor) {
+        if cursor == shape.merge {
+            break;
+        }
+        emit_plain_block(ir, cursor, builder, value_map)?;
+        let block = &ir.blocks[cursor];
+        let Some(branch) = block
+            .instructions
+            .iter()
+            .rev()
+            .find(|inst| inst.opcode == "br")
+        else {
+            break;
+        };
+        if branch.operands.len() != 1 {
+            break;
+        }
+        let Some(next) = ir.block_map.get(
+            branch.operands[0]
+                .trim_start_matches("label ")
+                .trim_start_matches('%'),
+        ) else {
+            break;
+        };
+        cursor = *next;
+    }
+    let merge = &ir.blocks[shape.merge];
+    let merge_phi = merge
+        .instructions
+        .iter()
+        .find(|inst| inst.opcode == "phi")
+        .ok_or("mismatch search: merge phi")?;
+    let completion_value = phi_incomings(merge_phi)
+        .iter()
+        .find(|(_, label)| label == &ir.blocks[shape.completion].label)
+        .map(|(value, _)| strip_type(value))
+        .ok_or("mismatch search: completion value")?;
+    let completion_node = get_node_id(&completion_value, value_map, &ir.params, builder, None)
+        .ok_or("mismatch search: completion node")?;
+    let completion_ty = completion_node_ty(builder, completion_node);
+    let zero = builder.constant(int_constant_data(&completion_ty, 0), completion_ty, span);
+    let result = builder
+        .select(found, zero, completion_node, span)
+        .map_err(|e| format!("mismatch search: {:?}", e))?;
+    if let Some(name) = &merge_phi.result {
+        value_map.insert(name.clone(), result);
+    }
+    emit_plain_block(ir, shape.merge, builder, value_map)?;
+    Ok(())
+}
+
+fn completion_node_ty(builder: &Builder, node: NodeId) -> Type {
+    builder
+        .function()
+        .get_node(node)
+        .map(|node| node.ty.clone())
+        .unwrap_or(Type::u64())
+}
+
 /// A strict two-level counted nest: outer header branches directly to the
 /// inner header; the inner latch exits to the outer latch; the outer latch
 /// branches back to the outer header or out. Integer memory only.
@@ -2636,6 +3043,11 @@ pub fn lower(text: &str) -> Result<Function, String> {
 
     if let Some(shape) = detect_peeled_found(&ir) {
         return lower_peeled_found(&ir, &shape, &mut builder, &mut value_map)
+            .map(|_| builder.build());
+    }
+
+    if let Some(shape) = detect_mismatch_search(&ir) {
+        return lower_mismatch_search(&ir, &shape, &mut builder, &mut value_map)
             .map(|_| builder.build());
     }
 
