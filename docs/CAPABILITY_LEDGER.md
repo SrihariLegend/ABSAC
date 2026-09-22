@@ -930,6 +930,19 @@ have now been restored into current `sir_mech` and tested.
   zero state is not a valid list/tree, not miscompiles. Base-14 stays
   498/266, fuzz 540/360, 9 tests ~1.36 s; picojpeg is
   sanitizer-clean and `sglib_ilist_add` is clean on AArch64.
+- **2026-09-23 — pointer-memory hardening**: two follow-up findings
+  from the same-address runs. (1) Acyclic CFGs with branch-guarded
+  memory through pointer operands were falling through to the
+  straight-line walker, which executed every path unconditionally
+  (sglib `dllist_add_after` dereferenced a null head and faulted); they
+  now fail closed until pointer-memory predication exists. (2) Call
+  arguments were not split for the escaping-GEP analysis, so a GEP used
+  as a call argument was passed as its loaded value instead of its
+  address (sglib `hashed_ilist_add` called the callee with null); call
+  arguments are now scanned properly. All-19: **107 clean / 212
+  refused / 0 mismatched / 2 invalid-state** (was 106/209/0/6); sglib
+  12 clean / 1 invalid-state, 0 mismatched. Base-14 stays 498/266,
+  fuzz 540/360, 9 tests ~1.36 s.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

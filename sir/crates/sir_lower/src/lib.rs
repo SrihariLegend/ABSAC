@@ -470,7 +470,18 @@ fn escaping_gep_results(ir: &IrFunction) -> HashSet<String> {
                         escaping.insert(base);
                     }
                 }
-                "select" | "icmp" | "call" | "ret" => {
+                "call" => {
+                    let Some(inside) = call_arguments(inst) else {
+                        continue;
+                    };
+                    for part in split_operands(&inside) {
+                        let value = strip_type(&operand_value_token(&part));
+                        if gep_names.contains(&value) {
+                            escaping.insert(value);
+                        }
+                    }
+                }
+                "select" | "icmp" | "ret" => {
                     for operand in &inst.operands {
                         let value = strip_type(&operand_value_token(operand));
                         if gep_names.contains(&value) {
@@ -3840,6 +3851,13 @@ pub fn lower(text: &str) -> Result<Function, String> {
     {
         let return_ty = builder.function().return_ty.clone();
         return lower_switch_cfg(&ir, &mut builder, value_map, return_ty).map(|_| builder.build());
+    }
+    if !has_back_edge && ir.blocks.len() > 1 && acyclic_memory_control(&ir) {
+        return Err(format!(
+            "unsupported: branch-guarded memory through pointer operands \
+             (path predication needed): {}",
+            ir.name
+        ));
     }
 
     if let Some(shape) = detect_nested_two_level(&ir) {
@@ -9833,6 +9851,26 @@ fn acyclic_scalar_cfg(ir: &IrFunction) -> bool {
         }
     }
     has_control
+}
+
+/// Acyclic CFG with control flow and memory, regardless of whether the
+/// memory is global. The straight-line walker would execute every path
+/// unconditionally, so these must either use the path enumerator
+/// (global memory only today) or fail closed.
+fn acyclic_memory_control(ir: &IrFunction) -> bool {
+    let mut has_memory = false;
+    let mut has_control = false;
+    for block in &ir.blocks {
+        for inst in &block.instructions {
+            match inst.opcode.as_str() {
+                "load" | "store" => has_memory = true,
+                "br" if inst.operands.len() >= 3 => has_control = true,
+                "switch" => has_control = true,
+                _ => {}
+            }
+        }
+    }
+    has_memory && has_control
 }
 
 /// Lower a function without loops (straight-line or multi-block without back-edges).
