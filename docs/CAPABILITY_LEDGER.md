@@ -901,6 +901,20 @@ have now been restored into current `sir_mech` and tested.
   TestingPathological), with the all-19 probe at **99 clean / 221
   refused / 0 mismatched / 1 invalid-state**. Base-14 stays 498/266
   native + AArch64 and fuzz stays 540/360; 9 tests ~1.36 s.
+- **2026-09-23 — H3 generic first-match scan theorem**: the kernel now
+  has primitive `IntIte` reduction rules (`c ⊢ if c then x else y = x`
+  and its negation), with replay checks but no bit-blasting or bounds
+  side conditions. On top of them, `sir_mech::scan` proves the
+  extent-independent equivalence of the forward found-flag fold and
+  the first-match fold, under `a <= b`, by two structural inductions:
+  a symbolic peel identity, then `F(a,b) = R(a,b)`. Evidence:
+  `cargo run -p sir_mech --example scan_induction` proves and replays
+  in **0.000 s** (cached per process). This replaces the bounded SAT
+  first-match query (29.6M instructions, extent cap 128) in the search
+  family; the old `first_match_laws` table was deleted. Base-14
+  498/266/0, all-19 Embench 99/221/0/1, fuzz 540/360/0, 9 tests
+  ~1.36 s; pipeline/corpus behavior is unchanged apart from removing
+  the proof bottleneck.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

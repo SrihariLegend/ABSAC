@@ -233,7 +233,7 @@ Phase 1 progress:
   from the CNF model and `decode_model` panicked; the decoder now maps
   them to zero, which is a valid model for an unconstrained variable.
 
-Phase 1 status: **30,602 LOC, 9 crates, 9 passed / 0 failed / 0
+Phase 1 status: **31,223 LOC, 9 crates, 9 passed / 0 failed / 0
 ignored**, 14-corpus **133 rewrites / 249 clean / 0 mismatched / 0
 harness errors**, and fuzz corpora v17–v19b **360 rewrites / 540 clean /
 0 mismatched** (761 clean total). The LOC guide is a guide, not a
@@ -247,10 +247,11 @@ policy refuses runtime-dependent definition 403; live-out/frame gates
 have v0.
 
 Phase 1 evidence update: the left-fold proof trim brought the sum
-pipeline to **7.19M instructions** (budget 9.4M) and the workspace suite
-to **~7s**. The memchr pipeline is still **29.6M** against a 4.4M
-budget; the first-match scan equivalence is the remaining proof-cost
-item and is slated for the induction/kernel work in H3.
+pipeline to **7.19M instructions** (budget 9.4M). The memchr pipeline's
+bounded first-match query (29.6M instructions) is now replaced by the
+extent-independent kernel scan theorem
+(`cargo run -p sir_mech --example scan_induction`), which proves and
+replays in well under a millisecond and is cached per process.
 
 Cross-arch evidence update: `emit_c_diff --target aarch64` now runs the
 full base-14 differential under qemu at **221 clean / 78 rewrites / 0
@@ -266,11 +267,12 @@ Priority by measured value:
    optimization time so compiles stay fast. Bounded SAT unrolling
    scaled only to 16 bits (16 = 285 ms; 32 = 35.6 s; 64 infeasible)
    and was deleted.
-2. Runtime-bound reductions/search (contract-backed) — runtime sums are
-   restored as definition 404; runtime search is
-   found-flag shape now lowers and rewrites to `sir_memchr`; measured
-   no-hit 1.25× but early-hit 0.82×, so predictive retention is the
-   remaining piece.
+2. Runtime-bound reductions/search — runtime sums are restored as
+   definition 404; runtime search is a found-flag shape that lowers and
+   rewrites to `sir_memchr`; the first-match scan equivalence is now a
+   kernel theorem over all extents, replacing bounded SAT unrolling, so
+   the remaining piece is predictive retention (measured no-hit 1.25×
+   but early-hit 0.82×).
 3. Parity (XOR path done) and the remaining reductions.
 4. Arithmetic bit hacks: mod/div/mul/shift-mask all done (100–103).
 5. Mask algebra and permutations.

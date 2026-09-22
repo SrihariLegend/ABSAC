@@ -23,6 +23,7 @@ pub mod equiv;
 pub mod kernel;
 pub mod kernighan;
 pub mod sat;
+pub mod scan;
 pub mod term;
 
 pub use arith::{linearize, prove_entailment, ArithOutcome, LinForm};

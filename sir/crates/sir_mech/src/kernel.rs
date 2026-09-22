@@ -111,6 +111,13 @@ pub enum Derivation {
         goal: Statement,
         note: String,
     },
+    /// Primitive `IntIte` reduction under the branch condition (or its
+    /// negation). Unlike bit-blasting, this needs no bounds on the
+    /// branch terms.
+    IteReduce {
+        goal: Statement,
+        taken: bool,
+    },
     DischargeLemma {
         inner: Box<Derivation>,
         hyp: Tid,
@@ -386,6 +393,55 @@ impl Kernel {
         Ok(Theorem {
             statement: Statement::new(vec![h], h, t),
             derivation: Derivation::HypothesisBool(h),
+        })
+    }
+
+    /// `c ⊢ if c then x else y = x`.
+    pub fn int_ite_true(
+        &mut self,
+        cond: Tid,
+        then_: Tid,
+        else_: Tid,
+    ) -> Result<Theorem, KernelError> {
+        self.int_ite_reduce(cond, then_, else_, true)
+    }
+
+    /// `¬c ⊢ if c then x else y = y`.
+    pub fn int_ite_false(
+        &mut self,
+        cond: Tid,
+        then_: Tid,
+        else_: Tid,
+    ) -> Result<Theorem, KernelError> {
+        self.int_ite_reduce(cond, then_, else_, false)
+    }
+
+    fn int_ite_reduce(
+        &mut self,
+        cond: Tid,
+        then_: Tid,
+        else_: Tid,
+        taken: bool,
+    ) -> Result<Theorem, KernelError> {
+        if self.arena.sort(cond) != Sort::Bool
+            || self.arena.sort(then_) != Sort::Int
+            || self.arena.sort(else_) != Sort::Int
+        {
+            return Err(KernelError::Shape(
+                "int_ite reduction: expected Bool condition and Int branches".into(),
+            ));
+        }
+        let lhs = self.arena.int_ite(cond, then_, else_);
+        let (hyps, rhs) = if taken {
+            (vec![cond], then_)
+        } else {
+            let neg = self.arena.bool_not(cond);
+            (vec![neg], else_)
+        };
+        let goal = Statement::new(hyps.clone(), lhs, rhs);
+        Ok(Theorem {
+            statement: goal.clone(),
+            derivation: Derivation::IteReduce { goal, taken },
         })
     }
 
@@ -1734,6 +1790,24 @@ impl Kernel {
                         ))),
                     }
                 }
+            }
+            Derivation::IteReduce { goal, taken } => {
+                let Node::IntIte(cond, then_, else_) = self.arena.node(goal.lhs).clone() else {
+                    return Err(KernelError::Shape(
+                        "replay ite reduce: not an IntIte".into(),
+                    ));
+                };
+                let expected_rhs = if taken { then_ } else { else_ };
+                let expected_hyp = if taken {
+                    cond
+                } else {
+                    self.arena.bool_not(cond)
+                };
+                if goal.rhs != expected_rhs || goal.hyps.len() != 1 || goal.hyps[0] != expected_hyp
+                {
+                    return Err(KernelError::Shape("replay ite reduce mismatch".into()));
+                }
+                Ok(goal)
             }
             Derivation::DischargeLemma { inner, hyp, lemma } => {
                 let s = self.replay_box(&inner)?;

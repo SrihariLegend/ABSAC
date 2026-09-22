@@ -92,7 +92,7 @@ fn families_rewrite_and_prove() {
     assert!(sir_opt::prove::sum_laws(8));
     assert!(sir_opt::prove::or_laws(8));
     assert!(sir_opt::prove::and_laws(8));
-    assert!(sir_opt::prove::first_match_laws(8, 8));
+    assert!(sir_opt::prove::first_match_law());
 
     cases::all::run();
     cases::arithmetic::run();

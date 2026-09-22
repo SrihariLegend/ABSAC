@@ -1,6 +1,6 @@
 fn fixed_extent_byte_search_uses_library_primitive() {
     assert!(
-        sir_opt::prove::first_match_laws(64, 64),
+        sir_opt::prove::first_match_law(),
         "the first-match scan equivalence must discharge"
     );
     let ll = std::fs::read_to_string("../../../gate6a/v8_corpus.ll").expect("corpus");

@@ -4,7 +4,13 @@
 //! identity and commutativity (to match the loop's operand order); full
 //! associativity is only required if a rewrite regroups the fold.
 
-use sir_mech::{Bv, CheckResult, Term, VarId};
+use sir_mech::{Bv, CheckResult, VarId};
+
+/// Extent-independent first-match scan law. The proof lives in the
+/// kernel (`sir_mech::scan`) and is cached there for the process.
+pub fn first_match_law() -> bool {
+    sir_mech::scan::first_match_law()
+}
 
 /// Both wrapping-add zero identities, covering either operand order.
 /// The SAT kernel discharges them at the real accumulator width.
@@ -25,39 +31,6 @@ pub fn sum_laws(width: u32) -> bool {
     let a_plus_zero = bv.add(a, zero);
     matches!(
         sir_mech::prove_equal(&bv, a_plus_zero, a),
-        CheckResult::Valid
-    )
-}
-
-/// Prove that the canonical found-flag scan and the reverse-overwrite
-/// scan compute the same first-match index (or the extent sentinel).
-/// This is the semantic contract of the `sir_memchr` primitive.
-pub fn first_match_laws(extent: u32, width: u32) -> bool {
-    if extent == 0 || extent > 128 || width == 0 || width > 64 {
-        return false;
-    }
-    let mut bv = Bv::with_capacity(extent as usize * 16 + 64);
-    let bits: Vec<Term> = (0..extent)
-        .map(|index| bv.var(VarId(0x8000 + index), 1))
-        .collect();
-
-    let mut found = bv.zero(1);
-    let mut forward = bv.constant(u64::from(extent), width);
-    for (index, &bit) in bits.iter().enumerate() {
-        let not_found = bv.not(found);
-        let take = bv.and(not_found, bit);
-        let position = bv.constant(index as u64, width);
-        forward = bv.ite(take, position, forward);
-        found = bv.or(found, bit);
-    }
-
-    let mut reverse = bv.constant(u64::from(extent), width);
-    for (index, &bit) in bits.iter().enumerate().rev() {
-        let position = bv.constant(index as u64, width);
-        reverse = bv.ite(bit, position, reverse);
-    }
-    matches!(
-        sir_mech::prove_equal(&bv, forward, reverse),
         CheckResult::Valid
     )
 }

@@ -11,13 +11,11 @@ use sir_nodes::{Function, Node, NodeKind};
 use sir_types::{ConstantData, Effects, NodeId, Span, Type};
 
 use crate::patch::{apply, Patch};
-use crate::prove;
 
 struct SearchPlan {
     target: NodeId,
     extent: usize,
     index_ty: Type,
-    index_width: u32,
     bound: NodeId,
     predicate: NodeId,
     accesses: Vec<(NodeId, NodeId, Type)>,
@@ -48,7 +46,7 @@ pub(crate) fn apply_one(
         return None;
     }
     if !plan.runtime {
-        if !prove::first_match_laws(plan.extent as u32, plan.index_width) {
+        if !sir_mech::scan::first_match_law() {
             return None;
         }
     }
@@ -366,19 +364,10 @@ fn recognize_loop(
             )
         })?
         .id;
-    let index_width = match function.get_node(index)?.ty {
-        Type::Integer { width, .. } => match width {
-            sir_types::IntegerWidth::I64 => 64,
-            sir_types::IntegerWidth::I32 => 32,
-            _ => return None,
-        },
-        _ => return None,
-    };
     Some(SearchPlan {
         target,
         extent,
         index_ty: function.get_node(index)?.ty.clone(),
-        index_width,
         bound,
         predicate,
         accesses,
