@@ -1138,6 +1138,73 @@ have now been restored into current `sir_mech` and tested.
   0 mismatched / 0 harness errors), 9 tests 0 failed, no family lost a firing.
   Cases live in `tests/cases/runtime_loop.rs` behind the existing `#[test]`, so
   the test count stays at 9.
+- **2026-09-23 — emission: SIR's branchlessness flattens branchy functions
+  60–380× slower**: the catastrophic `retain=base` ratios are real,
+  emission-caused, and untainted. Untainted because every global in
+  `statemate`, `edn` and `wikisort` is zero-initialized, so the missing-shadow
+  asymmetry was byte-identical on both sides; and because `--allow-defs 999`
+  (rewrites off) reproduces the same ratios, all three functions having
+  rewrites=0. Callgrind instruction counts per call, 100,001 calls a side:
+  `interface` 59 → 10,493 emitted instructions (**60.5×**), then
+  `generic_FH_TUERMODUL_CTRL` **380.6×** and `generic_KINDERSICHERUNG_CTRL`
+  **73.7×**. The mechanism is the frozen IR design: SIR has no branches, so
+  every CFG merge point becomes a `Select` on the value *and on the address*,
+  and the emitted function is one flattened, loop-free select DAG — **zero
+  back-edges and zero indirect branches in every emitted function**, so clang
+  cannot reconstruct a single loop. `interface` is the cleanest case: 33 IR
+  ops, 2 `phi`, 17 `br` become 9,147 SIR values (277×), 439,645 bytes of C,
+  3,587 ternaries and 79,911 bytes of x86, against a 59-instruction reference.
+  The signature in the emitted C is address materialization feeding a select at
+  every store site (`v27 = (v20 ? v22 : v26)`) plus 532 identity selects of the
+  form `(v112 ? v82 : v82)`. **Not a cut regression**: the deleted `emit_c_ll.rs`
+  was also SIR→C — it lowered a `.ll` and emitted rewritten C — so the
+  flattening is inherent to the design rather than lost by the cut. Caveat on
+  the absolute numbers: the reference side is strongly state-dependent
+  (`ref_ns` for FH moved 2.4× between runs), so the instruction ratios are the
+  defensible figures, not the tick ratios. Consequence: whole-function emission
+  is not a viable output path for branchy code, and the timing harness currently
+  measures "ABSAC as a whole-function compiler" rather than "ABSAC as a region
+  rewriter".
+- **2026-09-23 — reach scoping: the drop is mostly inlining, and class B is the
+  one class worth implementing**: two corrections to the survey entry above.
+  (1) Its per-class refusal counts are inflated by call-chain duplication — the
+  harness logs one line per lowered *root*, so `benchmark`, `warm_caches` and
+  friends each emit a refusal naming the same inner function. De-duplicated by
+  inner function, the top classes are **36/37 distinct** for the separate-latch
+  block class and **16/23** for the multi-loop-shared-exit class at -O2/-O3,
+  against 52/51 and 41/42 log entries. (2) Those classes do **not** explain most
+  of the -O1 → -O2 acceptance drop: 23 of the 46 functions accepted at -O1 but
+  not -O2 are simply absent from the -O2 corpus because clang inlined them away,
+  so only 23 are genuinely refused. Inlining, not rejection, is the larger half.
+  `sir_lower` measures **11,469 lines in a single `lib.rs`** with no in-crate
+  tests; that is the LOC overrun.
+  Ranked by (acceptance gained at both levels) / (LOC cost), the class to
+  implement is **B — multiple loops sharing an exit CFG**: strongest acceptance
+  precedent (10 of 42 refused at -O3 were accepted at -O1, against 1 of 52 for
+  class A), 75–78% of its work items sit in the counted-loop morphology the
+  families consume, it holds the only function with a measured retained win
+  (`edn/jpegdct`, 0.9441, refused as class B at -O3), and it **extends an
+  existing pass** rather than adding machinery — a single boolean,
+  `!guarded_entry` at `lib.rs:3950-3954`, excludes 15 of 16 work items at -O2
+  and 19 of 23 at -O3 from a sequential emitter that is already written.
+  Class A is larger in raw volume (36 vs 16 distinct functions) but is the wrong
+  place to spend lines: it needs a genuinely new multi-block loop-body structurer
+  (est. 500–1200 lines), three quarters of its members are pointer-chasing sglib
+  structures no family can consume, and its acceptance precedent is 1 in 52.
+  **Acceptance is not firing.** Measured recognizer contract: 8 of the 10
+  families require an `ArrayAccess` over a `Type::Array` base with
+  `fact.trip_count == Some(extent)`; `search` additionally requires
+  `carried_inputs.len() == 3`, `popcount` requires 2, and only `arithmetic` has
+  no array precondition. That narrows the domain and is why class B, not class A,
+  is where reach pays.
+  Before writing class-B code, a distinguishing run is needed to split the single
+  refusal string at `lib.rs:4091` into its three documented causes (nested/
+  shared-exit shapes, unresolved cross-loop values, a second return), so the
+  80–350 line estimate can be pinned down. The gate at 3950 is named for
+  *guarded entry*, which is the same ground as the parked
+  `wip/guarded-rotated-zero-test` branch that mis-lowered
+  `sglib_dllist_get_first`/`get_last` — so why that gate exists must be
+  established before it is relaxed.
 
 ## Reference commands
 
