@@ -1154,6 +1154,11 @@ have now been restored into current `sir_mech` and tested.
   cannot reconstruct a single loop. `interface` is the cleanest case: 33 IR
   ops, 2 `phi`, 17 `br` become 9,147 SIR values (277×), 439,645 bytes of C,
   3,587 ternaries and 79,911 bytes of x86, against a 59-instruction reference.
+  **Corrected by the incidence measurement below**: those figures reproduce the
+  **-O2** build. The `-O1` build of the same function is worse (592,931 bytes of
+  C, 12,225 SIR values, 60 → 6,309 instructions), and the "33 IR ops" figure
+  could not be reproduced from any `.ll` build — the `-O1` and `-O2` IR both
+  contain 62–63 ops and 17 branches.
   The signature in the emitted C is address materialization feeding a select at
   every store site (`v27 = (v20 ? v22 : v26)`) plus 532 identity selects of the
   form `(v112 ? v82 : v82)`. **Not a cut regression**: the deleted `emit_c_ll.rs`
@@ -1247,6 +1252,140 @@ have now been restored into current `sir_mech` and tested.
   "confirmed" its absence could not see the `gs ^= gs << 13` form. Same failure
   mode as the earlier family-firing claim: the search method, not the search
   result, was the problem.
+- **2026-09-23 — flattening incidence: concentrated, and disjoint from the
+  rewrite targets**: measured across all 266 accepted (level, function) pairs.
+  **No rewrite-firing function is flattened.** At `-O1` all seven emit 0.97×–1.14×
+  the reference statically (0.94×–1.09× dynamically), and `edn/jpegdct` — the one
+  measured retained win — emits *fewer* instructions than the reference (190 vs
+  195) while firing 4 rewrites. Every function above 5× has rewrites=0: the
+  firing set and the blowup set are **disjoint**.
+  The blowup is concentrated, not diffuse. At `-O1`, 81 of 117 accepted functions
+  have **zero** branches, 95 of 117 have ≤2 branches and no switch, and 67 of 117
+  emit exactly the reference instruction count. Two functions —
+  `statemate::interface` and `statemate::generic_FH_TUERMODUL_CTRL` — carry
+  **94% of all excess instructions**. Binned by branch count the cliff is sharp:
+  0 br worst 2.00× (4 of 81 above 1.5×), 1–2 br worst 1.38× (none above), 3–6 br
+  worst 1.58× (1 above), 7–16 br worst 10.94× (3 of 4), 17+ br worst 105.15×
+  (3 of 3). SIR values per source op separate the same way: every firing function
+  is ≤2.25, the catastrophic ones ≥3.3.
+  So the remedy is narrow — **refuse the few functions whose emission blows up**,
+  not rework emission. Two metric cautions established: the static instruction
+  ratio is a **floor** for state machines with short hot paths
+  (`generic_KINDERSICHERUNG_CTRL` is 1.94× static but 19.15× dynamic, because the
+  reference exits early while the branch-free emission runs all 380 instructions),
+  and it misleads the other way at `-O3`, where a 4-instruction reference body
+  makes `depthconv::DepthwiseConvPerChannel` read 13.25× static against 1.02×
+  dynamic.
+  This narrows, and partly retracts, the claim in the emission entry above:
+  whole-function emission is viable for the branch-light functions the rewriter
+  actually targets; the catastrophic cases are heavily branchy state machines
+  that no family can consume in any case.
+- **2026-09-23 — termination-effect chain: checked, not needed (negative
+  result)**: eight families omit `termination` from their per-node effect guard,
+  and the question was whether the omission can change a verdict. It cannot.
+  Every family refuses an effectful termination on its own recognizer *pin*
+  first — `fact.trip_count != Some(extent)` (`all.rs:155`, `any.rs:138`,
+  `count.rs:155`, `parity.rs:149`), `MAX_UNROLL` (`sum.rs:128`), `find_lt_bound`
+  (`runtime_sum.rs:127`, `runtime_count.rs:173`), `bound_guard` (`search.rs:277`)
+  and the `Ne`-against-zero pin (`popcount.rs:165`). `estimate_trip_count`
+  accepts only Lt/Le/Gt/Ge/Eq/Ne terminations, recursing `BoolAnd`, and no
+  effect-carrying SIR node kind is a comparison — so an effectful termination
+  always yields `trip_count = None` and the pin rejects it long before the effect
+  check could matter. `src/` is therefore unchanged; `termination` stays out of
+  the chain as non-load-bearing. A synthetic probe that stamps `WRITE_MEMORY`
+  onto a pure comparison's termination does show the guard is blind to a
+  *stamped* node, but it was deliberately not shipped: no front-end produces one,
+  and shipping it would encode the blind spot as expected behaviour. Cases for
+  the pure-twin control live in `runtime_loop.rs` behind the existing `#[test]`.
+- **2026-09-23 — OPEN (fix in flight): a `BoolAnd` termination silently drops its
+  non-`Lt` conjunct**: the same audit found that a loop whose termination is
+  `BoolAnd { Lt { i, 64 }, ArrayAccess(loaded i1 flag) }` — every node pure —
+  gets `trip_count = Some(64)` and is rewritten by `sum` as definition 400. If
+  the flag is false the source loop runs zero iterations while the rewritten
+  unrolled sum adds all 64 elements: a miscompile of a defined program.
+  `.chain(once(termination))` cannot catch it, because every node involved is
+  pure and the discarded conjunct is a pure `ArrayAccess`, invisible to any
+  effect guard. The missing check is structural, in
+  `estimate_trip_count`/`find_lt_bound`: a non-counted conjunct must be proven
+  constant-`true` or the trip count must be `None`. Reachability is latent today
+  — the clang `-O1` shapes that produce fused flag terminations are all
+  lower-refused (`unguarded post-tested loop`, `separate latch block`) and the
+  external differential reports 0 mismatches — but the hand-written pre-tested
+  shape does lower and is rewritten, so under the standing correctness policy the
+  affected transformation is blocked until the applicability condition is fixed.
+- **2026-09-23 — class B re-scoped: the gate is necessary, not binding, and the
+  parked bug was elsewhere**: an investigation of the `guarded_entry` gate at
+  `lib.rs:4065` (`git log -S` finds exactly one commit, 39568b2, whose entry says
+  only "Guarded-entry sequential groups (`benchmark_body`) remain fail-closed")
+  reports it as a fail-closed *routing* decision, not a response to a measured
+  miscompile — it predates the parked branch by three days.
+  The parked `wip/guarded-rotated-zero-test` failure was **not** a gate defect:
+  it is an exit-value/phi-edge mismatch in the do-while model. The carried
+  pointer is advanced in the body and the post-advance value is returned, while
+  the source exit phi takes the pre-advance value (`%9 = phi ptr [ null, %1 ],
+  [ %4, %3 ]`), so on a terminal single-node list the reference returns `p0` and
+  the parked lowering returns NULL — one iteration off.
+  **The soundness criterion this exposes is unchecked by the current code as
+  well as by the parked branch**: the run-flag/do-while model is sound only if
+  every post-loop use of a carried value refers to the successor (output) value.
+  No evidence yet of a reachable case on the current tree — the shapes that trip
+  it are refused at `lib.rs:8762` (`guarded rotated zero-test loop`) — but the
+  criterion is unstated in the code and worth a deliberate test.
+  Reach re-estimate: the already-written sequential emitter is reachable
+  **exactly once** in the whole three-level sweep, and that one reach failed on a
+  shape test ("latch is not a constant-step counted test") unrelated to the gate
+  — a record of 1 reach, 0 successes. For 7 of the 47 class-B raisers the entry
+  is already unguarded, so the gate is not binding for them at all; the honest
+  ceiling is ≤6 at -O1, ≤15 at -O2, ≤19 at -O3 rather than 23 at -O3. Whether the
+  gate is binding for the remaining 40 is **not established** — the harness
+  cannot currently distinguish "gate blocked" from "detector returned None", so
+  an instrumented run is required before any relaxation, and a reach delta well
+  below the ceiling is the expected outcome.
+  Split of the `lib.rs:4091` refusal (47 distinct raisers; 0 a second return,
+  20 nested/shared exit, 24 unresolved cross-loop values as a residual bucket),
+  plus a **third, undocumented cause in 3 of 47**: the self-latch phi predicate
+  (`', '.join(operands).contains("%"+label)`) over-matches when a label is a
+  prefix of a value — label `28` against value `%281` — inventing a spurious
+  self-latch block; nettle-aes `_aes_set_key` shows the converse false negative.
+- **2026-09-23 — emission-blowup refusal: three catastrophic functions now fail
+  closed**: `lower_function` refuses when lowering produces more than
+  `8 × source_instructions` SIR values (plus 32 values of slack for micro
+  bodies), reporting `unsupported: emission blowup: lowering produced N SIR
+  values from M source instructions (X.Xx, bound is 8x plus 32 values of slack)`.
+  The bound is calibrated on the 266 recorded lowerings rather than chosen: the
+  whole rewrite-firing set tops out at exactly 3.00 SIR values per instruction,
+  so 8 leaves a 2.7× margin above everything the rest of the pipeline exists to
+  consume, and sits just below the smallest recorded catastrophic ratio (8.33).
+  It refuses exactly three functions at every level — `statemate::interface`
+  (194.4×), `statemate::generic_FH_TUERMODUL_CTRL` (28.5×) and
+  `sglib-combined::sglib_dllist_delete` (9.2×) — captures 96.7% of the recorded
+  excess emitted instructions, and refuses **zero** of the 236 recorded
+  lowerings whose emitted code is within 1.5× of the reference. Cost: external
+  `-O1` clean 117 → 114, refused 204 → 207; base-14 byte-identical. Verified
+  independently after the change: all seven rewrite-firing functions still report
+  `clean` with their rewrites intact (`crc32pseudo` 1, `fir_no_red_ld` 2,
+  `jpegdct` 4, `getHuffTable`/`getHuffVal` 1 each, `sglib_iq_first_element` 1,
+  `matmult-int::initialise_benchmark` 2).
+  Two limits, recorded rather than papered over: the bound is a *ratio*, so
+  `depthconv::DepthwiseConvPerChannel` at `-O3` (13.25× emitted, ratio only 1.64
+  because the reference itself is 4 instructions) is not catchable by it; and
+  `lower()` — the inner function `lower_function` wraps — was public and
+  unguarded, so the guard was bypassable by construction. `lower()` is now
+  `pub(crate)`, making the gated path the only way to obtain SIR.
+- **2026-09-23 — profile record decoupled from timing success**: `--profile-out`
+  previously recorded a function only when its *timing* comparison succeeded, so
+  a timing failure erased the firing record — which is why every profile file
+  came back empty at `-O2`/`-O3` despite two functions firing per level. The
+  record is now written whenever a rewrite fires and its differential outcome was
+  `Clean`, independently of timing, with a new `unknown` retention marker. That
+  marker is inert on round trip and had to be made so explicitly: without a
+  dedicated `--profile-in` arm, any non-`0` third field reads as *allow*, so a
+  marker the harness wrote itself would have silently granted permission on the
+  next round — verified, `102 unknown` → rewrites=0, `102 1` → 1, `102 0` → 0.
+  Format and field order are unchanged for entries that carry a ratio. Mismatch,
+  sanitizer and refused outcomes still record nothing: a mismatching rewrite is
+  not a legitimate firing, and the definitions are not threaded through those
+  variants.
 
 ## Reference commands
 
