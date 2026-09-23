@@ -1019,6 +1019,40 @@ have now been restored into current `sir_mech` and tested.
   explicitly when corpora are absent. Lesson recorded: a corpus outside
   the gate is a corpus that cannot fail, and a loud refusal is worth
   more than a speculative acceptance.
+- **2026-09-23 — arithmetic operand-position containment**: an audit of the
+  restored arithmetic family found the constant-left case unsound.
+  `recognize` swapped operands when the constant sat in the left slot, which
+  is valid for commutative `Mul` and invalid for `Div`/`Rem`: `udiv 8, x` was
+  rewritten to `x >> 3` (x=1 gives 0, not 8) and `urem 8, x` to `x & 7` (x=3
+  gives 3, not 2). The law was never wrong — `prove::divide_pow2_laws` binds
+  its free variable to the left slot — the *application binding* was. Latent
+  rather than live: no corpus in `gate6a/` or `/tmp/external/` contains a
+  constant-left `udiv`/`urem` (verified by grep), but the lowerer does map
+  `udiv i32 8, %x` to `Div{const, x}`, so it was reachable. Contained by
+  refusing the constant-left slot for non-commutative nodes; `Mul` keeps the
+  commuted form. Regression case
+  `constant_left_division_is_refused_and_commutative_mul_still_fires`
+  (confirmed red before the fix, green after).
+- **2026-09-23 — driver input generation and gate honesty**: two defects in the
+  referee itself. (1) The differential driver disabled the zero input for every
+  function in a module that contained the token ` undef` anywhere — a
+  raw-text module-wide test — so one `undef` phi in `crc32.ll` removed the zero
+  case from all six crc32 functions; it is now a per-function test on that
+  function's own IR. (2) `verify.sh`'s `run_case` printed
+  `PASS <label> no-summary` for a run that exited nonzero without an
+  `EMITC_SUMMARY` line, and never inspected `clean=0`; both now fail. Known
+  remaining gap, recorded rather than fixed: zero is only generated for scalar
+  parameter index 0 (`k == 0` is the only branch reading `lens`), so a length
+  passed as any later parameter never sees zero.
+- **2026-09-23 — unresolved: timing-driver mismatches on rewritten functions**:
+  the timing harness reports `EMITTIME_MISMATCH` for `crc32pseudo`,
+  `getHuffTable`, and `getHuffVal` under every buffer fill tried, while the
+  differential passes 200 random cases for the same functions. The cause is
+  *not* established. An earlier attribution to a zero-length divergence was
+  wrong: `crc32pseudo` takes no parameters, and the timing driver's own
+  `lens[]` is dead code (its only consumer is `lens[4] + keys[...]`, so it
+  never exercises zero either). Until this is explained, no timing number from
+  that driver is reportable. Open investigation.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

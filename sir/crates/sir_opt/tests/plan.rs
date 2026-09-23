@@ -23,6 +23,7 @@ mod cases {
         include!("cases/arithmetic_slice.rs");
         pub fn run() {
             pow2_arithmetic_rewrites_to_shifts_and_masks();
+            constant_left_division_is_refused_and_commutative_mul_still_fires();
         }
     }
     pub mod any {

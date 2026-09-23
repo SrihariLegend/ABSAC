@@ -107,8 +107,14 @@ fn recognize(function: &Function) -> Option<ArithmeticPlan> {
             NodeKind::Mul { lhs, rhs } => (*lhs, *rhs, MULTIPLY_SHIFT),
             _ => continue,
         };
+        // Only `Mul` is commutative. `Div` and `Rem` are not: `udiv 8, x` is
+        // not `x >> 3`, and `urem 8, x` is not `x & 7`. A constant in the left
+        // slot of a non-commutative node is refused outright. The law in
+        // `prove` binds its free variable to the left slot, so it cannot
+        // license this case either — the hole was in this binding, not in the
+        // theorem.
         let (dynamic, constant) = match (constant_u64(function, lhs), constant_u64(function, rhs)) {
-            (Some(_), None) => (rhs, lhs),
+            (Some(_), None) if definition == MULTIPLY_SHIFT => (rhs, lhs),
             (None, Some(_)) => (lhs, rhs),
             _ => continue,
         };

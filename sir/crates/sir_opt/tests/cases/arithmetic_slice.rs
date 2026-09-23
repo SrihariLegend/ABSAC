@@ -63,3 +63,56 @@ fn pow2_arithmetic_rewrites_to_shifts_and_masks() {
         "mask node must be present"
     );
 }
+
+/// A constant in the **left** slot of a non-commutative op must not be
+/// rewritten: `udiv 8, x` is not `x >> 3`, and `urem 8, x` is not `x & 7`.
+/// The obligation in `prove` binds its free variable to the left slot, so it
+/// never licensed this case — the hole was in the application binding, not in
+/// the law. Constant-left `mul` is commutative and must still fire.
+fn constant_left_division_is_refused_and_commutative_mul_still_fires() {
+    let ll = r#"
+define dso_local i32 @const_left_ops(i32 noundef %0) {
+  %2 = udiv i32 8, %0
+  %3 = urem i32 8, %0
+  %4 = add i32 %2, %3
+  %5 = mul i32 8, %0
+  %6 = add i32 %4, %5
+  ret i32 %6
+}
+"#;
+    let mut function = sir_lower::lower_function(ll, "const_left_ops").expect("lower");
+    let has_div = |function: &sir_nodes::Function| {
+        function
+            .arena
+            .iter()
+            .any(|node| matches!(node.kind, sir_nodes::NodeKind::Div { .. }))
+    };
+    let has_rem = |function: &sir_nodes::Function| {
+        function
+            .arena
+            .iter()
+            .any(|node| matches!(node.kind, sir_nodes::NodeKind::Rem { .. }))
+    };
+    assert!(
+        has_div(&function) && has_rem(&function),
+        "fixture must lower constant-left division and remainder"
+    );
+    while let Some(next) = sir_opt::optimize_arithmetic(&function) {
+        function = next;
+    }
+    assert!(
+        has_div(&function),
+        "constant-left division must be refused, not rewritten to a shift"
+    );
+    assert!(
+        has_rem(&function),
+        "constant-left remainder must be refused, not rewritten to a mask"
+    );
+    assert!(
+        !function
+            .arena
+            .iter()
+            .any(|node| matches!(node.kind, sir_nodes::NodeKind::Mul { .. })),
+        "commuted multiply is commutative and must still rewrite"
+    );
+}

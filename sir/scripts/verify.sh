@@ -50,14 +50,29 @@ run_case() {
         fail=1
         return
     fi
+    # A run that cannot report what it did has verified nothing. This used to
+    # print `PASS <label> no-summary`, so a crashed or early-exiting case (or a
+    # `--cases 0` run that compared nothing) counted as evidence.
+    if [ "$status" -ne 0 ]; then
+        echo "FAIL $label exit=$status"
+        printf '%s\n' "$out" | tail -20
+        fail=1
+        return
+    fi
     local summary
     summary=$(printf '%s\n' "$out" | grep -o 'EMITC_SUMMARY.*' | tail -1)
-    if printf '%s\n' "$out" | grep -qE 'mismatched=[1-9]|harness_errors=[1-9]|violations=[1-9]'; then
-        echo "FAIL $label"
+    if [ -z "$summary" ]; then
+        echo "FAIL $label no EMITC_SUMMARY"
+        printf '%s\n' "$out" | tail -20
+        fail=1
+        return
+    fi
+    if printf '%s\n' "$out" | grep -qE 'mismatched=[1-9]|harness_errors=[1-9]'; then
+        echo "FAIL $label $summary"
         printf '%s\n' "$out" | tail -20
         fail=1
     else
-        echo "PASS $label ${summary:-no-summary}"
+        echo "PASS $label $summary"
     fi
 }
 

@@ -1489,10 +1489,18 @@ fn run_function(
                 .map(|body| body.contains("load ptr") || body.contains("store ptr"))
                 .unwrap_or(false)
         });
-    // Functions with `undef` phi entries have undefined behaviour on the
-    // zero input; keep the scalar domain nonzero so the differential
-    // compares defined executions only.
-    let avoid_zero = ll.contains(" undef") || runtime_step_loop(&optimized.function);
+    // Zero is a defined input unless *this* function's IR carries `undef`.
+    // A module-wide match used to disable the zero case for every function in
+    // the module, which hid the crc32pseudo zero-length divergence from the
+    // referee: the timing driver always exercised zero while the differential
+    // never did. The reference-only `--zero` probe already classifies genuinely
+    // invalid zero states as refusals, so the differential may always compare
+    // the zero case. Runtime-step loops still avoid zero: a zero stride can
+    // hang the driver rather than fail it.
+    let avoid_zero = function_ir(ll, name)
+        .map(|body| body.contains(" undef"))
+        .unwrap_or(true)
+        || runtime_step_loop(&optimized.function);
     let driver = if same_address {
         build_same_address_driver(
             name,
