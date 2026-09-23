@@ -1578,6 +1578,58 @@ Three follow-ups this table makes concrete:
 - **#2, #4 and #5 have their raw artifacts outside the repo**, so a future session re-deriving them starts from a command rather than from data. Where a claim matters, the producing script belongs in the tree.
 - **Every ratio in #1 and #2 travels with its coverage and refusal counts.** The external `clean` count fell from 117 to 114 when three catastrophic functions began refusing — zero mismatches after narrowing acceptance is a legitimate result and is not an increase in coverage.
 
+- **2026-09-23 — the pass-placement control: built, honest, and null**: the
+  arrangement that measures the product claim was never built, and this was
+  verified rather than assumed — `emit_c_diff.rs` at `head` has no timing mode at
+  all, `bench_all.rs` is the only committed timing harness and compares the
+  original source at `gcc -O3` against ABSAC's emission at `gcc -O2` with **no
+  rewrites-off control**, and `gate5a_bench`/`gate6b_run` compare something else
+  again. Every prior timing comparison therefore conflated the value of the
+  rewrite with the cost of whole-function emission.
+  The control now exists: **A** = original source at `clang -O3`, **B** = the raw
+  lowering emitted with the optimizer skipped entirely, **C** = the optimized
+  emission; all three in one `clang -O3` invocation with identical flags and
+  target settings, one address per data symbol, three-way return-value agreement
+  checked **before** any timing, interleaved balanced rounds, per-side min-of-6,
+  five process repetitions.
+  **Result: the rewrite adds nothing measurable at the strong-backend position,
+  and the emission costs.**
+  `crc32pseudo` C/B = 0.9996, C/A = 0.9985 — a no-op.
+  `fir_no_red_ld` C/B = 1.0026 (inside the ±1% rep spread) while **B/A = 1.0727**:
+  ABSAC's emission costs about 7.3% against the source build and the rewrite
+  contributes nothing.
+  `sglib_iq_first_element` C/B = 1.0492 — the *optimized* emission is 4.9% slower
+  than its own unoptimized emission — but it is floor-dominated (~4.5 ns/call)
+  and measured on zero input only, so it is low-confidence.
+  `jpegdct` C/A = 1.5952: a large loss, and it is an emission-quality loss, not a
+  rewrite loss (B does not build for it — see below), so the rewrite's own share
+  there is unmeasured.
+  **The null is about the arithmetic family specifically**, which is the only
+  family that fires on this corpus at any level. The domain families never fire
+  here, so their value at this position is **untested, not disproven** — there is
+  nothing to measure. Reaching them would require the reach changes already
+  retired for having no counted target.
+  Blockers, each reproduced with its exact message: `jpegdct`'s B side fails to
+  compile — `error: use of undeclared identifier 'o0_0'` — a **pre-existing bug
+  in `emit_c`**: the unoptimized emission declares a loop-carried output inside
+  the enclosing loop's block and uses it after the blocks close. It is left in
+  place and would block the same measurement for any function shaped like it.
+  `initialise_benchmark` refuses in every timing mode (`local calls are not
+  supported yet`). `getHuffTable`/`getHuffVal` have no callable A at all —
+  clang inlined both away at `-O3`.
+  Whole-benchmark timing is **not reachable** in this harness and was not built:
+  it needs module-wide emission with function-granular source fallback (207 of
+  321 functions refuse, and `emit_c` emits no type declarations), real drivers
+  and inputs per benchmark, and triple-linking — roughly 400–700 lines plus
+  per-benchmark glue. The recommendation was not to build it on this evidence,
+  since the rewrite-attributable signal is zero to slightly negative at function
+  level and the recognized functions are a small fraction of each benchmark's
+  runtime.
+  Caveats: absolute figures are TSC ticks on one host (bimodal standalone), so
+  only within-process interleaved minima are treated as evidence; A's own spread
+  is up to ~2%, which is the resolution limit of the small ratios above; and the
+  measurement is a hot, constant-input loop, not a cold working set.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
