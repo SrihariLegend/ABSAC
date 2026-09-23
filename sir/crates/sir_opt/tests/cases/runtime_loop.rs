@@ -170,3 +170,59 @@ define dso_local i32 @pc_call(i64 noundef %0) local_unnamed_addr {
         "a Kernighan loop carrying an effectful value must be refused, not rewritten to Popcount"
     );
 }
+
+/// A loop whose *condition* carries effects: the call is defined in the
+/// preheader and used directly as the branch condition, so it is a member
+/// of neither `body`, `outputs`, nor `carried_inputs`. The loop node
+/// stays pure (nothing in the body reads or writes), so the loop-level
+/// guard cannot fire and the per-node guard over the three collections
+/// cannot see the call. Every family must still refuse the shape on its
+/// own recognizer pins (trip count, termination kind, bound guard): the
+/// same loop with a pure `Lt` bound in place of the call is accepted
+/// (runtime-sum, definition 404), so the refusal is attributable to the
+/// condition node alone.
+fn effectful_loop_conditions_are_refused() {
+    let ir = r#"
+declare i1 @ext(i32 noundef)
+define dso_local i64 @cond_call(ptr nocapture noundef readonly %0) local_unnamed_addr {
+2:
+  %c = call i1 @ext(i32 noundef 0)
+  %3 = icmp eq i64 64, 0
+  br i1 %3, label %13, label %4
+4:
+  %5 = phi i64 [ 0, %2 ], [ %11, %4 ]
+  %6 = phi i64 [ 0, %2 ], [ %10, %4 ]
+  %7 = getelementptr inbounds i8, ptr %0, i64 %5
+  %8 = load i8, ptr %7, align 1
+  %9 = zext i8 %8 to i64
+  %10 = add i64 %6, %9
+  %11 = add nuw nsw i64 %5, 1
+  br i1 %c, label %4, label %13
+13:
+  %14 = phi i64 [ 0, %2 ], [ %10, %4 ]
+  ret i64 %14
+}
+"#;
+    let function = sir_lower::lower_function(ir, "cond_call")
+        .expect("a preheader call used as the loop condition must lower");
+    assert!(
+        function.arena.iter().any(|node| {
+            matches!(&node.kind, sir_nodes::NodeKind::Loop { termination, .. }
+                if node.effects.is_pure()
+                    && function.get_node(*termination).is_some_and(|inner| {
+                        inner.ty == sir_types::Type::Bool
+                            && !(inner.effects - sir_types::Effects::READ_MEMORY).is_empty()
+                    }))
+        }),
+        "fixture must lower to a pure loop whose Bool condition carries effects"
+    );
+    for family in sir_opt::family::registry() {
+        let applied =
+            sir_opt::family::with_facts(&function, |facts| family.apply_one(&function, facts));
+        assert!(
+            applied.is_none(),
+            "family {} must refuse a loop whose condition carries effects",
+            family.name()
+        );
+    }
+}

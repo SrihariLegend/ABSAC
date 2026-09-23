@@ -57,6 +57,7 @@ mod cases {
             runtime_bound_search_lowers_and_uses_memchr();
             runtime_zero_test_loop_lowers();
             effectful_kernighan_loops_are_refused();
+            effectful_loop_conditions_are_refused();
         }
     }
     pub mod search {
@@ -72,6 +73,7 @@ mod cases {
             mapped_sum_reinstantiates_map_per_index();
             conditional_sum_over_pointer_unrolls();
             runtime_bound_sum_uses_helper();
+            value_dependent_termination_conjunct_is_refused();
         }
     }
     pub mod registry {
