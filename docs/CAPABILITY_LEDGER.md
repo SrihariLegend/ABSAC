@@ -163,7 +163,12 @@ proof of concept". The "headroom 4.3–9.5×" figure (Gate 2) measures
 
 **Tested on third-party code, it lost.** Redis `redisPopcount` runs 185 ms
 against clang -O3's 79 ms — about 2.3× slower than clang *and* 2.3× slower than
-not rewriting — and at `head` the rewrite no longer fires on it at all. Gate 6A's
+not rewriting — and at `head` the rewrite no longer fires on it at all.
+**[Corrected 2026-09-23: the "185 ms against 79 ms" pair was never a real A/B —
+the witness's `NOTES.md` read "Status: NOT YET MEASURED" for the clang delta. It
+is withdrawn. The replacement measurement is 2.16× at kernel level, caused by one
+line of `emit.rs`, and the real kernel turns out never to be lowered at all — see
+the `redisPopcount` entry below, which supersedes this paragraph.]** Gate 6A's
 held-out profitable-optimization rate is **0/16**. H3 records LLVM-source
 capability FAILED (0 commits), two corrupt rewrite classes committed, and
 performance NOT RUN.
@@ -1554,6 +1559,11 @@ yields exactly one object (`6db4450`) and it belongs to the new lean line.
   table was committed one commit *before* the first real measurement and its
   numbers appear in no run. The measured result is 185 ms against clang -O3's
   79 ms — a loss of roughly 2.3×, and slower than not rewriting at all.
+  **[Corrected 2026-09-23: the "185 ms against 79 ms" figure was never a real
+  A/B. The witness's own `NOTES.md` read "Status: NOT YET MEASURED" for the clang
+  delta. The kernel-level measurement that replaced it gives 2.16×, an emission
+  effect from one line of `emit.rs` — see the `redisPopcount` entry below. The
+  magnitude was right by coincidence and for a different reason.]**
 
 ## Claims register (2026-09-23)
 
@@ -1568,7 +1578,7 @@ measured before it is **superseded until reproduced**.
 | 2 | Emission-blowup guard refuses exactly 3 functions, refuses 0 of 236 benign lowerings, captures 96.7% of excess emitted instructions | 266 lowerings over the -O1/-O2/-O3 corpora | bound `8×` plus 32 values of slack | `/tmp/vrfy_incidence/{rows.json,measure.py}` — **outside the repo** | measured; raw data unpinned |
 | 3 | `edn::jpegdct` 1.0592× — the only retained rewrite-attributable win | `/tmp/external/edn.ll` at `-O1` | clang 19.1.7 | level-survey logs under `/tmp/fire2/out/` | **superseded — predates the referee repair; re-measure before quoting** |
 | 4 | Old tree Gate 3 reproduced: k18 5.95×, k18-random 141×, k43 4.70×, k50 8.22× against clang -O3 | old tree `head` = `2cae1fd`, rebuilt at `/tmp/old_sir` | clang -O3 on both sides | `/tmp/gate3_rerun/out.txt` — **outside the repo** | reproduced 2026-09-23; raw data unpinned |
-| 5 | Redis `redisPopcount`: 185 ms against clang -O3's 79 ms — a loss of about 2.3×, and slower than not rewriting | Redis `unstable`, `src/bitops.c` | clang -O3 | `/tmp/redis_bench/` — **outside the repo** | reproduced; raw data unpinned |
+| 5 | ~~Redis `redisPopcount`: 185 ms against clang -O3's 79 ms — a loss of about 2.3×, and slower than not rewriting~~ | Redis `unstable`, `src/bitops.c` | clang -O3 | `/tmp/redis_bench/` — **outside the repo** | **WITHDRAWN 2026-09-23 — never a real A/B.** The witness's own `NOTES.md` read "Status: NOT YET MEASURED" for the clang delta. Superseded by the measurement below; the magnitude (2.16×) was right by coincidence and for a different reason (emission, not recognition). |
 | 6 | Reachable loops: 3 in 3 functions at `-O1`, 0 at `-O2` and `-O3` | 19 Embench corpora at three levels | probe mirroring the recognizer gates; probe deleted after use | **raw data deleted** — its own task removed `/tmp/vrfy_recon` | **unpinned; must be re-derived before being quoted as evidence** |
 | 7 | `perft/README.md` shows Redis BITCOUNT at "ABSAC 1.76×" | old tree `perft/README.md` | — | contradicted by #5; committed one commit before the first real run | **contradicted — superseded, not merely stale** |
 
@@ -1629,6 +1639,333 @@ Three follow-ups this table makes concrete:
   only within-process interleaved minima are treated as evidence; A's own spread
   is up to ~2%, which is the resolution limit of the small ratios above; and the
   measurement is a hot, constant-input loop, not a cold working set.
+
+- **2026-09-23 — headroom survey (interactions): one recurring opportunity, and
+  it is not where a C compiler can reach it**: three candidates, each measured
+  against the project's own strong baseline, with the source revision pinned
+  (SQLite amalgamation 3.53.4 SHA3-256 verified; lz4 1.10.0 at `ebb370ca`).
+  **lz4 block codec — null**: 97.23% of instructions sit inside the single
+  inlined compressor, a flat single-pass probe loop, no materialized
+  intermediate and no second consumer of the same bytes. The "a compiler could
+  fuse the per-block setup" hypothesis does not survive measurement.
+  **lz4 streaming window — positive but bounded**: contiguity between the carried
+  window and the incoming block is established by the stream state and silently
+  destroyed when `LZ4_saveDict` materializes it into a side buffer, which flips
+  the matcher onto its slower extended-dictionary path (`if (matchIndex <
+  startIndex)` appears only in that profile). A contiguous sliding window with
+  one-time `LZ4_loadDict` seeding and periodic compaction runs 15.02 ms against
+  17.53 ms — **1.16–1.17×**, callgrind −16.2% instructions, ratio unchanged.
+  Stated honestly: it does **not** beat lz4's own best (`LZ4F_compressFrame`
+  14.65 ms, `stableSrc=1` 14.75 ms); it beats the default path a caller without a
+  stable buffer is forced onto, and the library's own documented flag already
+  reaches most of that gap.
+  **SQLite index intersection — recurring semantic opportunity**: a conjunction
+  over two independently indexed columns is planned as one index scan plus a
+  residual filter and a table fetch per candidate. Intersecting the two covering
+  index scans instead measures **8.89×** (independently re-run here: 8.89× and
+  6.52× against the survey's 8.93× and 6.51×), and the three-way conjunction
+  6.52×. `EXPLAIN` confirms the mechanism — the natural plan is
+  `SEARCH t USING INDEX ib (b=?)`, the witness is `MERGE (INTERSECT)` over two
+  covering-index scans that fetches only the 103 surviving rows. For ranges
+  (`a BETWEEN … AND b BETWEEN …`) the SQL-expressible alternatives reach only
+  1.24× (`INTERSECT`, which degrades to two full scans and temp b-trees) and
+  1.60× (`rowid IN`), while a hand bitmap reaches **10.51×** — a representation
+  the engine does not have.
+  **Two caveats keep this well short of a product claim.** For the equality cases
+  the winning plan is already expressible in ordinary SQL: the engine can execute
+  it and simply does not choose it, so that headroom is planner quality rather
+  than missing capability. And the queries are constructed on a synthetic schema
+  — no production query log was mined — so recurrence is argued from the shape
+  and from other engines implementing it (PostgreSQL `BitmapAnd`, MySQL index
+  merge, postings intersection), not from an observed workload. Selectivity
+  crossover and bitmap scaling at 10^8 rows are unmeasured.
+  The mechanism in this project's own terms: **both predicates recognise the same
+  mathematical object — a set of rowids — in different representations, and the
+  win comes from choosing how to combine the representations** (ordered merge
+  when the streams share an order, bitmap when they do not). That is the thesis
+  stated exactly, and it lives in a query planner rather than in compiled code.
+  Together with the lz4 result, both positives are properties of how a program
+  lays data out across stages, invisible to a C compiler; the one compiler-shaped
+  candidate was a clean null.
+
+- **2026-09-23 — headroom survey (Redis 7.2.5): the thesis confirmed from
+  third-party code, and my own framing corrected**: three kernels, measured
+  against clang 19.1.7 `-O3` at x86-64 baseline flags, tarball pinned
+  (`98a8502a…`), `bitops.c` `2624690f…`, `hyperloglog.c` `f747bc0d…`, every
+  ratio behind an exact-equality gate, best-of-21, pinned to one core. Wall clock
+  on this box is untrustworthy — a co-tenant's jobs swung one binary 2.3×
+  between rounds — so the load-bearing measurement is callgrind **instruction
+  counts** via `--toggle-collect`, which are contention-immune.
+  **A correction I have to take first.** I recorded earlier today that the only
+  family firing on real code is redundant with clang at -O3, and that Redis
+  `redisPopcount` lost to clang. The first is still true *of ABSAC's pipeline*;
+  the conclusion I drew from it — that there is no headroom around these kernels
+  — is false. clang emits **zero `popcnt`** for Redis's hand-written SWAR even at
+  `-march=native`, on a CPU that has POPCNT; its own `__builtin_popcountll` beats
+  the hand SWAR by **2.14×** at *identical* flags; `target("popcnt")` is 3.3×;
+  an AVX2 nibble-LUT `vpshufb` path 6.9× (1 MiB: 90.4 µs → 27.4 µs → 13.1 µs,
+  bit-exact at every size). The premise I was working from — "loops clang leaves
+  scalar" — is wrong in **both** directions: clang *did* auto-vectorize the SWAR
+  (to SSE2, 2.27 Ir/byte) and still lost 3.3–6.9× to the ISA path, while it
+  genuinely left the BITPOS search and the HLL merge scalar even at
+  `-march=native`. The profitable question is not "is the loop scalar" but **"did
+  the compiler recognise the semantic operation"** — this project's research
+  question, arrived at independently, from someone else's code.
+  **`hllMerge` — largest finding, and the best evidence for the thesis.** Dense
+  per-register merge is **92.36%** of `pfcountCommand`'s instructions on the
+  canonical 4-key union (server p50 0.167 ms). Two independent misses:
+  `if (val > max[i]) max[i] = val;` compiles to a *branch*, and when merging k
+  independent HLLs the incoming register wins with probability ≈1/k — 25% at k=4,
+  the worst possible prediction rate. Making the same loop branchless takes the
+  merge from 145 µs to 36.5 µs (**3.98×**) with no other change. Separately,
+  clang declines to vectorize even the counted byte-domain max — **0 `pmaxub`**
+  emitted, remark `cannot identify array bounds`, which the 6-bit packing macro
+  defeats. Unpacking 8 registers per 6 bytes and taking `_mm_max_epu8` 16 at a
+  time gives **7.1 µs, independent of the data**, against 145 µs — **20.4×** at
+  kernel scope, with no new ISA and no flag change. The object is a pointwise max
+  over a packed register array (a lattice join); the packing is what hides it.
+  **Stated limits, which keep this far short of a product claim.** The 20.4× is
+  *kernel scope*. There is **no server-level A/B** — the agent correctly refused
+  to build a witness server for it, and the 5.8–8× command-level figure is an
+  explicit extrapolation from instruction share × measured p50, not a
+  measurement. The regime assignment (145 µs, not 28 µs) rests on a 6% timing
+  coincidence, not on dumping the four real keys' registers. And there is a
+  regime where the alternative **loses**: on 4× the same bitmap, branchless is
+  0.79×. The microarchitectural attribution is inferred — `perf` is unavailable
+  here, so no mispredict counter confirms it.
+  **`redisBitpos` — positive, bounded, and explicit about when it is zero.** The
+  skip loop is 99.91% of `bitposCommand`; clang's remark is `loop not vectorized:
+  could not determine number of loop iterations`, identical at `-O3` and
+  `-O3 -march=native`. A baseline-SSE2 block scan (`pcmpeqb` + `pmovmskb` + `ctz`)
+  is 1.54–1.55×, AVX2 2.66–2.73×, flat across three orders of magnitude of search
+  distance — per-step throughput, not the tail. The win is **zero** when the
+  answer is near the start (distance 0: no win; the real 9 MB file: the scan is
+  never entered). And explicitly *not* headroom, recorded as a negative:
+  rewriting the scalar ≤64-iteration terminal scan with `__builtin_clz` is exactly
+  neutral at every distance (24550 vs 24658 ns).
+  **`hllDenseRegHisto` — deprioritised on measurement.** 1.75× per kernel
+  (private-4 banking breaks the same-address RMW chain), but **below 1%** of
+  PFCOUNT's instruction share on the profiled path, where the histogram is
+  `hllRawRegHisto`. A 1.75× win on <1% of the work is worth ~0 end-to-end.
+  Recorded because it shares the merge's mechanism.
+  **Two things this does not establish.** zlib was never surveyed — the
+  sub-agent's permission classifier blocked it and I did not route around that
+  block — so this is **single-project evidence** and recurrence is untested. And
+  the prior single-kernel result that an ABSAC witness's `redisPopcount` lost
+  2.3× to clang does not appear in these measurements; the survey reports it as
+  unreproducible rather than reconciling it, which is the right call. That
+  reconciliation is a separate experiment, now in flight: if the emitter maps a
+  `Popcount` node to `__builtin_popcountll` (`emit.rs:1420-1430`), then a loss on
+  this kernel means either non-recognition or a non-`Popcount` replacement — and
+  that distinction decides whether the project's failure so far is in reach or in
+  representation choice.
+
+- **2026-09-23 — `redisPopcount` through the pipeline: three separate failures,
+  and the ledger's own "2.3×" was never measured**: run against Redis's kernel
+  verbatim (`bitops.c` `2624690f…`, `diff`-verified) at `-O1` and `-O3`, rewrites
+  on and off, with a Kernighan positive control.
+  **The real kernel is never lowered at all.** `lower_refused (unsupported:
+  multiple loops sharing an exit CFG (nested/sequential loops) not modeled)` —
+  byte-identical at both levels. `redisPopcount` has three sequential loops (the
+  alignment-head LUT, the 28-byte SWAR, the tail LUT), and the lowerer models
+  neither nested nor sequential multi-loop CFGs. **B and C do not exist for it**;
+  the only measurable datum is A. This is not a recognizer gap and not a search
+  gap — for any such function there is no SIR, so nothing downstream can run.
+  **Recognition is a second, independent gap.** The `popcount` family is silent
+  on every Redis shape: `rewrites=0` at both levels, with and without
+  `--allow-defs 999`, emitted C byte-identical between the two runs
+  (`sha f4da6f34d5e2` tail, `f3c2d7422a18` swar). Reading `sir_opt/src/popcount.rs`,
+  definition 7 matches only Kernighan — `carried_inputs.len()==2`, `Ne` against
+  zero, `outputs[value_pos] == And(value, Sub(value,1))` — and **structurally
+  cannot match a byte-table LUT or a SWAR mask chain**. The positive control
+  confirms the pipeline works when the shape does match: Kernighan lowers,
+  rewrites with `def=7`, and emits exactly `__builtin_popcountll`, beating clang
+  -O3 by **4.6×** on instruction count (8908 → 1932 Ir/call).
+  **Emission is a third, and it is one line.** `grep -c -i popcount` over every
+  emitted file: 0 for the tail and SWAR variants, 1 for Kernighan. So the emitter
+  maps a recognized `Popcount` to the intrinsic correctly (`emit.rs:1418-1431`)
+  — for Redis there is simply no recognized popcount to map. But the SWAR shape
+  *does* lower at `-O1`, and there the loss appears: **5.0000 Ir/byte emitted
+  against 2.3125 for the original C at matched `-O3` — 2.16×**, and the gap
+  vanishes completely when the pointer spelling is normalised, with identical
+  outputs across all 21 lengths. Cause, confirmed by me verbatim at
+  `sir_benchmarks/src/emit.rs:210-228`: `ptr_offset_expr` emits
+  `((T*)((uintptr_t)(base) + (offset)))[0]` rather than the natural
+  `((T*)base)[i]`. **LLVM's ScalarEvolution will not build an induction variable
+  through a `ptrtoint`/`inttoptr` round-trip, so the loop vectorizer never
+  fires** — isolated to a two-file experiment where that spelling is the only
+  difference, the natural form produces **44 SSE instructions** and the
+  `uintptr_t` form **0**. The cost is specific to vectorization and not to codegen
+  in general: the tail LUT loop, which cannot vectorize anyway, is exactly equal
+  in both spellings (3.7500 Ir/byte).
+  **The narrower reading, and its limit.** The comment on that function states a
+  real motive — a GEP index is a two's-complement offset that may wrap, and C
+  pointer addition with a wrapped offset is UB even when the resulting address is
+  in range — so this is a deliberate correctness trade, not an oversight. That
+  makes the fix a **narrowing of the safe path, not a removal of it**: emit the
+  natural form only where the index is *provably* in range, keeping `uintptr_t`
+  for the wrapped case. The bound is being counted before any code is written.
+  If that count is large, the implication is uncomfortable and worth stating: the
+  domain families recognise counted, effect-free, single-stream array reductions
+  — which are exactly the loops this spelling de-vectorizes — so the pipeline may
+  be finding the right loops and then emitting C that clang cannot vectorize.
+  That would account for both the A/B/C null (C/B ≈ 1.000) and the 7.3–60%
+  emission cost. **Stated as a hypothesis to be counted, not a finding.**
+  **Claims-register correction.** The "about 2.3× loss" recorded earlier today
+  was **never a measured A/B comparison**: the witness's own
+  `corpus/001_redis_bitcount/NOTES.md` reads "Status: NOT YET MEASURED" for the
+  clang delta. The arithmetic does reconcile — 5.0000 / 2.2679 = **2.205** —
+  but the magnitude was right by coincidence, and it is an *emission* effect,
+  not a recognition effect, which is why it reproduced on a hand-lowered SIR
+  while the recognizer was never involved. The entry is corrected in place
+  rather than deleted. `emit_c_diff` reported `mismatched=0 harness_errors=0`
+  throughout, and A == B == C for all variants across all 21 lengths including
+  0; no miscompile was found in anything measured here.
+
+- **2026-09-23 — headroom survey (zlib 1.3.1): the Redis gap recurs, once, in
+  exactly the same shape — and the separating test is now explicit**: zlib 1.3.1
+  (`9a93b2b7…`, self-computed — the `.asc` fetch 404'd, so this pins what was
+  measured, not what upstream signed). Four targets, one win, three negatives,
+  and the negatives are evidenced as carefully as the win.
+  **Row 1 — `crc32.c:779` braid loop: headroom, 8.94× on instruction count.** The
+  object is CRC-32/IEEE (reflected poly `0xEDB88320`); zlib computes it as a
+  braided table walk, `N=5` braids × `W=8`-byte words, one 256-entry lookup per
+  byte (`cmpq $0x2f` in `crc32.o` confirms the braid path is what compiled).
+  PCLMULQDQ folding gives **0.422 Ir/byte against 3.775 — 8.94×**, and 6.50–6.78×
+  on wall clock, behind an exhaustive gate (1,311,122 checks — every length
+  0..4096 × every byte alignment 0..63 × 5 initial CRCs, plus streaming chains,
+  0 fails). Scoped honestly: `crc32_z` is 2.37% of gzip *compression* but
+  **18.77% of decompression**, so that is ~2.1 points and ~16.7 points
+  end-to-end respectively — not the whole program.
+  **Why no compiler reaches it, and why the source already knew.** The refusal is
+  structural, not heuristic: `loop not vectorized: value that could not be
+  identified as reduction is used outside the loop`. The braid recurrence is a
+  polynomial reduction over GF(2), which is not an LLVM reduction kind. And the
+  one x86 instruction that would name it, SSE4.2 `crc32`, computes **Castagnoli —
+  a different polynomial — so it does not apply to IEEE CRC-32**. That is why zlib
+  ships an AArch64 path (`crc32b`/`crc32x` *do* match IEEE, `crc32.c:598-660`)
+  and **no x86 path at all**. What is reachable on x86 is `pclmulqdq`, which is
+  polynomial-agnostic and needs the folding algorithm — which no compiler will
+  synthesise. "Recognise crc32 and emit the instruction" is not the win here; the
+  win is a **different algorithm computing the same object**.
+  **The three negatives, each with its reason.** `longest_match` is 61.00% of
+  compression and looks like the obvious SIMD target, but line attribution kills
+  it: the byte-compare loop is **4.35% of `longest_match` = 2.65% of
+  compression**, while the cost sits in the hash-chain walk
+  (`prev[cur_match & wmask]` 20.3%, `s->window + cur_match` 13.5%, quick-reject
+  20.6%, `--chain_length` 13.3%). That is a **data-structure cost, not a
+  mis-represented object** — no representation change recovers it.
+  `inflate_fast` is 79.91% of decompression with a **flat** profile: no source
+  line above 4.06%, bit-buffer refill and Huffman decode and three byte copies —
+  no object to name. Plus two premise corrections: stock zlib 1.3.1 contains
+  **zero** SIMD constructs in `adler32.c` (the hand-written paths belong to
+  zlib-ng / Chromium forks), and `crc32` has **no runtime dispatch** — the
+  representation is chosen at compile time by `#if`, with the source saying so
+  itself at `crc32.c:556-563`: *"This code does not check for the presence of the
+  CRC instruction at run time."* Nothing to measure in either.
+  **The separating test — the part worth carrying forward.** Across four projects'
+  worth of positives and nulls, one criterion divides them cleanly: **does the hot
+  loop compute a named algebraic object with a hardware or algorithmic shortcut,
+  or is it walking a data structure?** Every algebraic object had large headroom —
+  population count (2.14–6.9×), lattice join (20.4×), first-match search (2.7×,
+  bounded), CRC over GF(2) (8.94×), rowid-set intersection (8.89×). Every
+  data-structure walk was null — lz4's probe loop, zlib's hash chain, zlib's
+  bit-level decode. That is 5-for-5, and it restates the research question in
+  measurable form: "recover the mathematical object" *is* "tell an algebraic
+  object from a data-structure walk", and only the former has a representation
+  worth choosing.
+  **Limits.** zlib recurred **once**, not broadly — a real constraint on any claim
+  of recurrence. `-march=native` is not a win here: it emits zero target
+  instructions and changes nothing measurable, because on x86 there is no ISA path
+  in the source for it to reach (unlike Redis, where POPCNT existed and was
+  ignored). Absolute clock and IPC are unverifiable in this guest (the reported
+  3072 MHz is wrong by ~1.7×), which is why instruction counts are load-bearing
+  and the wall ratios are corroboration. And the survey's own pre-compaction
+  codegen scan was **vacuous** — it grepped GNU objdump for literal `pclmulqdq`,
+  which objdump never prints (it emits immediate-specific pseudo-mnemonics), so
+  the grep could never match; the agent caught it by counting opcode bytes and
+  rebuilt the scan against 8 positive controls, which now fire 1 each. Recorded
+  because it is this project's own rule — *a check that cannot fail has not
+  checked anything* — applied to the survey that was doing the checking.
+
+- **2026-09-23 — bound count: my emission hypothesis is REFUTED, the emission
+  figure is withdrawn, and the biggest reach item was hiding in the refusal
+  tally**: measurement only, 225 functions across 26 corpora (10 base-14, 16
+  external), all work outside the repo. Flags read rather than guessed:
+  `SIR_OPT_LEVEL` defaults to `"1"` and that single `opt_flag` (`-O{level}`)
+  compiles the emitted C and the link (`emit_c_diff.rs:1830-1831`, `1905`), while
+  the A side arrives as a **prebuilt** object via `--ref-object`
+  (`emit_c_diff.rs:1676`) — so A and B/C are built by different invocations and
+  are not level-matched by construction.
+  **The hypothesis is dead.** I proposed that `ptr_offset_expr`'s `uintptr_t`
+  spelling de-vectorizes the families' own loops, and that this explains both the
+  A/B/C null and the 7.3–60% emission cost. Refuted by a self-contained
+  experiment: taking **the same emitted C, the same driver, and changing only
+  clang's level**, Multiply's raw@-O1 / raw@-O3 = 27,275,600 / 13,402,800 =
+  **2.0351**, which is *exactly* its recorded B/A of 2.035. Essentially all of
+  that deficit is the level difference; the spelling moves it by +0.23%. At the
+  level the referee actually uses, the spelling is free — identical instruction
+  counts in 5 of 6 kernels, **0 SIMD instructions in both spellings**. The
+  vectorization does require the spelling *and* `-O3` (30/319/45 SIMD uses appear
+  only there), but that is not the configuration any recorded number came from.
+  **So the emission-cost figure is withdrawn, not explained.** B/A as recorded
+  compares emitted C against a reference built by a different invocation, and is
+  indistinguishable from a pure optimization-level difference. Everything resting
+  on it — including the 7.3–60% range — must be re-measured at matched levels
+  before it is quoted again. This is the **second** time this session that
+  mismatched optimization levels produced a conclusion I then stated as fact; the
+  first was the placement claim the advisor caught. The failure mode is evidently
+  mine and repeatable, and the guard has to be mechanical: no cross-level ratio
+  is recorded without the two levels written beside it.
+  **The reach bound for the emitter fix is 3.1%, and it rests on an assumption
+  the architecture cannot discharge.** 5,413 `uintptr_t` cast sites across 365
+  emitted files — 99.2% of all subscripts, since the emitter's pure path already
+  writes `base[index]` (`emit.rs:679-690`, used by the byte-search fast path, 46
+  real natural subscripts). Funnel: 5,413 → 472 inside a loop → 193 affine in the
+  loop's own 0-init/+1-step counter → 183 with a guard bound → **169 provably
+  in-range (3.1%)**. Of those, **zero** have a static extent: globals are emitted
+  as `extern uint8_t x[]`, so the extent lives only in `driver.c`. All 169 need
+  the harness's parameter extent **assumed**. Under this project's correctness
+  policy that is not a proof, and the honest verdict is **do not write it**: the
+  one kernel it measurably helps at `-O3` (vec_mpy1, −34.7%) is offset by one it
+  hurts (mac, +9.8%) at the same level, and it would churn the primary emission
+  route for that. If the Multiply/vec_mpy1/fir gap is the real target, the
+  one-line change is the referee's optimization level, not `ptr_offset_expr`.
+  **The multi-loop defect is real but small — and it is not the biggest family.**
+  Refusals by reason over 225 functions: unsupported 122, malformed call 26,
+  unresolved-operand 21, unsupported external call 19, unsupported instruction
+  14, recursive call cycle 7, switch CFG 5, soundness gate 4. Inside
+  "unsupported", **the largest single family is a loop with a separate latch
+  block — 75 of 225 refusals, 33%** — against **18 (8.0%)** for the
+  sequential/nested multi-loop CFG that blocked `redisPopcount`. The biggest reach
+  item is ordinary CFG coverage, not the exotic case, and nobody had counted it
+  before today. The multi-loop fix is worth writing **as coverage, not for
+  speed**: its four corpora (nettle-sha256 7, sglib-combined 5, ud 4, nettle-aes
+  2) offer 10/317/12/8 cast-form sites and 4/0/0/0 strictly provable ones, so
+  unblocking the lowerer there buys ~zero measured emission.
+
+- **2026-09-23 — referee: the reference object's optimization level is now
+  enforced** (`d214700`): `--ref-object` takes a prebuilt object whose level
+  cannot be inspected, and `ref_object`'s doc comment *asserted* it matched
+  while nothing checked — a documented invariant with no check, which is the
+  shape this project keeps finding. `--ref-level N` is now required alongside
+  `--ref-object` and must equal `SIR_OPT_LEVEL`; a deliberate cross-level
+  comparison requires `--allow-cross-level`. `opt_level()` is now the single
+  source of truth for a value the compiler invocation and the check both read,
+  so they cannot drift apart. All four outcomes verified by hand: missing level
+  refused, mismatch refused naming both levels, match passes, override passes.
+  Refusals surface as `harness_errors`, which the gate already treats as
+  not-green, so the guard fails closed without adding a test — relevant because
+  the standing instruction caps the test count.
+  **The verification caught a vacuous run first, and it is worth recording.**
+  My initial test passed `--function crc32` to the `crc32` corpus and got
+  `clean=0 mismatched=0 lower_refused=0 harness_errors=0` — every field zero,
+  which I read as "the guard did not fire". It was not firing because **no
+  function existed by that name**: the corpus defines `crc32pseudo`. A run that
+  did nothing looked exactly like a guard that failed. Re-run against a function
+  that reaches the timing path (`verify_benchmark`), it fires. This is the
+  project's own rule arriving from the other side — a check that cannot fail has
+  not checked anything, and neither has a *test* that cannot reach the check.
 
 ## Reference commands
 
