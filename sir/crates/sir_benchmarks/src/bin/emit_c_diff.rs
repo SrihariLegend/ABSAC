@@ -1373,7 +1373,7 @@ fn time_function(
     fill: Option<u8>,
     cc: &str,
     target: &str,
-) -> Result<(String, Vec<u64>), String> {
+) -> Result<String, String> {
     if let Some(reason) = unsupported_global_use(ll, name) {
         return Err(reason);
     }
@@ -1500,7 +1500,7 @@ fn time_function(
         .find(|l| l.starts_with("EMITTIME"))
         .map(|s| s.to_string())
         .ok_or_else(|| "no EMITTIME line".to_string())?;
-    Ok((line, optimized.definitions))
+    Ok(line)
 }
 /// Compile the differential/timing harness with the selected C compiler.
 ///
@@ -1682,6 +1682,10 @@ enum Outcome {
     Clean {
         cases: usize,
         rewrites: usize,
+        /// The definitions the optimizer applied, in order. Carried here
+        /// rather than only through the timing path so the firing record
+        /// survives a timing failure.
+        definitions: Vec<u64>,
     },
     Mismatch {
         cases: usize,
@@ -1919,6 +1923,7 @@ fn run_function(
                 Outcome::Clean {
                     cases,
                     rewrites: optimized.rewrites_applied,
+                    definitions: optimized.definitions.clone(),
                 }
             } else {
                 Outcome::Mismatch {
@@ -1942,6 +1947,20 @@ fn ns_value(line: &str, key: &str) -> Option<u64> {
     let prefix = format!("{key}=");
     line.split_whitespace()
         .find_map(|token| token.strip_prefix(&prefix)?.parse().ok())
+}
+
+/// Combine two retention measurements of the same definition.
+///
+/// `Some(retained)` is a completed comparison, `None` is a firing whose
+/// timing did not complete. A measurement is kept over an unknown, and two
+/// measurements keep the existing "retained everywhere it was measured"
+/// conjunction.
+fn merge_retention(previous: Option<bool>, measured: Option<bool>) -> Option<bool> {
+    match (previous, measured) {
+        (Some(previous), Some(measured)) => Some(previous && measured),
+        (Some(previous), None) => Some(previous),
+        (None, measured) => measured,
+    }
 }
 
 fn run_binary(exe: &Path, target: &str, args: &[&str]) -> std::io::Result<std::process::Output> {
@@ -2130,6 +2149,12 @@ fn main() {
                                 }
                             }
                         }
+                        [function, definition, "unknown"] => {
+                            // Fired without a completed comparison: recorded
+                            // in the profile, but it carries no retention
+                            // decision, so it leaves the policy alone.
+                            let _ = (function, definition);
+                        }
                         [function, definition, allow] => {
                             if let Ok(definition) = definition.parse() {
                                 per_function
@@ -2199,7 +2224,7 @@ fn main() {
     let mut errors = 0usize;
     let mut violations = 0usize;
     let mut retained_base = 0usize;
-    let mut retention_profile: BTreeMap<String, BTreeMap<u64, bool>> = BTreeMap::new();
+    let mut retention_profile: BTreeMap<String, BTreeMap<u64, Option<bool>>> = BTreeMap::new();
     for name in function_names(&ll) {
         if let Some(only) = &only {
             if &name != only {
@@ -2207,7 +2232,11 @@ fn main() {
             }
         }
         match run_function(&ll, &name, cases, &workdir, sanitize, &cc, &target) {
-            Outcome::Clean { cases, rewrites } => {
+            Outcome::Clean {
+                cases,
+                rewrites,
+                definitions,
+            } => {
                 println!("NATIVE {name}: clean cases={cases} rewrites={rewrites}");
                 clean += 1;
                 if time_mode {
@@ -2221,7 +2250,7 @@ fn main() {
                         &cc,
                         &target,
                     ) {
-                        Ok((line, definitions)) => {
+                        Ok(line) => {
                             println!("{line}");
                             if measured_retain {
                                 let ref_ns = ns_value(&line, "ref_ns");
@@ -2239,19 +2268,35 @@ fn main() {
                                     new_ns.unwrap_or(0)
                                 );
                                 let retained = retain == "new";
-                                for definition in definitions {
+                                for definition in &definitions {
                                     retention_profile
                                         .entry(name.clone())
                                         .or_default()
-                                        .entry(definition)
-                                        .and_modify(|allow| *allow &= retained)
-                                        .or_insert(retained);
+                                        .entry(*definition)
+                                        .and_modify(|retention| {
+                                            *retention =
+                                                merge_retention(*retention, Some(retained));
+                                        })
+                                        .or_insert(Some(retained));
                                 }
                             }
                         }
                         Err(reason) => {
                             println!("EMITTIME {name} error={reason}");
                             errors += 1;
+                            if measured_retain {
+                                // The rewrites fired even though the timing
+                                // comparison did not complete: keep them in
+                                // the profile as entries with no ratio, so
+                                // the profile stays a firing record.
+                                for definition in &definitions {
+                                    retention_profile
+                                        .entry(name.clone())
+                                        .or_default()
+                                        .entry(*definition)
+                                        .or_insert(None);
+                                }
+                            }
                         }
                     }
                 }
@@ -2287,8 +2332,14 @@ fn main() {
     if measured_retain {
         let mut profile = String::new();
         for (function, definitions) in &retention_profile {
-            for (definition, allow) in definitions {
-                let allow = u8::from(*allow);
+            for (definition, retention) in definitions {
+                let allow = match retention {
+                    Some(retained) => u8::from(*retained).to_string(),
+                    // Fired, but the timing comparison did not complete, so
+                    // there is no ratio to retain on. Recorded rather than
+                    // dropped: the profile is a firing record.
+                    None => "unknown".to_string(),
+                };
                 println!("EMITPROFILE function={function} def={definition} allow={allow}");
                 profile.push_str(&format!("{function} {definition} {allow}\n"));
             }
