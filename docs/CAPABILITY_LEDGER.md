@@ -1523,6 +1523,37 @@ yields exactly one object (`6db4450`) and it belongs to the new lean line.
   morphology exists. The investment the evidence indicates is the recognition
   model — multi-stream maps and write-carrying loops — but only against a corpus
   where those shapes survive compilation, which Embench at `-O2`/`-O3` is not.
+- **2026-09-23 — correction to the entry above, and the claims register**: an
+  external review of the course recommendation challenged the inference drawn in
+  the entry above, and the challenge is correct. "Nothing fires at `-O2`/`-O3`"
+  is a statement about **pass placement**, not about the opportunity present in
+  the code: a scalar-loop recognizer handed fully vectorized IR is being asked to
+  reconstruct what the vectorizer already consumed. That entry concluded "the
+  addressable set is the bottleneck" from comparisons that always matched
+  optimization levels on both sides — which conflates the value of the rewrite
+  with the cost of whole-function emission, and forces a choice between a weak
+  baseline (`-O1`, where rewrites fire) and an empty firing set (`-O3`, where the
+  baseline is honest). The arrangement that actually measures the product claim —
+  scalar input, **strong** final backend applied to ABSAC's output, strong
+  baseline — had not been run when that entry was written. It is running now,
+  and its honest bound is already known: at the scalar position only three loops
+  in three functions were reachable, one of which (`fir_no_red_ld`) already
+  measures 0.914×.
+  **Wording discipline, adopted**: the safety work is described as *the
+  identified defects are contained and the specified regression matrix passes
+  under the repaired harness* — never "the referee is now sound". Refusal counts
+  and coverage changes stay visible beside every zero-mismatch figure, because
+  zero mismatches after narrowing acceptance is a legitimate result and is not
+  an increase in optimization coverage.
+  **Claims register**: every retained performance claim must name its source
+  snapshot, command, configuration and raw result. Historical numbers measured
+  through the pre-repair harness are **superseded until reproduced**, including
+  the three-arm and firing figures quoted above. Contradicted rather than merely
+  stale, and corrected here explicitly: `perft/README.md` in the old tree shows
+  Redis BITCOUNT at "ABSAC 1.76×" (64.90 ms against a 114.23 ms baseline); that
+  table was committed one commit *before* the first real measurement and its
+  numbers appear in no run. The measured result is 185 ms against clang -O3's
+  79 ms — a loss of roughly 2.3×, and slower than not rewriting at all.
 
 ## Reference commands
 
