@@ -143,6 +143,58 @@ There was **no array theory and no quantifier support** (runtime-pointer
 library search was blocked on exactly that). The kernel and arithmetic
 have now been restored into current `sir_mech` and tested.
 
+### Old-tree claim audit (2026-09-23)
+
+The 76.9k tree was rebuilt outside the repo (`git archive head sir` →
+`/tmp/old_sir`, `CARGO_TARGET_DIR=/tmp/old_target cargo build --release` → exit 0
+in 37.6 s) and its recorded claims re-measured.
+
+**Reproduced** — the team's numbers were real, not invented: Gate 3
+`k18_all_equal` 5.95×, `k18` random 141×, `k43_sum_ascii` 4.70×,
+`k50_count_masked` 8.22× against clang -O3; Gate 6B `pass=10 fail=0` at
+1.60–2.10× over Engine 0; Gate 5B fusion 28–35%.
+
+**But the wins are where the input shape was arranged to match the recognizer.**
+The three kernels are project-authored *and* are the development set — hardcoded
+by name in `vector_derive.rs`'s plan cascade — and Gate 3's own limitations
+section says "Only 3 kernels tested" and "the vector plan is manually derived …
+proof of concept". The "headroom 4.3–9.5×" figure (Gate 2) measures
+**hand-written witness kernels**, not ABSAC output at all.
+
+**Tested on third-party code, it lost.** Redis `redisPopcount` runs 185 ms
+against clang -O3's 79 ms — about 2.3× slower than clang *and* 2.3× slower than
+not rewriting — and at `head` the rewrite no longer fires on it at all. Gate 6A's
+held-out profitable-optimization rate is **0/16**. H3 records LLVM-source
+capability FAILED (0 commits), two corrupt rewrite classes committed, and
+performance NOT RUN.
+
+**One contradicted document**: `perft/README.md` shows Redis BITCOUNT at
+"ABSAC 1.76×" (64.90 vs 114.23). That table was committed one commit *before*
+the first real run, and its numbers appear in no measurement that exists — an
+unlabeled mockup left in the tree looking like a result.
+
+**Old harness soundness**, checking today's five defects against the old tree:
+absent were the module-wide `undef` zero-suppression, the silent-run pass, the
+unshadowed timing reference, and the profile-erased-on-timing-failure. Present
+was the out-of-range index aliasing driver scratch, which yields *false
+mismatches*, never inflated wins. Separate fail-open paths do exist in
+`batch_bench.sh` and `bench_all.rs` (a timed loop that never calls the kernel, an
+unconditional `checksum: ok`, a `WIN` computed from a stderr-discarded run), but
+no published claim cites those harnesses.
+
+**Proof consumption differs between the two trees, and the current one is
+better.** In the old tree assurance was computed and never consumed:
+`verify_ids(&self, candidate, _proof)` ignores the proof argument
+(`sir_rewrite/src/engine.rs:287`), the selector filters on cost only, and the
+production verification floor is `SchemaChecked` — so a rewrite could be recorded
+`Proven` and executed on a schema-checked proof. In the current tree the
+obligation is consumed at the family: each family returns `None` unless its law
+proves (`all.rs:30`, `sum.rs:43`, `count.rs:31`, `parity.rs:35`,
+`arithmetic.rs:40-43`).
+
+**Not recoverable**: the session-final ~92.9k tree. `git fsck --unreachable`
+yields exactly one object (`6db4450`) and it belongs to the new lean line.
+
 ## Progress log
 
 - **2026-09-19 — H0 safety**: workspace mirror `recovery.git` holds
@@ -1386,6 +1438,49 @@ have now been restored into current `sir_mech` and tested.
   sanitizer and refused outcomes still record nothing: a mismatching rewrite is
   not a legitimate firing, and the definitions are not threaded through those
   variants.
+- **2026-09-23 — the emitted C was not well-typed; the native path only appeared
+  to compile it**: the full matrix failed `external-a64/edn` because the emitted
+  C for `jpegdct` initialised a `const uint16_t *` carrier from a
+  `const uint8_t *` expression. clang downgrades incompatible-pointer-types to a
+  warning; the AArch64 cross-GCC 14.2 makes it an error — so native validation
+  had been passing on a leniency the stricter toolchain does not grant, and
+  `clean` on the native path meant "clean as judged by clang", not "well-typed".
+  Cause: the loop carrier is declared from the loop's *output* type while its
+  initialiser comes from the *carried input*, and for `jpegdct` those are two
+  independent pointee inferences of the same address (the lowerer's
+  opaque-pointer inference assigns pointee width per use site). SIR's verifier
+  checks only that `carried_inputs.len() == outputs.len()`, never that the two
+  types agree, so the mismatch is verifier-invisible.
+  **Ruled cosmetic, not a miscompile**, on three independent grounds: every use
+  of the carrier is cast-based byte-offset arithmetic whose element type matches
+  the SIR `ArrayAccess` node and the source LLVM at that site; the declared type
+  is the one the in-loop back-edge and every post-loop consumer already use, so
+  only the initialiser was mistyped; and with the diagnostic downgraded by a
+  PATH shim (no repo change) the AArch64 differential for `jpegdct` runs
+  `clean=1 mismatched=0`. The fix is 6 lines in `emit.rs` — cast the initialiser
+  to the declared output type. **No compiler flag was relaxed**: per the standing
+  policy, silencing a diagnostic that might be reporting a wrong-width access is
+  the failure mode being removed, not a fix.
+  Blast radius swept exhaustively: 165 emitted translation units × 3 compilers
+  (clang 19.1.7, gcc 14.2, aarch64-gcc 14.2) = 495 compilations, zero non-zero
+  exits after the fix; before it, exactly 4 TUs diverged and every one was
+  `jpegdct`. Full gate `VERIFY PASS mode=full`, zero FAIL and zero WARN, with
+  native, AArch64 and sanitizer totals identical section for section
+  (base-14 249/18/0/0, external 114/207/0/0) — the cross-check that the change
+  altered no behaviour.
+- **2026-09-23 — OPEN: the emitted C is not byte-reproducible**: running the same
+  harness binary twice on the same input produces textually different emitted C
+  for `statemate` and `sglib-combined` (`crc32` is deterministic). In
+  `verify_benchmark` it is line order; in
+  `generic_BLOCK_ERKENNUNG_CTRL`/`generic_KINDERSICHERUNG_CTRL` the contents
+  bound to `v395`/`v398` and `v0`/`v4` swap. After normalising all digit runs and
+  sorting, the two outputs are identical and the differentials stay
+  `mismatched=0` in both runs, so the programs are the same up to node numbering
+  and print order. `ref.ll` and `driver.c` are byte-identical across runs, so the
+  variation originates upstream of the emitter (NodeIds are creation-ordered and
+  `emit.rs` prints them verbatim without creating nodes). Not root-caused.
+  Recorded because it means **"the emitted C is byte-reproducible" is not a safe
+  assumption for any gate that hashes emitted output**.
 
 ## Reference commands
 
