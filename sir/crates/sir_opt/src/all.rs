@@ -38,6 +38,7 @@ pub(crate) fn apply_one(
         &mut next,
         NodeKind::Constant(ConstantData::u64(1)),
         plan.accumulator_ty.clone(),
+        Effects::empty(),
     );
     for index in 0..plan.extent {
         let constant = push(
@@ -45,6 +46,7 @@ pub(crate) fn apply_one(
             &mut next,
             NodeKind::Constant(ConstantData::u64(index as u64)),
             plan.index_ty.clone(),
+            Effects::empty(),
         );
         let value = instantiate(
             function,
@@ -63,6 +65,7 @@ pub(crate) fn apply_one(
                 rhs: NodeId::new(value),
             },
             plan.accumulator_ty.clone(),
+            Effects::empty(),
         );
     }
     apply(
@@ -196,6 +199,7 @@ fn instantiate(
                 index: NodeId::new(index_local),
             },
             function.get_node(node_id)?.ty.clone(),
+            Effects::READ_MEMORY,
         ));
     }
     let node = function.get_node(node_id)?;
@@ -247,15 +251,21 @@ fn instantiate(
         },
         _ => return None,
     };
-    Some(push(nodes, next, kind, node.ty.clone()))
+    Some(push(nodes, next, kind, node.ty.clone(), Effects::empty()))
 }
 
-fn push(nodes: &mut Vec<(u64, Node)>, next: &mut u64, kind: NodeKind, ty: Type) -> u64 {
+fn push(
+    nodes: &mut Vec<(u64, Node)>,
+    next: &mut u64,
+    kind: NodeKind,
+    ty: Type,
+    effects: Effects,
+) -> u64 {
     let id = *next;
     *next += 1;
     nodes.push((
         id,
-        Node::new(NodeId::new(id), kind, ty, Effects::empty(), Span::unknown()),
+        Node::new(NodeId::new(id), kind, ty, effects, Span::unknown()),
     ));
     id
 }

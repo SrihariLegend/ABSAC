@@ -1057,6 +1057,24 @@ have now been restored into current `sir_mech` and tested.
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
   widths still need the kernel induction proof.
+- **2026-09-23 — effects masks on synthesized memory reads**: five synthesis
+  sites built nodes that read memory while declaring `Effects::empty()`: the
+  `sir_sum_u*`, `sir_count_*` and `sir_memchr` intrinsics, the definition-200
+  select chain's per-index `ArrayAccess`, and the `All` family's `ArrayAccess`
+  — the last two through `push` helpers that hardcoded the mask. An omitted
+  `READ_MEMORY` is invisible in this pipeline: the patch still applies and
+  still runs, it just understates the node to every analysis downstream.
+  The masks now match what the builder declares for real loads, which is the
+  root cause and deserves its own change: `compute_effects`' default arm gives
+  `ArrayAccess` the empty mask and `Loop` propagates nothing, so the sixteen
+  recognizer guards testing `READ_MEMORY` on a loop are inert.
+  `patch.rs` gains a floor next to the existing cap — a patch node whose kind
+  reads memory must carry `READ_MEMORY` — so a future omission refuses the
+  patch instead of hiding. Shown to have teeth by reverting only the `All`
+  mask, which failed the suite (`All must optimize`), then restoring it
+  byte-identically. Verified: build clean, 9 tests 0 failed, `verify.sh fast`
+  `VERIFY PASS` with external totals unchanged (117 clean / 204 refused / 0
+  mismatched / 0 harness errors), so no family stopped firing.
 
 ## Reference commands
 

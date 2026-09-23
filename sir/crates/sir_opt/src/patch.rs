@@ -45,6 +45,18 @@ pub fn apply(function: &Function, patch: &Patch) -> Option<Function> {
         imported.kind = rewrite_local(&imported.kind, &local, &map)?;
         rewritten.insert_node(imported);
     }
+    // Floor gate: the cap above bounds a patch node's mask from above;
+    // this bounds it from below. Several memory-reading families declared
+    // `Effects::empty()` for a long time and nothing failed, because an
+    // omitted READ_MEMORY is invisible — the patch still applies and still
+    // runs, it just understates the node's effects to every later analysis.
+    // Checking here converts a future omission of the same kind into a
+    // silent refusal to patch instead of invisible memory traffic.
+    for (_, node) in &patch.nodes {
+        if reads_memory(&node.kind) && !node.effects.contains(Effects::READ_MEMORY) {
+            return None;
+        }
+    }
     for (old, local_id) in &patch.replacements {
         let new = *map.get(local_id)?;
         replace_uses(&mut rewritten, *old, new)?;
@@ -75,6 +87,20 @@ pub fn apply(function: &Function, patch: &Patch) -> Option<Function> {
         Some(rewritten)
     } else {
         None
+    }
+}
+
+/// Kinds whose semantics can read memory, and which therefore must carry
+/// `Effects::READ_MEMORY` when they appear in a patch. The scanning
+/// intrinsics are listed by name because `Intrinsic` covers an open set.
+fn reads_memory(kind: &NodeKind) -> bool {
+    const SCANNING_INTRINSICS: [&str; 3] = ["sir_memchr", "sir_sum_", "sir_count_"];
+    match kind {
+        NodeKind::ArrayAccess { .. } | NodeKind::Load { .. } | NodeKind::Iterator { .. } => true,
+        NodeKind::Intrinsic { name, .. } => SCANNING_INTRINSICS
+            .iter()
+            .any(|prefix| name.starts_with(prefix)),
+        _ => false,
     }
 }
 

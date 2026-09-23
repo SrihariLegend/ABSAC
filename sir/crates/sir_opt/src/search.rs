@@ -61,7 +61,7 @@ pub(crate) fn apply_one(
                 args: vec![collection, scalar, plan.bound],
             },
             Type::u64(),
-            Effects::empty(),
+            Effects::READ_MEMORY,
             Span::unknown(),
         );
         apply(
@@ -93,6 +93,7 @@ fn build_select_chain(function: &Function, plan: &SearchPlan) -> Option<Function
         &mut next,
         NodeKind::Constant(ConstantData::u64(plan.extent as u64)),
         plan.index_ty.clone(),
+        Effects::empty(),
     );
     for index in (0..plan.extent).rev() {
         let index_const = push(
@@ -100,6 +101,7 @@ fn build_select_chain(function: &Function, plan: &SearchPlan) -> Option<Function
             &mut next,
             NodeKind::Constant(ConstantData::u64(index as u64)),
             plan.index_ty.clone(),
+            Effects::empty(),
         );
         let predicate = instantiate(
             function,
@@ -119,6 +121,7 @@ fn build_select_chain(function: &Function, plan: &SearchPlan) -> Option<Function
                 false_val: NodeId::new(result),
             },
             plan.index_ty.clone(),
+            Effects::empty(),
         );
     }
     apply(
@@ -429,6 +432,7 @@ fn instantiate(
                 index: NodeId::new(index_const),
             },
             element_ty.clone(),
+            Effects::READ_MEMORY,
         ));
     }
     let node = function.get_node(node_id)?;
@@ -482,15 +486,21 @@ fn instantiate(
         },
         _ => return None,
     };
-    Some(push(nodes, next, kind, node.ty.clone()))
+    Some(push(nodes, next, kind, node.ty.clone(), Effects::empty()))
 }
 
-fn push(nodes: &mut Vec<(u64, Node)>, next: &mut u64, kind: NodeKind, ty: Type) -> u64 {
+fn push(
+    nodes: &mut Vec<(u64, Node)>,
+    next: &mut u64,
+    kind: NodeKind,
+    ty: Type,
+    effects: Effects,
+) -> u64 {
     let id = *next;
     *next += 1;
     nodes.push((
         id,
-        Node::new(NodeId::new(id), kind, ty, Effects::empty(), Span::unknown()),
+        Node::new(NodeId::new(id), kind, ty, effects, Span::unknown()),
     ));
     id
 }

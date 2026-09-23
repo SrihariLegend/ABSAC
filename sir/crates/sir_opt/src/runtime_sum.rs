@@ -47,7 +47,7 @@ pub(crate) fn apply_one(
             args: vec![plan.collection, plan.bound],
         },
         plan.accumulator_ty,
-        Effects::empty(),
+        Effects::READ_MEMORY,
         Span::unknown(),
     );
     apply(
