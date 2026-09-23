@@ -4307,6 +4307,116 @@ fn rotated_zero_test_output_domain(
     None
 }
 
+/// Run-flag model for a do-while whose latch tests a carried value:
+/// `run` starts at the entry guard and is updated by the latch test
+/// evaluated on the carried outputs. Returns `(run_init, run_next)`.
+fn do_while_output_model(
+    ir: &IrFunction,
+    loop_idx: usize,
+    termination: NodeId,
+    carried_inits: &[NodeId],
+    outputs: &[NodeId],
+    value_map: &HashMap<String, NodeId>,
+    builder: &mut Builder,
+) -> Option<(NodeId, NodeId)> {
+    let header_label = ir.blocks[loop_idx].label.as_str();
+    let span = Span::unknown();
+    let mut guard = builder.constant(ConstantData::boolean(true), Type::Bool, span);
+    let mut guard_count = 0usize;
+    let reaches_header = |start: usize| -> bool {
+        let mut current = start;
+        let mut visited = HashSet::new();
+        while visited.insert(current) {
+            if ir.blocks[current].label == header_label {
+                return true;
+            }
+            let Some(br) = ir.blocks[current]
+                .instructions
+                .iter()
+                .rev()
+                .find(|inst| inst.opcode == "br")
+            else {
+                return false;
+            };
+            if br.operands.len() != 1 {
+                return false;
+            }
+            let Some(next) = terminator_targets(br)
+                .first()
+                .and_then(|label| ir.block_map.get(label).copied())
+            else {
+                return false;
+            };
+            current = next;
+        }
+        false
+    };
+    for (index, block) in ir.blocks.iter().enumerate().take(loop_idx) {
+        let Some(br) = block
+            .instructions
+            .iter()
+            .rev()
+            .find(|inst| inst.opcode == "br" && inst.operands.len() >= 3)
+        else {
+            continue;
+        };
+        let targets: Vec<usize> = terminator_targets(br)
+            .iter()
+            .filter_map(|label| ir.block_map.get(label).copied())
+            .collect();
+        let header_targets: Vec<usize> = targets
+            .iter()
+            .copied()
+            .filter(|target| reaches_header(*target))
+            .collect();
+        if header_targets.len() != 1 {
+            continue;
+        }
+        let exit = *targets
+            .iter()
+            .find(|target| **target != header_targets[0])?;
+        if ir.blocks.iter().enumerate().any(|(other, block)| {
+            other < loop_idx
+                && other != index
+                && block.instructions.iter().any(|inst| {
+                    inst.opcode == "br"
+                        && terminator_targets(inst)
+                            .iter()
+                            .any(|label| ir.block_map.get(label).copied() == Some(exit))
+                })
+        }) {
+            return None;
+        }
+        guard = *value_map.get(&strip_type(&br.operands[0]))?;
+        guard_count += 1;
+    }
+    if guard_count > 1 {
+        return None;
+    }
+    let node = builder.function().get_node(termination)?.kind.clone();
+    let (lhs, rhs) = match node {
+        NodeKind::Lt { lhs, rhs }
+        | NodeKind::Le { lhs, rhs }
+        | NodeKind::Gt { lhs, rhs }
+        | NodeKind::Ge { lhs, rhs }
+        | NodeKind::Eq { lhs, rhs }
+        | NodeKind::Ne { lhs, rhs } => (lhs, rhs),
+        NodeKind::Intrinsic { name, args }
+            if matches!(name.as_str(), "sir_slt" | "sir_sle" | "sir_sgt" | "sir_sge")
+                && args.len() == 2 =>
+        {
+            (args[0], args[1])
+        }
+        _ => return None,
+    };
+    let references_carried =
+        |operand: NodeId| carried_inits.contains(&operand) || outputs.contains(&operand);
+    if !references_carried(lhs) && !references_carried(rhs) {
+        return None;
+    }
+    Some((guard, termination))
+}
+
 /// D4/F9 counterpart for clang's "back-edge on true" successor rotation.
 ///
 /// `for (i = 0; i < n; i += k)` (steps > 1, and other successor-tested
@@ -8457,12 +8567,26 @@ fn lower_loop_function(
                     ) {
                         Some(rebuilt) => rebuilt,
                         None => {
-                            return Err(format!(
-                                "unsupported: unguarded post-tested loop (do-while carry test) \
-                                 that is not a constant-step counted form; SIR loops are \
-                                 pre-tested, so the forced iterations cannot be represented: {}",
-                                ir.name
-                            ));
+                            if let Some((guard, run)) = do_while_output_model(
+                                ir,
+                                loop_idx,
+                                termination,
+                                &carried_init_nodes,
+                                &output_nodes,
+                                value_map,
+                                builder,
+                            ) {
+                                do_while_run = Some(run);
+                                do_while_true = Some(guard);
+                                guard
+                            } else {
+                                return Err(format!(
+                                    "unsupported: unguarded post-tested loop (do-while carry test) \
+                                     that is not a constant-step counted form; SIR loops are \
+                                     pre-tested, so the forced iterations cannot be represented: {}",
+                                    ir.name
+                                ));
+                            }
                         }
                     }
                 }
@@ -8560,12 +8684,13 @@ fn lower_loop_function(
         })
         .collect();
 
+    let do_while = do_while_run.is_some() && do_while_true.is_some();
     let mut final_outputs = output_nodes.clone();
     let mut final_inits = carried_init_nodes.clone();
-    if let (Some(run), Some(true_const)) = (do_while_run, do_while_true) {
-        final_outputs.push(run);
-        final_inits.push(true_const);
-        output_types.push(Type::Bool);
+    if do_while {
+        final_outputs.insert(0, do_while_run.unwrap());
+        final_inits.insert(0, do_while_true.unwrap());
+        output_types.insert(0, Type::Bool);
     }
     let loop_ty = Type::Tuple {
         elements: output_types,
@@ -8590,7 +8715,7 @@ fn lower_loop_function(
             .map(|n| n.ty.clone())
             .unwrap_or(Type::u64());
         let extract = builder
-            .tuple_extract(loop_node, i, output_ty, span)
+            .tuple_extract(loop_node, i + usize::from(do_while), output_ty, span)
             .unwrap();
         value_map.insert(phi_result.clone(), extract);
         extract_for_output.push(extract);

@@ -994,6 +994,16 @@ have now been restored into current `sir_mech` and tested.
   AArch64, sanitizer-clean); all-19 Embench is **115 clean / 206
   refused / 0 mismatched / 0 harness errors** (was 112/209/0/0).
   Base-14 stays 498/266 and fuzz 540/360; 9 tests ~1.36 s.
+- **2026-09-23 — guarded carry-test do-while**: the run-flag model now
+  covers arbitrary latch comparisons on carried values, with the run
+  successor evaluated **before** the carried updates and stored in the
+  first loop-tuple slot (extract indices shift by one). Entry guards
+  are found through unconditional preheader chains, and any other
+  pre-loop edge to the exit keeps the loud refusal. This adds qrduino
+  `modnn` and wikisort `Reverse` as clean functions (native, AArch64;
+  modnn sanitizer-clean). All-19 Embench: **117 clean / 204 refused /
+  0 mismatched / 0 harness errors** (was 115/206/0/0). Base-14 stays
+  498/266, fuzz 540/360, 9 tests ~1.36 s.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
