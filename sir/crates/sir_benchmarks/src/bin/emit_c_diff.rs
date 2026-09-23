@@ -28,15 +28,65 @@ static ALLOW_DEFS: OnceLock<Vec<u64>> = OnceLock::new();
 static PER_FUNCTION_ALLOW: OnceLock<BTreeMap<String, BTreeMap<u64, bool>>> = OnceLock::new();
 static FFI_SUPPORT: OnceLock<Option<PathBuf>> = OnceLock::new();
 static REF_OBJECT: OnceLock<Option<PathBuf>> = OnceLock::new();
+static REF_LEVEL: OnceLock<Option<String>> = OnceLock::new();
+static ALLOW_CROSS_LEVEL: AtomicBool = AtomicBool::new(false);
 static TIME_ABC: AtomicBool = AtomicBool::new(false);
 
-/// Object file holding the reference side of a `--time` comparison, built
-/// from the original source at the same optimization level as everything
-/// else. The object must export `{name}__ref` and define every global the
-/// function reads; the driver then injects nothing, so both sides read the
-/// object's own tables.
+/// Object file holding the reference side of a `--time` comparison. It must
+/// have been built from the original source at the same optimization level
+/// as the emitted C; `checked_ref_object` is what enforces that, and every
+/// caller goes through it. The object must export `{name}__ref` and define
+/// every global the function reads; the driver then injects nothing, so both
+/// sides read the object's own tables.
 fn ref_object() -> Option<PathBuf> {
     REF_OBJECT.get().and_then(|object| object.clone())
+}
+
+fn ref_level() -> Option<String> {
+    REF_LEVEL.get().and_then(|level| level.clone())
+}
+
+fn allow_cross_level() -> bool {
+    ALLOW_CROSS_LEVEL.load(Ordering::Relaxed)
+}
+
+/// Level the emitted C and the driver are compiled at. Single source of
+/// truth: the compiler invocation and the reference-level check both read it
+/// from here, so the two cannot drift apart.
+fn opt_level() -> String {
+    std::env::var("SIR_OPT_LEVEL").unwrap_or_else(|_| "1".to_string())
+}
+
+/// `ref_object`, after checking the invariant its doc comment states.
+///
+/// The reference is built outside this binary, so its level cannot be
+/// inspected -- it has to be declared and must match the level we compile the
+/// other side at. A mismatch makes the comparison a measurement of the level
+/// difference rather than of the code: a recorded B/A of 2.035 on `Multiply`
+/// turned out to be *exactly* its raw@-O1/raw@-O3 ratio, with the same
+/// emitted C and the same driver, so the "emission cost" it was read as did
+/// not exist. This is the check that would have caught it.
+fn checked_ref_object() -> Result<Option<PathBuf>, String> {
+    let Some(object) = ref_object() else {
+        return Ok(None);
+    };
+    let level = opt_level();
+    let Some(declared) = ref_level() else {
+        return Err(format!(
+            "--ref-object requires --ref-level N: the reference object is built \
+             outside this binary, so its optimization level cannot be verified. \
+             Emitted C is compiled at -O{level} (SIR_OPT_LEVEL)."
+        ));
+    };
+    if declared != level && !allow_cross_level() {
+        return Err(format!(
+            "reference object is -O{declared} but emitted C is compiled at -O{level} \
+             (SIR_OPT_LEVEL): the comparison would measure the level difference, not \
+             the code. Set SIR_OPT_LEVEL={declared} to match, or pass \
+             --allow-cross-level to record a deliberate cross-level comparison."
+        ));
+    }
+    Ok(Some(object))
 }
 
 fn abc_mode() -> bool {
@@ -1639,7 +1689,7 @@ fn time_function(
         // original source, the unoptimized emission, and the optimized
         // emission, all linked by the same backend with the same flags. Only
         // the ABSAC stage differs between the three.
-        let Some(object) = ref_object() else {
+        let Some(object) = checked_ref_object()? else {
             return Err("--time-abc needs --ref-object PATH".to_string());
         };
         let base_c = emit::emit_c(&func);
@@ -1673,7 +1723,7 @@ fn time_function(
             false,
             true,
         )
-    } else if let Some(object) = ref_object() {
+    } else if let Some(object) = checked_ref_object()? {
         // Reference built from the original source at the selected
         // optimization level, linked as an object. Both sides are then
         // compiled by the same backend with the same flags; the object
@@ -1827,8 +1877,7 @@ fn compile_harness(
     if target == "aarch64" && sanitize {
         return Err("aarch64 target does not support sanitizers".to_string());
     }
-    let opt_level = std::env::var("SIR_OPT_LEVEL").unwrap_or_else(|_| "1".to_string());
-    let opt_flag = format!("-O{opt_level}");
+    let opt_flag = format!("-O{}", opt_level());
     let sanitizer_args: &[&str] = if sanitize {
         &[
             "-fsanitize=address,undefined",
@@ -2367,7 +2416,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!(
-            "usage: emit_c_diff <corpus.ll> [--cases N] [--workdir DIR] [--function NAME] [--sanitize] [--cc clang|gcc] [--target native|aarch64] [--allow-runtime-search] [--allow-defs LIST] [--ffi-support PATH] [--ref-object PATH] [--profile-in PATH] [--profile-out PATH] [--time] [--time-reps N] [--time-baseline] [--time-abc] [--measured-retain] [--time-fill V]"
+            "usage: emit_c_diff <corpus.ll> [--cases N] [--workdir DIR] [--function NAME] [--sanitize] [--cc clang|gcc] [--target native|aarch64] [--allow-runtime-search] [--allow-defs LIST] [--ffi-support PATH] [--ref-object PATH] [--ref-level N] [--allow-cross-level] [--profile-in PATH] [--profile-out PATH] [--time] [--time-reps N] [--time-baseline] [--time-abc] [--measured-retain] [--time-fill V]"
         );
         std::process::exit(2);
     }
@@ -2433,6 +2482,14 @@ fn main() {
             "--ref-object" if i + 1 < args.len() => {
                 let _ = REF_OBJECT.set(Some(PathBuf::from(&args[i + 1])));
                 i += 2;
+            }
+            "--ref-level" if i + 1 < args.len() => {
+                let _ = REF_LEVEL.set(Some(args[i + 1].clone()));
+                i += 2;
+            }
+            "--allow-cross-level" => {
+                ALLOW_CROSS_LEVEL.store(true, Ordering::Relaxed);
+                i += 1;
             }
             "--allow-defs" if i + 1 < args.len() => {
                 let definitions: Vec<u64> = args[i + 1]
