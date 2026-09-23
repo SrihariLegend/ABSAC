@@ -1205,6 +1205,48 @@ have now been restored into current `sir_mech` and tested.
   `wip/guarded-rotated-zero-test` branch that mis-lowered
   `sglib_dllist_get_first`/`get_last` — so why that gate exists must be
   established before it is relaxed.
+- **2026-09-23 — referee repair: globals modelled identically, both paths fail
+  closed**: `emit_c_diff.rs` now models module globals the same way in the timing
+  and differential drivers, and refuses what it cannot faithfully reproduce.
+  (1) The timing reference is passed through `shadow_globals` — the step it was
+  missing — so both sides read the injected buffer instead of the reference
+  reading the module's real table. (2) `inject_globals` seeds shadows from the
+  module's real initializer for flat integer arrays and string initializers,
+  verified byte-for-byte (2048/2048 for `@crc_32_tab`), and **fails closed**
+  with `unsupported: global @X has element type ... this driver cannot
+  reproduce` for nested, aggregate and pointer shapes. (3) Every shadow is
+  enlarged by a 256-byte guard band (`GUARD_BYTES`) so an out-of-range index
+  reads zeroes that nothing writes between the two calls; the literal
+  `struct { data; pad }` alias form was rejected because ASan instruments the
+  alias at its declared extent and reports `global-buffer-overflow` on the pad
+  read. Residual limit, stated plainly: the band is 256 bytes, so a larger
+  overrun can still reach a neighbouring object. (4) The timing path now uses
+  the same reference-fault probe and zero-state fallback as the differential
+  path, so `sglib_iq_first_element` — a SIGSEGV inside the *reference* call,
+  ASLR-dependent — becomes a deterministic `state=zero` comparison rather than
+  a crash, and a refusal (`invalid-state input`) if both states fault.
+  Evidence: picojpeg at `--cases 200` goes from `mismatched=54` on both
+  functions to `clean cases=200`; the before-state was reconstructed by
+  textually reverting the three hunks and rebuilding in an isolated workspace,
+  so the defects it reproduces are genuine rather than artifacts of a missing
+  parser. `verify.sh fast` → `VERIFY PASS` with external totals byte-identical
+  (117 clean / 204 refused / 0 mismatched / 0 harness errors).
+  **Cost, recorded**: four functions lose their timing comparison to the
+  fail-closed initializer rule — `picojpeg::getHuffTable`/`getHuffVal`
+  (pointer-typed switch tables) and `verify_benchmark` in matmult-int and
+  wikisort (aggregate initializers). Two of those are rewrite-firing functions,
+  so aggregate and pointer initializer support is a named target now, not a
+  nicety. **Also recorded**: at the committed gate's `--cases 3` the phantom
+  picojpeg index never lands out of range (15 clean both before and after), so
+  the gate could not have caught that defect — the input set was too thin as
+  well as the code being wrong.
+  **Correction to the record**: an earlier note here said the harness contained
+  no xorshift global fill and that the claim was unverified. That was wrong.
+  `build_driver` refills every shadow with an xorshift stream before *both*
+  calls (`emit_c_diff.rs:773-778`), symmetric by construction; the grep that
+  "confirmed" its absence could not see the `gs ^= gs << 13` form. Same failure
+  mode as the earlier family-firing claim: the search method, not the search
+  result, was the problem.
 
 ## Reference commands
 

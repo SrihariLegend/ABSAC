@@ -132,6 +132,7 @@ struct GlobalDecl {
     ty: String,
     size: usize,
     pointer: bool,
+    init: Option<String>,
 }
 
 /// Byte size of an LLVM integer/array/pointer type; `None` for shapes
@@ -200,6 +201,188 @@ fn split_llvm_type(text: &str) -> Option<(&str, &str)> {
     None
 }
 
+/// Cut trailing definition attributes (`align`, `section`, ...) off a global
+/// initializer, leaving just the value.
+fn strip_global_attrs(init: &str) -> &str {
+    const ATTRS: [&str; 6] = ["align", "section", "comdat", "no_sanitize", "sanitize", "!dbg"];
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (index, ch) in init.char_indices() {
+        // String payloads are bytes, not structure: a brace inside `c"..."`
+        // must not hide the `, align 16` that follows the closing quote.
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_string = true,
+            '[' | '{' | '(' | '<' => depth += 1,
+            ']' | '}' | ')' | '>' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                let tail = init[index + 1..].trim_start();
+                if ATTRS.iter().any(|attr| tail.starts_with(attr)) {
+                    return init[..index].trim();
+                }
+            }
+            _ => {}
+        }
+    }
+    init.trim()
+}
+
+/// `(element count, element type)` for a flat LLVM array type.
+fn llvm_array_type(ty: &str) -> Option<(usize, &str)> {
+    let inner = ty.trim().strip_prefix('[')?.strip_suffix(']')?;
+    let (length, element) = inner.split_once('x')?;
+    Some((length.trim().parse().ok()?, element.trim()))
+}
+
+/// Decode an LLVM `c"..."` payload: printable bytes pass through, `\XX` is a
+/// hex byte and `\\`/`\"` are the literal characters.
+fn decode_llvm_string(text: &str) -> Result<Vec<u8>, String> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'\\' {
+            out.push(bytes[i]);
+            i += 1;
+            continue;
+        }
+        let escape = text.get(i + 1..).unwrap_or("");
+        if escape.len() >= 2 {
+            let hex = &escape[..2];
+            if hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                out.push(u8::from_str_radix(hex, 16).map_err(|e| e.to_string())?);
+                i += 3;
+                continue;
+            }
+        }
+        if escape.starts_with('\\') || escape.starts_with('"') {
+            out.push(bytes[i + 1]);
+            i += 2;
+            continue;
+        }
+        return Err(format!("unsupported escape in string initializer at {}", &text[i..]));
+    }
+    Ok(out)
+}
+
+/// Bytes of a global's module initializer, or `None` when it is all-zero
+/// (the driver's default). Only shapes this harness can reproduce exactly —
+/// string literals and flat integer arrays — are accepted; nested aggregates,
+/// struct literals and pointer values are refused so no side ever reads a
+/// table the other side does not have.
+fn initializer_bytes(decl: &GlobalDecl) -> Result<Option<Vec<u8>>, String> {
+    let Some(init) = decl.init.as_deref() else {
+        return Ok(None);
+    };
+    if init == "zeroinitializer" || init == "null" {
+        return Ok(None);
+    }
+    if let Some(quoted) = init.strip_prefix('c') {
+        let Some(text) = quoted.trim().strip_prefix('"').and_then(|t| t.strip_suffix('"')) else {
+            return Err(format!(
+                "unsupported: global @{} has an unparsable string initializer",
+                decl.name
+            ));
+        };
+        let decoded = decode_llvm_string(text)?;
+        if decoded.len() > decl.size {
+            return Err(format!(
+                "unsupported: global @{} initializes {} bytes into {} bytes",
+                decl.name,
+                decoded.len(),
+                decl.size
+            ));
+        }
+        let mut bytes = vec![0u8; decl.size];
+        bytes[..decoded.len()].copy_from_slice(&decoded);
+        return Ok(Some(bytes));
+    }
+    let (count, element) = llvm_array_type(&decl.ty).ok_or_else(|| {
+        format!(
+            "unsupported: global @{} has a non-array initializer this driver cannot reproduce",
+            decl.name
+        )
+    })?;
+    let element_size = llvm_type_size(element, &Default::default()).ok_or_else(|| {
+        format!(
+            "unsupported: global @{} has element type {element} this driver cannot reproduce",
+            decl.name
+        )
+    })?;
+    if !element.starts_with('i') || element_size > 8 {
+        return Err(format!(
+            "unsupported: global @{} has element type {element} this driver cannot reproduce",
+            decl.name
+        ));
+    }
+    let Some(body) = init.strip_prefix('[').and_then(|t| t.strip_suffix(']')) else {
+        return Err(format!(
+            "unsupported: global @{} has an initializer this driver cannot reproduce",
+            decl.name
+        ));
+    };
+    let values: Vec<i64> = body
+        .split(',')
+        .map(|item| {
+            let item = item.trim();
+            let (ty, value) = item.split_once(char::is_whitespace).ok_or_else(|| {
+                format!("unsupported: global @{} has a malformed initializer", decl.name)
+            })?;
+            if ty.trim() != element {
+                return Err(format!(
+                    "unsupported: global @{} initializes with {ty}, not the flat element {element}",
+                    decl.name
+                ));
+            }
+            let value = value.trim();
+            value
+                .parse::<i64>()
+                .or_else(|_| i64::from_str_radix(value.trim_start_matches("0x"), 16))
+                .or_else(|_| match value {
+                    "true" => Ok(1),
+                    "false" => Ok(0),
+                    _ => Err(()),
+                })
+                .map_err(|_| {
+                    format!(
+                        "unsupported: global @{} has an initializer element {value}",
+                        decl.name
+                    )
+                })
+        })
+        .collect::<Result<Vec<i64>, String>>()?;
+    if values.len() != count {
+        return Err(format!(
+            "unsupported: global @{} initializes {} of {count} elements",
+            decl.name,
+            values.len()
+        ));
+    }
+    let bytes: Vec<u8> = values
+        .iter()
+        .flat_map(|value| value.to_le_bytes()[..element_size].to_vec())
+        .collect();
+    if bytes.len() != decl.size {
+        return Err(format!(
+            "unsupported: global @{} has initializer size {} against declared {}",
+            decl.name,
+            bytes.len(),
+            decl.size
+        ));
+    }
+    Ok(Some(bytes))
+}
+
 fn global_decls(ll: &str) -> Vec<GlobalDecl> {
     let mut out: Vec<GlobalDecl> = Vec::new();
     let layouts = parse_struct_layouts(ll);
@@ -222,16 +405,22 @@ fn global_decls(ll: &str) -> Vec<GlobalDecl> {
             continue;
         };
         let after = &rest[global_at + keyword_len..];
-        let Some((ty, _init)) = split_llvm_type(after) else {
+        let Some((ty, init)) = split_llvm_type(after) else {
             continue;
         };
         let ty = ty.trim_end_matches(',');
         let size = llvm_type_size(ty, &layouts).unwrap_or(0);
+        let init = strip_global_attrs(init);
         out.push(GlobalDecl {
             name: name.to_string(),
             ty: ty.to_string(),
             size,
             pointer: ty.trim() == "ptr",
+            init: if init.is_empty() {
+                None
+            } else {
+                Some(init.to_string())
+            },
         });
     }
     out
@@ -956,7 +1145,14 @@ fn build_time_driver(
          }\n\n",
     );
 
-    out.push_str("int main(void) {\n");
+    out.push_str("int main(int argc, char **argv) {\n");
+    out.push_str("    int zero_state = 0, ref_only = 0;\n");
+    out.push_str(
+        "    for (int i = 1; i < argc; i++) {\n\
+         \x20       if (!strcmp(argv[i], \"--zero\")) zero_state = 1;\n\
+         \x20       if (!strcmp(argv[i], \"--ref-only\")) ref_only = 1;\n\
+         \x20   }\n",
+    );
     out.push_str(
         "    static _Alignas(64) uint8_t bufA[8][2048 + 32];\n\
          \x20   static _Alignas(64) uint8_t bufB[8][2048 + 32];\n\
@@ -967,13 +1163,13 @@ fn build_time_driver(
     );
     match fill {
         Some(value) => out.push_str(&format!(
-            "        ((uint8_t *)bufA)[i] = (uint8_t){value}u;\n\
-             \x20       ((uint8_t *)bufB)[i] = (uint8_t){value}u;\n"
+            "        ((uint8_t *)bufA)[i] = zero_state ? 0u : (uint8_t){value}u;\n\
+             \x20       ((uint8_t *)bufB)[i] = zero_state ? 0u : (uint8_t){value}u;\n"
         )),
         None => out.push_str(
             "        seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17;\n\
-             \x20       ((uint8_t *)bufA)[i] = (uint8_t)seed;\n\
-             \x20       ((uint8_t *)bufB)[i] = (uint8_t)seed;\n",
+             \x20       ((uint8_t *)bufA)[i] = zero_state ? 0u : (uint8_t)seed;\n\
+             \x20       ((uint8_t *)bufB)[i] = zero_state ? 0u : (uint8_t)seed;\n",
         ),
     }
     out.push_str("    }\n");
@@ -1021,12 +1217,14 @@ fn build_time_driver(
     if ret_ty == "void" || llvm_c_type(ir_ret) == "void" {
         out.push_str("    if (__sir_ffi_reset) __sir_ffi_reset();\n");
         out.push_str(&format!("    {}({});\n", left, left_args.join(", ")));
+        out.push_str("    if (ref_only) { printf(\"EMITTIME_REF_OK\\n\"); return 0; }\n");
         out.push_str("    if (__sir_ffi_reset) __sir_ffi_reset();\n");
         out.push_str(&format!("    {}({});\n", name, new_args.join(", ")));
     } else {
         out.push_str(&format!(
             "    if (__sir_ffi_reset) __sir_ffi_reset();\n\
              \x20   uint64_t left_ret = (uint64_t){}({});\n\
+             \x20   if (ref_only) {{ printf(\"EMITTIME_REF_OK\\n\"); return 0; }}\n\
              \x20   if (__sir_ffi_reset) __sir_ffi_reset();\n\
              \x20   uint64_t right_ret = (uint64_t){}({});\n\
              \x20   if (left_ret != right_ret) {{\n\
@@ -1094,17 +1292,33 @@ fn build_time_driver(
          \x20   ref_ns = ref_ns < b3 ? ref_ns : b3; ref_ns = ref_ns < b4 ? ref_ns : b4;\n\
          \x20   new_ns = o0 < o1 ? o0 : o1; new_ns = new_ns < o2 ? new_ns : o2;\n\
          \x20   new_ns = new_ns < o3 ? new_ns : o3; new_ns = new_ns < o4 ? new_ns : o4;\n\
-         \x20   printf(\"{label} {name} reps={reps} ref_ns=%llu new_ns=%llu sink=%llu\\n\",\n\
+         \x20   printf(\"{label} {name} reps={reps} state=%s ref_ns=%llu new_ns=%llu sink=%llu\\n\",\n\
+         \x20       zero_state ? \"zero\" : \"random\",\n\
          \x20       (unsigned long long)ref_ns, (unsigned long long)new_ns, (unsigned long long)sink);\n\
          \x20   return 0;\n}}\n"
     ));
     out
 }
 
-/// Define C-side buffers for the zero-initialized internal globals a
-/// function references. The reference IR keeps its own definition; the
-/// emitted C gets a namespaced buffer with identical initial contents.
-fn inject_globals(driver: &mut String, ll: &str, names: &[String]) {
+/// Guard band appended to every injected shadow. The driver only ever
+/// addresses the declared size, so an out-of-range read lands in this
+/// never-written tail instead of the driver's own scratch.
+const GUARD_BYTES: usize = 256;
+
+/// Define C-side buffers for the internal globals a function references.
+/// The reference IR keeps its own definition; the emitted C gets a
+/// namespaced buffer with identical initial contents. With `seed_init` the
+/// buffer starts from the module's real initializer data -- the timing
+/// driver never resets globals, so both sides must read the same table --
+/// and shapes that cannot be reproduced faithfully are refused instead of
+/// zero-seeded. The differential driver refills globals per case, so it
+/// seeds nothing and cannot hit that refusal.
+fn inject_globals(
+    driver: &mut String,
+    ll: &str,
+    names: &[String],
+    seed_init: bool,
+) -> Result<(), String> {
     let globals = global_decls(ll);
     let mut seen = HashSet::new();
     let mut defs = String::new();
@@ -1122,8 +1336,23 @@ fn inject_globals(driver: &mut String, ll: &str, names: &[String]) {
             if g.size == 0 || g.size > (1 << 20) {
                 continue;
             }
+            let init = if seed_init {
+                match initializer_bytes(g)? {
+                    Some(bytes) => format!(
+                        "{{{}}}",
+                        bytes
+                            .iter()
+                            .map(|byte| byte.to_string())
+                            .collect::<Vec<String>>()
+                            .join(",")
+                    ),
+                    None => "{0}".to_string(),
+                }
+            } else {
+                "{0}".to_string()
+            };
             defs.push_str(&format!(
-                "_Alignas(64) uint8_t {}[{}] = {{0}};\n",
+                "_Alignas(64) uint8_t {}[{} + {GUARD_BYTES}] = {init};\n",
                 emit::c_global_name(&g.name),
                 g.size
             ));
@@ -1131,6 +1360,7 @@ fn inject_globals(driver: &mut String, ll: &str, names: &[String]) {
     }
     let pos = driver.find("int main").unwrap_or(driver.len());
     driver.insert_str(pos, &defs);
+    Ok(())
 }
 
 /// Build and run the timing harness; returns the `EMITTIME` line on success.
@@ -1179,7 +1409,15 @@ fn time_function(
             base_path,
         )
     } else {
-        let ref_ll = expose_definition(&rename_symbol(ll, name, "__ref"), &format!("{name}__ref"));
+        // The differential path shadows the reference's globals so both
+        // sides read the driver's injected buffer; the timing driver must
+        // do the same, or the reference reads the module's real table while
+        // the emitted C reads the injected one.
+        let globals = used_globals_all(ll, &[name.to_string()]);
+        let ref_ll = expose_definition(
+            &rename_symbol(&shadow_globals(ll, &globals), name, "__ref"),
+            &format!("{name}__ref"),
+        );
         let ref_path = dir.join("ref.ll");
         fs::write(&ref_path, &ref_ll).map_err(|e| format!("write ref.ll: {e}"))?;
         (
@@ -1197,7 +1435,7 @@ fn time_function(
             ref_path,
         )
     };
-    inject_globals(&mut driver, ll, &[name.to_string()]);
+    inject_globals(&mut driver, ll, &[name.to_string()], true)?;
 
     let emitted_path = dir.join("emitted.c");
     let driver_path = dir.join("driver_time.c");
@@ -1220,7 +1458,35 @@ fn time_function(
         !baseline,
         target,
     )?;
-    let run = run_binary(&exe_path, target, &[]).map_err(|e| format!("run: {e}"))?;
+    // The differential path probes the reference under `--ref-only` and
+    // falls back to the zero state when the random one faults; synthetic
+    // pointer arguments can put a data-dependent index out of the object it
+    // points into. A crash is not an evidence state, so the timing path
+    // uses the same probe and fallback.
+    let ref_ok = |output: &std::process::Output| {
+        output.status.success()
+            && String::from_utf8_lossy(&output.stdout).contains("EMITTIME_REF_OK")
+    };
+    let zero_mode = match run_binary(&exe_path, target, &["--ref-only"]) {
+        Ok(output) if ref_ok(&output) => None,
+        Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+            return Err(format!("time run did not terminate: {e}"));
+        }
+        _ => match run_binary(&exe_path, target, &["--ref-only", "--zero"]) {
+            Ok(output) if ref_ok(&output) => Some(true),
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                return Err(format!("time run did not terminate: {e}"));
+            }
+            _ => {
+                return Err(
+                    "invalid-state input: reference faults under random and zero initialization"
+                        .to_string(),
+                );
+            }
+        },
+    };
+    let run_args: &[&str] = if zero_mode.is_some() { &["--zero"] } else { &[] };
+    let run = run_binary(&exe_path, target, run_args).map_err(|e| format!("run: {e}"))?;
     let stdout = String::from_utf8_lossy(&run.stdout);
     if !run.status.success() {
         return Err(format!(
@@ -1526,7 +1792,9 @@ fn run_function(
     };
 
     let mut driver = driver;
-    inject_globals(&mut driver, ll, &module_names);
+    if let Err(reason) = inject_globals(&mut driver, ll, &module_names, false) {
+        return Outcome::HarnessError { reason };
+    }
 
     let ref_path = dir.join("ref.ll");
     let driver_path = dir.join("driver.c");
