@@ -17,6 +17,28 @@ mkdir -p "$TMPDIR/verify"
 
 fail=0
 
+# All 19 held-out Embench benchmarks. Gating only four of them is how the
+# sglib dllist miscompile of 2026-09-23 stayed invisible: the failing shape
+# was exercised by a corpus that was not in the matrix. Each corpus also
+# needs its own support object, so the flags travel with the name.
+EXTERNAL_CORPORA="matmult-int crc32 edn statemate aha-mont64 depthconv huffbench
+md5sum nettle-aes nettle-sha256 nsichneu picojpeg qrduino sglib-combined slre
+tarfind ud wikisort xgboost"
+external_missing=0
+external_args=()
+
+external_args_for() {
+    local support
+    external_args=()
+    case "$1" in
+        crc32|wikisort) support="$SIR_DIR/support/beebs_rng.c" ;;
+        huffbench|md5sum|tarfind) support="$EXTERNAL/embench/support/beebsc.c" ;;
+        *) support="" ;;
+    esac
+    [ -n "$support" ] && [ -f "$support" ] && external_args=(--ffi-support "$support")
+    return 0
+}
+
 run_case() {
     local label="$1"
     shift
@@ -70,16 +92,20 @@ for name in v2 v3 v4 v5 v6 v7 v8 v9 v10 v11 v12 v13 v14 v16; do
         --cases 2 --workdir "$TMPDIR/verify/base14_$name"
 done
 
-echo "== external Embench native"
-for name in matmult-int crc32 edn statemate; do
-    [ -f "$EXTERNAL/$name.ll" ] || continue
-    extra=()
-    if [ "$name" = crc32 ]; then
-        extra=(--ffi-support "$SIR_DIR/support/beebs_rng.c")
+echo "== external Embench native (all 19)"
+for name in $EXTERNAL_CORPORA; do
+    if [ ! -f "$EXTERNAL/$name.ll" ]; then
+        echo "SKIP external/$name (no .ll — run scripts/fetch-external.sh)"
+        external_missing=$((external_missing + 1))
+        continue
     fi
+    external_args_for "$name"
     run_case "external/$name" "$EXTERNAL/$name.ll" \
-        --cases 3 --workdir "$TMPDIR/verify/external_$name" "${extra[@]}"
+        --cases 3 --workdir "$TMPDIR/verify/external_$name" "${external_args[@]}"
 done
+if [ "$external_missing" -ne 0 ]; then
+    echo "WARN $external_missing/19 external corpora absent — the gate is NOT complete"
+fi
 
 if [ "$MODE" = "full" ]; then
     echo "== base-14 AArch64"
@@ -97,15 +123,19 @@ if [ "$MODE" = "full" ]; then
         run_case "fuzz-a64/$name" "$CORPUS/${name}_fuzz_corpus.ll" \
             --cases 8 --target aarch64 --workdir "$TMPDIR/verify/fuzz_a64_$name"
     done
-    echo "== sanitizers"
-    for name in matmult-int crc32 edn statemate; do
+    echo "== sanitizers (all 19)"
+    for name in $EXTERNAL_CORPORA; do
         [ -f "$EXTERNAL/$name.ll" ] || continue
-        extra=()
-        if [ "$name" = crc32 ]; then
-            extra=(--ffi-support "$SIR_DIR/support/beebs_rng.c")
-        fi
+        external_args_for "$name"
         run_case "sanitize/$name" "$EXTERNAL/$name.ll" \
-            --cases 3 --sanitize --workdir "$TMPDIR/verify/sanitize_$name" "${extra[@]}"
+            --cases 3 --sanitize --workdir "$TMPDIR/verify/sanitize_$name" "${external_args[@]}"
+    done
+    echo "== external Embench AArch64 (all 19)"
+    for name in $EXTERNAL_CORPORA; do
+        [ -f "$EXTERNAL/$name.ll" ] || continue
+        external_args_for "$name"
+        run_case "external-a64/$name" "$EXTERNAL/$name.ll" \
+            --cases 3 --target aarch64 --workdir "$TMPDIR/verify/external_a64_$name" "${external_args[@]}"
     done
 fi
 

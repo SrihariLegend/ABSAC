@@ -1004,6 +1004,21 @@ have now been restored into current `sir_mech` and tested.
   modnn sanitizer-clean). All-19 Embench: **117 clean / 204 refused /
   0 mismatched / 0 harness errors** (was 115/206/0/0). Base-14 stays
   498/266, fuzz 540/360, 9 tests ~1.36 s.
+- **2026-09-23 — gate covers all 19 Embench corpora**: auditing the
+  interrupted 08:59 lowerer work found that the unfinished guarded
+  rotated zero-test lowering *mis-lowers* `sglib_dllist_get_first` and
+  `sglib_dllist_get_last` (differential mismatch with `rewrites=0`, so
+  the fault is in lowering, not in a family rewrite). The committed tree
+  refuses both loudly; the interrupted state traded a refusal for a
+  silent mismatch under the same shape. It stayed invisible because
+  `scripts/verify.sh` gated only four external corpora — the other
+  fifteen were outside the referee entirely. The interrupted work is
+  preserved on `wip/guarded-rotated-zero-test` (never lost again) and
+  reverted from `current`; the gate now runs **all 19** corpora native,
+  and all 19 under sanitizers and AArch64 in `full`, and warns
+  explicitly when corpora are absent. Lesson recorded: a corpus outside
+  the gate is a corpus that cannot fail, and a loud refusal is worth
+  more than a speculative acceptance.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production
