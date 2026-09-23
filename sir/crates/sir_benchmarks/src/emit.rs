@@ -146,11 +146,6 @@ fn reaches_loop(
         .unwrap_or(false)
 }
 
-/// True for types the C emitter spells as pointers.
-fn is_pointer(ty: &Type) -> bool {
-    matches!(ty, Type::Pointer { .. })
-}
-
 /// Map a SIR type to a C type string.
 pub fn c_type(ty: &Type) -> String {
     match ty {
@@ -2259,35 +2254,15 @@ fn emit_loop(
     // garbage for `n == 0`.
     for (i, &ci) in carried_inputs.iter().enumerate() {
         let ci_node = func.get_node(ci).unwrap();
-        let output_ty = outputs
+        let ty = outputs
             .get(i)
             .and_then(|oi| func.get_node(*oi))
-            .map(|n| n.ty.clone());
-        let ty = output_ty
-            .as_ref()
-            .map(c_type)
+            .map(|n| c_type(&n.ty))
             .unwrap_or_else(|| c_type(&ci_node.ty));
-        let parent_init = parent_carriers.get(&ci).cloned();
-        let init = parent_init
-            .clone()
+        let init = parent_carriers
+            .get(&ci)
+            .cloned()
             .unwrap_or_else(|| emit_expr(ci_node, func, parent_carriers));
-        // The declaration takes its C type from the loop's output while the
-        // initial value comes from the carried input. For pointers those are
-        // two independent pointee inferences of the same address (H3 F7) and
-        // are routinely spelled differently — `const uint16_t *` out of a
-        // `const uint8_t *` parameter, for instance. Bind the initial value
-        // through an explicit cast so the declaration is well typed: the
-        // declared type is what every other use of the carrier is written
-        // against, and GCC 14 promotes the implicit conversion that clang
-        // only warns about to an error. A parent carrier is cast as well
-        // because its own declaration is not visible from here.
-        let needs_cast = output_ty.as_ref().is_some_and(is_pointer)
-            && (parent_init.is_some() || c_type(&ci_node.ty) != ty);
-        let init = if needs_cast {
-            format!("({}){}", ty, init)
-        } else {
-            init
-        };
         let _ = write!(out, "    {} o{}_{} = {};\n", ty, ordinal, i, init);
     }
 

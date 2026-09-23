@@ -210,12 +210,7 @@ fn recognize_loop(
     } else {
         constant_u64(function, bound)? as usize
     };
-    // A guarded termination (`!found && i < bound`) can exit early on the
-    // match, so the loop analysis reports no trip count for it. The scan
-    // bound is established structurally below instead: `bound_guard`
-    // requires the zero-initialized counter, stepped by exactly one, to be
-    // compared `Lt` against the carried extent.
-    if !runtime && extent == 0 {
+    if !runtime && (extent == 0 || fact.trip_count != Some(extent as u64)) {
         return None;
     }
     if runtime && fact.trip_count.is_some() {

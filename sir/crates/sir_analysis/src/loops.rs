@@ -4,7 +4,7 @@
 //! carried variables, and reduction pattern detection.
 
 use sir_nodes::{Function, NodeKind};
-use sir_types::{ConstantData, NodeId};
+use sir_types::NodeId;
 use std::collections::HashMap;
 
 use crate::facts::{LoopFact, ReductionVar};
@@ -63,20 +63,13 @@ fn estimate_trip_count(
 ) -> Option<u64> {
     let term_node = func.get_node(termination)?;
 
-    // Guarded terminations (`i < limit && flag`): the trip-count
-    // comparison may be a conjunct of a boolean AND. The bound alone only
-    // bounds the loop if the other conjunct cannot make it exit early, so
-    // that conjunct must be provably constant-true; otherwise the count is
-    // refused rather than guessed.
+    // Guarded terminations (`!found && i < limit`): the trip-count
+    // comparison may be a conjunct of a boolean AND.
     if let NodeKind::BoolAnd { lhs, rhs } = &term_node.kind {
-        return match (
-            estimate_trip_count(func, *lhs, carried_inputs, outputs),
-            estimate_trip_count(func, *rhs, carried_inputs, outputs),
-        ) {
-            (Some(trip), _) if is_true_constant(func, *rhs) => Some(trip),
-            (_, Some(trip)) if is_true_constant(func, *lhs) => Some(trip),
-            _ => None,
-        };
+        if let Some(trip) = estimate_trip_count(func, *lhs, carried_inputs, outputs) {
+            return Some(trip);
+        }
+        return estimate_trip_count(func, *rhs, carried_inputs, outputs);
     }
 
     // Look for a comparison that controls the loop.
@@ -151,14 +144,6 @@ fn get_constant_u64(func: &Function, id: NodeId) -> Option<u64> {
     } else {
         None
     }
-}
-
-/// Check if a node is the boolean constant `true`.
-fn is_true_constant(func: &Function, id: NodeId) -> bool {
-    matches!(
-        func.get_node(id).map(|node| &node.kind),
-        Some(NodeKind::Constant(ConstantData::Bool(true)))
-    )
 }
 
 /// Check if a node is an integer constant 0.

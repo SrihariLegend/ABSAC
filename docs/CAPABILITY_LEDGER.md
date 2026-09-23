@@ -1967,6 +1967,57 @@ Three follow-ups this table makes concrete:
   project's own rule arriving from the other side — a check that cannot fail has
   not checked anything, and neither has a *test* that cannot reach the check.
 
+- **2026-09-23 — SWAR-popcount obligation: dischargeable, and the prover refuted
+  my own statement of it**: the feasibility gate on a new `popcount` recognizer,
+  run against `sir_mech` directly (`prove_equal` / `prove_implied_equal` →
+  `CheckResult::{Valid, Counterexample(model), Unknown}`), driver outside the
+  repo. **No case returned `Unknown` or timed out.**
+  **Correction to my premise, and the prover made it.** I stated the obligation
+  as "the three-step SWAR equals `popcount`". That is **false**, and the kernel
+  returned a counterexample rather than agreeing: `x=0x80000000`, lhs=16777216
+  against rhs=1, in 0.001 s. The three steps compute *packed per-byte counts*,
+  not the total. Redis's real shape is steps **plus the fold**, so the recognizer
+  must match the fold too — a bare-steps recognizer would be refutable. The
+  positive form is `(steps * 0x01010101) >> 24 == popcount(x)`, **VALID in
+  0.531 s** (CNF 1439 vars / 4875 clauses).
+  **Width cost, and the fix.** The 64-bit form is VALID but takes **295.5 s**
+  monolithically (CNF 5303/18209) — and the cost is CDCL *search*, not encoding
+  size, since the CNF is only ~3.7× the 32-bit one. Posed decomposed it is
+  **~6 s total** (packed-counts 0.012 s + byte-sum 2.494 s + fold 3.351 s). So it
+  is slow, not unprovable: **pose the 64-bit obligation decomposed.** A width
+  sweep 8/16/32/64 of the same shape gives 0.001 / 0.010 / 0.524 / 302.5 s.
+  **Hypotheses are supported, and the byte bound is exactly the applicability
+  condition.** `prove_implied_equal` takes assumptions: the fold is VALID for
+  `bytes <= 8` (0.012 s), `<= 56` (0.046 s), `<= 63` (0.068 s), and
+  **`<= 64` is a counterexample** (`v=0x40404040`, lhs=0 against rhs=256). With
+  no hypothesis at all, counterexample `v=0xff800000`. The boundary is exactly
+  63; redis's 7×8=56 sits safely inside it. **The multiply is not required** —
+  a shift-add spelling of the fold gives *identical* CNF (447/1397) and is also
+  VALID, as does an `extract(31,24)` form, so the recognizer can accept either
+  spelling at no extra obligation cost.
+  **Negative controls, because a proof harness that cannot fail has proved
+  nothing.** Wrong mask `0x55555554` → COUNTEREXAMPLE `x=0x4c3ff907` (broken→19,
+  popcount→18); `0x33333332` → COUNTEREXAMPLE `x=0xf400051e`; the 64-bit wrong
+  mask → COUNTEREXAMPLE `x=0xfd561f7d4cfe0002`. All three independently
+  re-verified against a reference implementation. And the sharpest one: a bad
+  fold constant `0x01010100` *under the byte hypothesis* → COUNTEREXAMPLE
+  `v=0x08000000` — the hypothesis does not mask a wrong constant, and **sampling
+  had found nothing there; the kernel did.**
+  **Why the VALIDs are proofs and not agreements.** `Valid` cannot arise from a
+  guess: `equiv.rs` maps `Unsatisfiable → Valid`, budget exhaustion → `Unknown`,
+  and a SAT model failing the caller-side re-check → `Unknown`. Evaluator
+  differential (`Bv::eval` against an independent reference) PASS; encoder
+  differential forcing every literal, multiply included, PASS at both widths;
+  and 2,000,000 sampled values per width against an independent Python reference,
+  0 mismatches.
+  **The sequencing caveat, which is the part that decides when to write it.** The
+  obligation is dischargeable, so the family is *writable* — but its only known
+  site, `redisPopcount`, is still behind the multi-loop CFG refusal, so a family
+  written today could not fire on any real program until that reach work lands.
+  It *is* testable in isolation: the SWAR loop alone lowers at `-O1` (the
+  probe's `v3_swar` variant). So this is a stepping stone with a testable target,
+  not a capability that pays on its own.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
