@@ -1555,6 +1555,29 @@ yields exactly one object (`6db4450`) and it belongs to the new lean line.
   numbers appear in no run. The measured result is 185 ms against clang -O3's
   79 ms — a loss of roughly 2.3×, and slower than not rewriting at all.
 
+## Claims register (2026-09-23)
+
+Every retained performance claim names its evidence. A claim whose raw artifacts
+are not held, or whose measurement predates the referee repair of 2026-09-23, is
+marked accordingly — that repair changed what a `clean` result means, so anything
+measured before it is **superseded until reproduced**.
+
+| # | Claim | Source snapshot | Configuration | Raw result | Status |
+|---|---|---|---|---|---|
+| 1 | Differential matrix green: base-14 249/18/0/0, external 114/207/0/0, fuzz 540/220, sanitizers 114/207; native == AArch64 == sanitizers | `current`, the committed tree | clang 19.1.7, aarch64-linux-gnu-gcc 14.2, `SIR_OPT_LEVEL` default 1 | `sir/scripts/verify.sh full` log plus `tmp/verify/manifest.sha256`, 118 files | **validated** on the committed tree |
+| 2 | Emission-blowup guard refuses exactly 3 functions, refuses 0 of 236 benign lowerings, captures 96.7% of excess emitted instructions | 266 lowerings over the -O1/-O2/-O3 corpora | bound `8×` plus 32 values of slack | `/tmp/vrfy_incidence/{rows.json,measure.py}` — **outside the repo** | measured; raw data unpinned |
+| 3 | `edn::jpegdct` 1.0592× — the only retained rewrite-attributable win | `/tmp/external/edn.ll` at `-O1` | clang 19.1.7 | level-survey logs under `/tmp/fire2/out/` | **superseded — predates the referee repair; re-measure before quoting** |
+| 4 | Old tree Gate 3 reproduced: k18 5.95×, k18-random 141×, k43 4.70×, k50 8.22× against clang -O3 | old tree `head` = `2cae1fd`, rebuilt at `/tmp/old_sir` | clang -O3 on both sides | `/tmp/gate3_rerun/out.txt` — **outside the repo** | reproduced 2026-09-23; raw data unpinned |
+| 5 | Redis `redisPopcount`: 185 ms against clang -O3's 79 ms — a loss of about 2.3×, and slower than not rewriting | Redis `unstable`, `src/bitops.c` | clang -O3 | `/tmp/redis_bench/` — **outside the repo** | reproduced; raw data unpinned |
+| 6 | Reachable loops: 3 in 3 functions at `-O1`, 0 at `-O2` and `-O3` | 19 Embench corpora at three levels | probe mirroring the recognizer gates; probe deleted after use | **raw data deleted** — its own task removed `/tmp/vrfy_recon` | **unpinned; must be re-derived before being quoted as evidence** |
+| 7 | `perft/README.md` shows Redis BITCOUNT at "ABSAC 1.76×" | old tree `perft/README.md` | — | contradicted by #5; committed one commit before the first real run | **contradicted — superseded, not merely stale** |
+
+Three follow-ups this table makes concrete:
+
+- **#3 and #6 must be re-measured under the repaired harness** before either is quoted again. #6 in particular is load-bearing for the current conclusion about reach, and its backing data no longer exists.
+- **#2, #4 and #5 have their raw artifacts outside the repo**, so a future session re-deriving them starts from a command rather than from data. Where a claim matters, the producing script belongs in the tree.
+- **Every ratio in #1 and #2 travels with its coverage and refusal counts.** The external `clean` count fell from 117 to 114 when three catastrophic functions began refusing — zero mismatches after narrowing acceptance is a legitimate result and is not an increase in coverage.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
