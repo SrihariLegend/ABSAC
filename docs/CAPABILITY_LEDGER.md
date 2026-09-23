@@ -973,6 +973,17 @@ have now been restored into current `sir_mech` and tested.
   qrduino invalid-state error disappears. All-19: **111 clean / 207
   refused / 0 mismatched / 3 invalid-state** (was 110/207/0/4).
   Base-14 stays 498/266, fuzz 540/360, 9 tests ~1.36 s.
+- **2026-09-23 — reference-side probing + zero-state fallback**: the
+  generated driver accepts `--ref-only` and `--zero`; the harness first
+  runs the reference alone under random state, then under zero state if
+  it faults, and either runs the full differential in the state where
+  the reference is defined or classifies the input as invalid-state
+  (reported as a refusal with an explicit reason). This makes
+  `sglib_iq_first_element` a real clean differential case (native,
+  AArch64, sanitizer-clean) and removes the last harness errors from
+  the probe set. All-19: **112 clean / 209 refused / 0 mismatched / 0
+  harness errors** (was 111/207/0/3). Base-14 stays 498/266, fuzz
+  540/360, sanitizers 0, 9 tests ~1.36 s.
 - **2026-09-19 — narrow-counter Kernighan proof**: a 7-bit counter
   encoding cut the width-32 bounded proof from 35.6s to 16.5s, but that
   is still pipeline-infeasible; the experiment was reverted. Production

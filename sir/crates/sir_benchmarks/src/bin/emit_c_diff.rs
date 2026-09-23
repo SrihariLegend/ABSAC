@@ -487,7 +487,14 @@ fn build_driver(
     ));
     out.push_str("static _Alignas(64) uint8_t __sir_ptr_scratch[4096];\n\n");
 
-    out.push_str("int main(void) {\n");
+    out.push_str("int main(int argc, char **argv) {\n");
+    out.push_str("    int zero_state = 0, ref_only = 0;\n");
+    out.push_str(
+        "    for (int i = 1; i < argc; i++) {\n\
+         \x20       if (!strcmp(argv[i], \"--zero\")) zero_state = 1;\n\
+         \x20       if (!strcmp(argv[i], \"--ref-only\")) ref_only = 1;\n\
+         \x20   }\n",
+    );
     // 32 bytes of identically-filled guard slab precede every buffer, so
     // guarded negative indices read the same bytes on both sides instead
     // of whatever happens to precede each array.
@@ -501,12 +508,19 @@ fn build_driver(
     } else {
         "bufA[b][i + 32] = (uint8_t)seed;"
     };
+    out.push_str(
+        "        if (zero_state) {\n\
+         \x20           memset(bufA, 0, sizeof bufA);\n\
+         \x20           memset(bufB, 0, sizeof bufB);\n\
+         \x20       } else {\n",
+    );
     out.push_str(&format!(
-        "        for (int b = 0; b < 8; b++) for (int i = 0; i < 2048; i++) {{\n\
-         \x20           seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17;\n\
-         \x20           {fill} bufB[b][i + 32] = bufA[b][i + 32];\n\
-         \x20       }}\n",
+        "            for (int b = 0; b < 8; b++) for (int i = 0; i < 2048; i++) {{\n\
+         \x20               seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17;\n\
+         \x20               {fill} bufB[b][i + 32] = bufA[b][i + 32];\n\
+         \x20           }}\n",
     ));
+    out.push_str("        }\n");
 
     // Scalar declarations + argument lists.
     let mut ref_args: Vec<String> = Vec::new();
@@ -569,7 +583,7 @@ fn build_driver(
         } else {
             global_reset.push_str(&format!(
                 "        memset({cname}, 0, {});\n\
-                 \x20       {{ uint64_t gs = 0x9E3779B97F4A7C15ULL ^ (uint64_t)t ^ {i}ULL;\n\
+                 \x20       if (!zero_state) {{ uint64_t gs = 0x9E3779B97F4A7C15ULL ^ (uint64_t)t ^ {i}ULL;\n\
                  \x20         for (int j = 0; j < {}; j++) {{ gs ^= gs << 13; gs ^= gs >> 7; gs ^= gs << 17; {cname}[j] = (uint8_t)(gs >> 32); }} }}\n",
                 g.size, g.size
             ));
@@ -593,6 +607,7 @@ fn build_driver(
             name,
             ref_args.join(", ")
         ));
+        out.push_str("        if (ref_only) continue;\n");
         out.push_str(&global_snapshot);
         out.push_str(&global_reset);
         out.push_str("        if (__sir_ffi_reset) __sir_ffi_reset();\n");
@@ -607,6 +622,7 @@ fn build_driver(
             name,
             ref_args.join(", ")
         ));
+        out.push_str("        if (ref_only) continue;\n");
         out.push_str(&global_snapshot);
         out.push_str(&global_reset);
         out.push_str("        if (__sir_ffi_reset) __sir_ffi_reset();\n");
@@ -634,6 +650,9 @@ fn build_driver(
          \x20       }}\n"
     ));
     out.push_str("    }\n");
+    out.push_str(&format!(
+        "    if (ref_only) {{ printf(\"EMITREF_OK cases={cases}\\n\"); return 0; }}\n"
+    ));
     out.push_str(&format!(
         "    printf(\"EMITDIFF {name} cases={cases} mismatches=%llu\\n\", (unsigned long long)mismatches);\n"
     ));
@@ -696,7 +715,14 @@ fn build_same_address_driver(
          }}\n\n"
     ));
     out.push_str("static _Alignas(64) uint8_t __sir_ptr_scratch[4096];\n\n");
-    out.push_str("int main(void) {\n");
+    out.push_str("int main(int argc, char **argv) {\n");
+    out.push_str("    int zero_state = 0, ref_only = 0;\n");
+    out.push_str(
+        "    for (int i = 1; i < argc; i++) {\n\
+         \x20       if (!strcmp(argv[i], \"--zero\")) zero_state = 1;\n\
+         \x20       if (!strcmp(argv[i], \"--ref-only\")) ref_only = 1;\n\
+         \x20   }\n",
+    );
     out.push_str("    static _Alignas(64) uint8_t buf[8][2048 + 32];\n");
     out.push_str("    static _Alignas(64) uint8_t initbuf[8][2048 + 32];\n");
     out.push_str("    static _Alignas(64) uint8_t snap[8][2048 + 32];\n");
@@ -763,7 +789,7 @@ fn build_same_address_driver(
         } else {
             global_reset.push_str(&format!(
                 "        memset({cname}, 0, {});\n\
-                 \x20       {{ uint64_t gs = 0x9E3779B97F4A7C15ULL ^ (uint64_t)t ^ {i}ULL;\n\
+                 \x20       if (!zero_state) {{ uint64_t gs = 0x9E3779B97F4A7C15ULL ^ (uint64_t)t ^ {i}ULL;\n\
                  \x20         for (int j = 0; j < {}; j++) {{ gs ^= gs << 13; gs ^= gs >> 7; gs ^= gs << 17; {cname}[j] = (uint8_t)(gs >> 32); }} }}\n",
                 g.size, g.size
             ));
@@ -788,6 +814,7 @@ fn build_same_address_driver(
             name,
             ref_args.join(", ")
         ));
+        out.push_str("        if (ref_only) continue;\n");
     } else {
         out.push_str(&format!(
             "        {} r_ref = {}__ref({});\n",
@@ -795,6 +822,7 @@ fn build_same_address_driver(
             name,
             ref_args.join(", ")
         ));
+        out.push_str("        if (ref_only) continue;\n");
     }
     out.push_str(&global_snapshot);
     for slot in 0..ptr_slot {
@@ -823,6 +851,9 @@ fn build_same_address_driver(
         "        for (int b = 0; b < {ptr_slot}; b++) if (memcmp(snap[b] + 32, buf[b] + 32, 2048)) {{ if (mismatches < 5) printf(\"EMITBUF {name} t=%d slot=%d\\n\", t, b); mismatches++; }}\n"
     ));
     out.push_str("    }\n");
+    out.push_str(&format!(
+        "    if (ref_only) {{ printf(\"EMITREF_OK cases={cases}\\n\"); return 0; }}\n"
+    ));
     out.push_str(&format!(
         "    printf(\"EMITDIFF {name} cases={cases} mismatches=%llu\\n\", (unsigned long long)mismatches);\n"
     ));
@@ -1189,7 +1220,7 @@ fn time_function(
         !baseline,
         target,
     )?;
-    let run = run_binary(&exe_path, target).map_err(|e| format!("run: {e}"))?;
+    let run = run_binary(&exe_path, target, &[]).map_err(|e| format!("run: {e}"))?;
     let stdout = String::from_utf8_lossy(&run.stdout);
     if !run.status.success() {
         return Err(format!(
@@ -1539,7 +1570,33 @@ fn run_function(
         return Outcome::HarnessError { reason };
     }
 
-    let run = match run_binary(&exe_path, target) {
+    let ref_ok = |output: &std::process::Output| {
+        output.status.success() && String::from_utf8_lossy(&output.stdout).contains("EMITREF_OK")
+    };
+    let zero_mode = match run_binary(&exe_path, target, &["--ref-only"]) {
+        Ok(output) if ref_ok(&output) => None,
+        Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+            return Outcome::Refused {
+                reason: format!("run did not terminate: {e}"),
+            };
+        }
+        _ => match run_binary(&exe_path, target, &["--ref-only", "--zero"]) {
+            Ok(output) if ref_ok(&output) => Some(true),
+            _ => {
+                return Outcome::Refused {
+                    reason:
+                        "invalid-state input: reference faults under random and zero initialization"
+                            .to_string(),
+                };
+            }
+        },
+    };
+    let run_args: &[&str] = if zero_mode.is_some() {
+        &["--zero"]
+    } else {
+        &[]
+    };
+    let run = match run_binary(&exe_path, target, run_args) {
         Ok(o) => o,
         Err(e) => {
             if e.kind() == std::io::ErrorKind::TimedOut {
@@ -1611,13 +1668,16 @@ fn ns_value(line: &str, key: &str) -> Option<u64> {
         .find_map(|token| token.strip_prefix(&prefix)?.parse().ok())
 }
 
-fn run_binary(exe: &Path, target: &str) -> std::io::Result<std::process::Output> {
+fn run_binary(exe: &Path, target: &str, args: &[&str]) -> std::io::Result<std::process::Output> {
     let mut command = if target == "aarch64" {
         let mut command = Command::new("qemu-aarch64");
         command.arg(exe);
+        command.args(args);
         command
     } else {
-        Command::new(exe)
+        let mut command = Command::new(exe);
+        command.args(args);
+        command
     };
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command.spawn()?;
