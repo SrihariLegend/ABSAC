@@ -8,7 +8,7 @@ fn registry_exposes_expected_families_and_definitions() {
     definitions.sort_unstable();
     assert_eq!(
         definitions,
-        vec![0, 4, 5, 6, 7, 100, 101, 102, 103, 200, 400, 401, 402, 403, 404, 405]
+        vec![0, 4, 5, 6, 7, 8, 100, 101, 102, 103, 200, 400, 401, 402, 403, 404, 405]
     );
 }
 

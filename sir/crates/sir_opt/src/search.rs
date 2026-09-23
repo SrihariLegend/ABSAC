@@ -7,10 +7,12 @@
 //! module shows computes the same first match as the source loop's
 //! found-flag scan.
 
+use std::collections::HashSet;
+
 use sir_nodes::{Function, Node, NodeKind};
 use sir_types::{ConstantData, Effects, NodeId, Span, Type};
 
-use crate::patch::{apply, Patch};
+use crate::patch::{apply, carried_names, Patch};
 
 struct SearchPlan {
     target: NodeId,
@@ -22,6 +24,9 @@ struct SearchPlan {
     definition: u64,
     memchr: Option<(NodeId, NodeId)>,
     runtime: bool,
+    /// S2: the names under which this loop's carried variables are visible
+    /// inside its body. `instantiate` refuses to copy one.
+    carried: HashSet<NodeId>,
 }
 
 /// Optimize a bounded search and report whether definition 402 (fixed
@@ -210,7 +215,12 @@ fn recognize_loop(
     } else {
         constant_u64(function, bound)? as usize
     };
-    if !runtime && (extent == 0 || fact.trip_count != Some(extent as u64)) {
+    // A guarded termination (`!found && i < bound`) can exit early on the
+    // match, so the loop analysis reports no trip count for it. The scan
+    // bound is established structurally below instead: `bound_guard`
+    // requires the zero-initialized counter, stepped by exactly one, to be
+    // compared `Lt` against the carried extent.
+    if !runtime && extent == 0 {
         return None;
     }
     if runtime && fact.trip_count.is_some() {
@@ -377,6 +387,7 @@ fn recognize_loop(
         definition,
         memchr,
         runtime,
+        carried: carried_names(loop_node),
     })
 }
 
@@ -434,6 +445,16 @@ fn instantiate(
             element_ty.clone(),
             Effects::READ_MEMORY,
         ));
+    }
+    // S2: see `patch::carried_names`. The select-chain path re-instantiates
+    // the predicate once per index; a carried node names the current
+    // iteration's value inside the body and the initial value outside it,
+    // so copying one would read the initial value at every index. The
+    // access substitution above is the sanctioned exception. The memchr
+    // path (402/403) does not re-instantiate the predicate at all, so this
+    // refusal only reaches the select-chain shape (200).
+    if plan.carried.contains(&node_id) {
+        return None;
     }
     let node = function.get_node(node_id)?;
     let mut rec = |id: NodeId| instantiate(function, plan, id, index_const, nodes, next, depth + 1);

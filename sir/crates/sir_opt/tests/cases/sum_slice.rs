@@ -108,3 +108,90 @@ fn runtime_bound_sum_uses_helper() {
         "runtime sum loop must be replaced"
     );
 }
+
+/// A value-dependent conjunct of the termination (`i < 64 && flag`) only
+/// bounds the loop: the flag can end it early, so the bound is not the
+/// trip count and the unrolled sum would add elements the source loop
+/// never reads. The same loop with a bare `Lt` termination is still
+/// rewritten, so the refusal is attributable to the extra conjunct alone.
+fn value_dependent_termination_conjunct_is_refused() {
+    let guarded = r#"
+define dso_local i64 @guarded_sum(ptr nocapture noundef readonly %0, ptr nocapture noundef readonly %1) local_unnamed_addr {
+2:
+  %g = icmp eq i64 64, 0
+  br i1 %g, label %20, label %3
+3:
+  %i = phi i64 [ 0, %2 ], [ %i.next, %3 ]
+  %s = phi i64 [ 0, %2 ], [ %s.next, %3 ]
+  %ap = getelementptr inbounds i8, ptr %0, i64 %i
+  %av = load i8, ptr %ap, align 1
+  %av64 = zext i8 %av to i64
+  %s.next = add i64 %s, %av64
+  %fp = getelementptr inbounds i1, ptr %1, i64 %i
+  %fv = load i1, ptr %fp, align 1
+  %in = icmp ult i64 %i, 64
+  %cont = and i1 %in, %fv
+  %i.next = add nuw nsw i64 %i, 1
+  br i1 %cont, label %3, label %20
+20:
+  %r = phi i64 [ 0, %2 ], [ %s.next, %3 ]
+  ret i64 %r
+}
+"#;
+    let function = sir_lower::lower_function(guarded, "guarded_sum")
+        .expect("guarded sum loop must lower");
+    let trips = sir_opt::family::with_facts(&function, |facts| {
+        facts
+            .loops
+            .values()
+            .map(|fact| fact.trip_count)
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        trips,
+        vec![None],
+        "a value-dependent guard must not yield a trip count"
+    );
+    for family in sir_opt::family::registry() {
+        let applied =
+            sir_opt::family::with_facts(&function, |facts| family.apply_one(&function, facts));
+        assert!(
+            applied.is_none(),
+            "family {} must refuse a loop whose termination carries a value-dependent conjunct",
+            family.name()
+        );
+    }
+
+    let twin = r#"
+define dso_local i64 @pure_sum(ptr nocapture noundef readonly %0) local_unnamed_addr {
+2:
+  %g = icmp eq i64 64, 0
+  br i1 %g, label %20, label %3
+3:
+  %i = phi i64 [ 0, %2 ], [ %i.next, %3 ]
+  %s = phi i64 [ 0, %2 ], [ %s.next, %3 ]
+  %ap = getelementptr inbounds i8, ptr %0, i64 %i
+  %av = load i8, ptr %ap, align 1
+  %av64 = zext i8 %av to i64
+  %s.next = add i64 %s, %av64
+  %in = icmp ult i64 %i, 64
+  %i.next = add nuw nsw i64 %i, 1
+  br i1 %in, label %3, label %20
+20:
+  %r = phi i64 [ 0, %2 ], [ %s.next, %3 ]
+  ret i64 %r
+}
+"#;
+    let function =
+        sir_lower::lower_function(twin, "pure_sum").expect("unguarded twin must lower");
+    let (optimized, definition) = sir_opt::optimize_sum_with_definition(&function)
+        .expect("the unguarded twin must still optimize");
+    assert_eq!(definition, 400, "the unguarded twin is definition 400");
+    assert!(
+        !optimized
+            .arena
+            .iter()
+            .any(|node| matches!(node.kind, sir_nodes::NodeKind::Loop { .. })),
+        "the unguarded twin's sum loop must be unrolled"
+    );
+}

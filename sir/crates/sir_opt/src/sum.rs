@@ -1,9 +1,11 @@
 //! Fixed-extent sum reduction: recognition, proof, straight-line patch.
 
+use std::collections::HashSet;
+
 use sir_nodes::{Function, Node, NodeKind};
 use sir_types::{ConstantData, Effects, NodeId, Span, Type};
 
-use crate::patch::{apply, Patch};
+use crate::patch::{apply, carried_names, Patch};
 use crate::prove;
 
 const MAX_UNROLL: usize = 512;
@@ -19,6 +21,9 @@ struct SumPlan {
     element_access: NodeId,
     definition: u64,
     carry_first: bool,
+    /// S2: the names under which this loop's carried variables are visible
+    /// inside its body. `clone_with_index` refuses to copy one.
+    carried: HashSet<NodeId>,
 }
 
 /// Optimize a fixed-extent raw-element sum loop into a straight-line
@@ -160,6 +165,7 @@ fn recognize_loop(
         } else {
             401
         },
+        carried: carried_names(loop_node),
     })
 }
 
@@ -241,6 +247,14 @@ fn clone_with_index(
             plan.element_ty.clone(),
             Effects::READ_MEMORY,
         ));
+    }
+    // S2: see `patch::carried_names`. A carried node names the current
+    // iteration's value inside the body and the initial value outside it;
+    // copying one into the unrolled chain reads the initial value on every
+    // iteration (`values[i] + i` → `values[k] + 0`). The element-access
+    // substitution above is the one sanctioned exception.
+    if plan.carried.contains(&node_id) {
+        return None;
     }
     let node = function.get_node(node_id)?;
     let mut rec =

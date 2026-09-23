@@ -169,8 +169,9 @@ impl Family for PopcountFamily {
     fn name(&self) -> &'static str {
         "popcount"
     }
+    // 7 is the Kernighan loop idiom, 8 the value-local SWAR chain.
     fn definitions(&self) -> &'static [u64] {
-        &[7]
+        &[7, 8]
     }
     fn apply_one(&self, function: &Function, facts: &FactDatabase) -> Option<Applied> {
         let (function, definition) = popcount::apply_one(function, facts)?;

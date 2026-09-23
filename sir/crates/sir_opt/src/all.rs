@@ -1,10 +1,12 @@
 //! Fixed-extent `All` reduction over a comparison predicate: AND-chain
 //! the zero/one indicator produced for each element.
 
+use std::collections::HashSet;
+
 use sir_nodes::{Function, Node, NodeKind};
 use sir_types::{ConstantData, Effects, NodeId, Span, Type};
 
-use crate::patch::{apply, Patch};
+use crate::patch::{apply, carried_names, Patch};
 use crate::prove;
 
 struct AllPlan {
@@ -148,6 +150,17 @@ fn recognize_loop(
         return None;
     }
     let (element_access, base, index) = find_element_access(function, *cond, counter.variable)?;
+    // S2: see `patch::carried_names`. `instantiate` clones the hoisted
+    // `Select`, and the arm that names the accumulator is pinned to the
+    // identity constant by the `constant_u64(..) == Some(1)` check above,
+    // so cloning it is sound. The *predicate* is not pinned: a carried node
+    // inside it names the current iteration's value, and cloning it would
+    // read the initial value every iteration (`values[i] > i` unrolls to
+    // `values[k] > 0`). The element access is a leaf — its index operand
+    // names the carry and `instantiate` replaces the whole access.
+    if cond_reads_carry(function, *cond, element_access, &carried_names(loop_node)) {
+        return None;
+    }
     let Type::Array { element, length } = &function.get_node(base)?.ty else {
         return None;
     };
@@ -268,6 +281,33 @@ fn push(
         Node::new(NodeId::new(id), kind, ty, effects, Span::unknown()),
     ));
     id
+}
+
+/// S2: does `cond` reach loop-carried state? The element access is a leaf
+/// (its index operand names the carry, and `instantiate` replaces the
+/// access wholesale), so the walk stops there. An unknown node is treated
+/// as carrying, because the walk's purpose is to refuse.
+fn cond_reads_carry(
+    function: &Function,
+    root: NodeId,
+    element_access: NodeId,
+    carried: &HashSet<NodeId>,
+) -> bool {
+    let mut worklist = vec![root];
+    let mut seen = HashSet::new();
+    while let Some(id) = worklist.pop() {
+        if !seen.insert(id) || id == element_access {
+            continue;
+        }
+        if carried.contains(&id) {
+            return true;
+        }
+        let Some(node) = function.get_node(id) else {
+            return true;
+        };
+        worklist.extend(node.kind.input_nodes());
+    }
+    false
 }
 
 fn find_element_access(

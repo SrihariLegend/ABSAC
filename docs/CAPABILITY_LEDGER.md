@@ -54,6 +54,7 @@ recovery path is recorded here.**
 | 5 | All | integer AND-chain ported; bool-pack path missing |
 | 6 | parity | **restored (XOR-reduction path)** as `sir_opt::parity`; `HEAD` bitset/pack/popcount path still to mine |
 | 7 | Kernighan popcount | **restored for all widths** as `sir_opt::popcount`; ≤16 machine-checked, 32/64 contract-backed pending the kernel induction proof |
+| 8 | SWAR popcount | **new** in `sir_opt::popcount`: the value-local three-step chain *plus its fold*; obligation machine-checked for 16/32 (one query) and 64 (decomposed); fires on no corpus — see the 2026-09-23 entry |
 | 100–103 | arithmetic | **restored** as `sir_opt::arithmetic` (divide→shift, modulo→mask, multiply→shift, shift-mask) |
 | 300–303 | mask algebra | dropped as measured-neutral |
 | 310–313 | permutations | **missing** |
@@ -1565,6 +1566,80 @@ yields exactly one object (`6db4450`) and it belongs to the new lean line.
   effect from one line of `emit.rs` — see the `redisPopcount` entry below. The
   magnitude was right by coincidence and for a different reason.]**
 
+- **2026-09-23 — S2 containment: a live miscompile in the unrolling families, and
+  the guard that had been ported once and lost.** A probe
+  (`/tmp/s5probe/probe.ll`, `probe_s2_index_scalar`) exercises `values[i] > i` —
+  a reduction whose predicate scalar is *derived from the induction variable*.
+  **Pre-fix**: the `any` family rewrites it, and the witness built against the
+  emitted C prints `emitted=1 ref=0` against a `0/0` control: the unrolled chain
+  collapses the scalar to its initial value (`bool v465 = (v463 > (0ULL));`).
+  Reproduces from a clang `-O1` source path (`/tmp/s5probe/csrc/s2.ll`).
+  **The referee could not see it, and that is the finding.** `emit_c_diff` fills
+  buffers with random bytes, so `values[i] > i` is true on practically every
+  case on both sides: `clean cases=8 rewrites=1`, `mismatched=0`. A differential
+  referee whose inputs are random is blind to a predicate that is
+  overwhelmingly true — *a check that cannot fail has not checked anything*, in
+  the one place where the check is the product. The shape only became visible
+  when `sum` was probed with the same construction: `values[i] + i` unrolls to
+  `values[k] + 0`, which loses the `i` term on **every** case, not just a crafted
+  one — `MISMATCH cases=8 mismatches=8 rewrites=1`.
+  **Root cause.** `Loop` has no phi nodes: the lowerer reuses the carried-input
+  node as the *in-body* name of the carried variable. Read inside the body it
+  denotes the current iteration's value; read from outside the loop it denotes
+  the initial value. A family that hoists a body expression into an unrolled
+  chain and copies a carried node therefore substitutes the initial value for
+  every iteration. This is the old tree's **S2** class; its
+  `certify_invariant_scalar` (`sir_semantics/src/binding.rs:802`) was not among
+  what the recovery ported. S1 (accumulator identity unbound) *was* ported, as
+  `any.rs`'s `if !is_zero(function, reduction.variable)`.
+  **Localization.** With `--allow-defs 999` (all rewrites disabled) the emitted C
+  is the correct `while` loop and the witness prints `emitted=0 ref=0`; with
+  rewrites enabled the scalar collapses. The defect is in the **rewrite**, not in
+  lowering or emission. No change was needed in `sir_lower` or `emit.rs`.
+  **Fix — the check, not the file.** One shared certificate,
+  `patch::carried_names(loop_node)`, returns the ids under which a loop's carried
+  variables are visible inside its body (`carried_inputs ∪ outputs`). Five
+  families refuse to copy one out of the loop: `any`, `count`, `parity`, `sum`
+  (in `instantiate` / `clone_with_index`) and `search` (def-200 select chain).
+  `all` takes a narrower route: its `instantiate` is rooted at the `Select`
+  whose arm *is* the accumulator, and that arm is already pinned to the identity
+  constant, so a blanket refusal there would have cost every legitimate `all`
+  firing; instead `cond_reads_carry` walks the predicate only, stopping at the
+  element access (a leaf whose index operand names the carry and which
+  `instantiate` replaces wholesale). `popcount`, `runtime_count` and
+  `runtime_sum` need no guard — they emit a helper call over base/counter/bound
+  and never re-instantiate a body expression.
+  **The element-access substitution is the one sanctioned exception** in the
+  guarded families, and it is above the refusal in every `instantiate`: the
+  access is replaced with a fresh index, so it drops the carry rather than
+  copying it. That ordering is load-bearing.
+  **Firing cost: measured, and zero.** A/B over 34 corpora (base-14 + 19
+  external Embench + heldout) with `SIR_OPT_TRACE=1`, pre-guard
+  (`/tmp/reach/identity.log`, `/tmp/reach/id/`) against post-guard
+  (`/tmp/reach/identity2.log`, `/tmp/reach/id2/`): **every per-corpus
+  `EMITC_SUMMARY` line and every per-function `SIR_OPT` trace line is identical**
+  — 170 firings on both sides, and the per-definition histogram matches exactly
+  (def 102 ×33, 405 ×26, 404 ×25, 400 ×20, 0 ×19, 401 ×16, 101 ×9, 402 ×6, 100 ×4,
+  5 ×3, 403 ×3, 4 ×3, 103 ×3). The five guarded families keep every firing they
+  had: `count` (def 0) 19, `sum` (def 401) 16, `any` (def 4) 3, `all` (def 5) 3.
+  Nothing was widened to keep firings, and nothing had to be traded.
+  Post-fix the defect probe reports `probe_s2_index_scalar: clean rewrites=0`
+  with its parameter-scalar control still firing (`probe_param_scalar:
+  rewrites=1`), and the sibling probes refuse the S2 shape while firing the
+  control for `count`/`parity`/`all`.
+  **Regression case.** `sir_opt/tests/cases/carried_scalar.rs`, wired into the
+  existing `families_rewrite_and_prove()` dispatch — **no new `#[test]`**, per the
+  standing instruction. It collects all five refusals before asserting so a
+  failure names every family that fired, and it asserts the parameter-scalar
+  control still unrolls, so a blanket family kill cannot pass it. Falsified:
+  with `carried_names` returning the empty set the report reads
+  `[("any", true), ("count", true), ("parity", true), ("all", true),
+  ("sum", true)]` — all five snippets do reach their family, so none of the five
+  assertions is vacuous.
+  **`verify.sh fast`**: `VERIFY PASS mode=fast`, workspace tests 10 passed / 0
+  failed, all 14 base-14 and all 19 external corpora `mismatched=0
+  harness_errors=0`, manifest 119 files.
+
 ## Claims register (2026-09-23)
 
 Every retained performance claim names its evidence. A claim whose raw artifacts
@@ -1581,6 +1656,7 @@ measured before it is **superseded until reproduced**.
 | 5 | ~~Redis `redisPopcount`: 185 ms against clang -O3's 79 ms — a loss of about 2.3×, and slower than not rewriting~~ | Redis `unstable`, `src/bitops.c` | clang -O3 | `/tmp/redis_bench/` — **outside the repo** | **WITHDRAWN 2026-09-23 — never a real A/B.** The witness's own `NOTES.md` read "Status: NOT YET MEASURED" for the clang delta. Superseded by the measurement below; the magnitude (2.16×) was right by coincidence and for a different reason (emission, not recognition). |
 | 6 | Reachable loops: 3 in 3 functions at `-O1`, 0 at `-O2` and `-O3` | 19 Embench corpora at three levels | probe mirroring the recognizer gates; probe deleted after use | **raw data deleted** — its own task removed `/tmp/vrfy_recon` | **unpinned; must be re-derived before being quoted as evidence** |
 | 7 | `perft/README.md` shows Redis BITCOUNT at "ABSAC 1.76×" | old tree `perft/README.md` | — | contradicted by #5; committed one commit before the first real run | **contradicted — superseded, not merely stale** |
+| 8 | SWAR definition 8: 4.000× on the isolated kernel (20.0000 → 5.0000 Ir per 32-bit word), and **1.000×** at `-O1` without `-mpopcnt` and at `-O3 -mpopcnt` | the emitted C from `/tmp/absac_pc` probe `v3_swar` at `-O1`, against its own pre-rewrite emission | clang 19.1.7; callgrind slope `(Ir(8)−Ir(4))/4` over 1 MiB, best of 3, `taskset -c 0` | `/tmp/swarcg/{tu_raw.c,tu_rw.c}` and the built binaries — **outside the repo** | measured 2026-09-23; **raw data unpinned, and fires on no corpus** — quote it only with the concession that the backend already knows the idiom at `-O2`+ |
 
 Three follow-ups this table makes concrete:
 
@@ -1980,12 +2056,24 @@ Three follow-ups this table makes concrete:
   must match the fold too — a bare-steps recognizer would be refutable. The
   positive form is `(steps * 0x01010101) >> 24 == popcount(x)`, **VALID in
   0.531 s** (CNF 1439 vars / 4875 clauses).
-  **Width cost, and the fix.** The 64-bit form is VALID but takes **295.5 s**
-  monolithically (CNF 5303/18209) — and the cost is CDCL *search*, not encoding
-  size, since the CNF is only ~3.7× the 32-bit one. Posed decomposed it is
-  **~6 s total** (packed-counts 0.012 s + byte-sum 2.494 s + fold 3.351 s). So it
-  is slow, not unprovable: **pose the 64-bit obligation decomposed.** A width
-  sweep 8/16/32/64 of the same shape gives 0.001 / 0.010 / 0.524 / 302.5 s.
+  **Width cost, and the fix.** The 64-bit form is VALID but slow, and the figure
+  is **not stable**: the same query with a **bit-identical CNF** (5303 vars /
+  18209 clauses) measured 295.5 s and 313.7 s across runs, and the width sweep's
+  64-bit entry 302.5 s and 537.2 s — a 1.8× spread on an identical problem.
+  The honest statement is "**~300–540 s, single-digit minutes**", not a precise
+  cost; an earlier draft of this entry quoted 295.5 s as though it were one, and
+  is corrected here. The likely cause is contention rather than solver
+  nondeterminism — this is a 2-vCPU box that had two other jobs running
+  throughout — **but that is an inference, not something the run establishes**,
+  and a deterministic CDCL should not vary with time at all, so it is worth
+  knowing if it recurs on an idle box. What the number is *for* does not depend
+  on it: the 64-bit obligation **does discharge** inside the 2M-conflict budget,
+  so it is slow rather than unprovable, and the cost is CDCL *search* rather than
+  encoding size, since the CNF is only ~3.7× the 32-bit one. Posed decomposed it
+  is **~5.8 s in every run** (packed-counts 0.011 s + byte-sum 2.558 s + fold
+  3.231 s) — cheaper than the monolithic figure whatever that figure is doing.
+  **Pose the 64-bit obligation decomposed.** A width sweep 8/16/32/64 of the same
+  shape gives 0.001 / 0.010 / 0.524 / ~300 s (noisy).
   **Hypotheses are supported, and the byte bound is exactly the applicability
   condition.** `prove_implied_equal` takes assumptions: the fold is VALID for
   `bytes <= 8` (0.012 s), `<= 56` (0.046 s), `<= 63` (0.068 s), and
@@ -2017,6 +2105,99 @@ Three follow-ups this table makes concrete:
   It *is* testable in isolation: the SWAR loop alone lowers at `-O1` (the
   probe's `v3_swar` variant). So this is a stepping stone with a testable target,
   not a capability that pays on its own.
+
+- **2026-09-23 — the SWAR recognizer lands as definition 8, and it fires only
+  where the backend does not already know the idiom.** `sir_opt/src/popcount.rs`
+  gains `SWAR_POPCOUNT = 8` beside `KERNIGHAN_POPCOUNT = 7`, built on the
+  feasibility gate above. `apply_one` is now
+  `apply_kernighan(function).or_else(|| apply_swar(function))`; the loop idiom is
+  tried first *because* it consumes the whole loop while the SWAR recognizer is
+  value-local — and, as a side effect, no existing firing can change hands.
+  **What is matched, steps and fold together.** The pattern is rooted at a `Shr`
+  by exactly `W - 8` (any other shift is a different chain), then the fold, then
+  the three steps read backwards: `(t + (t>>4)) & 0x0F0F…`, `(u>>2 & 0x33…35) +
+  (u & 0x33…)`, `x - ((x>>1) & 0x55…)`. The fold is accepted in either of the two
+  spellings measured in the gate, `Mul` by `0x0101…` on either operand order, or
+  the shift-add tree with sorted shifts `0, 8, …, W-8` and no multiply. Widths
+  16/32/64, unsigned only. Every constant is exact and the recognizer refuses on
+  anything else: the masks and the fold unit are the same named constants
+  (`SWAR_M1/M2/M3`, `SWAR_FOLD_UNIT`) the obligation is phrased over, so a
+  deviation cannot be matched here and proved there.
+  **The obligation, and its cost.** `prove::swar_popcount_laws(width, fold)`
+  returns `true` only on `CheckResult::Valid` — a `Counterexample` or an `Unknown`
+  refuses, and `apply_swar` calls it before building any `Patch`. It is cached
+  per `(width, fold)` in a `OnceLock<Mutex<…>>`, as `kernighan_proved` is.
+  Measured: 16-bit 0.010–0.021 s; 32-bit 0.526 s (multiply spelling) and 0.872 s
+  (shift-add), CNF 1439 vars / 4875 clauses in both cases — *identical CNF, so
+  neither spelling carries a cost penalty*. 64-bit is posed **decomposed**
+  (`byte ≤ 8` on the step term, then packed bytes sum to `popcount`, then the
+  fold lemma with the byte bound as hypothesis), ≈5.8 s in every run; the
+  monolithic form is rejected on the cost the gate measured (~300–540 s) rather
+  than on validity. Each lemma is discharged against the actual term before the
+  composite is used. The byte-bound hypothesis is the applicability condition and
+  is not free: the fold is refuted at byte bound 64 (`v = 0x40404040`).
+  **The isolated kernel fires.** `/tmp/absac_pc`, probe variant `v3_swar` at
+  `-O1`: `SIR_OPT v3_swar def=8`, `NATIVE v3_swar: clean cases=1 rewrites=1`,
+  `EMITC_SUMMARY clean=1 mismatched=0 lower_refused=0 harness_errors=0`. The
+  emitted C replaces the fold (`v29`, `v31`) with
+  `uint32_t v43 = __builtin_popcount(v10);` — **`popcount`, not `popcountll`**:
+  the emitter picks the spelling from the *operand's* width and the word is
+  `i32`. (The task premise assumed `popcountll`; that assumption was wrong, and
+  the `popcountll` arm remains what the 64-bit Kernighan corpus emits.) The dead
+  SWAR chain text (`v12`…`v29`) **stays in the emitted C**: `patch::apply`'s
+  `sweep` seeds every non-pure node and walks all of a `Loop`'s body members, so
+  a dead body node is retained. clang removes it; `mismatched=0`.
+  **Instruction counts, measured, and the win is narrower than the probe
+  suggested.** callgrind slope `(Ir(reps=8) − Ir(reps=4)) / 4` over a 1 MiB
+  buffer, best of 3, `taskset -c 0`, **Ir per 32-bit word** (the figures are the
+  loop body exactly: static counts in `v3_swar` agree at 25/25, 25/10, 32/32):
+
+  | compile of the emitted C | pre-change (SWAR chain) | post-change (builtin) | ratio |
+  |---|---|---|---|
+  | `-O1` | 20.0000 | 20.0000 | **1.000×** |
+  | `-O1 -mpopcnt` | 20.0000 | 5.0000 | **4.000×** |
+  | `-O3 -mpopcnt` | 2.7500 | 2.7500 | **1.000×** |
+
+  All six binaries return the same sum over 1 MiB (`4196165`). The `-O1` row is
+  a genuine negative result, not a measurement failure: clang 19.1.7 at `-O1`
+  **without** `-mpopcnt` expands `__builtin_popcount` back into the SWAR
+  sequence — both arms compile to 25 instructions with one `imul` — and at
+  `-O2`/`-O3` clang recognises the hand-written chain itself (5 `popcnt` on both
+  sides). So the rewrite pays only where the backend has POPCNT *and* does not
+  apply its own idiom recognition, which is the same lesson as the
+  `redisPopcount` measurement arriving from the other direction: what ABSAC
+  contributes here is that the object was **recovered and proved**, and the
+  speedup is contingent on the backend's own behaviour rather than caused by the
+  rewrite.
+  **Firing cost: measured, and zero.** `apply_kernighan` is the pre-change
+  `apply_one` body verbatim (diffed body-against-body) and runs first. Measured
+  independently: `SIR_OPT_TRACE=1` over 34 corpora (base-14 + 19 external +
+  heldout) gives 170 firings and the histogram def 102 ×33, 405 ×26, 404 ×25,
+  400 ×20, 0 ×19, 401 ×16, 101 ×9, 402 ×6, 100 ×4, 5 ×3, 403 ×3, 4 ×3, 103 ×3 —
+  **`def=8` occurs 0 times**, and every per-corpus trace is byte-identical to the
+  pre-change baseline `/tmp/reach/id2/`. A def-8 firing is the only way this
+  change can alter an outcome, so zero firings means the per-function decisions
+  are unchanged. (`heldout` reports `harness_errors=1` in the baseline too —
+  pre-existing and untouched.) The pre- and post-change `verify.sh fast` logs are
+  identical ignoring build durations. Nothing was widened to keep firings.
+  **Regression case.** One function, `swar_popcount_chain_rewrites_under_definition_8`,
+  behind the existing `run()` dispatch in `sir_opt/tests/cases/runtime_loop.rs` —
+  **no new `#[test]`**, and the workspace count stays 10. It asserts definition 8
+  for both fold spellings and refuses two negative controls: a one-bit mask
+  deviation (`0x55555554`) and a one-unit fold-shift deviation (`>> 23`). The
+  `families_rewrite_and_prove` case went from ~1 s to 1.53 s: it now pays the two
+  32-bit proofs, cached per `(width, fold)`.
+  **`verify.sh fast`**: `VERIFY PASS mode=fast`, workspace tests 10 passed / 0
+  failed / 0 ignored, all 14 base-14 and all 19 external corpora `mismatched=0
+  harness_errors=0`, manifest 119 files.
+  **Not established.** The 16- and 64-bit recognition paths and their obligations
+  are exercised by no corpus and no test — the case covers 32-bit only, and the
+  64-bit obligation was discharged out-of-tree. The only known real-world site,
+  `redisPopcount`, is still behind the multi-loop CFG refusal, so definition 8
+  fires on no program in any corpus: the kernel above is a probe, not a corpus
+  member. This is a stepping stone exactly as the gate predicted, and the
+  instruction-count table says the step it enables is worth less than the ~2.14×
+  the fixed-ISA probe had suggested.
 
 ## Reference commands
 

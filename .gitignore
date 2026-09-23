@@ -27,3 +27,6 @@ Thumbs.db
 
 gate4/differential
 gate4/differential_asan
+
+# The real history lives here; never add it as a nested repo
+/recovery.git/

@@ -1,10 +1,12 @@
 //! Fixed-extent `Any` reduction: OR-reduce a pure element expression into
 //! a straight-line bitwise-OR chain.
 
+use std::collections::HashSet;
+
 use sir_nodes::{Function, Node, NodeKind};
 use sir_types::{ConstantData, Effects, NodeId, Span, Type};
 
-use crate::patch::{apply, Patch};
+use crate::patch::{apply, carried_names, Patch};
 use crate::prove;
 
 struct AnyPlan {
@@ -16,6 +18,9 @@ struct AnyPlan {
     expression: NodeId,
     element_access: NodeId,
     carry_first: bool,
+    /// S2: the names under which this loop's carried variables are visible
+    /// inside its body. `instantiate` refuses to copy one.
+    carried: HashSet<NodeId>,
 }
 
 pub fn optimize_any(function: &Function) -> Option<Function> {
@@ -166,6 +171,7 @@ fn recognize_loop(
         expression,
         element_access,
         carry_first,
+        carried: carried_names(loop_node),
     })
 }
 
@@ -192,6 +198,16 @@ fn instantiate(
             function.get_node(node_id)?.ty.clone(),
             Effects::READ_MEMORY,
         ));
+    }
+    // S2: a carried node names the current iteration's value inside the
+    // body and the initial value outside it. The element-access
+    // substitution above is the one sanctioned exception — it replaces the
+    // induction-indexed access, and it drops the index operand rather than
+    // copying it. Every *other* reference to loop-carried state refuses,
+    // because copying it into the unrolled chain would read the initial
+    // value on every iteration (`values[i] > i` → `values[k] > 0`).
+    if plan.carried.contains(&node_id) {
+        return None;
     }
     let node = function.get_node(node_id)?;
     let mut rec = |id: NodeId| instantiate(function, plan, id, index_local, nodes, next, depth + 1);

@@ -91,6 +91,112 @@ define dso_local i32 @naive_popcount16(i16 noundef %0) local_unnamed_addr {
     );
 }
 
+/// The SWAR bit-count chain is value-local: it replaces the fold
+/// expression, not a loop, and it fires only when the three masks, the
+/// fold constant and the fold shift are exactly the reference pattern.
+/// The steps alone are refutable (`x = 0x80000000` steps to 16777216
+/// where popcount is 1), so the fold is part of the object and a
+/// deviating mask must refuse rather than guess.
+fn swar_popcount_chain_rewrites_under_definition_8() {
+    // Redis `redisPopcount`, per 32-bit word: three steps plus the
+    // multiply fold.
+    let multiply_ir = r#"
+define dso_local i32 @swar32(i32 noundef %0) local_unnamed_addr {
+  %1 = lshr i32 %0, 1
+  %2 = and i32 %1, 1431655765
+  %3 = sub i32 %0, %2
+  %4 = lshr i32 %3, 2
+  %5 = and i32 %4, 858993459
+  %6 = and i32 %3, 858993459
+  %7 = add i32 %5, %6
+  %8 = lshr i32 %7, 4
+  %9 = add i32 %8, %7
+  %10 = and i32 %9, 252645135
+  %11 = mul i32 %10, 16843009
+  %12 = lshr i32 %11, 24
+  ret i32 %12
+}
+"#;
+    let function = sir_lower::lower_function(multiply_ir, "swar32")
+        .expect("SWAR chain must lower");
+    let (optimized, rewrites, definitions) =
+        sir_opt::optimize(&function, &|_| true).expect("SWAR chain must optimize");
+    assert_eq!(definitions, vec![8], "the SWAR chain is definition 8");
+    assert_eq!(rewrites, 1, "one rewrite: the fold becomes a Popcount");
+    assert!(
+        optimized
+            .arena
+            .iter()
+            .any(|node| matches!(node.kind, sir_nodes::NodeKind::Popcount { .. })),
+        "the SWAR fold must be replaced by a Popcount"
+    );
+    assert!(
+        !optimized
+            .arena
+            .iter()
+            .any(|node| matches!(node.kind, sir_nodes::NodeKind::Mul { .. })),
+        "the SWAR chain must not survive the rewrite"
+    );
+
+    // The same object with the fold spelled as a shift-add tree, so the
+    // word carries no multiply at all.
+    let shift_add_ir = r#"
+define dso_local i32 @swar32_sa(i32 noundef %0) local_unnamed_addr {
+  %1 = lshr i32 %0, 1
+  %2 = and i32 %1, 1431655765
+  %3 = sub i32 %0, %2
+  %4 = lshr i32 %3, 2
+  %5 = and i32 %4, 858993459
+  %6 = and i32 %3, 858993459
+  %7 = add i32 %5, %6
+  %8 = lshr i32 %7, 4
+  %9 = add i32 %8, %7
+  %10 = and i32 %9, 252645135
+  %11 = shl i32 %10, 8
+  %12 = add i32 %10, %11
+  %13 = shl i32 %10, 16
+  %14 = add i32 %12, %13
+  %15 = shl i32 %10, 24
+  %16 = add i32 %14, %15
+  %17 = lshr i32 %16, 24
+  ret i32 %17
+}
+"#;
+    let function = sir_lower::lower_function(shift_add_ir, "swar32_sa")
+        .expect("shift-add spelling must lower");
+    let (optimized, _, definitions) =
+        sir_opt::optimize(&function, &|_| true).expect("shift-add spelling must optimize");
+    assert_eq!(definitions, vec![8], "both fold spellings are definition 8");
+    assert!(
+        optimized
+            .arena
+            .iter()
+            .any(|node| matches!(node.kind, sir_nodes::NodeKind::Popcount { .. })),
+        "the shift-add fold must be replaced by a Popcount"
+    );
+
+    // Negative controls. One bit of the first mask and one unit of the
+    // fold shift each name a different function, and the difference is
+    // not something the recognizer may guess at.
+    for (label, ir) in [
+        (
+            "mask 0x55555554",
+            multiply_ir.replace("1431655765", "1431655764"),
+        ),
+        (
+            "fold shift 23",
+            multiply_ir.replacen("lshr i32 %11, 24", "lshr i32 %11, 23", 1),
+        ),
+    ] {
+        let function = sir_lower::lower_function(&ir, "swar32")
+            .unwrap_or_else(|error| panic!("{label} must lower: {error}"));
+        assert!(
+            sir_opt::optimize_popcount(&function).is_none(),
+            "a SWAR chain with {label} must be refused, not guessed at"
+        );
+    }
+}
+
 /// A Kernighan loop whose source carries an effect must be refused. The
 /// store shape is a live miscompile if rewritten: `Builder::r#loop` types
 /// the loop node from its body, so the loop-level guard sees the store,
@@ -169,4 +275,60 @@ define dso_local i32 @pc_call(i64 noundef %0) local_unnamed_addr {
         sir_opt::optimize_popcount(&function).is_none(),
         "a Kernighan loop carrying an effectful value must be refused, not rewritten to Popcount"
     );
+}
+
+/// A loop whose *condition* carries effects: the call is defined in the
+/// preheader and used directly as the branch condition, so it is a member
+/// of neither `body`, `outputs`, nor `carried_inputs`. The loop node
+/// stays pure (nothing in the body reads or writes), so the loop-level
+/// guard cannot fire and the per-node guard over the three collections
+/// cannot see the call. Every family must still refuse the shape on its
+/// own recognizer pins (trip count, termination kind, bound guard): the
+/// same loop with a pure `Lt` bound in place of the call is accepted
+/// (runtime-sum, definition 404), so the refusal is attributable to the
+/// condition node alone.
+fn effectful_loop_conditions_are_refused() {
+    let ir = r#"
+declare i1 @ext(i32 noundef)
+define dso_local i64 @cond_call(ptr nocapture noundef readonly %0) local_unnamed_addr {
+2:
+  %c = call i1 @ext(i32 noundef 0)
+  %3 = icmp eq i64 64, 0
+  br i1 %3, label %13, label %4
+4:
+  %5 = phi i64 [ 0, %2 ], [ %11, %4 ]
+  %6 = phi i64 [ 0, %2 ], [ %10, %4 ]
+  %7 = getelementptr inbounds i8, ptr %0, i64 %5
+  %8 = load i8, ptr %7, align 1
+  %9 = zext i8 %8 to i64
+  %10 = add i64 %6, %9
+  %11 = add nuw nsw i64 %5, 1
+  br i1 %c, label %4, label %13
+13:
+  %14 = phi i64 [ 0, %2 ], [ %10, %4 ]
+  ret i64 %14
+}
+"#;
+    let function = sir_lower::lower_function(ir, "cond_call")
+        .expect("a preheader call used as the loop condition must lower");
+    assert!(
+        function.arena.iter().any(|node| {
+            matches!(&node.kind, sir_nodes::NodeKind::Loop { termination, .. }
+                if node.effects.is_pure()
+                    && function.get_node(*termination).is_some_and(|inner| {
+                        inner.ty == sir_types::Type::Bool
+                            && !(inner.effects - sir_types::Effects::READ_MEMORY).is_empty()
+                    }))
+        }),
+        "fixture must lower to a pure loop whose Bool condition carries effects"
+    );
+    for family in sir_opt::family::registry() {
+        let applied =
+            sir_opt::family::with_facts(&function, |facts| family.apply_one(&function, facts));
+        assert!(
+            applied.is_none(),
+            "family {} must refuse a loop whose condition carries effects",
+            family.name()
+        );
+    }
 }

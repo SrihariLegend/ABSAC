@@ -5,10 +5,12 @@
 //! The loop-carried XOR is associative with identity zero and is its
 //! own inverse, so a counted loop materializes as `v0 ^ v1 ^ ...`.
 
+use std::collections::HashSet;
+
 use sir_nodes::{Function, Node, NodeKind};
 use sir_types::{ConstantData, Effects, NodeId, Span, Type};
 
-use crate::patch::{apply, Patch};
+use crate::patch::{apply, carried_names, Patch};
 use crate::prove;
 
 struct ParityPlan {
@@ -20,6 +22,9 @@ struct ParityPlan {
     expression: NodeId,
     element_access: NodeId,
     carry_first: bool,
+    /// S2: the names under which this loop's carried variables are visible
+    /// inside its body. `instantiate` refuses to copy one.
+    carried: HashSet<NodeId>,
 }
 
 pub fn optimize_parity(function: &Function) -> Option<Function> {
@@ -170,6 +175,7 @@ fn recognize_loop(
         expression,
         element_access,
         carry_first,
+        carried: carried_names(loop_node),
     })
 }
 
@@ -196,6 +202,14 @@ fn instantiate(
             function.get_node(node_id)?.ty.clone(),
             Effects::READ_MEMORY,
         ));
+    }
+    // S2: see `patch::carried_names`. A carried node names the current
+    // iteration's value inside the body and the initial value outside it;
+    // copying one into the unrolled chain reads the initial value on every
+    // iteration (`values[i] > i` → `values[k] > 0`). The element-access
+    // substitution above is the one sanctioned exception.
+    if plan.carried.contains(&node_id) {
+        return None;
     }
     let node = function.get_node(node_id)?;
     let mut rec = |id: NodeId| instantiate(function, plan, id, index_local, nodes, next, depth + 1);

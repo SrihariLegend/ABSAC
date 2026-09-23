@@ -13,6 +13,33 @@ pub struct Patch {
     pub replacements: Vec<(NodeId, u64)>,
 }
 
+/// S2 certificate: the names under which a loop's carried variables are
+/// visible *inside* its body.
+///
+/// `Loop` has no phi nodes — the lowerer reuses the carried-input node as
+/// the in-body name of the carried variable. A body expression that reads
+/// `%n` therefore reads the value that variable holds on the *current*
+/// iteration, while the same node read from outside the loop reads its
+/// initial value. A family that hoists a body expression out of its loop
+/// must refuse to copy one of these nodes, or it substitutes the initial
+/// value for every iteration's.
+///
+/// This is the S2 class: `values[i] > i` has the induction carry as the
+/// predicate's scalar operand, and hoisting the predicate unrolls it to
+/// `values[k] > 0`. The induction variable is not carried for its own sake
+/// here — it is carried because the loop counter is a carried value — so
+/// the check is on loop-carried state, not on the induction variable.
+pub(crate) fn carried_names(loop_node: &Node) -> HashSet<NodeId> {
+    match &loop_node.kind {
+        NodeKind::Loop {
+            outputs,
+            carried_inputs,
+            ..
+        } => carried_inputs.iter().chain(outputs.iter()).copied().collect(),
+        _ => HashSet::new(),
+    }
+}
+
 pub fn apply(function: &Function, patch: &Patch) -> Option<Function> {
     let max = function.arena.ids().map(|id| id.0).max().unwrap_or(0);
     let local: HashSet<u64> = patch.nodes.iter().map(|(id, _)| *id).collect();

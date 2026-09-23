@@ -27,6 +27,71 @@ static ALLOW_RUNTIME_SEARCH: AtomicBool = AtomicBool::new(false);
 static ALLOW_DEFS: OnceLock<Vec<u64>> = OnceLock::new();
 static PER_FUNCTION_ALLOW: OnceLock<BTreeMap<String, BTreeMap<u64, bool>>> = OnceLock::new();
 static FFI_SUPPORT: OnceLock<Option<PathBuf>> = OnceLock::new();
+static REF_OBJECT: OnceLock<Option<PathBuf>> = OnceLock::new();
+static REF_LEVEL: OnceLock<Option<String>> = OnceLock::new();
+static ALLOW_CROSS_LEVEL: AtomicBool = AtomicBool::new(false);
+static TIME_ABC: AtomicBool = AtomicBool::new(false);
+
+/// Object file holding the reference side of a `--time` comparison. It must
+/// have been built from the original source at the same optimization level
+/// as the emitted C; `checked_ref_object` is what enforces that, and every
+/// caller goes through it. The object must export `{name}__ref` and define
+/// every global the function reads; the driver then injects nothing, so both
+/// sides read the object's own tables.
+fn ref_object() -> Option<PathBuf> {
+    REF_OBJECT.get().and_then(|object| object.clone())
+}
+
+fn ref_level() -> Option<String> {
+    REF_LEVEL.get().and_then(|level| level.clone())
+}
+
+fn allow_cross_level() -> bool {
+    ALLOW_CROSS_LEVEL.load(Ordering::Relaxed)
+}
+
+/// Level the emitted C and the driver are compiled at. Single source of
+/// truth: the compiler invocation and the reference-level check both read it
+/// from here, so the two cannot drift apart.
+fn opt_level() -> String {
+    std::env::var("SIR_OPT_LEVEL").unwrap_or_else(|_| "1".to_string())
+}
+
+/// `ref_object`, after checking the invariant its doc comment states.
+///
+/// The reference is built outside this binary, so its level cannot be
+/// inspected -- it has to be declared and must match the level we compile the
+/// other side at. A mismatch makes the comparison a measurement of the level
+/// difference rather than of the code: a recorded B/A of 2.035 on `Multiply`
+/// turned out to be *exactly* its raw@-O1/raw@-O3 ratio, with the same
+/// emitted C and the same driver, so the "emission cost" it was read as did
+/// not exist. This is the check that would have caught it.
+fn checked_ref_object() -> Result<Option<PathBuf>, String> {
+    let Some(object) = ref_object() else {
+        return Ok(None);
+    };
+    let level = opt_level();
+    let Some(declared) = ref_level() else {
+        return Err(format!(
+            "--ref-object requires --ref-level N: the reference object is built \
+             outside this binary, so its optimization level cannot be verified. \
+             Emitted C is compiled at -O{level} (SIR_OPT_LEVEL)."
+        ));
+    };
+    if declared != level && !allow_cross_level() {
+        return Err(format!(
+            "reference object is -O{declared} but emitted C is compiled at -O{level} \
+             (SIR_OPT_LEVEL): the comparison would measure the level difference, not \
+             the code. Set SIR_OPT_LEVEL={declared} to match, or pass \
+             --allow-cross-level to record a deliberate cross-level comparison."
+        ));
+    }
+    Ok(Some(object))
+}
+
+fn abc_mode() -> bool {
+    TIME_ABC.load(Ordering::Relaxed)
+}
 
 fn ffi_support() -> Option<PathBuf> {
     FFI_SUPPORT.get().and_then(|support| support.clone())
@@ -1300,6 +1365,236 @@ fn build_time_driver(
     out
 }
 
+/// Round order for the three-way driver. Each side occupies each position
+/// exactly twice, so neither warm-up nor a mid-run counter/clock shift can
+/// favour one side systematically.
+const ABC_ORDER: [[usize; 3]; 6] = [
+    [0, 1, 2],
+    [0, 2, 1],
+    [1, 0, 2],
+    [1, 2, 0],
+    [2, 0, 1],
+    [2, 1, 0],
+];
+
+/// Three-way timing driver: A (the reference object, built from the original
+/// source at the selected optimization level), B (the scalar IR with rewrites
+/// off) and C (the same IR with rewrites on) measured in one process, on
+/// identically seeded buffers, with the rounds interleaved.
+///
+/// Two separate executables cannot be compared reliably here: the absolute
+/// tick counts are bimodal (the CPU sits in one of two frequency states), and
+/// a run that lands its two sides in different states reports a ratio that is
+/// wrong by percent -- far more than the effects under measurement. In one
+/// process all three sides see the same state, so the ratio survives it.
+fn build_time_driver_abc(
+    name: &str,
+    func: &Function,
+    ir_ret: &str,
+    ir_params: &[String],
+    reps: usize,
+    fill: Option<u8>,
+) -> String {
+    let mut out = String::new();
+    out.push_str(
+        "#include <stdint.h>\n#include <stdbool.h>\n#include <stdio.h>\n\
+         #include <string.h>\n#include <time.h>\n\n",
+    );
+    out.push_str("extern void __sir_ffi_reset(void) __attribute__((weak));\n\n");
+
+    let ir_p: Vec<String> = ir_params
+        .iter()
+        .enumerate()
+        .map(|(i, t)| format!("{} a{}", llvm_c_type(t), i))
+        .collect();
+    let new_p: Vec<String> = func.params.iter().map(|p| emit::c_type(&p.ty)).collect();
+    let new_params = if new_p.is_empty() {
+        "void".to_string()
+    } else {
+        new_p.join(", ")
+    };
+    // A is declared from the IR signature (the source compiled to the object
+    // has it), B and C from the emitted C's own signature.
+    out.push_str(&format!(
+        "extern {} {}__ref({});\n\n",
+        llvm_c_type(ir_ret),
+        name,
+        ir_p.join(", ")
+    ));
+    out.push_str(&format!(
+        "extern {} {}__base({});\n\n",
+        emit::c_type(&func.return_ty),
+        name,
+        new_params
+    ));
+    out.push_str(&format!(
+        "extern {} {}({});\n\n",
+        emit::c_type(&func.return_ty),
+        name,
+        new_params
+    ));
+
+    out.push_str(
+        "static uint64_t now_ns(void) {\n\
+         \x20   unsigned lo, hi;\n\
+         \x20   __asm__ __volatile__(\"rdtsc\" : \"=a\"(lo), \"=d\"(hi));\n\
+         \x20   return ((uint64_t)hi << 32) | (uint64_t)lo;\n\
+         }\n\n",
+    );
+
+    out.push_str("int main(int argc, char **argv) {\n");
+    out.push_str("    int zero_state = 0, ref_only = 0;\n");
+    out.push_str(
+        "    for (int i = 1; i < argc; i++) {\n\
+         \x20       if (!strcmp(argv[i], \"--zero\")) zero_state = 1;\n\
+         \x20       if (!strcmp(argv[i], \"--ref-only\")) ref_only = 1;\n\
+         \x20   }\n",
+    );
+    out.push_str(
+        "    static _Alignas(64) uint8_t bufA[8][2048 + 32];\n\
+         \x20   static _Alignas(64) uint8_t bufB[8][2048 + 32];\n\
+         \x20   static _Alignas(64) uint8_t bufC[8][2048 + 32];\n\
+         \x20   static const uint64_t lens[] = {0,1,2,3,4,5,7,8,16,31,32};\n\
+         \x20   static const uint64_t keys[] = {1,2,3,5,7,11,13,16,31};\n\
+         \x20   uint64_t seed = 0x9E3779B97F4A7C15ull;\n\
+         \x20   for (int i = 0; i < 8 * (2048 + 32); i++) {\n",
+    );
+    match fill {
+        Some(value) => out.push_str(&format!(
+            "        ((uint8_t *)bufA)[i] = zero_state ? 0u : (uint8_t){value}u;\n\
+             \x20       ((uint8_t *)bufB)[i] = zero_state ? 0u : (uint8_t){value}u;\n\
+             \x20       ((uint8_t *)bufC)[i] = zero_state ? 0u : (uint8_t){value}u;\n"
+        )),
+        None => out.push_str(
+            "        seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17;\n\
+             \x20       ((uint8_t *)bufA)[i] = zero_state ? 0u : (uint8_t)seed;\n\
+             \x20       ((uint8_t *)bufB)[i] = zero_state ? 0u : (uint8_t)seed;\n\
+             \x20       ((uint8_t *)bufC)[i] = zero_state ? 0u : (uint8_t)seed;\n",
+        ),
+    }
+    out.push_str("    }\n");
+
+    // Arguments are built once per side; every side gets the same scalar
+    // values and identically seeded buffers, at distinct addresses so no
+    // side can leave state for another to consume.
+    let mut args: [Vec<String>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut ptr_slot = 0usize;
+    let mut scalar_index = 0usize;
+    for (i, p) in func.params.iter().enumerate() {
+        let is_ir_param = i < ir_params.len();
+        if !is_ir_param || is_pointer_ty(&p.ty) {
+            args[0].push(format!(
+                "({})(bufA[{}] + 32)",
+                llvm_c_type(ir_params.get(i).map(String::as_str).unwrap_or("i8*")),
+                ptr_slot
+            ));
+            args[1].push(format!("({})(bufB[{}] + 32)", pointer_cast(&p.ty), ptr_slot));
+            args[2].push(format!("({})(bufC[{}] + 32)", pointer_cast(&p.ty), ptr_slot));
+            ptr_slot += 1;
+        } else {
+            let cty = emit::c_type(&p.ty);
+            out.push_str(&format!(
+                "    {cty} s{scalar_index} = ({cty})(lens[4] + keys[{scalar_index} % 9]);\n"
+            ));
+            args[0].push(format!(
+                "({})s{}",
+                llvm_c_type(&ir_params[i]),
+                scalar_index
+            ));
+            args[1].push(format!("s{scalar_index}"));
+            args[2].push(format!("s{scalar_index}"));
+            scalar_index += 1;
+        }
+    }
+
+    let symbols = [format!("{name}__ref"), format!("{name}__base"), name.to_string()];
+    let is_void = emit::c_type(&func.return_ty) == "void" || llvm_c_type(ir_ret) == "void";
+    let calls: Vec<String> = (0..3)
+        .map(|side| format!("{}({})", symbols[side], args[side].join(", ")))
+        .collect();
+
+    out.push_str("    if (__sir_ffi_reset) __sir_ffi_reset();\n");
+    if is_void {
+        out.push_str(&format!("    {};\n", calls[0]));
+        out.push_str("    if (ref_only) { printf(\"EMITTIME_REF_OK\\n\"); return 0; }\n");
+        out.push_str("    if (__sir_ffi_reset) __sir_ffi_reset();\n");
+        out.push_str(&format!("    {};\n", calls[1]));
+        out.push_str("    if (__sir_ffi_reset) __sir_ffi_reset();\n");
+        out.push_str(&format!("    {};\n", calls[2]));
+    } else {
+        out.push_str(&format!("    uint64_t ra = (uint64_t){};\n", calls[0]));
+        out.push_str("    if (ref_only) { printf(\"EMITTIME_REF_OK\\n\"); return 0; }\n");
+        out.push_str("    if (__sir_ffi_reset) __sir_ffi_reset();\n");
+        out.push_str(&format!("    uint64_t rb = (uint64_t){};\n", calls[1]));
+        out.push_str("    if (__sir_ffi_reset) __sir_ffi_reset();\n");
+        out.push_str(&format!("    uint64_t rc = (uint64_t){};\n", calls[2]));
+        out.push_str(
+            "    if (ra != rb || ra != rc) {\n\
+             \x20       printf(\"EMITTIME_ABC_MISMATCH ",
+        );
+        out.push_str(name);
+        out.push_str(
+            " a=%llu b=%llu c=%llu\\n\", (unsigned long long)ra,\n\
+             \x20           (unsigned long long)rb, (unsigned long long)rc);\n\
+             \x20       return 2;\n\
+             \x20   }\n",
+        );
+    }
+
+    out.push_str("    volatile uint64_t sink = 0;\n");
+    out.push_str("    uint64_t t0, t1;\n");
+    out.push_str("    uint64_t v0[6], v1[6], v2[6];\n");
+    let bodies: Vec<String> = (0..3)
+        .map(|side| {
+            if is_void {
+                format!("        {};\n", calls[side])
+            } else {
+                format!("        sink += (uint64_t){};\n", calls[side])
+            }
+        })
+        .collect();
+    for (round, order) in ABC_ORDER.iter().enumerate() {
+        for &side in order.iter() {
+            out.push_str(&format!(
+                "    t0 = now_ns();\n\
+                 \x20   for (uint64_t r = 0; r < {reps}ull; r++) {{\n{body}    }}\n\
+                 \x20   t1 = now_ns(); v{side}[{round}] = t1 - t0;\n",
+                body = bodies[side]
+            ));
+        }
+    }
+    out.push_str(
+        "    uint64_t a_ns = v0[0], b_ns = v1[0], c_ns = v2[0];\n\
+         \x20   for (int r = 1; r < 6; r++) {\n\
+         \x20       if (v0[r] < a_ns) a_ns = v0[r];\n\
+         \x20       if (v1[r] < b_ns) b_ns = v1[r];\n\
+         \x20       if (v2[r] < c_ns) c_ns = v2[r];\n\
+         \x20   }\n\
+         \x20   printf(\"EMITTIME_ABC ",
+    );
+    out.push_str(name);
+    out.push_str(
+        " reps=",
+    );
+    out.push_str(&format!("{reps}"));
+    out.push_str(
+        " state=%s a_ns=%llu b_ns=%llu c_ns=%llu sink=%llu\\n\",\n\
+         \x20       zero_state ? \"zero\" : \"random\",\n\
+         \x20       (unsigned long long)a_ns, (unsigned long long)b_ns,\n\
+         \x20       (unsigned long long)c_ns, (unsigned long long)sink);\n",
+    );
+    for (round, order) in ABC_ORDER.iter().enumerate() {
+        out.push_str(&format!(
+            "    printf(\"EMITTIME_ABC_ROUND {name} {round} %llu %llu %llu\\n\",\n\
+             \x20       (unsigned long long)v{}[{round}], (unsigned long long)v{}[{round}],\n\
+             \x20       (unsigned long long)v{}[{round}]);\n",
+            order[0], order[1], order[2]
+        ));
+    }
+    out.push_str("    return 0;\n}\n");
+    out
+}
+
 /// Guard band appended to every injected shadow. The driver only ever
 /// addresses the declared size, so an out-of-range read lands in this
 /// never-written tail instead of the driver's own scratch.
@@ -1373,7 +1668,7 @@ fn time_function(
     fill: Option<u8>,
     cc: &str,
     target: &str,
-) -> Result<(String, Vec<u64>), String> {
+) -> Result<String, String> {
     if let Some(reason) = unsupported_global_use(ll, name) {
         return Err(reason);
     }
@@ -1389,7 +1684,25 @@ fn time_function(
     let c_source = emit::emit_c(&optimized.function);
     let dir = workdir.join(name);
     fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
-    let (mut driver, extra_source) = if baseline {
+    let (mut driver, extra_source, extra_is_ir, inject_ref_globals) = if abc_mode() {
+        // A / B / C in one executable: the reference object built from the
+        // original source, the unoptimized emission, and the optimized
+        // emission, all linked by the same backend with the same flags. Only
+        // the ABSAC stage differs between the three.
+        let Some(object) = checked_ref_object()? else {
+            return Err("--time-abc needs --ref-object PATH".to_string());
+        };
+        let base_c = emit::emit_c(&func);
+        let renamed = base_c.replace(&format!("{name}("), &format!("{name}__base("));
+        let base_path = dir.join("baseline.c");
+        fs::write(&base_path, &renamed).map_err(|e| format!("write baseline.c: {e}"))?;
+        (
+            build_time_driver_abc(name, &optimized.function, &ir_ret, &ir_params, reps, fill),
+            object,
+            false,
+            false,
+        )
+    } else if baseline {
         let base_c = emit::emit_c(&func);
         let renamed = base_c.replace(&format!("{name}("), &format!("{name}__base("));
         let base_path = dir.join("baseline.c");
@@ -1407,6 +1720,30 @@ fn time_function(
                 fill,
             ),
             base_path,
+            false,
+            true,
+        )
+    } else if let Some(object) = checked_ref_object()? {
+        // Reference built from the original source at the selected
+        // optimization level, linked as an object. Both sides are then
+        // compiled by the same backend with the same flags; the object
+        // carries its own tables, so the driver injects nothing and both
+        // sides read the same globals.
+        (
+            build_time_driver(
+                name,
+                &format!("{name}__ref"),
+                "EMITTIME",
+                false,
+                &optimized.function,
+                &ir_ret,
+                &ir_params,
+                reps,
+                fill,
+            ),
+            object,
+            false,
+            false,
         )
     } else {
         // The differential path shadows the reference's globals so both
@@ -1433,9 +1770,13 @@ fn time_function(
                 fill,
             ),
             ref_path,
+            true,
+            true,
         )
     };
-    inject_globals(&mut driver, ll, &[name.to_string()], true)?;
+    if inject_ref_globals {
+        inject_globals(&mut driver, ll, &[name.to_string()], true)?;
+    }
 
     let emitted_path = dir.join("emitted.c");
     let driver_path = dir.join("driver_time.c");
@@ -1447,6 +1788,12 @@ fn time_function(
     if let Some(support) = ffi_support() {
         extra_c.push(support);
     }
+    if abc_mode() {
+        // The B side travels as an ordinary translation unit, compiled by the
+        // same backend invocation, at the same level, as the driver and the
+        // optimized emission.
+        extra_c.push(dir.join("baseline.c"));
+    }
     compile_harness(
         cc,
         false,
@@ -1455,7 +1802,7 @@ fn time_function(
         &emitted_path,
         &extra_c,
         &extra_source,
-        !baseline,
+        extra_is_ir,
         target,
     )?;
     // The differential path probes the reference under `--ref-only` and
@@ -1500,7 +1847,16 @@ fn time_function(
         .find(|l| l.starts_with("EMITTIME"))
         .map(|s| s.to_string())
         .ok_or_else(|| "no EMITTIME line".to_string())?;
-    Ok((line, optimized.definitions))
+    if abc_mode() {
+        // Keep the raw per-round ticks alongside the minima; a claim about a
+        // ratio has to name the numbers it came from.
+        let all: Vec<&str> = stdout
+            .lines()
+            .filter(|l| l.starts_with("EMITTIME_ABC"))
+            .collect();
+        return Ok(all.join("\n"));
+    }
+    Ok(line)
 }
 /// Compile the differential/timing harness with the selected C compiler.
 ///
@@ -1521,8 +1877,7 @@ fn compile_harness(
     if target == "aarch64" && sanitize {
         return Err("aarch64 target does not support sanitizers".to_string());
     }
-    let opt_level = std::env::var("SIR_OPT_LEVEL").unwrap_or_else(|_| "1".to_string());
-    let opt_flag = format!("-O{opt_level}");
+    let opt_flag = format!("-O{}", opt_level());
     let sanitizer_args: &[&str] = if sanitize {
         &[
             "-fsanitize=address,undefined",
@@ -1682,6 +2037,10 @@ enum Outcome {
     Clean {
         cases: usize,
         rewrites: usize,
+        /// The definitions the optimizer applied, in order. Carried here
+        /// rather than only through the timing path so the firing record
+        /// survives a timing failure.
+        definitions: Vec<u64>,
     },
     Mismatch {
         cases: usize,
@@ -1919,6 +2278,7 @@ fn run_function(
                 Outcome::Clean {
                     cases,
                     rewrites: optimized.rewrites_applied,
+                    definitions: optimized.definitions.clone(),
                 }
             } else {
                 Outcome::Mismatch {
@@ -1942,6 +2302,20 @@ fn ns_value(line: &str, key: &str) -> Option<u64> {
     let prefix = format!("{key}=");
     line.split_whitespace()
         .find_map(|token| token.strip_prefix(&prefix)?.parse().ok())
+}
+
+/// Combine two retention measurements of the same definition.
+///
+/// `Some(retained)` is a completed comparison, `None` is a firing whose
+/// timing did not complete. A measurement is kept over an unknown, and two
+/// measurements keep the existing "retained everywhere it was measured"
+/// conjunction.
+fn merge_retention(previous: Option<bool>, measured: Option<bool>) -> Option<bool> {
+    match (previous, measured) {
+        (Some(previous), Some(measured)) => Some(previous && measured),
+        (Some(previous), None) => Some(previous),
+        (None, measured) => measured,
+    }
 }
 
 fn run_binary(exe: &Path, target: &str, args: &[&str]) -> std::io::Result<std::process::Output> {
@@ -2042,7 +2416,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!(
-            "usage: emit_c_diff <corpus.ll> [--cases N] [--workdir DIR] [--function NAME] [--sanitize] [--cc clang|gcc] [--target native|aarch64] [--allow-runtime-search] [--allow-defs LIST] [--ffi-support PATH] [--profile-in PATH] [--profile-out PATH] [--time] [--time-reps N] [--time-baseline] [--measured-retain] [--time-fill V]"
+            "usage: emit_c_diff <corpus.ll> [--cases N] [--workdir DIR] [--function NAME] [--sanitize] [--cc clang|gcc] [--target native|aarch64] [--allow-runtime-search] [--allow-defs LIST] [--ffi-support PATH] [--ref-object PATH] [--ref-level N] [--allow-cross-level] [--profile-in PATH] [--profile-out PATH] [--time] [--time-reps N] [--time-baseline] [--time-abc] [--measured-retain] [--time-fill V]"
         );
         std::process::exit(2);
     }
@@ -2087,6 +2461,11 @@ fn main() {
                 time_baseline = true;
                 i += 1;
             }
+            "--time-abc" => {
+                time_mode = true;
+                TIME_ABC.store(true, Ordering::Relaxed);
+                i += 1;
+            }
             "--measured-retain" => {
                 time_mode = true;
                 measured_retain = true;
@@ -2099,6 +2478,18 @@ fn main() {
             "--ffi-support" if i + 1 < args.len() => {
                 let _ = FFI_SUPPORT.set(Some(PathBuf::from(&args[i + 1])));
                 i += 2;
+            }
+            "--ref-object" if i + 1 < args.len() => {
+                let _ = REF_OBJECT.set(Some(PathBuf::from(&args[i + 1])));
+                i += 2;
+            }
+            "--ref-level" if i + 1 < args.len() => {
+                let _ = REF_LEVEL.set(Some(args[i + 1].clone()));
+                i += 2;
+            }
+            "--allow-cross-level" => {
+                ALLOW_CROSS_LEVEL.store(true, Ordering::Relaxed);
+                i += 1;
             }
             "--allow-defs" if i + 1 < args.len() => {
                 let definitions: Vec<u64> = args[i + 1]
@@ -2129,6 +2520,12 @@ fn main() {
                                     global.push(definition);
                                 }
                             }
+                        }
+                        [function, definition, "unknown"] => {
+                            // Fired without a completed comparison: recorded
+                            // in the profile, but it carries no retention
+                            // decision, so it leaves the policy alone.
+                            let _ = (function, definition);
                         }
                         [function, definition, allow] => {
                             if let Ok(definition) = definition.parse() {
@@ -2199,7 +2596,7 @@ fn main() {
     let mut errors = 0usize;
     let mut violations = 0usize;
     let mut retained_base = 0usize;
-    let mut retention_profile: BTreeMap<String, BTreeMap<u64, bool>> = BTreeMap::new();
+    let mut retention_profile: BTreeMap<String, BTreeMap<u64, Option<bool>>> = BTreeMap::new();
     for name in function_names(&ll) {
         if let Some(only) = &only {
             if &name != only {
@@ -2207,7 +2604,11 @@ fn main() {
             }
         }
         match run_function(&ll, &name, cases, &workdir, sanitize, &cc, &target) {
-            Outcome::Clean { cases, rewrites } => {
+            Outcome::Clean {
+                cases,
+                rewrites,
+                definitions,
+            } => {
                 println!("NATIVE {name}: clean cases={cases} rewrites={rewrites}");
                 clean += 1;
                 if time_mode {
@@ -2221,7 +2622,7 @@ fn main() {
                         &cc,
                         &target,
                     ) {
-                        Ok((line, definitions)) => {
+                        Ok(line) => {
                             println!("{line}");
                             if measured_retain {
                                 let ref_ns = ns_value(&line, "ref_ns");
@@ -2239,19 +2640,35 @@ fn main() {
                                     new_ns.unwrap_or(0)
                                 );
                                 let retained = retain == "new";
-                                for definition in definitions {
+                                for definition in &definitions {
                                     retention_profile
                                         .entry(name.clone())
                                         .or_default()
-                                        .entry(definition)
-                                        .and_modify(|allow| *allow &= retained)
-                                        .or_insert(retained);
+                                        .entry(*definition)
+                                        .and_modify(|retention| {
+                                            *retention =
+                                                merge_retention(*retention, Some(retained));
+                                        })
+                                        .or_insert(Some(retained));
                                 }
                             }
                         }
                         Err(reason) => {
                             println!("EMITTIME {name} error={reason}");
                             errors += 1;
+                            if measured_retain {
+                                // The rewrites fired even though the timing
+                                // comparison did not complete: keep them in
+                                // the profile as entries with no ratio, so
+                                // the profile stays a firing record.
+                                for definition in &definitions {
+                                    retention_profile
+                                        .entry(name.clone())
+                                        .or_default()
+                                        .entry(*definition)
+                                        .or_insert(None);
+                                }
+                            }
                         }
                     }
                 }
@@ -2287,8 +2704,14 @@ fn main() {
     if measured_retain {
         let mut profile = String::new();
         for (function, definitions) in &retention_profile {
-            for (definition, allow) in definitions {
-                let allow = u8::from(*allow);
+            for (definition, retention) in definitions {
+                let allow = match retention {
+                    Some(retained) => u8::from(*retained).to_string(),
+                    // Fired, but the timing comparison did not complete, so
+                    // there is no ratio to retain on. Recorded rather than
+                    // dropped: the profile is a firing record.
+                    None => "unknown".to_string(),
+                };
                 println!("EMITPROFILE function={function} def={definition} allow={allow}");
                 profile.push_str(&format!("{function} {definition} {allow}\n"));
             }
