@@ -1481,6 +1481,48 @@ yields exactly one object (`6db4450`) and it belongs to the new lean line.
   `emit.rs` prints them verbatim without creating nodes). Not root-caused.
   Recorded because it means **"the emitted C is byte-reproducible" is not a safe
   assumption for any gate that hashes emitted output**.
+- **2026-09-23 — hypothesis killed: the base-typing precondition is not the
+  blocker, and `-O2`/`-O3` hold no prize for these recognizers**: every loop in
+  the 19 external corpora at all three levels was traced gate by gate (57 runs,
+  a probe mirroring `sum::recognize_loop` gate for gate; the probe was deleted
+  afterwards). The hypothesis that the families'
+  `ArrayAccess`-over-`Type::Array` precondition is structurally unreachable is
+  **false**: the lowerer does produce it — 13 `ArrayAccess` nodes over
+  `Type::Array` at `-O1` across 4 functions (`createWinogradQuant`, `fir`, `mac`,
+  `vec_mpy1`), all with `trip_count == extent` — and **no loop anywhere fails at
+  a base-type, extent-range or trip_count-versus-extent gate**. `edn::mac` is the
+  demonstration: a genuine 150-trip counted dot product whose base *is*
+  `Array { I16, 150 }` with `trip_count == Some(150)`, refused two gates later —
+  its accumulator is initialised from memory, and its closure holds two
+  counter-indexed accesses over different bases.
+  What actually binds, across all 64 loops (45 at `-O1`, 11 at `-O2`, 8 at `-O3`),
+  is **the read-only effects gate and the single-stream recognition model**:
+  `loop-effects+body-effects+no-element-reduction` 45,
+  `loop-effects+body-effects+no-counter-sum-with-unit-invariant` 10,
+  `no-element-reduction` 3, `no-counter-sum-with-unit-invariant` 3,
+  `element-accumulator-init-not-zero+no-unique-array-access-on-counter` 1,
+  `no-unique-array-access-on-counter` 1,
+  `loop-effects+body-effects+no-unique-array-access-on-counter` 1. The families
+  refuse any loop whose body writes, which is most real loops, because the
+  accumulator lives in memory rather than in a carried value.
+  **Prize, bounded rather than asserted**: an induction `add` compared by an
+  `icmp` on a cycle occurs in 33 loops / 20 functions at `-O1` (11.3% of 177
+  accepted), 10 / 7 at `-O2`, 7 / 5 at `-O3`; adding "at least one body
+  `ArrayAccess` indexed by a carried input" leaves 7 loops / 5 functions at `-O1`
+  (2.8%), 1 / 1 at `-O2`, 1 / 1 at `-O3`; adding the read-only gate leaves **3
+  loops in 3 functions at `-O1` (1.7% — `mac`, `fir`, `fir_no_red_ld`) and zero
+  at both `-O2` and `-O3`**. The cause is measured, not inferred: clang
+  auto-vectorizes these reductions before lowering — SIMD `<N x T>` types are
+  present at `-O2`/`-O3` and absent at `-O1` — so the levels a defensible
+  baseline would use are already beyond these recognizers' reach on this corpus.
+  Candidate fixes: relaxing the base precondition in `sir_opt` (~40–60 lines
+  across five sites) changes the firing set by **zero** — the best candidates die
+  elsewhere — and it would force the extent to come from `fact.trip_count`, which
+  `loops.rs` describes in-code as "Very rough"; widening `sir_lower`'s promotion
+  pass buys nothing, because the `Array` base is already produced wherever the
+  morphology exists. The investment the evidence indicates is the recognition
+  model — multi-stream maps and write-carrying loops — but only against a corpus
+  where those shapes survive compilation, which Embench at `-O2`/`-O3` is not.
 
 ## Reference commands
 
