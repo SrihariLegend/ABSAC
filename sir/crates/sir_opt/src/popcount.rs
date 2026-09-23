@@ -123,15 +123,29 @@ fn recognize(function: &Function) -> Option<PopcountPlan> {
 
 fn recognize_loop(function: &Function, loop_id: NodeId) -> Option<PopcountPlan> {
     let loop_node = function.get_node(loop_id)?;
+    if !(loop_node.effects - Effects::READ_MEMORY).is_empty() {
+        return None;
+    }
     let NodeKind::Loop {
+        body,
         outputs,
         carried_inputs,
         termination,
-        ..
     } = &loop_node.kind
     else {
         return None;
     };
+    for id in body
+        .iter()
+        .chain(outputs)
+        .chain(carried_inputs)
+        .chain(std::iter::once(termination))
+        .copied()
+    {
+        if !(function.get_node(id)?.effects - Effects::READ_MEMORY).is_empty() {
+            return None;
+        }
+    }
     if carried_inputs.len() != 2 || outputs.len() != 2 {
         return None;
     }

@@ -56,6 +56,7 @@ mod cases {
         pub fn run() {
             runtime_bound_search_lowers_and_uses_memchr();
             runtime_zero_test_loop_lowers();
+            effectful_kernighan_loops_are_refused();
         }
     }
     pub mod search {

@@ -90,3 +90,83 @@ define dso_local i32 @naive_popcount16(i16 noundef %0) local_unnamed_addr {
         "64-bit Kernighan must use Popcount"
     );
 }
+
+/// A Kernighan loop whose source carries an effect must be refused. The
+/// store shape is a live miscompile if rewritten: `Builder::r#loop` types
+/// the loop node from its body, so the loop-level guard sees the store,
+/// and the rewrite would delete the loop while the non-pure store
+/// survives as a single straight-line write. The call shape leaves the
+/// loop node itself pure (the call is a carried input defined in the
+/// preheader), so only the per-node guard over `carried_inputs` sees it.
+fn effectful_kernighan_loops_are_refused() {
+    let store_ir = r#"
+define dso_local i32 @pc_store(i64 noundef %0, ptr nocapture noundef writeonly %1) local_unnamed_addr {
+  %3 = icmp eq i64 %0, 0
+  br i1 %3, label %11, label %4
+4:
+  %5 = phi i32 [ %9, %4 ], [ 0, %2 ]
+  %6 = phi i64 [ %8, %4 ], [ %0, %2 ]
+  store i32 %5, ptr %1, align 4
+  %7 = add i64 %6, -1
+  %8 = and i64 %7, %6
+  %9 = add i32 %5, 1
+  %10 = icmp eq i64 %8, 0
+  br i1 %10, label %11, label %4
+11:
+  %12 = phi i32 [ 0, %2 ], [ %9, %4 ]
+  ret i32 %12
+}
+"#;
+    let function = sir_lower::lower_function(store_ir, "pc_store").expect("lower");
+    assert!(
+        function.arena.iter().any(|node| {
+            matches!(&node.kind, sir_nodes::NodeKind::Loop { body, .. }
+                if body.iter().any(|id| matches!(
+                    function.get_node(*id).map(|inner| &inner.kind),
+                    Some(sir_nodes::NodeKind::Store { .. })
+                )))
+        }),
+        "fixture must lower the store into the Kernighan loop body"
+    );
+    assert!(
+        sir_opt::optimize_popcount(&function).is_none(),
+        "a Kernighan loop carrying a store must be refused, not rewritten to Popcount"
+    );
+
+    let call_ir = r#"
+declare i64 @ext(i64 noundef)
+define dso_local i32 @pc_call(i64 noundef %0) local_unnamed_addr {
+  %2 = call i64 @ext(i64 noundef %0)
+  %3 = icmp eq i64 %2, 0
+  br i1 %3, label %11, label %4
+4:
+  %5 = phi i32 [ %9, %4 ], [ 0, %1 ]
+  %6 = phi i64 [ %8, %4 ], [ %2, %1 ]
+  %7 = add i64 %6, -1
+  %8 = and i64 %7, %6
+  %9 = add i32 %5, 1
+  %10 = icmp eq i64 %8, 0
+  br i1 %10, label %11, label %4
+11:
+  %12 = phi i32 [ 0, %1 ], [ %9, %4 ]
+  ret i32 %12
+}
+"#;
+    let function = sir_lower::lower_function(call_ir, "pc_call").expect("lower");
+    assert!(
+        function.arena.iter().any(|node| {
+            matches!(&node.kind, sir_nodes::NodeKind::Loop { carried_inputs, .. }
+                if node.effects.is_pure()
+                    && carried_inputs.iter().any(|id| {
+                        function.get_node(*id).is_some_and(|inner| {
+                            inner.effects.contains(sir_types::Effects::WRITE_MEMORY)
+                        })
+                    }))
+        }),
+        "fixture must carry an effectful value into an otherwise pure loop"
+    );
+    assert!(
+        sir_opt::optimize_popcount(&function).is_none(),
+        "a Kernighan loop carrying an effectful value must be refused, not rewritten to Popcount"
+    );
+}

@@ -1064,10 +1064,16 @@ have now been restored into current `sir_mech` and tested.
   — the last two through `push` helpers that hardcoded the mask. An omitted
   `READ_MEMORY` is invisible in this pipeline: the patch still applies and
   still runs, it just understates the node to every analysis downstream.
-  The masks now match what the builder declares for real loads, which is the
-  root cause and deserves its own change: `compute_effects`' default arm gives
-  `ArrayAccess` the empty mask and `Loop` propagates nothing, so the sixteen
-  recognizer guards testing `READ_MEMORY` on a loop are inert.
+  The masks now match what the builder declares for real loads. The remaining
+  root cause is narrower than first recorded here: `compute_effects`' default
+  arm gives `ArrayAccess` the empty mask, so a lowered array access is
+  indistinguishable from pure arithmetic. An earlier version of this entry also
+  claimed `Loop` propagates nothing and that the recognizers' loop-level guards
+  are therefore inert — **that was wrong**. `Builder::r#loop`
+  (`sir_builder/src/builder.rs:806-812`) unions the effects of every body
+  member, so a loop whose body stores carries `WRITE_MEMORY`, and the
+  loop-level guards are live. The per-node check is what covers carried inputs,
+  outputs and termination, which the body union does not reach.
   `patch.rs` gains a floor next to the existing cap — a patch node whose kind
   reads memory must carry `READ_MEMORY` — so a future omission refuses the
   patch instead of hiding. Shown to have teeth by reverting only the `All`
@@ -1075,6 +1081,63 @@ have now been restored into current `sir_mech` and tested.
   byte-identically. Verified: build clean, 9 tests 0 failed, `verify.sh fast`
   `VERIFY PASS` with external totals unchanged (117 clean / 204 refused / 0
   mismatched / 0 harness errors), so no family stopped firing.
+- **2026-09-23 — opt-level survey: reach and firing collapse at defensible
+  levels**: 19 Embench benchmarks built at `-O2` and `-O3 -march=native`
+  (0 sources failed to compile) and swept with `--cases 1 --measured-retain
+  --profile-out`; a fresh `-O1` re-measure with the current binary reproduces
+  the committed gate exactly (117 clean / 204 refused / 0 mismatched), so the
+  three levels are comparable. Accepted functions fall 117 → 75 → 74, functions
+  seen 321 → 245 → 247, firing 7 → 2 → 2, and **every profile file at -O2 and
+  -O3 is empty**. Every firing in the entire study is definition 102
+  (multiply→shift) — no popcount, Any, All, parity, sum, search, divide or
+  modulo definition fires anywhere at any level. The dominant refusals at the
+  strong levels are exactly the loop shapes clang emits there: 41 "loop with a
+  separate latch block (multi-block back-edge) not modeled" (early-exit
+  searches), 20 "multiple loops sharing an exit CFG", 9 recursive call cycles,
+  5 rotated-loop-exit forms, 5 non-constant switch indices, 5 `@strlen`,
+  4 unresolved-GEP/mul operands. The `SIR_OPT_LEVEL` confound is ruled out: at
+  `SIR_OPT_LEVEL=2` on the -O2 corpus the profile is still empty (clean=75
+  refused=170, rewrites=2), so the collapse is coverage and firing, not a level
+  handicap.
+  **The only retained, rewrite-attributable win in all 57 runs** is
+  `edn jpegdct`, definition 102, 4 rewrites, 6,062,328 → 5,723,516 ticks =
+  1.0592×, and it is at `-O1` on a baseline no reviewer would accept. Every
+  other large ratio has rewrites=0, i.e. codegen noise in both directions: the
+  best are noise (nsichneu `initialise_benchmark` 2.676×) and so are the worst
+  (statemate `generic_FH_TUERMODUL_CTRL` **787× slower**, `interface` 121×,
+  `generic_KINDERSICHERUNG_CTRL` 10.3×) — an emission-quality problem, not a
+  rewrite regression. `retain=new` is granted on ties, so most of the 30/32
+  "wins" at -O2/-O3 are ≤0.05% noise.
+  Consequence for the plan: two pre-registered C2 gates fired without needing
+  the 3-arm run — "rewrites fire rarely / mostly refused → reach and lowering"
+  and "Arm B slower than clang → emission/lowering quality first". A measured
+  win report cannot be built on Embench until (1) the timing harness models
+  initialized globals and bounds synthetic pointer arguments, (2) the lowerer
+  covers the canonical -O2/-O3 loop shapes, (3) the baseline is a real -O2/-O3
+  clang build. Recorded for the reach worklist: `tarfind::benchmark_body`
+  refuses with `cannot resolve lhs '%15' in %10 = icmp eq i32 %15, 5`.
+- **2026-09-23 — Kernighan recognizer: the missing effect guard was a live
+  miscompile**: `popcount.rs`'s `recognize_loop` was the only family without the
+  source-side effect guards the other eight apply — the loop-level
+  `(loop_node.effects - READ_MEMORY).is_empty()` plus a per-node check over the
+  shape's nodes. Without them a Kernighan loop carrying a store,
+  `while (x) { x &= x-1; *p = count; count++ }`, was rewritten to `Popcount`:
+  the `Loop` disappeared, and the orphaned `Store` survived `patch::sweep()`
+  (which seeds its worklist from every non-pure node) with its count operand now
+  constant 0. The program loses a per-iteration store loop and becomes a single
+  straight-line store, and `patch::apply`'s verifier accepted it. Both guards
+  are now in place; the per-node check chains `termination` explicitly, as
+  `search.rs` does, because lowered loops do not carry their termination inside
+  `body`, so without it the check would be decorative. Teeth shown by isolating
+  each half: with neither, the store case is rewritten (assert fails at
+  `runtime_loop.rs:131`); with the loop-level check alone, an effectful *carried
+  input* still slips through (assert fails at `runtime_loop.rs:168`) — the loop
+  node is pure there while the carried value carries `WRITE_MEMORY`, which is
+  why both halves are needed. Cost: zero. `verify.sh fast` still
+  `VERIFY PASS` with external totals byte-identical (117 clean / 204 refused /
+  0 mismatched / 0 harness errors), 9 tests 0 failed, no family lost a firing.
+  Cases live in `tests/cases/runtime_loop.rs` behind the existing `#[test]`, so
+  the test count stays at 9.
 
 ## Reference commands
 
