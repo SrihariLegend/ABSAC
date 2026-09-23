@@ -1245,7 +1245,122 @@ pub fn lower_function(text: &str, func_name: &str) -> Result<Function, String> {
             summary.join("; ")
         ));
     }
+
+    // ══════════════════════════════════════════════════════════
+    // EMISSION-BLOWUP GUARD (fail closed)
+    //
+    // Structurally valid SIR can still be unusable: on 2026-09-23 two
+    // statemate functions lowered to SIR that emitted 105x-173x the
+    // reference instruction count, and a third (sglib_dllist_delete) to
+    // 9.4x-10.9x.  The harness counted all three as `clean`, so the
+    // differential gate reported success while the emitted code was
+    // hundreds of times slower than what it replaced.  Refusing the
+    // lowering surfaces them as `lower_refused` instead, which is the
+    // honest outcome: this lowering is not one we are willing to emit.
+    //
+    // The bound is proportional to the source instruction count with an
+    // absolute floor (see MAX_SIR_PER_SOURCE_INSTRUCTION / BLOWUP_SLACK).
+    // It sits well above every function that currently fires a rewrite
+    // (max 3.0 values per instruction), so no rewrite-bearing lowering is
+    // refused; and above every function whose emitted code stays near the
+    // reference size, so no working lowering is refused either.
+    // ══════════════════════════════════════════════════════════
+    let src_instructions = source_instruction_count(&func_text);
+    let sir_values = func.arena.len();
+    if lowering_blows_up(sir_values, src_instructions) {
+        return Err(format!(
+            "unsupported: emission blowup: lowering produced {} SIR values from {} \
+             source instructions ({:.1}x, bound is {}x plus {} values of slack): \
+             refusing to emit blown-up code for this function",
+            sir_values,
+            src_instructions,
+            sir_values as f64 / src_instructions as f64,
+            MAX_SIR_PER_SOURCE_INSTRUCTION,
+            BLOWUP_SLACK
+        ));
+    }
     Ok(func)
+}
+
+/// Maximum SIR values a lowering may produce per source instruction
+/// before it is refused (see the emission-blowup guard in
+/// `lower_function`).
+///
+/// Calibrated on the 266 external-corpus lowerings recorded for the
+/// incidence study (`/tmp/vrfy_incidence/rows.json`):
+/// every function where a rewrite fires lands at 3.0 or below
+/// (picojpeg::getHuffTable and getHuffVal are the worst at exactly 3.0),
+/// while the lowerings that emit code hundreds of times slower land at
+/// 8.3 and up — sglib_dllist_delete 8.3-9.2, generic_FH_TUERMODUL_CTRL
+/// 28.2-28.5, statemate::interface 147.9-194.4.  The bound sits above the
+/// whole rewrite-firing set so it can never refuse work the rest of the
+/// pipeline is built to consume.
+const MAX_SIR_PER_SOURCE_INSTRUCTION: usize = 8;
+
+/// Absolute slack under the proportional bound.
+///
+/// A ratio alone is meaningless on tiny bodies, where fixed overhead
+/// dominates: one source instruction can legitimately lower to a handful
+/// of values (`edn::codebook` is 9 values for 1 instruction at 1.00x
+/// emitted code).  The proportional bound therefore only binds once the
+/// lowering has produced this many values beyond the source instruction
+/// count, which is where blowup starts to cost real instructions.
+const BLOWUP_SLACK: usize = 32;
+
+/// Whether a lowering of `src_instructions` source instructions into
+/// `sir_values` SIR values must be refused as an emission blowup
+/// (fail closed: refusing loses a candidate, emitting loses the
+/// benchmark).
+fn lowering_blows_up(sir_values: usize, src_instructions: usize) -> bool {
+    src_instructions > 0
+        && sir_values > src_instructions * MAX_SIR_PER_SOURCE_INSTRUCTION
+        && sir_values > src_instructions + BLOWUP_SLACK
+}
+
+/// Source instruction count of an extracted LLVM function body.
+///
+/// The emission-blowup guard measures SIR size against this count, so it
+/// is deliberately the same measure the incidence study used: instruction
+/// lines only — labels, comments and blank lines do not count.
+fn source_instruction_count(func_text: &str) -> usize {
+    let mut count = 0;
+    let mut in_body = false;
+    for line in func_text.lines() {
+        if !in_body {
+            in_body = line.starts_with("define");
+            continue;
+        }
+        let trimmed = line.trim();
+        if trimmed.starts_with('}') {
+            break;
+        }
+        if trimmed.is_empty() || trimmed.starts_with(';') || is_block_label(trimmed) {
+            continue;
+        }
+        count += 1;
+    }
+    count
+}
+
+/// A basic-block label line: `name:` or `12:`, possibly followed by a
+/// `; preds = ...` comment. Instructional lines never carry a leading
+/// `name:`.
+fn is_block_label(trimmed: &str) -> bool {
+    let Some((head, _)) = trimmed.split_once(':') else {
+        return false;
+    };
+    if head.is_empty() {
+        return false;
+    }
+    if head.bytes().all(|b| b.is_ascii_digit()) {
+        return true;
+    }
+    let mut bytes = head.bytes();
+    let first = bytes.next().unwrap();
+    (first.is_ascii_alphabetic() || first == b'$' || first == b'.' || first == b'_')
+        && bytes.all(|b| {
+            b.is_ascii_alphanumeric() || b == b'$' || b == b'.' || b == b'-' || b == b'_'
+        })
 }
 
 /// The integer value of a constant node (signed values normalized to
@@ -3749,7 +3864,11 @@ fn instruction_by_result<'a>(ir: &'a IrFunction, name: &str) -> Option<&'a Instr
         .find(|inst| inst.result.as_deref() == Some(name))
 }
 /// Lower an LLVM IR function to SIR.
-pub fn lower(text: &str) -> Result<Function, String> {
+///
+/// Crate-private on purpose: `lower_function` is the only supported entry
+/// point, because it is where the verification and emission-blowup gates run.
+/// Exposing this would let a caller obtain SIR that never passed them.
+pub(crate) fn lower(text: &str) -> Result<Function, String> {
     let text = extract_first_function(text);
     let ir = parse_function(&text)?;
 
@@ -11465,5 +11584,62 @@ fn emit_instruction(
             "unsupported instruction: {} (raw: {})",
             inst.opcode, inst.raw
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Emission-blowup guard: every recorded catastrophic lowering is
+    /// refused, and every recorded lowering that fires a rewrite — or
+    /// merely sits near the reference code size — is kept.
+    ///
+    /// The (SIR values, source instructions) pairs are the recorded
+    /// calibration points (`/tmp/vrfy_incidence/rows.json`), so this pins
+    /// the bound against real data rather than against a round number.
+    #[test]
+    fn emission_blowup_guard_refuses_only_blowups() {
+        // Refused: emitted code 173x, 15x and 9-11x the reference.
+        for (sir, src) in [
+            (12247, 63),  // statemate::interface (-O1, 194.4x)
+            (9169, 62),   // statemate::interface (-O2/-O3, 147.9x)
+            (11913, 423), // statemate::generic_FH_TUERMODUL_CTRL (-O1, 28.2x)
+            (11895, 417), // statemate::generic_FH_TUERMODUL_CTRL (-O2/-O3, 28.5x)
+            (267, 29),    // sglib_dllist_delete (-O1, 9.2x)
+            (225, 27),    // sglib_dllist_delete (-O2/-O3, 8.3x)
+        ] {
+            assert!(
+                lowering_blows_up(sir, src),
+                "guard must refuse {sir} SIR values from {src} source instructions"
+            );
+        }
+        // Kept: the worst rewrite-firing lowerings (12/4 is exactly the
+        // 3.0 values per instruction of picojpeg::getHuffTable and
+        // getHuffVal), the small bodies whose ratio is fixed overhead
+        // (9 values from 1 instruction, at 1.00x emitted code), and
+        // mid-size functions whose emitted code stays within ~2.6x.
+        for (sir, src) in [
+            (12, 4),
+            (16, 6),
+            (466, 228),
+            (69, 29),
+            (17, 4),
+            (9, 1),
+            (4, 1),
+            (631, 131),
+            (153, 38),
+            (553, 163),
+            (171, 77),
+            (2, 1),
+        ] {
+            assert!(
+                !lowering_blows_up(sir, src),
+                "guard must keep {sir} SIR values from {src} source instructions"
+            );
+        }
+        // End to end: an ordinary lowering still passes the guard.
+        let ir = "define i32 @f(i32 %a, i32 %b) {\n  %c = add i32 %a, %b\n  ret i32 %c\n}\n";
+        assert!(lower_function(ir, "f").is_ok());
     }
 }
