@@ -6,182 +6,143 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **ABSAC** (Automatic Bitwise Superoptimization of Arbitrary Code)
 
-*Evolved Research Question (Phase 0020+):*
+*Evolved Research Question:*
 > **Can a compiler recover the mathematical object implemented by arbitrary code and choose the best representation for that object?**
 
-ABSAC is a semantic compiler toolchain. It discovers mathematical domains (like Finite Sets or Logical Sequences) embedded in arbitrary source code, and systematically proves the equivalence of hardware-efficient representations (like BitSets).
+ABSAC is a semantic compiler. It lowers LLVM IR into a typed functional IR, recognises mathematical domains embedded in loops, discharges an obligation proving an equivalent cheaper implementation, and emits C.
 
-The active component is **SIR** (Semantic IR), located in `sir/`. SIR is a typed, SSA-form functional IR for representing program meaning — not instruction encoding. The raw `.xml` files at the repo root are external project data, not part of SIR.
+**Two things to know before planning work here:**
 
-### Architecture Freeze (2026-07-11 / Phase 0020)
+- **What is demonstrated.** On 19 independently authored benchmarks, the only family that fires at any optimization level is `arithmetic` (multiply→shift). The domain families recognise counted, effect-free, single-stream array reductions — shapes clang vectorizes before the lowerer ever sees them. The one third-party kernel that has been measured (Redis `redisPopcount`) lost to clang -O3.
+- **What is not.** `docs/ROADMAP.md`, `docs/NORTH_STAR.md` and older `docs/GATE*` files describe intended or historical systems, and some of their claims were never demonstrated beyond project-authored kernels. **`docs/CAPABILITY_LEDGER.md` is the record** — quote it, not those documents, when stating what exists.
 
-The reasoning substrate, core IR layers, and feed-forward knowledge pipeline are officially frozen. The architecture has proven stable enough to absorb new optimization families by reframing them as semantic mathematical domains. The following crates are considered **architecturally stable** — no redesigns, no interface changes beyond extension (such as supporting IR evolution):
+## Workspace
 
-| Crate | Status | Allowed changes |
-|-------|--------|-----------------|
-| `sir_types` | Frozen | New types, new `RegionMap` usage |
-| `sir_nodes` | Frozen | New NodeKind variants (such as `Pack`) |
-| `sir_analysis` | Frozen | New analyses (new fact types in FactDatabase) |
-| `sir_semantics` | Frozen | New semantic/structural recognizers |
-| `sir_inference` | Frozen | New evidence sources |
-| `sir_transform` | Frozen | New enum variants (Representation, SourceStructure, Constraint, Assumption) |
-| `sir_builder`, `sir_printer`, `sir_verify` | Frozen | Support for new NodeKind variants |
+Nine crates, ~33k lines. All commands run from `sir/`.
 
-### Active Development Crates
+| Crate | LOC | Role |
+|---|---:|---|
+| `sir_types` | 935 | Foundational types: `NodeId`, `Type`, `Effects`, `ConstantData`. No internal deps. |
+| `sir_nodes` | 587 | `NodeKind`, `Node`, `NodeArena`, `Function`, `Module`. |
+| `sir_builder` | 915 | `Builder` — type checking and effect computation at node-creation time. |
+| `sir_verify` | 1002 | Seven structural invariants. |
+| `sir_analysis` | 627 | Read-only facts: loop/reduction facts, graph traversal helpers. |
+| `sir_mech` | 6950 | The proof kernel: bitvector terms, CNF, CDCL SAT, equivalence decision, induction, integer linear arithmetic. |
+| `sir_lower` | 11645 | LLVM IR text → SIR. A single `lib.rs`. The largest crate and the project's LOC-budget risk — additions here need a counted target. |
+| `sir_opt` | 5380 | The rewrite families and the driver. |
+| `sir_benchmarks` | 4877 | SIR → C emission, and the `emit_c_diff` differential referee. |
 
-The downstream translation, verification, and transformation execution layers are in active development:
+`crates/sir_gate4b/` and `crates/sir_tests/` exist on disk but contain no sources and are **not** workspace members.
 
-| Crate | Status | Active Work Areas / Allowed changes |
-|-------|--------|-------------------------------------|
-| `sir_generation` | Complete | Generators and candidate plans |
-| `sir_verification` | Complete | Equivalence proof engine (exhaustive and symbolic backends) |
-| `sir_selection` | Complete | Cost model, deterministic selector — frozen |
-| `sir_rewrite` | Complete | AST/graph rewrite machinery, verified mutations and patch generation |
-| `sir_optimizer` | Complete | Fixed-point optimization driver |
-
-### Implemented Capabilities
-
-| # | Capability | Status |
-|---|-----------|--------|
-| 1 | SIR — typed SSA-form functional IR | Complete |
-| 2 | SAF — 9 compiler analyses (Facts) | Complete |
-| 3 | SRI — semantic reasoning + representation inference (Truths + Beliefs) | Complete |
-| 4 | CGE — transformation planning (Contexts + Plans) | Complete |
-| 5 | Equivalence verification (Proofs) | Complete (`sir_verification`) |
-| 6 | Verified rewriting (Mutations) | Complete (`sir_rewrite`) |
-| 7 | Cost model + Selection | Complete (`sir_selection`) |
-| 8 | End-to-end optimizer | Complete (`sir_optimizer`) |
-
-### Knowledge Pipeline
+Dependencies (production only — `sir_lower` is a dev-dependency of `sir_opt`, used by its tests):
 
 ```
-Source Program
-      │
-      ▼  sir_builder
-SIR
-      │
-      ▼  sir_analysis
-Compiler Facts           "What is provably true?"
-      │
-      ▼  sir_semantics
-Semantic Truths          "What mathematical object / domain does this represent?"
-Structural Descriptions  "How is the data organized?"
-      │
-      ▼  sir_inference
-Representation Beliefs   "Which representation best explains it?"
-Transformation Contexts  "What would have to be true to transform it?"
-      │
-      ▼  sir_generation
-Candidate Plans          "What implementations are possible?"
-      │
-      ▼  sir_verification
-Equivalence Proofs       "Is the rewrite mathematically correct?"
-      │
-      ▼  sir_selection
-Cost Scores              "Which proven rewrite should we apply?"
-      │
-      ▼  sir_rewrite
-Verified Mutations       "Execute the selected winner."
+sir_types      ← (nothing)
+sir_nodes      ← sir_types
+sir_builder    ← sir_nodes, sir_types
+sir_verify     ← sir_builder, sir_nodes, sir_types
+sir_analysis   ← sir_builder, sir_nodes, sir_types, sir_verify
+sir_mech       ← sir_types
+sir_lower      ← sir_builder, sir_nodes, sir_types, sir_verify
+sir_opt        ← sir_analysis, sir_mech, sir_nodes, sir_types, sir_verify
+sir_benchmarks ← sir_analysis, sir_lower, sir_nodes, sir_opt, sir_types
 ```
 
-Each layer consumes only the knowledge of the immediately preceding layer. No layer reads upward or across. No layer below `sir_semantics` inspects SIR directly.
-
-*Note: The mathematical ontology (Boolean Algebra, Finite Sets, Sequences, Relations, Graphs) emerges structurally in `sir_semantics`. The choice of how to encode that ontology (e.g. `BitSet`) is handled purely by `sir_inference`.*
-
-## Build & Test
-
-All commands run from `sir/`:
-
-```bash
-cargo build              # build all crates
-cargo test               # run all tests (350+ tests, all passing)
-cargo test -p <crate>    # run one crate's tests (e.g. sir_verify, sir_builder)
-cargo test <test_name>   # run a single test by name
-```
-
-There is no lint config, no CI, and no binary crate — this is a library-only workspace.
-
-## Architecture
-
-### Crate dependency graph (layered, no cycles)
+### Pipeline
 
 ```
-sir_types                 — no internal deps (foundational)
-  │
-  ├─► sir_transform       — depends on sir_types
-  │
-  └─► sir_nodes           — depends on sir_types
-        │
-        ├─► sir_builder   — depends on sir_nodes, sir_types
-        ├─► sir_printer   — depends on sir_nodes, sir_types
-        ├─► sir_verify    — depends on sir_nodes, sir_types
-        │
-        ├─► sir_analysis  — depends on sir_nodes, sir_types (read-only analysis framework)
-        │     │
-        │     ▼
-        ├─► sir_semantics — depends on sir_types, sir_nodes, sir_analysis, sir_transform
-        │     │
-        │     ├─► sir_inference  — depends on sir_types, sir_semantics, sir_transform
-        │     │
-        │     └─► sir_generation — depends on sir_types, sir_transform, sir_semantics
-        │           │
-        │           ├─► sir_verification — depends on sir_types, sir_transform, sir_generation
-        │           │     │
-        │           │     ├─► sir_selection — depends on sir_types, sir_generation, sir_verification
-        │           │     │     │
-        │           │     │     ▼
-        │           │     └────► sir_rewrite — depends on sir_types, sir_nodes, sir_transform, sir_generation, sir_verification, sir_verify, sir_semantics
-        │           │                  │
-        │           │                  ▼
-        │           │            sir_optimizer — depends on all crates above (fixed-point optimization driver)
-        │
-        └─► sir_tests     — depends on sir_types, sir_nodes, sir_builder, sir_printer, sir_verify (integration tests only)
+  .ll text ──► sir_lower::lower_function ──► SIR Function
+                                                │
+                                                ▼  sir_analysis
+                                             Facts (loop / reduction)
+                                                │
+                                                ▼  sir_opt
+                                             a family recognises a shape and
+                                             discharges its sir_mech obligation
+                                                │
+                                                ▼  sir_opt::patch::apply
+                                             guarded replacement (structural
+                                             verifier + frame + effects floor)
+                                                │
+                                                ▼  sir_benchmarks::emit
+                                             C, compiled and compared against
+                                             the original IR by the referee
 ```
 
-### Core data model (`sir_types` + `sir_nodes`)
+`lower_function` is the **only** supported entry point into the lowerer: it is where the structural verifier and the emission-blowup guard run. `lower()` is crate-private for that reason.
 
-- **`NodeId`** (`sir_types/src/node_id.rs`) — a `Copy` newtype over `u64`. Displayed as `%0`, `%1`, etc. Monotonically increasing within a function. Used as keys in `NodeArena`.
-- **`Type`** (`sir_types/src/types.rs`) — enum covering Unit, Bool, Integer (with width/signedness/overflow), Float, Pointer, Reference (with optional lifetime), Array, Slice, Tuple, Struct, Enum, Function, and BitVector.
-- **`Effects`** (`sir_types/src/effects.rs`) — `bitflags` bitmask: `READ_MEMORY`, `WRITE_MEMORY`, `ALLOCATE`, `IO`, `ATOMIC`. Every node carries an effects mask. Pure nodes have `Effects::empty()`.
-- **`NodeKind`** (`sir_nodes/src/node_kind.rs`) — 40+ variant enum of IR operations: arithmetic (Add/Sub/Mul/Div/Rem/Neg), bitwise (And/Or/Xor/Shl/Shr/Rol/Ror/Not/Popcount/LeadingZeros/TrailingZeros), comparisons (Eq/Ne/Lt/Le/Gt/Ge), boolean (BoolAnd/BoolOr/BoolNot), Select (branchless conditional), memory (Load/Store/Allocate/Deallocate/FieldAccess/ArrayAccess), calls (Call/Intrinsic/ExternalCall), Loop (with explicit carried inputs/outputs — no phi nodes), Iterator, and Return. Each variant carries `NodeId` operands.
-- **`Node`** (`sir_nodes/src/node.rs`) — `{ id, kind, ty, effects, metadata, span }`.
-- **`NodeArena`** (`sir_nodes/src/arena.rs`) — `BTreeMap<NodeId, Node>` with deterministic iteration order. Inserting a duplicate `NodeId` returns the old node (SSA violation).
-- **`Function`** (`sir_nodes/src/function.rs`) — `{ name, params, return_ty, arena, return_node }`. Parameters are stored both as `Param` entries (for the signature) and as `Parameter` nodes in the arena (for uniform graph traversal).
-- **`Module`** (`sir_nodes/src/module.rs`) — top-level compilation unit: `{ name, functions }`.
+## Core data model (`sir_types` + `sir_nodes`)
+
+- **`NodeId`** (`sir_types/src/node_id.rs`) — `Copy` newtype over `u64`, displayed as `%0`, `%1`. Monotonically increasing within a function; keys in `NodeArena`.
+- **`Type`** (`sir_types/src/types.rs`) — Unit, Bool, Integer (width/signedness/overflow), Float, Pointer, Reference, Array, Slice, Tuple, Struct, Enum, Function, BitVector.
+- **`Effects`** (`sir_types/src/effects.rs`) — `bitflags`: `READ_MEMORY`, `WRITE_MEMORY`, `ALLOCATE`, `IO`, `ATOMIC`. Every node carries a mask; pure nodes are `Effects::empty()`.
+- **`NodeKind`** (`sir_nodes/src/node_kind.rs`) — 40+ variants: arithmetic, bitwise (incl. `Popcount`, `LeadingZeros`, `TrailingZeros`), comparisons, boolean, `Select`, memory (`Load`/`Store`/`ArrayAccess`/…), calls (`Call`/`Intrinsic`/`ExternalCall`), `Loop`, `Iterator`, `Return`.
+- **`NodeArena`** (`sir_nodes/src/arena.rs`) — `BTreeMap<NodeId, Node>`, so iteration order is deterministic. Inserting a duplicate id returns the old node (SSA violation).
+- **`Function`** (`sir_nodes/src/function.rs`) — `{ name, params, return_ty, arena, return_node }`. Parameters appear both as signature entries and as `Parameter` nodes.
 
 ### Builder (`sir_builder`)
 
-The `Builder` wraps a `Function` under construction. Key design decisions:
-- NodeIds are auto-generated from an internal counter starting after parameters.
-- Type checking happens at node creation time — most methods return `Result<NodeId, BuildError>`.
-- Effects are auto-computed by `compute_effects()` based on `NodeKind` (e.g., `Load` → `READ_MEMORY`, `Store` → `WRITE_MEMORY`).
-- Arithmetic ops require both operands to be the same numeric type. Bitwise ops require integer types. Comparisons produce `Bool`. Boolean ops require `Bool` operands.
-- `return_value()` enforces a single return — calling it twice returns `DuplicateReturn`.
-- A low-level `create_node()` escapes type checking when needed.
+- NodeIds are auto-generated after the parameters; type checking happens at creation, so most methods return `Result<NodeId, BuildError>`.
+- `compute_effects()` derives a node's mask from its kind. Two consequences worth knowing, because both have caused bugs: kinds with no explicit arm (`ArrayAccess` among them) fall through to `Effects::empty()`, and `Builder::r#loop` unions the effects of **body** members only — a loop whose body stores carries `WRITE_MEMORY`, while an effectful *carried input* or *termination* does not show on the loop node.
+- `return_value()` enforces a single return. `create_node()` escapes type checking when needed.
 
 ### Verifier (`sir_verify`)
 
-Seven invariant checks run on every function (all run regardless of failures — errors accumulate):
-1. **SSA** — defensive duplicate `NodeId` check
-2. **References** — no dangling `NodeId` references
-3. **Cycles** — DAG enforcement via three-color DFS; loop body nodes may reference their own termination (allowed back-edges)
-4. **Types** — structural type checking per operation kind
-5. **Return** — exactly one `Return` node with matching return type
-6. **Parameters** — valid indices, one-to-one with function params
-7. **Loops** — termination is `Bool`, body/output/carried nodes exist, `carried_inputs.len() == outputs.len()`
+Seven checks, all run (errors accumulate rather than short-circuit): SSA, references, cycle freedom (loop back-edges allowed), types, return, parameters, loop well-formedness (`carried_inputs.len() == outputs.len()`).
 
-### Analysis framework (`sir_analysis`)
+Note what the verifier does **not** check: that a loop's carried-input and output types agree. They can differ, the emitter will spell the C accordingly, and nothing objects — one such mismatch produced C that clang accepted and `aarch64-gcc` rejected.
 
-A **read-only** analysis layer. Facts are stored in `FactDatabase` (one `HashMap` per analysis), never inside SIR nodes. Key concepts:
-- **`Analysis` trait** — `{ Output, name(), analyze(func, facts) -> AnalysisResult }`
-- **`AnalysisManager`** — lazy execution, caching per function via `TypeId`, invalidation support. Owns the `FactDatabase`.
-- **`dataflow_inputs()`** in `graph.rs` — critical distinction from `NodeKind::input_nodes()`: filters out Loop containment edges (body, outputs, carried_inputs) that are NOT dataflow edges. All traversal-based analyses use this.
-- Nine analyses: UseDef, Dominance, Constants (three-level lattice: Top→Constant→Bottom), Purity, Ranges, Alias (MustAlias/MayAlias/NoAlias), Escape, Loops (trip counts, reductions, carried vars), ValueNumbering (congruence classes).
-- `graph.rs` provides: `users()`, `topological_sort()`, `reachable()`, `is_leaf()`, `transitive_inputs()`, `predecessor_map()`.
+### Analysis (`sir_analysis`)
 
-### IR design principles
+`facts.rs`, `graph.rs`, `loops.rs`, `manager.rs`. The surviving facts are the loop and reduction facts (`LoopFact`, `ReductionVar`, `FactDatabase`); the older nine-analysis layer is gone. `estimate_trip_count` is where trip counts come from and it is deliberately conservative: a guarded termination yields no count unless the other conjunct is provably constant-true. `graph.rs` provides `users()`, `topological_sort()`, `reachable()`, `transitive_inputs()`.
 
-- **Functional SSA** — every value assigned once, no mutable variables. Mutations become new SSA values.
-- **Branchless selection** — `Select { cond, true_val, false_val }` replaces `if`/`else`. No basic blocks or CFG.
-- **Loop with explicit carried values** — `Loop { body, termination, outputs, carried_inputs }`. No phi nodes. `carried_inputs` feed each iteration; `outputs` are the final values after termination. `carried_inputs.len()` must equal `outputs.len()`.
-- **No control flow** beyond Select, Loop, and Return. No gotos, no branches, no exception handling.
+### Families (`sir_opt`)
+
+Ten family modules — `all`, `any`, `arithmetic`, `count`, `parity`, `popcount`, `runtime_count`, `runtime_sum`, `search`, `sum` — plus `family` (registry), `optimize` (driver), `patch` (guarded application) and `prove` (the obligations). Each family:
+
+1. recognises a shape and refuses on any ambiguity,
+2. calls `sir_mech` through its `prove::*` obligation and refuses if it does not discharge,
+3. builds a `Patch`, which `patch::apply` rejects unless the replacement verifies structurally, fits the frame, and declares the effects its nodes actually perform.
+
+`search` is the one family whose applicability also depends on a measurement (it is retained only when measured faster).
+
+### Proof kernel (`sir_mech`)
+
+`bv` (bitvector term language + evaluator), `cnf` (Tseitin bit-blasting), `sat` (deterministic CDCL — a refuted claim comes back with a model), `equiv` (the decision procedure), plus `kernel`, `kernighan`, `arith`, `scan`, `term`. Nothing here trusts a caller: a claim is either discharged or refuted with a counterexample.
+
+## IR design principles
+
+- **Functional SSA** — every value assigned once; mutations become new values.
+- **Branchless selection** — `Select { cond, true_val, false_val }` replaces `if`/`else`. There are no basic blocks and no CFG — which is why lowering a branchy function flattens into one large select DAG, and why the lowerer refuses when that blowup passes a calibrated bound.
+- **Loop with explicit carried values** — `Loop { body, termination, outputs, carried_inputs }`, no phi nodes.
+- **No control flow** beyond `Select`, `Loop`, `Return`.
+
+## Build & test
+
+```bash
+cd sir
+cargo build --release            # must stay warning-free
+cargo test --workspace           # 10 tests, ~1 s
+cargo test -p <crate>            # one crate
+```
+
+There is no lint config and no CI. `sir_benchmarks` is the only crate with a binary (`emit_c_diff`, the referee); everything else is a library.
+
+**Keep the test count in single digits** — a standing instruction from the project owner, aimed at preventing test bloat. Add cases behind an existing `#[test]` (see `sir_opt/tests/cases/` and the `run()` dispatch in `sir_opt/tests/plan.rs`) rather than adding new test functions.
+
+## Evidence
+
+```bash
+bash sir/scripts/verify.sh fast   # tests, base-14, external Embench (19 corpora), native
+bash sir/scripts/verify.sh full   # adds AArch64, fuzz, sanitizers
+```
+
+Green means: every corpus reports `EMITC_SUMMARY` with `mismatched=0` and `harness_errors=0`, workspace tests pass, and native totals equal the AArch64 and sanitizer totals section for section. External corpora come from `scripts/fetch-external.sh`; a missing corpus is a `WARN`, not a pass.
+
+Working rules that this project learned the hard way, all of them enforced somewhere in the tree:
+
+- **Fail closed.** A refusal is a correct outcome; a guess is not. When a guard costs firings, keep the guard and record the cost.
+- **Performance never decides correctness.** A counterexample on a defined execution blocks the transformation until the applicability condition is fixed.
+- **A check that cannot fail has not checked anything.** A run that reports nothing, a gate that cannot fire, and a fixture that only ever sees well-formed input are all silent passes.
+- **Find the bound before writing the code.** Reach work in `sir_lower` needs a counted target; today's evidence retired two proposed reach changes precisely because nobody had counted first.
+- Record counterexamples, negative results and corrections in `docs/CAPABILITY_LEDGER.md` — including corrections to earlier entries, marked in place rather than silently edited.
