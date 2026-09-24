@@ -2199,6 +2199,92 @@ Three follow-ups this table makes concrete:
   instruction-count table says the step it enables is worth less than the ~2.14×
   the fixed-ISA probe had suggested.
 
+- **2026-09-24 — hllMerge dense-merge checkpoint: the 20.4× belongs to a form SIR
+  cannot represent, and the honest target is a scalar ~14×**: bounded feasibility
+  and correctness-contract investigation, no repo changes. Redis 7.2.5
+  `hyperloglog.c` dense merge (`hllMerge`, ~1080; 92.36% of `pfcountCommand`).
+  **Q1 — ingest is flag-dependent, and the blocking refusal is the biggest one we
+  have.** Genuine upstream IR at `-O1` and `-O3` gives `unsupported: loop with a
+  separate latch block (multi-block back-edge) not modeled` — the same family that
+  accounts for **75 of 225 refusals (33%)**, so the largest reach item and the
+  chosen first target are the same blocker. At `-O0` it is
+  `aggregate-typed getelementptr source '%struct.redisObject'`. A verbatim
+  extraction refuses identically. **The decisive counter-result:** a
+  semantics-preserving respelling compiled with `-fno-vectorize -fno-slp-vectorize
+  -fno-unroll-loops` at `-O2` **lowers** — 34 SIR values, `Effects(WRITE_MEMORY)`,
+  no family fired. So the semantic content is ingestible and the refusals are
+  narrow codegen artifacts. But redis's own `make` uses default `-O2`, which lands
+  on a third refusal (`rotated loop exit (back-edge on false) that is not the
+  counted eq-next form`).
+  **Q2 — what is missing, and the headline number dies here.** No `Max`/`Min`
+  anywhere in `NodeKind` (the pointwise max exists in SIR only as `Gt` + `Select`);
+  no pointwise-map shape in any recognizer (the reduction detector produces
+  accumulator-carrying forms only); packed access is *fine* (`ArrayAccess` + `Shr`
+  + `And` + `Convert`); and **there is no vector type** — `Type` has no SIMD
+  variant and the emitter has none. **The measured 20.4× is `_mm_max_epu8`, so it
+  cannot be represented in SIR at all.** Six loop families also refuse a
+  store-bearing loop before any shape analysis, via an effects check at the top.
+  **Q3 — the write gate protects an "authorized region" that does not exist.**
+  `patch::apply` caps a synthesized node at `READ_MEMORY`, and its own comment
+  cites an authorized region — but `Patch` is `{ nodes, replacements }` with no
+  region, no base, and `apply` takes no authority parameter. Another documented
+  invariant with no check. The cap is currently doing the work the removed alias
+  analysis used to do, so scoping it means carrying that proof instead of a
+  parameter: an authorized destination on `Patch`, an authority check, a
+  non-aliasing obligation, and a `Store` arm in `replace_in_kind`.
+  **Q4 — the obligation is cheap, and two of the candidate gates cannot fire.**
+  Measured directly against `sir_mech`: the per-field unpack identity discharges
+  for all four shift classes in **35 µs**; the whole-group 48-bit query in
+  **15 µs**; the join laws (idempotence, commutativity, associativity) in
+  **2.04 ms**. Comfortably within budget, and far cheaper than the SWAR precedent.
+  Note the group's free window must be **7 bytes, not 6** — register 8j+7's top
+  bits live in the next group's first byte. Three negative controls: an off-by-one
+  extraction shift is **refuted with a model** (the gate fires); a width-mismatched
+  comparison is **refused by assertion** (good); and applying the *same*
+  truncation to both sides comes back **Valid — a check that cannot fire**, since
+  only an independent right-hand side is a check.
+  **The referee was tested against this target and partly fails it.** Rebuilding
+  the exact driver fill and running deliberately wrong variants: `min`, an
+  off-by-one shift, a neighbour index, and a wholly dropped store all **fire** on
+  the random path — so this is *not* the `values[i] > i` situation, because arg0
+  and arg1 land in different buffer slots. But **`--zero` is vacuous here**: every
+  wrong variant, including `min` and a dropped store, is silent, because both
+  operands are zero and the branch never fires. `--zero` must not be cited as
+  evidence for this rewrite. And the referee's **buffer geometry is hard-coded**
+  (`bufA[8][2048 + 32]`) while the dense register array is 12288 bytes — at real
+  size gcc itself reports undefined behaviour, so the shipped referee cannot
+  referee this target until its slot size is derived from the IR.
+  **Q5 — aliasing is unestablished, untestable by the harness, and not
+  harmless.** Upstream carries no `noalias` on either pointer, and the tree has
+  **no alias analysis at all** — it went with the nine-analysis layer. The
+  referee structurally cannot test it: the same-address mode is selected only when
+  the return type is `ptr` or the IR contains a pointer load/store, and `hllMerge`
+  returns `int`, so the harness always hands distinct storage. It matters because
+  if `dst == src` the fused 8-byte read/write corrupts the next group's source
+  bytes — so the rewrite needs an explicit non-aliasing applicability condition
+  **plus a guard**, not an assumption.
+  **Q6 — a correction to the survey record, and two hard constraints on the
+  witness itself.** The 20.4× was earlier attributed to `alt_merge_unpackmax`;
+  re-measured, that form is **1.42×/1.73×**. The 20.4× is `alt_merge_simd`. Since
+  SIMD is unrepresentable, the honest target is the **scalar** fused form:
+  `fused_cmov`, ~10.5 µs and **data-independent in both regimes**, giving
+  **~13.7–13.9×** on the mispredict regime — and the branchless macro-based form
+  that loses on the repeated-bitmap regime (0.76×) loses because *per-register
+  extraction* costs, not because branchlessness does. Two measured constraints:
+  **the fast form over-reads redis's real allocation** — ASan against the real
+  geometry reports `READ of size 8 … located 0 bytes after a 12313-byte region`,
+  because the register array is the tail of an sds; `bench5` never saw this
+  because its buffers carry 8 bytes of slack, and redis does not guarantee slack.
+  And kernel-scope ratios here are **layout-sensitive**: the same upstream
+  function on the same bitmap measured 27.7 µs in one harness and 40.2–41.7 µs in
+  another, reproducibly.
+  **Verdict: contained for a scalar fast witness; broad reconstruction for the
+  20.4× headline.** Minimum path: a new pointwise-map family (~600–900 LOC), the
+  unpack/join obligation wiring (~80–120), the scoped write authorization
+  (~100–200 plus a soundness argument), and a latch-block admission in
+  `sir_lower` — the crate the project has already flagged as its LOC-budget risk,
+  and per the standing rule that reach work needs a counted target first.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
