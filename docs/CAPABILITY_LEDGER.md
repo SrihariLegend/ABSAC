@@ -2285,6 +2285,70 @@ Three follow-ups this table makes concrete:
   `sir_lower` — the crate the project has already flagged as its LOC-budget risk,
   and per the standing rule that reach work needs a counted target first.
 
+- **2026-09-24 — latch-block reach: the measured bound is ZERO firings, and 11 of
+  the 75 refusals misreport their cause**: the counted target the standing rule
+  requires before lowerer work. Nothing in the repo was modified.
+  **Tier 1 — the 75 is really 36.** The tally counts refusal *rows*; the referee
+  re-reports a refusal once per call site, so 75 rows are **36 distinct
+  functions**, **0 from base-14, all from external corpora**. Six distinct reasons
+  all originate inside `lower_early_exit_search` (`sir_lower/src/lib.rs:5791–6609`;
+  the wrapper message at `:4240`). And it is **not one shape** — the 87 natural
+  loops divide into three sub-shapes, of which one is not a latch shape at all:
+  **A — empty self-loops: 7 functions / 11 rows.** These are `13: br label %13`, a
+  block with **no phi**; `self_loop_blocks` uses a loose substring test against a
+  phi's joined operands, so with no phi it stays empty and routing falls through
+  to the latch path. **The message names the wrong cause for 11 of the 75 rows** —
+  a reporting/routing defect, not a lowering gap.
+  **B — separate latch with no induction variable: 16 functions** (pointer chases
+  like `p = p->next`, data-dependent scans, md5's round loop). Lowerable in
+  principle, but no family has anything to recognise.
+  **C — genuine counted `0..N` step-1 loops with a separate latch: 13 functions /
+  36 loops.** This is the only sub-shape an admission would actually help.
+  **Tier 2a — how many would become lowerable: at most 36 loops / 13 functions,
+  and realistically far fewer.** The refusals happen *inside*
+  `lower_early_exit_search`, whose first hard check is
+  `if h_phis.len() != 1 { return Err("early-exit search: expected one header phi") }`
+  (`:5881`), while the counted loops that carry an accumulator have ≥2 phis (md5
+  has 5). So a latch admission **cannot reuse that path** — it must be a new
+  loop-lowering path. Of the 87 loops, 42 have exactly one header phi, 26 have
+  ≥2, **19 have none**.
+  **Tier 2b — how many would then FIRE a family: ZERO.** The funnel over all 87
+  loops, with the six shape families' gates read off their sources:
+  ```
+  87 natural loops
+   → 40 effect-free loop bodies      (47 fail the effects gate, applied pre-shape)
+   →  4 with an induction counter    (36 effect-free loops have no 0..N step-1 counter)
+   →  2 with a LITERAL constant bound (picojpeg's two are bounded by an argument)
+   →  0 with a constant-identity accumulator
+   →  0 with a single fixed-array access indexed by the counter
+   →  0 pass all gates
+  ```
+  The four survivors were hand-verified from their IR and each fails ≥2
+  independent gates; **all four are search/early-exit loops** — find-mismatch,
+  find-nonzero — whose result is a found flag, not a reduction, so no family in
+  the current set has a member for the shape. Stated as a caveat: this is an
+  IR-level necessary-condition filter rather than a run of the families, and it is
+  conservative in the over-admitting direction, so the 0 can only be an
+  overestimate.
+  **Tier 3 — cost.** A general path is **~600–900 lines** and must be a new
+  function, not a widening: the single-phi assumption is threaded through all 819
+  lines of the existing `lower_early_exit_search`, and 45 of the 87 loops have ≠1
+  header phi. `sir_lower` is already 11,645 lines in one file and is the flagged
+  LOC-budget risk, so this is a **5–8% addition to the file already over budget**.
+  **Tier 4 — the guard that would be needed.** A check that can fail: assert the
+  set of functions refused with the latch message shrinks by exactly the count the
+  new path claims, and that **no previously-lowering function changes its SIR**.
+  Without it, a widened path silently swallowing a function into a wrong lowering
+  looks identical to a win.
+  **Verdict: do not write it.** The honest accounting of the 75 rows: **11 are a
+  reporting defect**, 16 are pointer chases no family covers, and 13 are blocked
+  upstream at the accumulator gate rather than at the latch. The deeper finding is
+  that the binding constraint is not reach at all — it is the families'
+  applicability gates, and those gates are **load-bearing for correctness** (the
+  constant-identity accumulator requirement is the S1 fix), so they cannot simply
+  be relaxed. Reach work that admits loops the families still refuse buys a lower
+  refusal count and nothing else.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
