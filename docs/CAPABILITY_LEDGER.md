@@ -2349,6 +2349,82 @@ Three follow-ups this table makes concrete:
   be relaxed. Reach work that admits loops the families still refuse buys a lower
   refusal count and nothing else.
 
+- **2026-09-25 — what a scalar-C emitter can actually reach: the ceiling is the
+  auto-vectorizer's pattern matcher, and the referee's default level sits below
+  it**: measured by emitting the scalar form ABSAC would produce for each surveyed
+  win and inspecting the assembly. Scan integrity first, because a sibling survey's
+  scan was vacuous: controls fire (`pmaxub` 5, mask 6, clmul 1, popcnt 1) and the
+  GNU-objdump trap is confirmed live — opcode `66 0f 3a 44` renders as
+  **`pclmullqlqdq`**, so a literal `grep pclmulqdq` on objdump output can never
+  match. Every CLMUL result was confirmed twice, by `llvm-objdump` and by opcode
+  bytes, and the agent caught two of its own vacuous scans mid-run.
+  **`hllMerge` — reachable with ZERO new emitter capability.** The emitter already
+  spells the winning form: `Select` is emitted as a ternary (`emit.rs:655`,
+  `:1592`), which is what clang's vectorizer wants. `pmaxub` counts on the three
+  spellings: packed **0**, unpacked-`if` **0**, unpacked-ternary **3** — and it
+  needs no `restrict`. The ternary form measures **0.993–1.007×** against a
+  hand-written `_mm_max_epu8`, i.e. it ties the intrinsic.
+  **But the realistic path is only 1.02×.** Measured end to end — unpack 5 packed
+  registers, byte-domain max at k=4, repack — gives **1.02×** versus the packed
+  fused form, because the unpack/repack is **96%** of the time and does not
+  vectorize: `(r*6)/8, (r*6)&7` extraction is a shuffle, not a strided load. The
+  byte-domain max phase alone is **49.82×**. So the win is reachable **only if
+  the registers are persisted one-per-byte**, which is a whole-object
+  representation choice and not an emission change — precisely the "choose the
+  best representation" half of the research question, and a cross-consumer change
+  rather than a loop rewrite.
+  **CRC / CLMUL — NOT reachable, plainly.** Seven scalar spellings plus the real
+  zlib braid, all **zero** `pclmulqdq` by both detection methods, at `-O2`, `-O3`
+  and `-march=native`: a loop form, a branchless masked form, a 32-term unrolled
+  form, the bit-spread integer-multiply trick, a generic GF(2) polynomial
+  multiply, a nibble-table form, and a `__uint128_t` form. The bit-spread trick
+  emits `imulq` — a different operation. The only x86 producers in clang's set are
+  `__builtin_ia32_pclmulqdq*`, and the intrinsic route needs a SIMD type that
+  `sir_types::Type` does not have: **~600–1000 LOC** across `sir_types`,
+  `sir_builder` and `sir_benchmarks`. **This 8.94× is out of reach for this
+  architecture regardless of family work.**
+  **SWAR popcount — a flag effect that evaporates at `-O2`, and it reconciles the
+  original loss.** `popcnt` counts: at `-O2` baseline **0** for both spellings; at
+  `-O1 -mpopcnt` the builtin gets **1** and the hand SWAR **0**; at `-O2 -mpopcnt`
+  the hand SWAR gets **7**; at `-O2 -march=native` **21**. So at `-O2` and above
+  LLVM idiom-recognises redis's *own* SWAR into `ctpop` and emitting
+  `__builtin_popcount` wins **nothing** — which is why the ABSAC witness lost to
+  clang `-O3`, and the first coherent explanation of that loss to date.
+  **Definition 8's 4.000× exists only in the `-O1 + popcnt` window**, a
+  configuration nothing real uses. A per-function `__attribute__((target("popcnt")))`
+  would make it flag-independent — verified to produce `popcntq` at baseline
+  flags — but the emitter has **no attribute mechanism at all**
+  (`grep -c '__attribute__' emit.rs` → 0), so it is new surface for ~10–20 LOC,
+  and it must go on the emitted function rather than a static prelude helper.
+  **`redisBitpos` — reachable in pure scalar C, zero new capability.** Clang never
+  reaches the block-compare form from scalar C, but it does not need to: against
+  the real upstream shape, scalar-32B is **2.13×** and scalar-64B **2.15×**, while
+  a hand-written SSE2 block scan is 1.22× and a hand-written AVX2 one 2.95%. At
+  baseline clang auto-vectorizes the scalar loops itself, and with `-mavx2` the
+  same scalar source reaches **3.66×, beating the hand-written `_mm256` version**
+  — because the intrinsic form becomes `vptest` plus a branch, and the branch
+  costs more than a branchless OR-reduce. **Scalar C beats intrinsics here.**
+  **The bound that governs all four: `-O2`.** The referee defaults to
+  `SIR_OPT_LEVEL=1`, the vectorizer does not fire at `-O1`, and every
+  scalar-spelling win inverts there: the hll ternary becomes **1.47× slower than
+  a plain branch** and 18.45× behind the intrinsic; the bitpos scalar scan becomes
+  **0.79×, a loss**. So "let clang synthesize the SIMD" is entirely a function of
+  the optimization level, and the configuration every recorded number came from is
+  on the wrong side of it.
+  **The synthesis.** A scalar-C-only emitter reaches exactly the objects whose
+  fast form is a pointwise or reduction data-parallel map **over a contiguous
+  array with a linear index** — element-wise max, compare, OR-reduce, select —
+  because the branchless ternary spelling of `Select` is precisely the pattern the
+  vectorizer recognises. It dies on any accessor that computes its index by
+  shifting and masking (`cannot identify array bounds`), which is the packed case.
+  So the reachable set is bounded below by the vectorizer's pattern matcher and
+  above by the absence of a vector type — and **the intervention ABSAC's thesis
+  describes is exactly the one that lifts the lower bound: change the
+  representation so the object becomes a dense linear map, and the backend does
+  the rest.** Two of the four wins need no emitter work at all; the binding
+  constraints are a representation choice, an optimization level, and one missing
+  attribute.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
