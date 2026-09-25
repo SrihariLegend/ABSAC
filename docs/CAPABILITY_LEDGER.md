@@ -2425,6 +2425,77 @@ Three follow-ups this table makes concrete:
   constraints are a representation choice, an optimization level, and one missing
   attribute.
 
+- **2026-09-25 — A/B/C re-measured at matched -O1/-O2/-O3: the null survives, and
+  my level confound theory is REFUTED**: 338 functions across 33 corpora complete
+  at all three levels, 1014 usable records, every record's three sides compiled by
+  **one clang invocation at one level** with `--ref-level` enforcing the match.
+  Nothing committed; work in `/tmp/abclevel/`.
+  **What makes the null trustworthy this time — an attribution control.** Rows with
+  `rewrites == 0` give **C/B = 1.0000 exactly in 220 of 220 rows at every level**:
+  the symbol rename and the carried-output hoist are worth exactly zero
+  instructions, so any C/B ≠ 1 is attributable to the rewrite and nothing else.
+  Executed call counts are identical across A/B/C in **0 of 1014** records
+  differing, and no record lacks `mismatched=0 harness_errors=0`.
+  **C/B — the rewrite contributes nothing on third-party code, at any level.** The
+  four external functions that fire (`crc32pseudo`, `fir_no_red_ld`,
+  `getHuffTable`, `getHuffVal`) all measure **C/B = 1.0000 at O1, O2 and O3**. In
+  the C source they *do* change — `v11 * 8ULL` becomes `v11 << 3ULL` — and change
+  **no machine code at all**, because the family is multiply→shift and clang's
+  instruction selection already performs that at every level ≥ 1. On the project's
+  own base14 kernels the benefit is real but evaporates with level: C/B 0.7770 at
+  -O1 (60/7/47 win/tie/loss) → 0.9794 → **1.0081** at -O3 (43/18/53). It collapses
+  toward zero and slightly past it.
+  **C/A — ABSAC beats clang on no third-party function at any level, in
+  instruction counts.** External matched-source (n=71): **0 wins at -O1** (16
+  losses); one "win" at -O2 and one at -O3, both `edn::mac` at 0.9109 — and `mac`
+  fires no rewrite, so that is codegen luck, not an optimization. Median C/A is
+  1.0000 at every level.
+  **B/A, and the mechanism.** External matched-source: **1.1989 / 1.2832 / 1.2829**
+  at O1/O2/O3. The gap opens because **A improves with level and B does not** —
+  ABSAC's raw emission is essentially level-invariant (it is already scalar C).
+  Concretely: `fir` A 17953 → 11953 → 7859 while B stays 17953 → 15555 → 15555;
+  `copyY` A 458 → 83 → 83 against B 779 → 523 → 523. So clang's advantage over
+  ABSAC's raw emission grows with level, and it grows because clang gets better at
+  the source.
+  **Firing counts are level-independent — confirmed, not assumed**: `{0: 220,
+  1: 103, 2: 10, 3: 5}` identically at all three levels, 338/338 functions
+  unchanged, 118 of 338 firing. The families run on SIR, as expected.
+  **The noise floor, measured on byte-identical code.** `crc32::initialise_benchmark`
+  is instruction-identical across A/B/C — the same binary work — yet its wall-clock
+  B/A swings **1.1743 / 0.5174 / 1.0202**, a 48% swing on this 2-vCPU box. That is
+  the strongest evidence yet that instruction counts must be load-bearing, and it
+  is why every ratio above is quoted in Ir with wall clock only as corroboration.
+  **Corrections to figures already on record.**
+  `crc32pseudo` was recorded C/B = 0.9996 and C/A = 0.9985; re-measured C/B is
+  **1.0000 exactly** and C/A is **1.0768** in instructions — a 7.7% *emission
+  cost*, invisible to wall clock (1.0012/0.9973/1.0050) and previously recorded as
+  neutral. `fir_no_red_ld` was recorded B/A = 1.0727; the instruction count is
+  **1.2504** at -O3, and the old figure reproduces to within 0.4% **only in wall
+  clock** (1.0775) — the recorded number was a wall-clock ratio presented beside
+  instruction ratios. `sglib_iq_first_element` C/B = 1.0492 is **excluded, not
+  substituted**: callgrind returns rc=-11 at all three levels, so no instruction
+  count exists and the low-confidence flag on it was justified.
+  **Two self-corrections by the measuring agent, worth recording as method.** A
+  partial-run claim that "C/B = 1.0000 in all 58/58 rows at all three levels" was
+  a **coverage artifact** — the first 100 functions in sweep order contained only
+  the four arithmetic-firing external functions, precisely the ones where the
+  rewrite changes no machine code; on the complete set C/B differs in 107/107/96
+  rows. And an exclusion class of "no callgrind record" covering 123 of 128 rows
+  collapsed to 9 after a full reparse. Separately, the sweep's inline parser used a
+  regex that cannot match right-aligned percentages (`( 7.69%)`) and **silently
+  dropped 291 side-values**, all recovered from the preserved `cg.out` files via
+  `callgrind_annotate`.
+  **Verdict: the recorded null survives, and it is sharper than what was on
+  record.** The -O1 arrangement did not manufacture it; it only hid the fact that
+  **clang's own optimizer does the arithmetic family's work at every level ≥ 1**.
+  My hypothesis that the level confound was creating the null is refuted — the
+  confound was real and worth fixing, and fixing it produced a stronger negative,
+  not a win. One method deviation matters for future readings: A here is the
+  **original C recompiled at each level**, not the shipped `.ll` — the two differ
+  materially (`fir_no_red_ld` at -O3 is B/A 1.0519 with a shipped-`.ll` A but
+  **1.2504** with a C-source A), and 35 of 341 rows fall back to the shipped `.ll`
+  and are flagged weaker.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
