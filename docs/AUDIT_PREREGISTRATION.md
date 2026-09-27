@@ -199,6 +199,35 @@ Therefore:
 This addendum makes a null result more likely and does not make a positive result easier.
 It is recorded before the fact for that reason.
 
+## Addendum 2 — the harness redirected program stdout to `/dev/null`, and that
+## changed the workload
+
+*Appended 2026-09-27, after A1 was profiled and before A1 was evaluated.*
+
+**GNU grep detects output to `/dev/null` and short-circuits.** `grep.c:2886` does
+`stat("/dev/null", ...)` and sets `dev_null_output`; `grep.c:2896` then acts on
+`exit_on_match | dev_null_output`, i.e. it behaves as if `-q` were given and exits at
+the first match. Measured on the frozen A1 workload:
+
+| stdout | wall clock | instructions |
+|---|---|---|
+| regular file | 0.075 s | 266,783,794 |
+| `/dev/null` | **0.002 s** | **3,246,911** |
+
+**A 37x wall-clock difference and an 82x instruction difference**, from a redirect the
+harness chose for tidiness. The first profile taken in this audit was of the
+short-circuited run, and the conclusion drawn from it — "one function is 85% of the
+workload" — was drawn from a workload that was not being run as described.
+
+The harness now sends program stdout to a regular file and never to `/dev/null`. **Only
+A1 is affected**: `zstd`, `jq`, `sqlite3`, `pngtest` and `lua` have no equivalent
+optimisation, and A1 is re-profiled. No result from the bad redirect is used.
+
+Recorded because it is the exact failure this audit exists to catch, appearing in the
+audit's own instrument: a run that reports numbers is not the same as a run that
+executed what it claims. The tell was arithmetic — 3.2M instructions to scan 69 MB is
+40 MIPS, which no machine of this class does.
+
 ## Open risk, stated in advance
 
 The sample is six applications and 24 sites. Astra's W1 cannot be *settled* by n=24 in

@@ -55,9 +55,14 @@ jq_ver=1.8.2
 get "https://github.com/jqlang/jq/releases/download/jq-$jq_ver/jq-$jq_ver.tar.gz" \
     "$DL/jq-$jq_ver.tar.gz" \
     && untar "$DL/jq-$jq_ver.tar.gz" jq \
-    && (cd "$SRC/jq" && ./configure --disable-maintainer-mode >/dev/null 2>&1 && make -j2 >/dev/null 2>&1) \
-    && cp "$SRC/jq/jq" "$BLD/A3-jq" && echo "BUILT A3-jq" \
-    || echo "FAIL A3"
+    && (cd "$SRC/jq" && ./configure --disable-maintainer-mode --disable-shared >/dev/null 2>&1 \
+        && make -j2 >/dev/null 2>&1) \
+    && cp "$SRC/jq/jq" "$BLD/A3-jq" \
+    && head -c 4 "$BLD/A3-jq" | od -An -c | grep -q '177   E   L   F' \
+    && echo "BUILT A3-jq" || echo "FAIL A3 (not an ELF binary)"
+# --disable-shared above matters: with a shared libjq, the `jq` in the build
+# root is a libtool *wrapper script*, and copying it silently yields a 6 KB
+# bash script that profiles as bash rather than as jq.
 
 # ----------------------------------------------------------------- A4 sqlite
 log "A4 sqlite 3.53.4 amalgamation"
@@ -76,8 +81,10 @@ get "https://github.com/pnggroup/libpng/archive/refs/tags/v$png_ver.tar.gz" "$DL
     && (cd "$SRC/libpng" && cmake -S . -B build -DCMAKE_C_COMPILER=clang \
             -DCMAKE_C_FLAGS="-O3" -DPNG_SHARED=OFF -DPNG_TESTS=ON >/dev/null 2>&1 \
         && cmake --build build -j2 >/dev/null 2>&1) \
-    && cp "$SRC/libpng/build/pngtest" "$BLD/A5-pngtest" && echo "BUILT A5-pngtest" \
-    || echo "FAIL A5"
+    && clang -O3 -I "$SRC/libpng" -I "$SRC/libpng/build" \
+         "$SRC/libpng/pngtest.c" "$SRC/libpng/build/libpng.a" -lz -lm \
+         -o "$BLD/A5-pngtest" >/dev/null 2>&1 \
+    && echo "BUILT A5-pngtest" || echo "FAIL A5"
 
 # --------------------------------------------------------------------- A6 lua
 log "A6 lua 5.5.1"

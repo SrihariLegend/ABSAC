@@ -15,6 +15,16 @@ set -uo pipefail
 
 MODE="${1:-noise}"; shift || true
 A=/tmp/audit; B="$A/build"; W="$A/work"
+mkdir -p "$A/out"
+
+# Program stdout goes to a *regular file*, never to /dev/null. GNU grep checks
+# `stat("/dev/null")` at startup and sets `dev_null_output`, after which it
+# behaves as if `-q` were given (grep.c:2896, `exit_on_match | dev_null_output`)
+# and exits at the first match. Redirecting the scan workload to /dev/null
+# silently turned a 69 MB scan into a first-match early exit — 0.075 s became
+# 0.002 s and the instruction count fell 82x. A harness that redirects to
+# /dev/null is not running the workload it says it is.
+STDOUT_SINK="$A/out/current.stdout"
 
 # run_one APP   — the frozen workload command, stdout discarded
 run_one() {
@@ -36,7 +46,7 @@ measure() { # label reps
     local -a t=()
     for ((i = 0; i < reps; i++)); do
         t0=$(date +%s%N)
-        run_one "$label" >/dev/null 2>&1
+        run_one "$label" >"$STDOUT_SINK" 2>/dev/null
         t1=$(date +%s%N)
         t+=($(( (t1 - t0) / 1000 )))
     done
@@ -72,7 +82,7 @@ case "$MODE" in
             A6-lua)    valgrind --tool=callgrind --callgrind-out-file="$out" \
                           "$B/A6-lua" "$W/bench.lua" ;;
             *) echo "unknown app $APP" >&2; exit 2 ;;
-        esac >/dev/null 2>&1
+        esac >"$STDOUT_SINK" 2>/dev/null
         callgrind_annotate --threshold=90 "$out" 2>/dev/null | tail -n +20
         ;;
     noise)
