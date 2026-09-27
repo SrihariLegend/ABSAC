@@ -99,6 +99,73 @@ pub fn symbolic_lowering_is_environment_sensitive() {
     );
 }
 
+/// The gate: prove the *actual* artifact the compiler would ship, not the
+/// transformation it intended.
+pub fn the_gate_validates_the_actual_artifact() {
+    let ll = std::fs::read_to_string("../../../gate6a/v6_corpus.ll").expect("corpus");
+    let function = sir_lower::lower_function(&ll, "p07_any_or_const_u32").expect("lower");
+    let optimized = sir_opt::optimize_any(&function).expect("the any family fires on p07");
+
+    // The candidate is a real rewritten function, produced by the family
+    // through `patch::apply`, with its own arena and its own ids. If the
+    // gate were proving something about the original instead of about this
+    // artifact, this assertion would pass for the wrong reason.
+    assert_ne!(
+        function.arena.len(),
+        optimized.arena.len(),
+        "the candidate really is a different function, not the original back"
+    );
+    assert!(
+        optimized
+            .arena
+            .iter()
+            .all(|node| !matches!(node.kind, NodeKind::Loop { .. })),
+        "the reduction loop is gone in the candidate"
+    );
+    // Which side is wrong? Each function against itself must hold; if
+    // either does not, the fault is in the lowering, not the transform.
+    assert!(
+        sir_opt::symbolic::equivalent(&function, &function),
+        "the original must be equivalent to itself"
+    );
+    assert!(
+        sir_opt::symbolic::equivalent(&optimized, &optimized),
+        "the candidate must be equivalent to itself"
+    );
+    assert!(
+        sir_opt::symbolic::equivalent(&function, &optimized),
+        "the artifact the family actually builds must prove equivalent to \
+         the original it replaces"
+    );
+
+    // A candidate that computes something else must not pass. Rewrite one
+    // operand of the accumulator chain so the value differs, leaving the
+    // shape alone — the same kind of change that shipped as S2.
+    let mut wrong = optimized.clone();
+    let victim = wrong
+        .arena
+        .iter()
+        .find_map(|node| match &node.kind {
+            NodeKind::Or { lhs, .. } if wrong.get_node(*lhs).is_some() => Some(node.id),
+            _ => None,
+        })
+        .expect("an accumulator node");
+    if let Some(node) = wrong.arena.get_mut(victim) {
+        if let NodeKind::Or { lhs, .. } = &node.kind {
+            let zero = *lhs;
+            node.kind = NodeKind::Or {
+                lhs: zero,
+                rhs: zero,
+            };
+        }
+    }
+    assert!(
+        !sir_opt::symbolic::equivalent(&function, &wrong),
+        "a candidate whose accumulator no longer depends on its inputs \
+         must be refused rather than certified"
+    );
+}
+
 /// Definedness is not implied by the equality query, and this shows both
 /// that the lowering refuses an out-of-bounds read and that it has to.
 pub fn an_out_of_bounds_read_is_refused_and_value_equality_is_blind() {

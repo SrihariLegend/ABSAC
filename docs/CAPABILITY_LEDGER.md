@@ -3547,6 +3547,46 @@ Three follow-ups this table makes concrete:
   to the same artifact — and the **wiring** into the families, where
   `prove_equal(original, patch)` replaces the vacuous obligation.
 
+- **2026-09-27 — step 2, fourth piece: the boundary gate. The artifact the families
+  actually build is now proved equivalent to the function it replaces — and a
+  wrong candidate is refuted.**
+  `symbolic::equivalent(original, candidate)` lowers both functions to terms and
+  queries the kernel. This is the gate astra specified: *"candidate extraction,
+  validation and commit must be bound together; do not validate one object and
+  reconstruct another"* — a proof about the intended accumulator root is not a proof
+  that the replacement map uses that root or rewrites the intended uses.
+  **Three defects were found and fixed while building it, each of which would have made
+  the gate silently useless rather than loudly wrong:**
+  1. **One translator per arena.** `Translator` owns a `Function`, and the candidate
+     produced by `patch::apply` has its own arena with ids the original never had.
+     Lowering both sides through one translator would have looked the candidate's nodes
+     up in the original and read the wrong ones. Each side now gets its own translator
+     and `inherit` carries the *shared meanings* across — which arena the terms live in,
+     and which array read denotes which value. Without the latter the two sides would
+     describe unrelated memory and nothing could ever be proved.
+  2. **The loop is reached through the return, not as the root.** The first version
+     handled `TupleExtract` only at the root, but the original's result is
+     `zext(acc != 0)` for a predicate reduction, so the loop is reached through two
+     further nodes. `TupleExtract` on a `Loop` is now handled inside the walk.
+  3. **`return_node` names the `Return` node, not the value.** Lowering it directly
+     refused with `WALK refuse %17: %17: () = Return`; the value is its operand.
+  **The test.** `the_gate_validates_the_actual_artifact` runs the real `optimize_any` on
+  the fixture, asserts the candidate genuinely differs (different arena length, no loop
+  remaining), asserts each function is equivalent to **itself** — which discriminates a
+  broken lowering from a broken transformation — and then asserts the candidate is
+  equivalent to the original, and that a candidate whose accumulator has been rewritten
+  to depend on nothing is **refused**. Both directions hold.
+  **A misreading to record, because it is the same failure this project keeps having.**
+  On first running, the gate printed a counterexample and I read that as "the real
+  artifact does not prove equivalent" and started hunting the transformation. The test
+  line said `ok`: the counterexample came from the *control*, which is supposed to be
+  refuted. Reading the evidence I had asked for, rather than the evidence I expected,
+  is the discipline this ledger exists to enforce, and I did not apply it for one step.
+  **State**: build warning-free, all 10 tests green, test count unchanged.
+  **Remaining**: the wiring — families calling `equivalent` on the candidate before
+  committing it, and refusing when it does not hold — after which `or_laws` stops
+  authorising anything.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`

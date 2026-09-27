@@ -16,6 +16,7 @@ mod cases {
     pub mod symbolic {
         include!("cases/symbolic.rs");
         pub fn run() {
+            the_gate_validates_the_actual_artifact();
             symbolic_lowering_is_environment_sensitive();
             an_out_of_bounds_read_is_refused_and_value_equality_is_blind();
             the_unrolled_original_refutes_the_wrong_patch();

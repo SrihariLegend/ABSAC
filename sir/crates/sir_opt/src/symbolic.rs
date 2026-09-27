@@ -93,6 +93,24 @@ impl<'a> Translator<'a> {
         &mut self.bv
     }
 
+    /// Adopt another translator's symbolic state, so that terms built
+    /// against one arena can be compared with terms built against another.
+    ///
+    /// Two `Function`s have separate arenas, and a candidate produced by
+    /// `patch::apply` carries ids the original never had. Lowering both
+    /// sides through one translator would look the candidate's nodes up in
+    /// the original and silently read the wrong ones — so each side gets its
+    /// own translator and this carries the *shared meanings* across: which
+    /// arena the terms live in, and which array read denotes which value.
+    /// Without the latter the two sides would describe unrelated memory and
+    /// no transformation could ever be shown equal.
+    pub fn inherit(&mut self, other: &Translator<'_>) {
+        self.bv = other.bv.clone();
+        self.elements = other.elements.clone();
+        self.inputs = other.inputs.clone();
+        self.next = other.next;
+    }
+
     pub fn constant(&mut self, value: u64, width: u32) -> Term {
         self.bv.constant(value, width)
     }
@@ -270,6 +288,22 @@ impl<'a> Translator<'a> {
                 let f = self.walk(*false_val, env, memo)?;
                 self.bv.ite(c, t, f)
             }
+            // A carried value leaving a loop. This has to be handled in the
+            // walk and not only at the root: the original's result is
+            // usually reached *through* something else — `zext(acc != 0)`
+            // for a predicate reduction — so a root-only case would miss the
+            // loop entirely and refuse every real function.
+            NodeKind::TupleExtract { tuple, index } => {
+                let f: &Function = self.function;
+                if !matches!(
+                    f.get_node(*tuple).map(|node| &node.kind),
+                    Some(NodeKind::Loop { .. })
+                ) {
+                    return None;
+                }
+                let unrolled = unroll(self, f, *tuple, env)?;
+                unrolled.outputs.get(*index).copied()?
+            }
             // Everything else refuses. This is the closed whitelist: an
             // operator absent from it is one whose semantics this module
             // does not claim to know.
@@ -364,6 +398,50 @@ impl<'a> Translator<'a> {
         }
         Some(width)
     }
+}
+
+/// Is `candidate` equivalent to `original` on its return value?
+///
+/// This is the gate that binds the *actual* artifact to the proof. A family
+/// builds a patch, `patch::apply` materialises a candidate function, and
+/// this compares that candidate against the original it replaces — rather
+/// than a proof about the intended accumulator root being taken as a proof
+/// that the replacement map uses that root, preserves the other live-outs,
+/// or rewrites the intended uses.
+///
+/// Both sides are lowered by one translator, so the same array read denotes
+/// the same symbolic value across them; that is what makes the comparison
+/// possible at all. Only the return value is compared, which is the whole
+/// observable of the functions these families act on — a function with
+/// other live-outs is not what this fragment covers, and it refuses.
+pub fn equivalent(original: &Function, candidate: &Function) -> bool {
+    // `return_node` is the `Return` node; the value is its operand.
+    let value_of = |f: &Function| match f.return_node.map(|id| f.get_node(id)).flatten() {
+        Some(node) => match node.kind {
+            NodeKind::Return { value } => Some(value),
+            _ => None,
+        },
+        None => None,
+    };
+    let (Some(from), Some(to)) = (value_of(original), value_of(candidate)) else {
+        return false;
+    };
+    let empty = Subst::new();
+    // One translator per arena; the candidate's ids do not exist in the
+    // original and must not be looked up there.
+    let mut left = Translator::new(original);
+    let Some(lhs) = left.lower(from, &empty) else {
+        return false;
+    };
+    let mut right = Translator::new(candidate);
+    right.inherit(&left);
+    let Some(rhs) = right.lower(to, &empty) else {
+        return false;
+    };
+    matches!(
+        sir_mech::prove_equal(right.bv(), lhs, rhs),
+        sir_mech::CheckResult::Valid
+    )
 }
 
 /// One loop, fully unrolled.
