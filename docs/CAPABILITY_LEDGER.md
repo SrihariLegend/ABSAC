@@ -3625,6 +3625,38 @@ Three follow-ups this table makes concrete:
   reason is the same defect as a check that cannot fail — then repair or restrict
   `runtime_sum` to shapes where the lower bound is provably zero.
 
+- **2026-09-27 — the gate's corpus list is derived from disk, not maintained by hand;
+  coverage went from 14 corpora to 22, and the gate is now RED on a real miscompile.**
+  `verify.sh` listed its corpora explicitly (`v2 v3 … v14 v16`) in both the native and
+  AArch64 loops. **Five corpora on disk were never run in any mode**: `v1_corpus.ll`,
+  `v18_corpus.ll`, `v21_popcount16.ll`, `v22_popcount64.ll`, `heldout_corpus.ll`. The
+  list is now a glob over `gate6a/v*.ll`, so **a corpus added to the directory is gated
+  by existing**, and this cannot recur by omission. **22 corpora are now run, up from
+  14.** `heldout_corpus.ll` stays excluded and says so in its name — it is the only file
+  in the directory excluded by intent rather than by accident.
+  **The gate is now RED**, failing on exactly `FAIL corpus/v1_corpus exit=1` — the
+  `runtime_sum` miscompile recorded above. A gate that stays green by not looking is
+  worse than one that fails honestly, and this one failed honestly on the first run.
+  **A check confirmed sound rather than assumed.** `run_case` **does** treat
+  `harness_errors=[1-9]` as a failure alongside `mismatched=[1-9]`, so emitted C that
+  does not compile fails the gate loudly. I checked it because assuming it would have
+  been the same mistake as the corpus list.
+  **A second defect surfaced, in an ungated corpus.** `heldout_corpus.ll::n04_stride2`
+  produces emitted C that **does not compile**:
+  `emitted.c:19:16: error: use of undeclared identifier 'v3'`. Recorded as a known-broken
+  emitter output, not repaired. It never failed anything because the corpus is not run;
+  `run_case` would catch it the moment it were, which is the argument for the glob in one
+  line.
+  **Also found, not defects**: `v18`, `v21_popcount16` and `v22_popcount64` are clean;
+  the three `lower_refused` rows in `heldout` are the lowerer refusing correctly
+  (separate latch block, unmodelled rotated exit, unresolved float phi).
+  **External corpora remain WARN** — 19/19 absent, requiring
+  `scripts/fetch-external.sh`. Unchanged and not the cause of the red.
+  **Consequence for the historical record**: `docs/GATE6A_V1_RESULTS.md` records
+  `v08_sum_bounded` as PASS. It is not. Any "PASS" in the older gate documents must be
+  read as "passed the checks that happened to be run", and where a corpus was excluded
+  by hand the two are not the same claim.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`

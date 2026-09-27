@@ -10,6 +10,21 @@ MODE="${1:-fast}"
 SIR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT="$(cd "$SIR_DIR/.." && pwd)"
 CORPUS="$ROOT/gate6a"
+
+# The gate runs every corpus in gate6a/, derived from disk rather than from
+# a hand-maintained list. It *was* hand-maintained, and that is how
+# `v1_corpus.ll` — which contains a live miscompile in `runtime_sum` — came
+# to be excluded with no recorded reason and to stay excluded. A corpus that
+# is not run cannot fail, which is the same defect as a check that cannot
+# fail, applied to coverage instead of to logic.
+#
+# `heldout_corpus.ll` is deliberately excluded and says so in its name; it is
+# the only file in the directory excluded by intent rather than by accident.
+BASE_CORPORA=$(cd "$CORPUS" && ls -1 v*.ll 2>/dev/null | sed 's/\.ll$//' | sort -V)
+if [ -z "$BASE_CORPORA" ]; then
+    echo "FAIL no corpora found under $CORPUS"
+    exit 1
+fi
 EXTERNAL="${ABSAC_EXTERNAL:-/tmp/external}"
 BIN="$SIR_DIR/target/release/emit_c_diff"
 export TMPDIR="${TMPDIR:-$ROOT/tmp}"
@@ -102,8 +117,8 @@ else
 fi
 
 echo "== base-14 native"
-for name in v2 v3 v4 v5 v6 v7 v8 v9 v10 v11 v12 v13 v14 v16; do
-    run_case "base14/$name" "$CORPUS/${name}_corpus.ll" \
+for name in $BASE_CORPORA; do
+    run_case "corpus/$name" "$CORPUS/${name}.ll" \
         --cases 2 --workdir "$TMPDIR/verify/base14_$name"
 done
 
@@ -124,8 +139,8 @@ fi
 
 if [ "$MODE" = "full" ]; then
     echo "== base-14 AArch64"
-    for name in v2 v3 v4 v5 v6 v7 v8 v9 v10 v11 v12 v13 v14 v16; do
-        run_case "base14-a64/$name" "$CORPUS/${name}_corpus.ll" \
+    for name in $BASE_CORPORA; do
+        run_case "corpus-a64/$name" "$CORPUS/${name}.ll" \
             --cases 2 --target aarch64 --workdir "$TMPDIR/verify/base14_a64_$name"
     done
     echo "== fuzz native"
