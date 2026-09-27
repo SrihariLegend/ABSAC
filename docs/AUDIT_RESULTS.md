@@ -7,12 +7,124 @@ Outcomes use the frozen six categories; refusals stay in the denominator.
 
 | # | Application | Sites | intake-failed | unsupported | unproved | identical | unprofitable | profitable |
 |---|---|---|---|---|---|---|---|---|
-| A1 | GNU grep | 4 | 4 | | | | | |
-| A2 | zstd | — | | | | | | |
-| A3 | jq | — | | | | | | |
-| A4 | sqlite | — | | | | | | |
-| A5 | libpng | — | | | | | | |
-| A6 | lua | — | | | | | | |
+| A1 | GNU grep | 4 | **4** | | | | | |
+| A2 | zstd | 4 | **4** | | | | | |
+| A3 | jq | 4 | **4** | | | | | |
+| A4 | sqlite | 4 | **4** | | | | | |
+| A5 | libpng | 4 | **4** | | | | | |
+| A6 | lua | 4 | **4** | | | | | |
+| | **total** | **24** | **24** | 0 | 0 | 0 | 0 | **0** |
+
+**Useful-patch yield: 0/24 = 0%. Cost-weighted coverage: 0%. Saved cost: 0.**
+Projects with a certified improvement: 0 of 6.
+
+**Success criterion A (two independent certified improvements): not met.**
+**Success criterion B (≥1 exceeding 5% end-to-end): not met, and not evaluable in
+substance — there was nothing to measure.** Criterion C therefore never arises.
+
+**No proposal was ever constructed.** Zero sites reached `unsupported`, which is the
+category meaning "lowered, but no family's pattern applies". The families did not run on
+any of the 24 sites, so **their coverage of real code is untested by this audit** — the
+audit measured the lowerer's intake, not the domain hypothesis.
+
+## Every site, with tag and refusal reason
+
+Sites are tagged `S1` scan/reduction/set, `S2` other numeric, `S3` pointer/control-heavy.
+Share is of the application's own instructions (libc excluded — it is not ours to
+transform).
+
+| App | Site | Tag | Share | Refusal reason |
+|---|---|---|---|---|
+| A1 | `bmexec_trans` | S1 | 97.45% | external call `@memchr2` |
+| A1 | `Fexecute` | S3 | 1.19% | external call `@kwsexec` |
+| A1 | `grepbuf` | S3 | 0.73% | external call `@rawmemchr` |
+| A1 | `bmexec` | S3 | 0.15% | external call `@memchr2` |
+| A2 | `ZSTD_compressBlock_doubleFast` | S1 | 55.48% | multiple loops sharing an exit CFG |
+| A2 | `ZSTD_encodeSequences_bmi2` | S2 | 26.68% | loop with a separate latch block |
+| A2 | `ZSTD_buildSequencesStatistics` | S1 | 4.98% | external call `@HIST_countFast_wksp` |
+| A2 | `ZSTD_splitBlock` | S3 | 1.99% | external call `@HIST_add` |
+| A3 | `jv_parser_next` | S3 | 21.16% | external call `@jv_invalid` |
+| A3 | `jv_free` | S3 | 14.05% | external call `@__assert_fail` |
+| A3 | `jq_next` | S3 | 13.55% | external call `@jv_nomem_handler` |
+| A3 | `jv_array_get` | S3 | 1.43% | external call `@__assert_fail` |
+| A4 | `sqlite3VdbeExec` | S3 | 38.72% | external call `@strlen` |
+| A4 | `vdbeSorterCompareInt` | S2 | 14.09% | branch-guarded memory (path predication) |
+| A4 | `sqlite3BtreeInsert` | S3 | 7.27% | branch-guarded memory (path predication) |
+| A4 | `moveToRoot` | S3 | 0.98% | branch-guarded memory (path predication) |
+| A5 | `png_write_find_filter` | S1 | 92.68% | external call `@png_write_flush` |
+| A5 | `count_zero_samples` | S1 | 7.24% | external call `@png_error` |
+| A5 | `png_do_read_transformations` | S3 | 0.02% | external call `@png_error` |
+| A5 | `png_calculate_crc` | S1 | 0.01% | external call `@crc32` |
+| A6 | `luaV_execute` | S3 | 97.75% | external call `@luaG_tracecall` |
+| A6 | `internshrstr` | S3 | 0.22% | external call `@luaC_fullgc` |
+| A6 | `lua_tolstring` | S3 | 0.15% | external call `@luaO_tostring` |
+| A6 | `luaH_getshortstr` | S3 | 0.06% | loop with a separate latch block |
+
+## What the refusals are made of
+
+Sorting the 24 reasons into classes:
+
+| Refusal class | Sites | Share |
+|---|---|---|
+| **the code calls a function we do not model** | **18** | **75%** |
+| branch-guarded memory through pointer operands | 3 | 12.5% |
+| loop with a separate latch block | 2 | 8.3% |
+| multiple loops sharing an exit CFG | 1 | 4.2% |
+
+Within the 18 call refusals, both kinds appear: **libc** (`memchr2`, `rawmemchr`,
+`memchr`, `strlen`, `crc32`, `__assert_fail`) and **the application's own functions**
+(`png_error`, `jv_invalid`, `HIST_add`, `luaG_tracecall`).
+
+## The finding
+
+**The binding constraint is intake, not domain recognition.** The audit was designed to
+test whether profitable transformations concentrate in scan/reduction shapes, and it
+cannot answer that question, because **the lowerer accepted none of the 24 sites** — not
+one of the six projects, not at 97% of the workload or at 0.01%.
+
+This inverts the project's own account of its problem. The recorded story is that clang
+vectorizes the target shapes before the lowerer sees them; the remedy implied was better
+or different *recognition*. What actually happens is one stage earlier: **we refuse to
+read the code.** A single unmodelled call — an `assert`, an error-reporting helper, a
+`memchr` — is enough to reject a function that is otherwise exactly the shape the
+families exist to transform.
+
+Three consequences worth separating:
+
+1. **The domain hypothesis is untested, not refuted.** Astra's W1 warning — that our
+   apparent concentration in algebraic shapes may be an artifact of our own selection and
+   vocabulary — is neither confirmed nor falsified here. A 2×2 of tag against outcome has
+   an empty outcome row. The honest statement is that this sample produced no evidence
+   either way about where wins are, and a great deal of evidence about where they are
+   *not even searched for*.
+2. **This contradicts the standing advice to leave the lowerer alone.** The advisor's
+   instruction was "do not broaden the lowerer to enlarge the intake funnel". This audit
+   says the intake funnel *is* the constraint. Either the advice assumed intake was
+   adequate, or it was about a different goal (not inflating `sir_lower` for its own
+   sake). The tension is recorded rather than resolved: the advice and the measurement
+   disagree, and the measurement is the newer fact.
+3. **Yield is zero, so no criterion was met.** Not "almost": every one of the 24 sites
+   died at the first stage, including the S1 sites that the concentration thesis predicts
+   should be the winning class. libpng's `png_calculate_crc` — a CRC over a buffer, about
+   as close to a counted single-stream reduction as real code gets — is refused because it
+   calls `crc32`.
+
+## Predictions, scored
+
+| # | Frozen prediction | Result |
+|---|---|---|
+| A1 | Yield expected (the wedge) | **Falsified** — 4/4 intake-failed |
+| A2 | Partial (bit paths, not the match finder) | **Falsified** — 4/4 intake-failed |
+| A3 | No yield expected | Consistent — 4/4 intake-failed |
+| A4 | No yield in the VDBE; possible in page byte work | Consistent — 4/4 intake-failed |
+| A5 | Yield expected (row filters) | **Falsified** — 4/4 intake-failed |
+| A6 | No yield expected | Consistent — 4/4 intake-failed |
+
+Both predictions of yield were wrong, and so were both of the "possible" qualifiers. The
+three "no yield" predictions were right, but for a reason the prediction did not name:
+they did not fail because the domains were wrong, they failed at the same intake wall as
+the ones predicted to succeed. **A prediction that is right for the wrong reason is not
+evidence for the reason.**
 
 ---
 
