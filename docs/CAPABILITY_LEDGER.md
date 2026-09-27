@@ -3819,6 +3819,53 @@ Three follow-ups this table makes concrete:
   same `ArrayAccess`, `%8` unused) and a dead comparison (`v14`). Both are clang-trimmed
   and neither is wrong; the dead one is what exposed the scope bug.
 
+- **2026-09-27 — the opportunity audit ran: 24/24 sites refused at intake, yield zero.
+  The constraint is that we cannot read real code, not that we misrecognise it.**
+  Pre-registered before any application was read (`docs/AUDIT_PREREGISTRATION.md`, six
+  applications frozen by workload class, per-application predictions, tags and success
+  criteria fixed in advance). Full detail in `docs/AUDIT_RESULTS.md`. The result:
+  **every one of 24 sampled sites across GNU grep, zstd, jq, sqlite, libpng and lua is
+  `intake-failed`.** Not one proposal was constructed. Zero sites reached `unsupported`,
+  so **the families never ran on real code and their coverage of it is untested by this
+  audit** — the audit measured the lowerer's intake, not the domain hypothesis.
+  **What the refusals are made of.** 18 of 24 (75%) are *the code calls a function we do
+  not model* — both libc (`memchr2`, `rawmemchr`, `memchr`, `strlen`, `crc32`,
+  `__assert_fail`) and the application's own helpers (`png_error`, `jv_invalid`,
+  `HIST_add`, `luaG_tracecall`). The rest are three control-flow reconstruction failures:
+  branch-guarded memory through pointer operands (3), a separate latch block (2),
+  multiple loops sharing an exit CFG (1).
+  **This inverts the project's account of its own problem.** The recorded story is that
+  clang vectorizes the target shapes before the lowerer sees them, implying the remedy is
+  better *recognition*. The measurement puts the obstacle one stage earlier: **we refuse
+  to read the code.** A single unmodelled call rejects a function that is otherwise
+  exactly the shape the families exist to transform. libpng's `png_calculate_crc` — a CRC
+  over a buffer, about as close to a counted single-stream reduction as real code gets —
+  is refused because it calls `crc32`.
+  **Both predictions of yield were falsified**, including the one the project called its
+  wedge: `grep`'s Boyer-Moore executor `bmexec_trans` is 97.45% of that workload and is
+  rejected for calling `memchr2`. The three "no yield" predictions were right, but for a
+  reason they did not name — they hit the same intake wall as the ones predicted to
+  succeed, rather than failing on their domains. **A prediction right for the wrong
+  reason is not evidence for the reason.** Success criteria A and B are not met; yield,
+  cost-weighted coverage and saved cost are all zero.
+  **The relation to existing entries.** This is the first measurement that bears on
+  astra's W1 (the apparent concentration in algebraic shapes may be our selection and
+  vocabulary rather than the world's). It neither confirms nor falsifies it: the
+  2x2 of site tag against outcome has an **empty outcome row**, so the sample says
+  nothing about *where* wins are and a great deal about where they are not even searched
+  for. Note also that the entry-level rule "a check that cannot fail has not checked
+  anything" applies to this audit itself: **the domain families were never exercised, so
+  this result is not evidence about them either way.**
+  **A contradiction left open.** The standing advice was *not* to broaden the lowerer to
+  enlarge the intake funnel. This audit says the intake funnel is the binding constraint.
+  The two disagree and the measurement is the newer fact; recorded as a tension rather
+  than resolved in whichever direction is more comfortable.
+  **Instrument defects found and recorded** (`AUDIT_PREREGISTRATION.md` addendum 2): the
+  harness sent program stdout to `/dev/null`, and GNU grep treats `/dev/null` output as
+  `-q` (`grep.c:2896`), so the A1 workload silently short-circuited — 0.075 s became
+  0.002 s and instructions fell 82x. The tell was arithmetic (40 MIPS), not the output.
+  Only A1 was affected; it was re-profiled and no result from the bad redirect is used.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
