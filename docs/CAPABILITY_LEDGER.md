@@ -2891,6 +2891,144 @@ Three follow-ups this table makes concrete:
   LLM-plus-verifier proposals and plain constructor enumeration at identical budgets,
   and **delete learned scheduling if it adds no held-out gain**.
 
+- **2026-09-27 — astra recommends: pivot the search surface (certified source
+  transactions), not the correctness claim. The architecture is a *partial source
+  verifier with an untrusted proposer*; the company is a verified
+  performance-portability engine.** Second consultation of the day, on whether to
+  stop being a compiler and become the layer above one. Recorded as recommendations
+  under consideration. **Three claims I put to it are corrected here as mine.**
+  **CORRECTION — "seven of the eight moves are provable with the existing kernel" is
+  unsupported.** The bitvector kernel and the induction theorems prove *components*,
+  not arbitrary memory framing, precomputation validity, float width changes, or newly
+  disclosed assumptions: `restrict`, alignment and `assume` require facts about
+  **every applicable execution, not the observed workload**, and a specialization
+  guard must itself execute without UB with a fallback preserving the original domain.
+  "Unknown means unchanged. A defined counterexample blocks the transaction until its
+  applicability condition is proved correct." This is the same overclaim shape as the
+  earlier withdrawn figures — asserted, not counted.
+  **CORRECTION — the trusted boundary is not merely clang.** It includes source
+  extraction, obligation construction, theorem premises and patch realization. **"A
+  correct SAT answer to the wrong obligation proves nothing useful"** — which is the
+  same failure as the obligation that could not fail, seen from the other side. And
+  emission **shrinks, it does not disappear**: replacement boundaries still need
+  correct types, aliasing, effects, storage lifetimes, ABI preservation,
+  target-feature dispatch, and correspondence between the verified object and the
+  exact emitted patch.
+  **CORRECTION — a 295-second proof is proof cost, not measurement cost.** Budget
+  both; certificates establish semantic admissibility, not speed, not workload
+  representativeness, not measurement quality.
+  **The reframe survives, restated**: yes to certified source transactions; no to "the
+  hard part disappears". Discovering useful algorithms and proving their applicability
+  remains the binding problem, and CRC folding, vectorizer enablement and database-plan
+  substitution are **different research problems that happen to admit source patches**.
+  **Diagnostics are sensors, not a move language.** My diagnostics-as-move-generator
+  claim is downgraded: "cannot identify array bounds" does not identify a six-bit
+  lattice join, suggest where conversion belongs, or establish that moving loads is
+  alias-safe — the human supplied all three. The mechanisable mapping is
+  `remark → hypothesis about an obstacle → controlled intervention → verification and
+  experiment`, **not** `remark → patch`. **Honest planning baseline: approximately
+  zero useful automatic yield on the measured corpus.** Two retrospectively selected
+  human successes support using diagnostics for **triage**, not for forecasting
+  automation. Test incremental value against a code-only proposer at the same action
+  vocabulary and budget, and count **certified, strong-baseline improvements — not
+  remarks silenced and not loops vectorized.**
+  **The recommended research centre** (replacing my pairwise speed predictor, which it
+  calls too small an ambition — "it ranks programs someone else invented"). The
+  valuable learned object is **a transferable plan for making a mathematical operation
+  executable efficiently: which semantic facts to expose, where to change
+  representation, which algorithm to substitute, and which experiments resolve the
+  remaining uncertainty.** Its unit is neither a program nor a diagnostic but
+  **contract × surrounding use/storage context × compiler configuration × workload
+  regime**. Three capabilities:
+  **(A) Learn representation *boundaries*, not representations.** The decision in
+  packed HLL is not "bytes beat packed bits" but **where to unpack, which consumers
+  share the unpacked form, and where to repack**. Proposed mechanism: temporary
+  **representation islands** — preserve the public ABI and persistent format,
+  introduce a private working representation over a bounded region, discharge all
+  entering and exiting relations, and learn placement and lifetime including
+  conversion cost. This gives a continuum from local rewrite to project-wide layout
+  migration; a learner might find conversion pays only above three sharing consumers
+  or above a size threshold. **"The threshold chooses between already-correct
+  implementations; it never licenses an otherwise-invalid transformation."**
+  **(B) Gap capsules.** Every successful experiment yields two separate artefacts: the
+  **logical** (contract, applicability conditions, implementation/proof composition,
+  replayable obligations) and the **empirical** (compiler/build context, interventions
+  tried, emitted-code observations, conversion-inclusive costs, uncertainty, null
+  results). Minimize the witness while preserving both the semantic relation and the
+  compiler-response contrast, then propose a parameterized capsule —
+  **"generalization is a conjecture; each application must be checked."** Successful
+  multi-step graph paths become proposed reusable macros instead of each discovery
+  becoming another hand-written recognizer, so the action language can grow. And the
+  limit of a proposer that only spells: **CRC folding is undiscoverable if the entire
+  proposal language is alternative scalar spellings** — it needs an
+  algorithm/primitive vocabulary and GF(2)/ISA semantics.
+  **(C) Probe the compiler causally; model only enough to choose experiments.** Do not
+  build a neural replica of LLVM. Use the real compiler as oracle and learn a
+  conditional response model, running controlled variants that change loop
+  decomposition alone, representation alone, or the combination, to find which
+  *bundle* crosses a code-generation boundary. Cost ladder: cached proofs and reusable
+  theorem instantiations → compilation, code fingerprints, optimization records →
+  instruction-count screening → stable-hardware cycles and end-to-end validation.
+  **Store cost distributions and ties, not noisy winner labels**; record
+  `Counterexample` and `Unknown` separately; train the planner **to purchase the next
+  useful proof or compiler experiment**, not to predict the fastest known candidate.
+  **The flywheel and its limit**: no exclusive moat exists today. The potentially
+  scarce asset is **a corpus of theorem-linked counterfactual experiments in real
+  build/workload contexts** — not a database of remarks. The foundation-model analogy
+  becomes credible only when additional contracts improve transfer beyond the cases
+  that supplied them. And **"restoring performance after synthetic degradation is
+  training, not a product win"**: every claimed win must survive comparison against
+  untouched, strongly compiled upstream code.
+  **First research milestone** (precisely stated): freeze the system after development
+  on known examples; on untouched projects it must **recover a familiar contract
+  through unfamiliar code, transfer or compose an implementation plan, certify the
+  exact patch, and obtain a real gain without new human-supplied facts. Replaying
+  Redis is a positive control, not that milestone.**
+  **The company, per this consultation**: an opt-in CI engine returning **unchanged
+  source or a small, reviewable patch** — the user supplies build and workload, the
+  engine supplies the patch, a replayable verification record, adversarial regression
+  inputs, a full-build benchmark comparison and a portability fallback, and
+  **maintainers must not need ABSAC in their normal build**. Start with **one lane**:
+  bounded unsigned first-match scans on the existing scan theorem plus explicit
+  memory and tail obligations; add packed-storage islands only after transfer is
+  demonstrated; **do not broaden the lowerer to enlarge the intake funnel**.
+  Human-written templates are acceptable for the wedge; **human invention or bespoke
+  correctness assumptions per submitted patch are not automation.** "Initially this is
+  a verified autotuner, not yet a learned research breakthrough." The recurring
+  product is **compiler-conditioned performance maintenance**: find repairs, revalidate
+  them after toolchain changes, retire them when upstream codegen catches up.
+  **Five falsification gates**, capped at **one engineer-month** with no new backend
+  and no training stack, under the three generative campaigns (verification-chain
+  mutation, structured differential/exhaustive-small checking, measurement negative
+  controls) that must preserve the single-digit test count:
+  **G1 — is the correctness asset real?** The source-to-patch path must reject
+  deliberately invalid min/max, first/last-match, alias and tail mutants; **the
+  min-as-max mutant must fail on a concrete witness such as `(1,2)`**; another accepted
+  false obligation stops shipping through the affected path.
+  **G2 — is there an automatic opportunity set?** ~24 hot sites across ≥3 projects
+  **not used to invent the transformations**, ≤8 proposals per site, fixed proof and
+  compile budget, **refusals in the denominator**, funnel stages reported separately;
+  require two independent certified improvements, ≥1 exceeding 5% on a predeclared
+  end-to-end workload. **Redis cases do not count.** Baseline-versus-baseline controls
+  on stable hardware and held-out confirmation — "if only callgrind improves, you have
+  instruction reductions, not yet the performance product."
+  **G3 — do diagnostics contribute?** Repeat the frozen evaluation with remarks
+  hidden, actions and total budget fixed; if remarks do not improve certified results
+  per budget, stop building diagnostic machinery.
+  **G4 — does learning contribute?** Only after productive actions exist: learner vs
+  fixed enumeration and rules at equal total budget, held-out projects and later
+  compiler versions; if improvement comes only from remembering known patches or from
+  undoing generated damage, **abandon the learned-company claim** (a rule engine may
+  remain).
+  **G5 — is the missing ingredient intrinsically bespoke at our budget?** An expert
+  attempts a sample of the bot's failures under the same correctness policy; if
+  experts find certifiable, valuable wins while successive automation attempts need
+  new per-case semantic engineering rather than transferable capsules, **the
+  automatic-engine recommendation has failed economically**. If experts also find
+  nothing, service is not a refuge — change the target class or stop. Noted plainly,
+  as instructed: a service outcome **conflicts with the owner's automatic-product
+  goal**, and no finite trial proves automation impossible.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
