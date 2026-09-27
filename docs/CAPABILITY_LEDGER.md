@@ -3657,6 +3657,25 @@ Three follow-ups this table makes concrete:
   read as "passed the checks that happened to be run", and where a corpus was excluded
   by hand the two are not the same claim.
 
+- **2026-09-27 — `runtime_sum` repaired: one check, one firing of cost, and that firing
+  was the one producing wrong code.**
+  The family requires the accumulator to start at zero but **never checked where the
+  counter starts**, while the helper it emits (`__sir_sum_u8(a, n)`) sums from index 0.
+  One added condition — the counter's carried input must be a constant zero — closes it,
+  and it discharges the guard for free: with a zero start, `v08_sum_bounded`'s
+  `start >= n` early exit is taken only when `n` is zero, where both sides return 0.
+  **Measured**: `v08_sum_bounded` now reports `rewrites=0` and `mismatched=0`; the gate is
+  **`VERIFY PASS mode=fast`**; and the total firing count across all of `gate6a` is **506,
+  down from 507** — the guard's entire cost is the single firing that was miscompiling.
+  That is the shape a correctness guard should have: it removes the wrong transformation
+  and nothing else.
+  **Note on the polarity question left open earlier.** `runtime_sum` still uses
+  `fact.trip_count.is_some()` with its inverted meaning, and this repair deliberately
+  does **not** touch it. The defect was a missing initial-value check, not the polarity,
+  and fixing the thing actually wrong is preferable to changing a predicate whose
+  failure mode has not been analysed. The polarity question remains open and is recorded
+  as such rather than folded into this change.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`

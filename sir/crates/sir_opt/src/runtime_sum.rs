@@ -122,6 +122,18 @@ fn recognize_loop(
         .iter()
         .position(|id| *id == reduction.variable)?;
     let accumulator = reduction.variable;
+    // The helper this family emits sums from index 0, so the loop is the
+    // same computation only if the counter *starts* there. Nothing used to
+    // check this, and `v08_sum_bounded` — `for (i = start; i < n; i++) sum
+    // += a[i]`, with an early exit returning 0 when `start >= n` — was
+    // rewritten to `__sir_sum_u8(a, n)`, dropping the start parameter and
+    // the guard and computing a different function for every `start != 0`.
+    // Requiring the counter to begin at zero discharges the guard too: with
+    // a zero start, the `start >= n` branch is taken only when `n` is zero,
+    // where both sides return 0.
+    if !is_zero_constant(function, carried_inputs[counter_pos]) {
+        return None;
+    }
     // Runtime bound: `termination` is `counter < bound` (possibly under
     // a find/guard conjuncture), and the counter is stepped by one.
     let bound = find_lt_bound(function, *termination, counter.variable)?;
