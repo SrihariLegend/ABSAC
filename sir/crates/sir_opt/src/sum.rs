@@ -6,7 +6,6 @@ use sir_nodes::{Function, Node, NodeKind};
 use sir_types::{ConstantData, Effects, NodeId, Span, Type};
 
 use crate::patch::{apply, carried_names, Patch};
-use crate::prove;
 
 const MAX_UNROLL: usize = 512;
 
@@ -44,12 +43,12 @@ pub(crate) fn apply_one(
     facts: &sir_analysis::facts::FactDatabase,
 ) -> Option<(Function, u64)> {
     let plan = recognize(function, facts)?;
-    let width = type_bits(&plan.accumulator_ty)?;
-    if !prove::sum_laws(width) {
-        return None;
-    }
     let patch = build_patch(function, &plan)?;
-    apply(function, &patch).map(|function| (function, plan.definition))
+    let candidate = apply(function, &patch)?;
+    // See `any.rs`: the operator identity that used to gate this could not
+    // fail in its intended role. This proves the artifact instead.
+    crate::symbolic::equivalent(function, &candidate)
+        .then(|| (candidate, plan.definition))
 }
 
 fn recognize(function: &Function, facts: &sir_analysis::facts::FactDatabase) -> Option<SumPlan> {
@@ -444,19 +443,4 @@ fn folded_offset_is_zero(function: &Function, output: NodeId, carry: NodeId) -> 
         }
     }
     false
-}
-
-fn type_bits(ty: &Type) -> Option<u32> {
-    match ty {
-        Type::Integer { width, .. } => Some(match width {
-            sir_types::IntegerWidth::I8 => 8,
-            sir_types::IntegerWidth::I16 => 16,
-            sir_types::IntegerWidth::I32 => 32,
-            sir_types::IntegerWidth::I64 => 64,
-            sir_types::IntegerWidth::I128 => 128,
-        }),
-        Type::BitVector { width } => Some(*width as u32),
-        _ => None,
-    }
-    .filter(|width| *width <= 64)
 }

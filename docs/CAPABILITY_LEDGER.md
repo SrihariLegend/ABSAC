@@ -3587,6 +3587,44 @@ Three follow-ups this table makes concrete:
   committing it, and refusing when it does not hold — after which `or_laws` stops
   authorising anything.
 
+- **2026-09-27 — FOUND WHILE MEASURING THE WIRING: a live miscompile in
+  `runtime_sum`, in a corpus the gate does not run.** Found by measuring the firing
+  cost of the wiring across all of `gate6a/`, not by looking for it. **Pre-existing and
+  not caused by the wiring** — the pre-wiring baseline reproduces it identically.
+  **The defect.** `gate6a/v1_corpus.ll::v08_sum_bounded(p0, p1, p2)` sums `a[start..n]`
+  where `start` is `p2` and `n` is `p1`, with an early exit returning 0 when
+  `start >= n`. The emitted code is:
+  ```c
+  uint64_t v08_sum_bounded(const uint8_t *p0, uint64_t p1, uint64_t p2) {
+      return __sir_sum_u8(p0, p1);      /* p2 — `start` — never appears */
+  }
+  ```
+  **The third parameter is dropped entirely and the guard is gone.** For any `start != 0`
+  this computes a different function; where the original returns 0 on the `start >= n`
+  path, the rewrite returns the sum of `a[0..n]`. Measured on the referee's own driver:
+  `t=1 ref=0 new=236`, `t=2 ref=0 new=292`, `t=3 ref=0 new=303` — **three of four cases,
+  on defined executions.** `t=0` agrees because `n=0`, which is why a two-case run that
+  stops at `t=0` would report clean.
+  **Why it was invisible.** `verify.sh`'s base-14 list is
+  `v2 v3 v4 v5 v6 v7 v8 v9 v10 v11 v12 v13 v14 v16` — **`v1` is not in it.** The corpus
+  containing this function has never been run by the gate, and the exclusion carries no
+  comment explaining it. A historical record, `docs/GATE6A_V1_RESULTS.md:54`, lists
+  `v08_sum_bounded  YES  PASS  2  -`; either the corpus or the family has changed since
+  it was written. Not investigated further — recorded as unknown.
+  **Why the new gate does not catch it.** `runtime_sum` is one of the three families
+  deliberately left unwired, because `fact.trip_count.is_some()` there carries the
+  *inverted* polarity ("this loop is not runtime-bounded"), and substituting the checked
+  extractor would silently change the predicate. So `equivalent` does not gate it, and
+  the SIR-level transformation is a different object from the emitted C. This is exactly
+  astra's point: *"emitted-C correctness additionally still depends on faithful
+  SIR-to-C lowering."*
+  **Against the standing correctness policy** this is a counterexample on a defined
+  execution, which **blocks the affected transformation** until its applicability
+  condition or its implementation is corrected. Recommended, not yet done: add `v1` to
+  the base-14 list so the gate is red rather than silent — a corpus excluded without a
+  reason is the same defect as a check that cannot fail — then repair or restrict
+  `runtime_sum` to shapes where the lower bound is provably zero.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`

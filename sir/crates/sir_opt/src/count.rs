@@ -7,7 +7,6 @@ use sir_nodes::{Function, Node, NodeKind};
 use sir_types::{ConstantData, Effects, NodeId, Span, Type};
 
 use crate::patch::{apply, carried_names, Patch};
-use crate::prove;
 
 struct CountPlan {
     target: NodeId,
@@ -32,10 +31,6 @@ pub(crate) fn apply_one(
     facts: &sir_analysis::facts::FactDatabase,
 ) -> Option<Function> {
     let plan = recognize(function, facts)?;
-    let width = type_bits(&plan.accumulator_ty)?;
-    if !prove::sum_laws(width) {
-        return None;
-    }
     let max = function.arena.ids().map(|id| id.0).max().unwrap_or(0);
     let mut next = max + 1;
     let mut nodes: Vec<(u64, Node)> = Vec::new();
@@ -71,13 +66,19 @@ pub(crate) fn apply_one(
             ),
         });
     }
-    apply(
+    let candidate = apply(
         function,
         &Patch {
             nodes,
             replacements: vec![(plan.target, chain?)],
         },
-    )
+    )?;
+    // The obligation that used to stand here proved an identity about the
+    // operator that the transformation does not depend on, and could not
+    // fail in its intended role. What gates the patch now is a proof about
+    // the patch: this candidate, lowered alongside the function it
+    // replaces, on the return value both compute.
+    crate::symbolic::equivalent(function, &candidate).then_some(candidate)
 }
 
 fn recognize(function: &Function, facts: &sir_analysis::facts::FactDatabase) -> Option<CountPlan> {
@@ -351,19 +352,4 @@ fn is_zero(function: &Function, id: NodeId) -> bool {
         Some(NodeKind::Constant(ConstantData::Integer { value, .. }))
             if value.trim_start_matches(['+', '-']).trim_start_matches('0').is_empty()
     )
-}
-
-fn type_bits(ty: &Type) -> Option<u32> {
-    match ty {
-        Type::Integer { width, .. } => Some(match width {
-            sir_types::IntegerWidth::I8 => 8,
-            sir_types::IntegerWidth::I16 => 16,
-            sir_types::IntegerWidth::I32 => 32,
-            sir_types::IntegerWidth::I64 => 64,
-            sir_types::IntegerWidth::I128 => 128,
-        }),
-        Type::BitVector { width } => Some(*width as u32),
-        _ => None,
-    }
-    .filter(|width| *width <= 64)
 }
