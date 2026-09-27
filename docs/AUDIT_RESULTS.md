@@ -1,5 +1,49 @@
 # Opportunity audit — results
 
+> ## CORRECTION (2026-09-27) — the headline result below is withdrawn
+>
+> **The conclusion "we refuse to read the code" is not supported by the evidence. The
+> audit measured the referee's linking configuration, not the lowerer.**
+>
+> `emit_c_diff`'s `direct_callees()` refuses any call to a symbol not `define`d in the
+> module it is handed, with the stated reason *"the harness has no implementation to link
+> them with"*. `lower_module` calls it **before** `lower_function`
+> (`emit_c_diff.rs:166` vs `:170`), so on those sites **the lowerer never ran at all.**
+>
+> Two configuration errors of mine caused this:
+>
+> 1. **I lowered one translation unit at a time.** A project's own helpers — `png_error`,
+>    `jv_invalid`, `HIST_add` — therefore looked like unknown external symbols purely
+>    because I had not given the harness the rest of the module. Feeding libpng's whole
+>    program instead (17 TUs, `llvm-link`) resolves them and moves the wall inward.
+> 2. **I never passed `--ffi-support`**, the flag that supplies implementations for
+>    genuine externals. **The project's own gate passes it** (`verify.sh:59`) for external
+>    corpora. My audit was stricter than the project's own evidence pipeline.
+>
+> Corrected measurement on A5's most thesis-relevant site, `png_calculate_crc` (a CRC
+> over a buffer, an S1 scan/reduction): given the whole module and a faithful CRC-32
+> through `--ffi-support`, **`lower_refused=0` — the lowerer accepts it** and the emitter
+> emits a working call (`emitted.c: uint64_t v40 = crc32(o0_2, o0_3, v39);`). The residual
+> failure is a harness link error on the *reference* side, not a lowering failure.
+>
+> Re-tested with the corrected configuration, A5's refusals become genuine lowerer
+> limitations of a **different kind**: `count_zero_samples` and `png_write_find_filter`
+> are refused for `call without callee: tail call void %6(...)` — **an indirect call
+> through a function pointer.**
+>
+> **What survives:** the six structural refusals (branch-guarded memory, separate latch
+> block, shared exit CFG) are genuine, and those messages carry no "external call" text.
+> **What does not survive:** the claim that 75% of refusals show the lowerer cannot
+> ingest real code, and every consequence drawn from it in this document below.
+>
+> **The audit must be re-run with whole-program IR and `--ffi-support`.** Until then there
+> is no corrected tag×outcome table, and the domain hypothesis remains untested — as it
+> was before, but for an ordinary reason rather than an alarming one. The lesson is the
+> project's own rule applied to its own audit: **the instrument was never validated
+> against a known-good configuration before it was used to measure.**
+>
+> The text below is retained unedited as the record of what was believed and why.
+
 Against `docs/AUDIT_PREREGISTRATION.md` (frozen 2026-09-27, commit `687b347`).
 Outcomes use the frozen six categories; refusals stay in the denominator.
 

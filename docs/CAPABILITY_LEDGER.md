@@ -3866,7 +3866,43 @@ Three follow-ups this table makes concrete:
   0.002 s and instructions fell 82x. The tell was arithmetic (40 MIPS), not the output.
   Only A1 was affected; it was re-profiled and no result from the bad redirect is used.
 
-## Reference commands
+- **2026-09-27 — CORRECTION to the audit entry below: the 24/24 result is withdrawn. It
+  measured the referee's linking configuration, not the lowerer.**
+  `emit_c_diff`'s `direct_callees()` refuses any call to a symbol not `define`d in the
+  module it is handed, and `lower_module` calls it **before** `lower_function`
+  (`emit_c_diff.rs:166` vs `:170`) — so on those sites **the lowerer never ran.** Two
+  configuration errors of mine caused it: I lowered **one translation unit at a time**, so
+  each project's own helpers (`png_error`, `jv_invalid`, `HIST_add`) looked like unknown
+  externals; and I never passed **`--ffi-support`**, which supplies implementations for
+  genuine externals and which **the project's own gate passes** (`verify.sh:59`). The
+  audit was stricter than the project's own evidence pipeline.
+  **Corrected spot-check** on the site the thesis most predicts — `png_calculate_crc`, a
+  CRC over a buffer, an S1 scan/reduction. With libpng's whole program (17 TUs,
+  `llvm-link`) and a faithful CRC-32 through `--ffi-support`: **`lower_refused=0`, the
+  emitter emits a working `crc32` call, and no family fires.** That is **`unsupported`,
+  not `intake-failed`** — the first real data point the audit produced, and it says *we
+  can read it and we have nothing for it*, which is a different and more useful claim than
+  the one withdrawn.
+  **What survives:** the six structural refusals (branch-guarded memory through pointer
+  operands ×3, separate latch block ×2, loops sharing an exit CFG ×1) are genuine — those
+  messages carry no "external call" text and come from the lowerer. **What does not:**
+  "75% of refusals show the lowerer cannot ingest real code", and every consequence drawn
+  from it, including the inversion of the project's story and the contradiction recorded
+  against the advisor's "do not broaden the lowerer" instruction.
+  **Newly visible, genuinely:** `png_write_find_filter` and `count_zero_samples` are
+  refused for `call without callee: tail call void %6(...)` — **an indirect call through
+  a function pointer.** That is how libpng, jq and lua all work internally, and it is a
+  real wall, but it is not the one first reported.
+  **The lesson, and it is the project's own rule turned on its own audit:** the instrument
+  was never validated against a known-good configuration before being used to measure. The
+  same defect as a gate that cannot fire, one level up. The audit must be re-run with
+  whole-program IR and `--ffi-support`; until then the domain hypothesis remains untested,
+  as it was before, but for an ordinary reason rather than an alarming one.
+
+- **2026-09-27 — the opportunity audit ran: 24/24 sites refused at intake, yield zero.
+  The constraint is that we cannot read real code, not that we misrecognise it.**
+  **[WITHDRAWN — see the correction above. Retained unedited as the record of what was
+  believed and why.]**
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
 - Old file: `git show HEAD:sir/crates/<crate>/<path>`
