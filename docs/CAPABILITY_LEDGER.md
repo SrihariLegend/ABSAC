@@ -3322,6 +3322,42 @@ Three follow-ups this table makes concrete:
   oracle, with small exhaustive and sparse cases through the existing `run()` dispatch
   — **"tests harden this trusted code; they do not establish its correctness."**
 
+- **2026-09-27 — step 1 of the repair: `loop_shape::checked_counted_loop`, and the
+  measurement that the family's trip-count gate cannot tell two loops apart.**
+  New module `sir_analysis::loop_shape`. It reconstructs a counted loop's semantics
+  from the SIR — the counter's **initial value** (read off the carried input's own
+  constant node), the step and direction, the relation, the bound — and computes the
+  **exact** iteration count, refusing anything it cannot state: signed counters,
+  compound guards, a successor compared by anything other than equality, a
+  non-constant bound, a step that would overflow the counter's width, and any relation
+  that leaves the described span. `loops.rs` by contrast reads only the constant bound;
+  its own comment says the result is "at most that bound", yet families consume it as
+  an exact count via `fact.trip_count != Some(extent)`.
+  **Measured, and pinned as an assertion** rather than argued. For the canonical
+  `p07_any_or_const_u32` (counter starts 0, 64 iterations) and for a variant identical
+  except that **the counter starts at 5** (59 iterations, reading `a[5..64]`):
+  `loops.rs` reports **`trip_count=Some(64)` for both**, and `loop_shape` reports
+  **64 and 59**. Since the gate compares the count against the array length — also
+  64 — **it passes on the 59-iteration loop as readily as on the 64-iteration one.**
+  The gate believed to reject a mis-shaped counted loop does not distinguish these two
+  programs.
+  **What is not yet known, and is recorded as unknown.** `optimize_any` does refuse the
+  start-5 fixture today, but **not on the trip count — that gate passes.** Whatever
+  else refuses it has not been identified. Until it is, the refusal cannot be
+  attributed to the check we believe provides it, and "it is refused in practice" is
+  not the same claim as "it is refused by this gate for this reason."
+  **A constraint found upstream.** A counted loop stepping by two is refused by the
+  **lowerer**, not by the analysis: *"rotated loop exit (back-edge on false) that is
+  not the counted eq-next form (`icmp eq next, bound` with `next = carry + 1`) …"*. So
+  the **step is already pinned to 1** for this form, and the unchecked dimensions are
+  the counter's initial value, the relation's direction, and the width. That shrinks
+  the exposure the checked extractor has to cover, and it is the first thing in this
+  chain found to be genuinely constrained rather than assumed.
+  **Verified state**: build warning-free, all 10 tests green, test count unchanged (the
+  new case sits behind the existing `families_rewrite_and_prove` through the `run()`
+  dispatch). Next: consume `checked_counted_loop` in place of the fact, having first
+  identified what actually refuses start-5.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`

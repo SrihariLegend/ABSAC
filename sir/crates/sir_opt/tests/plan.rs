@@ -13,6 +13,12 @@ fn lower(corpus: &str, function: &str) -> Function {
 }
 
 mod cases {
+    pub mod loop_shape {
+        include!("cases/loop_shape.rs");
+        pub fn run() {
+            checked_trip_counts_are_exact();
+        }
+    }
     pub mod all {
         include!("cases/all_slice.rs");
         pub fn run() {
@@ -109,6 +115,7 @@ fn families_rewrite_and_prove() {
     cases::arithmetic::run();
     cases::any::run();
     cases::carried_scalar::run();
+    cases::loop_shape::run();
     cases::count::run();
     cases::memchr::run();
     cases::parity::run();

@@ -5,5 +5,6 @@
 
 pub mod facts;
 pub mod graph;
+pub mod loop_shape;
 pub mod loops;
 pub mod manager;
