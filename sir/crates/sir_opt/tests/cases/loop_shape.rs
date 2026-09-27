@@ -67,6 +67,27 @@ pub fn checked_trip_counts_are_exact() {
         "a counter starting at 5 against bound 64 runs 59 times, not 64"
     );
 
+    // Why the family refuses start-5, traced: the lowerer's
+    // `strict_counted_bound` requires the counter to start at exactly 0
+    // and step by exactly 1 before it will promote a `Pointer` parameter to
+    // `Array { length: K }`. With a start of 5 it refuses, the parameter
+    // stays a pointer, and `any`'s requirement that the base be
+    // `Type::Array` is what rejects the function.
+    //
+    // So the refusal is principled — and it is not the trip count that
+    // provides it. It is a *type*, inferred by a different, stricter
+    // extractor in a different crate.
+    let param_ty = |f: &sir_nodes::Function| f.arena.iter().next().map(|n| n.ty.clone());
+    assert!(
+        matches!(param_ty(&canonical), Some(sir_types::Type::Array { length: 64, .. })),
+        "the canonical buffer is promoted to a 64-element array"
+    );
+    assert!(
+        !matches!(param_ty(&five), Some(sir_types::Type::Array { .. })),
+        "start-5 is not promoted — its parameter stays a pointer, which is \
+         the requirement that actually refuses it"
+    );
+
     // The gate the family actually consumes. `any` refuses unless
     // `fact.trip_count == Some(extent)`, and `extent` is the array length,
     // 64. The bound-only extractor reports 64 for *both* functions, so the
@@ -86,12 +107,15 @@ pub fn checked_trip_counts_are_exact() {
          counter starting at 5 against bound 64 runs 59 times, and it says 64"
     );
 
-    // The family does refuse this fixture today, but not on the trip count
-    // — that gate passes. Whatever else refuses it is not this check, and
-    // until that is identified the refusal cannot be attributed to it.
+    // Start-5 is refused, and the refusal is not attributable to the
+    // trip-count gate — that gate passes. The safety here lives in the
+    // lowerer's type inference, which happens to be strictly stronger
+    // because it pins the counter to start at 0 and step by 1. The loose
+    // count is therefore latent rather than live, and stays latent only as
+    // long as promotion stays this strict.
     assert!(
         sir_opt::optimize_any(&five).is_none(),
-        "start-5 is refused today, for a reason the trip-count gate does not provide"
+        "start-5 is refused — by the base's type, not by the trip count"
     );
     assert!(
         sir_opt::optimize_any(&canonical).is_some(),

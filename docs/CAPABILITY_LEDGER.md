@@ -3358,6 +3358,47 @@ Three follow-ups this table makes concrete:
   dispatch). Next: consume `checked_counted_loop` in place of the fact, having first
   identified what actually refuses start-5.
 
+- **2026-09-27 — traced: what refuses the start-5 loop is the lowerer's type
+  inference, not the trip count. The loose count is latent, not live — and the
+  safety lives in a crate that was never asked to provide it.**
+  `any` requires the base of the element access to be `Type::Array { length, .. }`.
+  That type is produced by `sir_lower::promote_constant_extent_buffers`, which
+  promotes a `Pointer` parameter to `Array { length: K }` only when every access is
+  provably within a common constant extent, and which obtains that extent from
+  **`sir_lower::strict_counted_bound`**. That function opens with:
+  ```rust
+  if lower_constant_u64(func, counter) != Some(0) { return None; }
+  ```
+  **It requires the counter to start at exactly 0**, and it separately requires the
+  successor to be `counter + 1`. With a start of 5 it refuses; the parameter is never
+  promoted; it stays a `Pointer`; and `any`'s array requirement is what rejects the
+  function. Verified: the canonical fixture's parameter is
+  `Array { length: 64 }` and the start-5 fixture's is `*const u32`.
+  **The conclusion that matters.** No family can presently act on a loop whose trip
+  count is wrong, because acting requires an `Array`-typed base, which requires
+  promotion, which requires `counter == 0` and `step == 1` — and **under exactly those
+  two conditions the bound genuinely equals the count** (`0, 1, … , bound-1` is `bound`
+  iterations). The loose extractor is therefore correct on the only inputs reachable
+  through the current families. The exposure is real but unexercised.
+  **Why this is still worth fixing, stated precisely.** The safety is not provided by
+  the check we believed provided it — it is provided by two constraints in `sir_lower`
+  that were written for a different purpose (deciding whether a buffer's extent is
+  provable), and that nobody has been treating as a correctness gate for the families.
+  It is fragile in one specific way: **any relaxation of promotion — and supporting a
+  non-zero loop start is a plausible feature, not an exotic one — immediately exposes
+  the loose count in `loops.rs`,** and the family would then unroll `a[0..64]` for a
+  loop that reads `a[5..64]`.
+  **A duplication to resolve.** There are now two extractors answering "how many times
+  does this loop run": `sir_lower::strict_counted_bound` (strict, requires init 0 and
+  step 1, returns the bound) and `sir_analysis::loops::estimate_trip_count` (loose,
+  requires neither, returns the bound, is consumed as an exact count).
+  `loop_shape::checked_counted_loop` is a third and is exact for a strictly larger
+  class. The open decision is whether `loops.rs` should delegate to the checked
+  extractor so the fact database reports exact counts, or whether the fact and the
+  lowerer's internal bound should remain separate questions. Not yet decided; recorded
+  rather than assumed.
+  **State**: build warning-free, all 10 tests green, test count unchanged.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
