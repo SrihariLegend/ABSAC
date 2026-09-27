@@ -3029,6 +3029,143 @@ Three follow-ups this table makes concrete:
   as instructed: a service outcome **conflicts with the owner's automatic-product
   goal**, and no finite trial proves automation impossible.
 
+- **2026-09-27 — astra recommends: one engine with *certified semantic lanes*, not five
+  language optimizers; the opportunity is probably concentrated and our sample cannot
+  estimate its prevalence; and the ambitious target is an optimizer of *observation
+  frontiers*.** Third consultation of the day, on multi-language scope and the
+  distribution of opportunity. Recorded as recommendations under consideration.
+  **CORRECTION (mine, two entries above): "C, C++ and Rust are one product and nearly
+  free incrementally" is wrong.** Shared LLVM buys some code-generation and
+  measurement infrastructure; it **does not buy shared source semantics, trustworthy
+  extraction, or correct patch realisation. "Rust is not nearly free."** Certificates
+  and source facts do not transfer unchecked.
+  **CORRECTION (mine, last turn): "compilers are structurally forbidden from changing
+  your data structures" is wrong.** "They may change unobservable representations while
+  preserving ABI and persistent formats. Your possible advantage is **search budget,
+  domain knowledge, scope and proof — not permission incumbents lack.**" The category
+  claim I made is withdrawn as stated; what survives is that the wins we found required
+  a representation change *across consumers*, which is a scope-and-proof problem rather
+  than a structural prohibition.
+  **Language ordering, by expected return and not popularity**: **1. C** (bounded
+  unsigned scans — establish useful automatic yield before anything else); **2.
+  C-shaped C++** (builtin scalar and buffer operations in checked build contexts —
+  templates, overloads, RAII, exceptions and containers "are not another parser");
+  **3. Rust** (safe primitive integers and slices — ownership can help establish
+  isolation, but bounds panics, configured overflow behaviour, drops and memory
+  semantics require real bridge work; benchmark rustc separately); **4. Java**; **5.
+  Python**. "Full C++ can be harder than restricted Java."
+  **My Java/Python decomposition was too categorical.** Java **does not** break the
+  black-box objective — the trusted JVM handles compilation and deoptimisation, so
+  evaluate a fixed runtime and configuration over declared startup, warmup, history and
+  workload distributions; native timing is already statistical; and Java permits
+  private working representations without exposing object field layout. Python **has an
+  execution engine** even when it is CPython rather than an optimising compiler, and
+  compiled and JIT paths exist, so replacing interpretation with an equivalent builtin
+  or native island fits the same objective — but **replacing Python integers with NumPy
+  integers is generally not equivalent.**
+  **The smallest semantic bridge** is a *source-faithful checker for one declared
+  fragment* that (1) certifies an exact source region against a machine-precise
+  contract including definedness, errors and effects, (2) establishes entry, exit,
+  alias/escape and frame conditions, and (3) certifies the target-language realisation,
+  the safe guard/fallback and the composition of the exact patch — **trusted or
+  translation-validated, not merely an AST exporter**; building and measuring are
+  separate empirical adapters. A bridge for "unsigned sequence → first matching index"
+  can be small; a complete language bridge cannot.
+  **Product boundary**: ordinary source in, unchanged source or a reviewable patch out
+  can remain one product across all five. If Python needs a proprietary runtime,
+  annotations and a new deployment workflow, **that is another product launch, not a
+  logo added to the same offering.**
+  **On headroom (owner's belief: "headroom all over the place"):** **"No useful
+  population rate follows from your sample."** The `redisPopcount` result that vanishes
+  against the stronger baseline is a **product null, not evidence of available
+  headroom.** Working prior: concentration in **small observable contracts with
+  multiple efficient realisations** — broader than "named algebraic objects", narrower
+  than ordinary hot code. And a warning aimed at us: **"your selection process and your
+  researchers' vocabulary could themselves create the apparent concentration.
+  'Everything successful turns out to have an algebraic description' is unfalsifiable
+  unless classes are defined before searching."** Three distributions must be kept
+  distinct: **latent** headroom (a better implementation exists), **reachable** headroom
+  (we can discover and certify it automatically), **commercial** headroom (it occupies
+  enough application cost, often enough, to matter). "Sparse transformations can
+  support a general-purpose product if they recur across unrelated workloads and
+  produce material aggregate savings without bespoke onboarding. One operation exposed
+  through five languages remains a specialist capability."
+  **The audit design, which replaces the G2 sampling discipline** — same 24-site budget,
+  changed discipline: freeze **six untouched applications and workloads, across
+  predeclared strata, before reading for optimisation opportunities**; per application
+  take **two hottest non-overlapping regions plus two probability-sampled remaining hot
+  regions**, recording sampling weights and failed intake; **tag every site before
+  proposals** (scans/reductions/sets, other numeric work, pointer/control-heavy,
+  external-cost dominated); ≤8 proposals per site with refusals in the denominator and
+  outcomes separated into **unsupported / unproved / certified-but-code-identical /
+  certified-but-unprofitable / profitable** — *"'unsupported' is not 'no
+  opportunity'"*; include conversions, guards and surrounding execution in cost;
+  replicate the HLL boundary comparison under matched workload and build conditions
+  **before treating its exact ratios as training labels**; and give an independent
+  researcher a capped, blinded audit of a random subset of misses, where **human-only
+  wins do not count as automatic yield**. Report **project-level useful-patch yield,
+  cost-weighted coverage and saved cost**, not function hit rate, accounting for
+  clustering by project. **The crucial result is whether savings recur outside the
+  originally favoured structural class — "do not retrospectively rename every winner to
+  preserve the concentration thesis."**
+  **The vision: optimize observation frontiers.** Not a library of representation
+  changes but **a proof-guided optimizer of when concrete state must become
+  observable**: a graph of contracted computations and logical states annotated with
+  ownership, aliases, effects and possible observers, jointly searching algorithms and
+  representations, **partial versus complete materialisation**, conversion placement and
+  lifetime and tile size, cooperating representations and their coherence, and
+  interpreter/native transitions. Beyond "make an island": if a packed merge feeds a
+  read-only consumer, ask whether it can **merge and consume tile by tile, never
+  materialising the intermediate at all** — **"the legal boundary is the next actual
+  observer, not necessarily the function boundary or loop boundary."** The untrusted
+  proposer should invent an intermediate sufficient state and its relational invariant
+  rather than select from known layouts, and **a counterexample should inform the next
+  *topology*** (a missed observer, an island that needs shortening, a stronger isolation
+  fact) — the rejected candidate stays blocked, since changing the boundary creates a
+  new obligation. Allocations failures, exception ordering and escaping aliases are
+  **constraints, not inconvenient costs.** The transferable object is **a
+  contract-and-observation plan plus a policy for purchasing the next useful proof or
+  compiler experiment** — the same plan can place a Python/native boundary or a
+  packed/unpacked boundary, with language bridges instantiating its semantics and the
+  counterfactual corpus teaching its economics.
+  **Path**: keep the first engineer-month gate native and narrow; first lock the
+  live-miscompile failure mode and the source-extraction/patch-realisation edge cases
+  into regression tests — *"tests do not establish soundness, but a single-digit suite
+  is no basis for expanding the trusted semantic surface"* — and get stable measurement
+  hardware; then run the sampled C trial with the existing success requirement. **Only
+  after that passes**, build a narrowly capped **Rust primitive-slice witness bridge**
+  with the C algorithm plans and planner frozen, requiring profitable automatic
+  transfer on **independently authored Rust code — "not a translation manufactured for
+  the demonstration"** — against its real rustc baseline. **"A scan transferred across
+  languages validates portability, not general purpose."** The first credible broader
+  milestone is a small **two-axis transfer test**: establish scans in C and Rust,
+  establish a materially different contract in C (packed joins, if the audit supplies
+  natural cases), freeze the generic bridge rules and planning machinery, then test the
+  **missing Rust/second-contract cell on held-out code without site-specific
+  additions** — two narrow bridges, not five frontends, and **"do not manufacture ports
+  to fill the matrix — absence of natural cases is demand evidence."**
+  **Falsification, with the failures kept distinct**: no useful automatic yield in the
+  native gate → **stop language expansion** (this rejects the investable automatic
+  offer, not the mathematical existence of headroom); humans repeatedly find wins while
+  production sites need hand-supplied invariants → the automation claim fails;
+  new sites need proof and planning logic rebuilt rather than generic bridge rules
+  instantiated → the scalable-plugin thesis fails (fixed per-language integration is
+  expected, per-site reinvention is not); supported contracts occupy little relevant
+  application cost outside one vertical, or conversion-inclusive measurement erases the
+  gains → the broad-market claim fails; fixed rules match the learner at equal budget →
+  the learned moat fails, though not necessarily the automatic product; a few upstream
+  patches consume nearly all opportunity with little recurring benefit across releases,
+  targets or workloads → the recurring-CI economics fail. If opportunity is
+  concentrated in a few contracts dominating CPU across many applications, a broadly
+  deployed **sparse** engine is still justified; concentration in one sector calls for
+  a **vertical automatic kernel-acceleration engine sold on repeated aggregate
+  savings**, not five-language coverage. If a fixed library captures essentially all the
+  value, the honest outcome is a lean library or vendor-component business — **"that is
+  a change from the proposed superoptimizer company, not its validation."** Closing
+  line, recorded as the standard this project should hold itself to: **"Narrowing to a
+  genuinely automatic engine preserves the mission. Replacing missing automation with
+  customer-specific engineering does not."**
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
