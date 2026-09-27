@@ -2496,6 +2496,62 @@ Three follow-ups this table makes concrete:
   **1.2504** with a C-source A), and 35 of 341 rows fall back to the shipped `.ll`
   and are flagged weaker.
 
+- **2026-09-27 — external consultation on the representation decision: "freeze the
+  compiler", and four criticisms I accept**: the full evidence record was put to
+  `gpt-6-astra` (no tools, self-contained context, adversarial brief) and the
+  answer rejected all three of my candidates. Recorded here because its criticisms
+  of the reasoning are the operative part.
+  **The recommendation: execute (b) operationally — no new families, no lowering
+  reach, no SIMD types — and test a bounds-safe, representation-preserving scalar
+  `hllMerge` replacement in Redis instead.** Do not pursue the representation
+  change first: the fused scalar witness claims ~13.8× *without* persistent byte
+  storage, so establish whether that survives correct allocation bounds before
+  changing every consumer and format boundary. Persistent byte storage adds **33%
+  to dense register payloads** (16384 vs 12288 bytes) with unmeasured cache,
+  bandwidth and serialization costs. SIMD is rejected on the grounds that
+  expressing `pclmulqdq` establishes neither recognition of upstream CRC code nor
+  correctness of the replacement — "you have measured an instruction-selection
+  limitation, not established that removing it produces a useful compiler."
+  **Criticism 1 — I conflate headroom, expressibility, and automatic discovery.** A
+  hand-written fast implementation establishes none of the machinery connecting
+  upstream code to it. "So far, your machinery contributes zero measured
+  third-party benefit." Accepted, and it is the sharpest point: every win in the
+  survey table is a *hand-written witness*, and the pipeline that would need to
+  find it contributes nothing on third-party code at any level (the -O1/-O2/-O3
+  result above).
+  **Criticism 2 — the algebraic-object criterion is post-hoc, and partly
+  circular.** Popcount contradicts the strong version under an optimised baseline.
+  And if "has a hardware or algorithmic shortcut" is part of the *classification*,
+  it partly defines the outcome it purports to predict. Data-structure walks also
+  implement mathematical objects. Accepted — I fitted a criterion to five data
+  points and then presented it as a discriminator. **The prospective test it
+  proposes, which I had not thought of**: select 20 previously unexamined hot loops
+  from unrelated projects, classify them *before* optimisation or timing, impose
+  equal engineering budgets and strong deployable baselines, publish every null,
+  and compare achieved benefit by class — without relabelling failures afterwards.
+  **Criticism 3 — the HLL measurements do not establish the representation-change
+  thesis.** A fast inner phase (49.82×), an invalid fused witness, and a
+  persistent-layout proposal are three different claims and I ran them together.
+  **Criticism 4 — my architectural diagnosis was wrong.** "No phi nodes is not the
+  semantic defect. Functional loops can have sound explicit binders. Reusing one
+  node for distinct loop-entry and iteration meanings is the defect." Accepted: the
+  absence of phi nodes is a design choice that is fine if the binder is used
+  soundly, and the defect is the *reuse*, not the absence. Also: "proved family
+  identities do not prove lowering or emission" — which is exactly the S2 shape.
+  **The prescribed smallest experiment, which is a Redis patch and not a compiler
+  extension**: discard the over-reading witness; construct a bounds-safe fused
+  scalar implementation preserving existing layouts and interfaces; establish
+  equivalence and access bounds over the stated domain, testing actual allocation
+  sizes, final packed fields, identical inputs and valid register distributions,
+  with ASan and differential agreement supplementing the proof rather than
+  replacing it; benchmark inside unmodified Redis. A win proves one useful patch.
+  **Only afterwards** attempt automatic derivation from real upstream code with
+  original/raw-lowering/rewritten attribution — that second experiment is the one
+  that tests ABSAC.
+  **The governing line, which is the finding**: "Your current failure mode is
+  building machinery to reach opportunities whose valid, deployable value has not
+  yet been established. Reverse that order."
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
