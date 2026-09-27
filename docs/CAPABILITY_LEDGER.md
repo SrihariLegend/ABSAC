@@ -2688,6 +2688,73 @@ Three follow-ups this table makes concrete:
   strategy**; the service continues only on its own economics. "Another excellent
   hand patch does not reset the compiler's clock."
 
+- **2026-09-27 — recognition probe: the object IS recoverable from untouched
+  upstream IR, and the probe says plainly where it is fitted rather than
+  general**: the director-recommended three-engineer-day recognition-only probe,
+  built standalone outside the tree (2633 lines of Rust, ~1 hour wall clock — well
+  inside the cap), `sir_mech` as a read-only path dependency, no `sir_lower`
+  change, no `Max` node, no admission, no patch, no emission.
+  **A bad pin, caught and then cleared.** The probe found
+  `/tmp/headroom_a/redis-7.2.5/src/hyperloglog.c` modified (sha `74afb409…`,
+  carrying `HLLM_VARIANT`, an include and two `_Static_assert`s) and refused to use
+  it, re-extracting the pinned tarball instead. Verified here: that modification's
+  mtime is **2026-09-27 11:59**, the hllMerge patch agent's own variant
+  scaffolding, and it **postdates every survey measurement** — the survey recorded
+  `hyperloglog.c` as `f747bc0d…`, which *is* the pristine file, and `bitops.c` is
+  untouched since extraction (mtime 2024-05-19, sha `2624690f…`). The patch agent's
+  `v0/base = 1.0000×` across all 15 regimes independently confirms the scaffolding
+  is instruction-free. **No recorded number is invalidated.** The practice was
+  still wrong and is now recorded as a rule: a pinned reference tree is immutable;
+  variants get built in a copy.
+  **The result: the lane relation discharges from untouched IR.**
+  `dst'[i] = select(src6[i] >u dst[i], src6[i], dst[i])` for i ∈ [0, 16384) is
+  **Valid at O0, O1, O2 and O3** — a discharged equivalence, not a guess. Recovered
+  structurally with no function-name matching: the induction variable and its
+  extent, the packed 6-bit extraction including the byte-straddling field
+  (`fshr.i8` form), the destination indexing, and the join. The **non-zero source
+  base is recovered (`base_const=16` = `sizeof(hllhdr)`) rather than assumed**, and
+  the relation is stated over the recovered parameters instead of a fixed shape.
+  Sixteen obligations ran per level, with **non-vacuity witnesses**: mutating a
+  recovered constant refutes the extraction proof, and the last-lane claims
+  (`field ends inside byte(i)`, `high byte is value-dead`) are refuted at i=16382,
+  showing they are about the final lane specifically.
+  **The upstream over-read is computed, not asserted.** The probe recomputes the
+  slack from the recovered parameters and it *changes correctly*: 16384 lanes →
+  read at 12288, one byte past; a 5-bit variant → one byte past at 10240; a
+  16383-lane variant → **0 bytes past**. The relation does not exploit the
+  over-read, and `E′` is **refuted with model `i=16383`**, independently confirming
+  the defect found in the shipped binary. But the read is still executed and the
+  probe does not prove the allocation has slack — it says so rather than tidying it.
+  **Four obligations listed separately and NOT discharged**: loop (trip count is
+  structural, not proved to follow from the allocation), **alias** (nothing checks
+  source/destination disjointness, and aliasing would make the merge a
+  self-comparison), bounds (the destination having `lanes` writable elements is an
+  assumption), and signedness of the model (signed arms are modelled as unsigned
+  under a caller-supplied non-negativity assumption).
+  **Where it is fitted rather than general — stated by the probe itself.** The join
+  matcher is **operand-order sensitive**, so recognizability currently depends on
+  clang's canonicalization choice rather than on the source; there is **no
+  select-join path at all** (a `?:` is refused); and at **O0 the near-miss set
+  recovers 0 of 15**, including loops it accepts at O2 — a controlled isolation set
+  confirms the O0 path only accepts upstream's exact i64 idiom. Its own verdict: "I
+  knew the answer in advance… A recognizer tuned to a known answer is a unit test;
+  this one is closer to that than I would like." And a limit on the held-out
+  evidence: within the authorized corpus there is **exactly one dense max-merge**,
+  so held-out generalization cannot be measured on it at all — which is itself the
+  finding, and the constructed near-miss set is not an independent corpus.
+  **A vacuous check in the probe's own apparatus, found by its own near-miss set.**
+  Obligation F chose between two encodings of the *same* `>`, so it *printed* `u<`
+  while proving `u>` — and **a minimum passed it**. Replaced with a real predicate
+  dispatch; the minimum now refutes it and the target still discharges. That is the
+  third time this week the checking apparatus was the defective component, after
+  the differential driver's random-byte fill and the patch agent's own reference
+  implementation.
+  **Verdict: object recovery works and is dischargeable, but is not yet a
+  capability.** The two false negatives that matter are cheap and bounded — operand
+  order, and a select-join path — and fixing them is what would move the recognizer
+  from "fitted to one IR shape" toward "fitted to the object", which is the
+  property automated optimization actually needs.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
