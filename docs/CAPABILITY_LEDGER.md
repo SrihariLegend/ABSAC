@@ -3166,6 +3166,68 @@ Three follow-ups this table makes concrete:
   genuinely automatic engine preserves the mission. Replacing missing automation with
   customer-specific engineering does not."**
 
+- **2026-09-27 — G1 mutant audit, first run: the obligations are vacuous with respect to
+  the transformations they gate, and a live S2-class miscompile passes the entire suite
+  and the referee.** This is the fourth defective check in a week, and unlike the
+  previous three it is not a slip in one apparatus — it is a **missing link in the
+  architecture**. Found by running astra's G1 procedure, which is therefore validated
+  as an audit design: it found this on the first execution.
+  **The mechanism.** `patch::apply` checks local-id disjointness, an effects cap, an
+  effects floor, use-rewriting success, the live-out gate and the structural verifier.
+  **It checks no semantics.** The only semantic gate a family has is its `prove::*`
+  obligation, and those prove *general identities that the transformation does not
+  depend on*: `any.rs` gates a 64-element array OR-reduction unrolling on
+  `or_laws(width)`, which proves exactly `0|x == x` and `x|0 == x` and returns `true`
+  for any width in 1..=64. The obligation never mentions the array, the extent, the
+  index, the predicate or the chain. `sum.rs` does the same with `sum_laws`. Neither
+  can fail in its intended role, because neither is *about* its transformation.
+  **Therefore** the semantic correctness of every family rests on (a) human reasoning
+  about the recognizer and the constructor, and (b) the differential referee — which is
+  a test, not a proof.
+  **Demonstrated, not argued.** Two mutants were injected into `any.rs` and the full
+  suite was run against each.
+  *Mutant 1 — `NodeKind::Or` → `NodeKind::And` in the accumulator chain.* **Caught**,
+  but only by `any_slice.rs`'s structural census (`filter(matches!(Or)).count() >= 63`),
+  which fired because the node *kind* changed. It is an assertion about the shape of
+  the emitted graph, not about its meaning.
+  *Mutant 2 — the index constant `u64(index)` → `u64(0)`, so the chain reads `a[0]`
+  sixty-four times.* **This is precisely the S2 class** (wrong index substitution) and
+  it is structurally invisible: same node count, same kinds, same types, same effects.
+  Result: **`cargo test --workspace` fully green**, `emit_c_diff` reporting
+  `mismatched=0 ... clean=1 rewrites=1`, and the referee's own compiled driver printing
+  `EMITDIFF ... mismatches=0`. The emitted C differs by **254 lines** (`p0[63], p0[62],
+  …` in the correct build versus `p0[0]` sixty-four times in the mutant). The only
+  signal anywhere was a rustc *unused-variable warning*.
+  **Why the referee is blind here, exactly.** The function ends
+  `bool v15 = (v208 != (0ULL))` — it returns *whether any element is nonzero*.
+  Correct: `OR of all 64 != 0`. Mutant: `a[0] != 0`. The referee's driver fills its
+  buffer with xorshift-derived **random bytes**, under which both sides are true with
+  probability ≈1 — and its other inputs (`lens` up to 32, `keys`, and the `--zero`
+  all-zero fill) do not separate them either. This is the **same class as the shipped
+  S2 escape — "both sides agreed on random data" — reproduced rather than fixed.**
+  **The separating input, and the control.** With every word zero except word 5 set to
+  1: mutant gives `ref=1 new=0` (**MISMATCH**); the correct build gives `ref=1 new=1`
+  (**AGREE**) on the identical input, so the probe is not a test that fails everything.
+  The input is *sparse and structured* — the referee generates dense uniform bytes and
+  zeros, and neither separates these two programs.
+  **What this does and does not mean.** The proof kernel is not implicated: it
+  re-evaluates a SAT model against the original terms before reporting a counterexample,
+  and its refutation path is self-checking. The claim is narrower and worse for the
+  architecture: **nothing mechanically connects a proved lemma to the transformation
+  that cites it.** The families are asserted and tested, not proved, and the test that
+  was supposed to cover them has a demonstrated blind spot. It does **not** follow that
+  any shipped transformation is wrong; it follows that we have no mechanical evidence
+  that any of them is right, and one worked example of the apparatus accepting a wrong
+  one.
+  **The repair, per astra's G1 and the S2 lesson.** The proof must cover the actual
+  emitted transformation: translate the recognized original and the constructed patch
+  into `sir_mech` terms over symbolic array elements and discharge
+  `prove_equal` between them, per patch, at the real extent — instead of proving a
+  general law and trusting the construction. That is a bounded addition to
+  `sir_opt` and it is the thing that converts "asserted by construction" into
+  "checked per patch". Until it exists, the honest description of a family firing is
+  **"recognized, structurally gated, differentially tested"** — never "proved".
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
