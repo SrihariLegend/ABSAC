@@ -121,4 +121,33 @@ pub fn checked_trip_counts_are_exact() {
         sir_opt::optimize_any(&canonical).is_some(),
         "the canonical fixture still fires"
     );
+
+    // The guard's actual job. Retype start-5's buffer as a 64-element array,
+    // which is what `promote_constant_extent_buffers` would produce if it
+    // accepted a non-zero loop start. The type obstacle is now gone, the
+    // array length is 64, the loose extractor still reports 64 — and the
+    // only thing left refusing this function is the *exact* count.
+    let mut forced = five.clone();
+    let param = forced.arena.iter().next().expect("parameter node").id;
+    let element = forced
+        .arena
+        .iter()
+        .find_map(|node| match &node.ty {
+            sir_types::Type::Integer { .. } => Some(node.ty.clone()),
+            _ => None,
+        })
+        .expect("an integer element type");
+    let array_ty = sir_types::Type::Array {
+        element: Box::new(element),
+        length: 64,
+    };
+    if let Some(node) = forced.arena.get_mut(param) {
+        node.ty = array_ty.clone();
+    }
+    assert!(
+        sir_opt::optimize_any(&forced).is_none(),
+        "with the type obstacle removed, a 59-iteration loop over a \
+         64-element array must be refused by its count — otherwise the \
+         family would unroll a[0..64] for a loop that reads a[5..64]"
+    );
 }

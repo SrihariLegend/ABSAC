@@ -140,7 +140,18 @@ fn recognize_loop(
         return None;
     };
     let extent = *length;
-    if extent == 0 || extent > 512 || fact.trip_count != Some(extent as u64) {
+    if extent == 0 || extent > 512 {
+        return None;
+    }
+    // An exact iteration count, not the constant bound the counter is
+    // compared against. `loops.rs` reports the bound and never reads the
+    // counter's initial value, so it cannot distinguish `i = 0; i < 64`
+    // from `i = 5; i < 64`. The two agree today only because the lowerer's
+    // extent promotion happens to require the counter to start at 0 and
+    // step by 1 — a property of a type inference in `sir_lower`, not a
+    // property this family checks. See `sir_analysis::loop_shape`.
+    let shape = sir_analysis::loop_shape::checked_counted_loop(function, loop_id)?;
+    if shape.trip_count != extent as u64 || shape.counter != counter.variable {
         return None;
     }
     let position = carried_inputs

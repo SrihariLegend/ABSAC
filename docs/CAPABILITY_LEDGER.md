@@ -3399,6 +3399,37 @@ Three follow-ups this table makes concrete:
   rather than assumed.
   **State**: build warning-free, all 10 tests green, test count unchanged.
 
+- **2026-09-27 — the five fold families now consume the checked count, at zero
+  firing cost, and the guard is demonstrated load-bearing rather than insurance.**
+  `any`, `all`, `count`, `parity` and `sum` replaced
+  `fact.trip_count != Some(extent as u64)` with
+  `loop_shape::checked_counted_loop(function, loop_id)?`, requiring both
+  `shape.trip_count == extent` **and `shape.counter == counter.variable`** — the
+  counter the checker identified must be the same node the family chose from the fact
+  database, so a disagreement between the two recognitions refuses rather than picks.
+  **Firing cost: zero.** Total rewrites across the whole `gate6a` corpus are **507 with
+  the guard and 507 without** — measured by reverting the five files and re-running,
+  not assumed. The new guard loses nothing that fired before.
+  **The control, which is the point.** Retype the start-5 fixture's buffer as
+  `Array { u32, 64 }` — exactly what `promote_constant_extent_buffers` would produce if
+  it accepted a non-zero loop start — and the type obstacle is gone, the array length is
+  64, and `loops.rs` still reports 64. **With the guard reverted, `optimize_any` returns
+  `Some`**: it would unroll `a[0..64]` for a loop that reads `a[5..64]`. **With the
+  guard, it is refused.** So the guard is not merely insurance against a hypothetical
+  relaxation; it is the only thing standing between a relaxed extent promotion and a
+  miscompile, and that is now demonstrated rather than argued.
+  **What was deliberately *not* changed.** `runtime_sum`, `runtime_count` and `search`
+  use `fact.trip_count.is_some()` with the **inverted** polarity — "the analysis found
+  a constant bound", i.e. *this loop is not runtime-bounded*. Substituting the checked
+  extractor there would silently change the predicate: a loop with a constant bound but
+  a signed counter is `is_some() == true` under the loose extractor and
+  `checked_counted_loop() == None` under the strict one, so the runtime family would
+  begin claiming loops it never claimed. That is a different question with a different
+  failure mode and it needs its own analysis; it is recorded here as outstanding rather
+  than changed in passing. `popcount` is a scalar SWAR transform with no extent and no
+  loop domain, so it has nothing to consume.
+  **State**: build warning-free, all 10 tests green, test count unchanged.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
