@@ -170,6 +170,35 @@ Project-level, not function hit rate: **useful-patch yield per project**,
   `S1`, that is the result and it is reported as such.
 - Counting a human-supplied fact as automatic yield.
 
+## Addendum 1 — the baseline compiler configuration
+
+*Appended 2026-09-27, after the freeze above and **before any application was fetched,
+built, profiled or measured.** Recorded as an addendum rather than edited in, because it
+is an omission in the frozen text and not a revision of it.*
+
+The frozen document did not say which compiler configuration the baseline uses, and the
+answer decides whether this audit measures anything. The project's existing 42-corpus
+gate feeds the lowerer IR built with `-fno-vectorize -fno-slp-vectorize`, which is why
+its families fire at all — and that is precisely the configuration the advisor warned
+about: **"restoring performance after synthetic degradation is training, not a product
+win."**
+
+Therefore:
+
+- **The baseline is the application's own build with `clang -O3` and default flags,
+  auto-vectorization on.** This is what a user actually builds, and it is the baseline
+  the claim must beat.
+- **ABSAC's intake is the IR that baseline produced.** If the lowerer cannot see a loop
+  because clang vectorized it, that is the result of the audit, not a bug in the audit.
+- **A secondary diagnostic is recorded separately and is not the product number:**
+  ABSAC's outcome on the same sources built with `-fno-vectorize -fno-slp-vectorize`,
+  matching the existing gate. It answers "what could we do if the compiler were prevented
+  from doing its job", which is a different and weaker question. Any result from it is
+  labelled `degraded-baseline` wherever it appears and may not be reported as yield.
+
+This addendum makes a null result more likely and does not make a positive result easier.
+It is recorded before the fact for that reason.
+
 ## Open risk, stated in advance
 
 The sample is six applications and 24 sites. Astra's W1 cannot be *settled* by n=24 in
