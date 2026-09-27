@@ -2622,11 +2622,26 @@ Three follow-ups this table makes concrete:
   command, immaterial to every gate but unexplained); a bounds-safe SIMD form; and
   16-key `PFCOUNT`.
 
-- **2026-09-27 — director's ruling on the fork: withdraw the derivation target, the
-  freeze stands, and the demonstrated product is not the compiler**: second
-  consultation, `--thinking max`, with the `hllMerge` result and the conflict
+- **2026-09-27 — astra RECOMMENDS: withdraw the derivation target, freeze the
+  compiler, and make the product service-led — under consideration, NOT adopted**:
+  second consultation, `--thinking max`, with the `hllMerge` result and the conflict
   between "attempt automatic derivation" and "no new families, no lowering reach,
-  no SIMD types" put to it. Recorded because it re-scopes the project.
+  no SIMD types" put to it.
+  **Status, set by the owner after reading it**: this is **advice to weigh, not a
+  decision taken**. The owner's words — "it should be recorded as what astra
+  recommends, not what we will necessarily take but will consider and might take."
+  The project's goal is unchanged: **automated superoptimization, sold as
+  performance, as a compiler or an engine**; the owner will "accept victory via any
+  method", and the service route is **stage one of the path to funding, not the
+  destination**. Everything below is therefore recorded as a recommendation, and the
+  parts that conflict with the goal are flagged as such rather than adopted.
+  **Where the advice and the goal agree**: the staged go-to-market — free service
+  and public PRs to large projects first, funding once acceptance accrues — is the
+  owner's own plan and astra's service-led framing is compatible with it.
+  **Where they conflict**: astra's "the production compiler freeze stands" and its
+  proposal that compiler development must justify itself against a hard bar are
+  recommendations the owner has not accepted, because the product is meant to be
+  automatic. They are recorded as a live tension, not a ruling.
   **1. Do not build the derivation path. `hllMerge` is withdrawn as the mandatory
   next compiler experiment and the production compiler freeze stands** — "a
   successful hand optimization does not justify an infrastructure expansion."
