@@ -2552,6 +2552,76 @@ Three follow-ups this table makes concrete:
   building machinery to reach opportunities whose valid, deployable value has not
   yet been established. Reverse that order."
 
+- **2026-09-27 — `hllMerge`: a bounds-safe 19-line Redis patch wins 3.484× at
+  whole-command scope. The first third-party win the project has, and it is not
+  the compiler's.** Built to the director's prescription: bounds-safe,
+  representation-preserving, proved and benchmarked inside unmodified Redis.
+  Nothing under this repo was modified; artifacts in `/tmp/headroom_a/work/`.
+  **The patch is 19 changed lines in 2 hunks** (`PATCH.diff`): an include with two
+  `_Static_assert`s binding the register count and byte size, and the dense branch
+  replaced by a call. Layout, interfaces, on-disk and wire format unchanged; no
+  caller touched; no storage infrastructure.
+  **The result.** V6 is one 8-byte `memcpy` load per 6-byte group holding eight
+  registers, a u64 SWAR max, 2047 wide groups and two 3-byte tail groups.
+  Instructions per command (callgrind inclusive, N=200, dense dataset verified):
+  `PFCOUNT k1 k2 k3 k4` **3.484×** (1,536,775 → 441,116); `PFMERGE dst s1..s4`
+  **2.374×** (2,337,537 → 984,832); identical-bitmap `PC4I` **3.453×**; 8-key
+  `PC8` 3.645×. **All 15 instruction regimes improve and none regresses** — the
+  worst is PM4 at 2.374×. Wall clock corroborates on an idle box with the regimes
+  reported separately: `PC4` **9.594×**, `PC4I` 3.475×, `PM4` 2.523×, `PM4I`
+  3.204×, worst-case drift across two independent passes 8.2%.
+  **`v0/base = 1.0000×` on every single regime** — the patched tree with the
+  *upstream* loop is instruction-identical to pristine Redis, so the patch
+  scaffolding is free and the whole delta is the kernel.
+  **Bounds are the primary evidence, on five independent lines, deliberately not
+  the differential.** (1) A **placement witness** stronger than ASan: the register
+  array's last byte abuts a `PROT_NONE` page — **V0, upstream, SIGSEGVs (rc=139)**;
+  V1–V7 return 0 with correct results. (2) A bounds argument on the *shipped
+  artifact*: the wide loop runs exactly 2047 iterations, the maximum byte touched is
+  `registers[12283]` against an array ending at 12287, and the tail is byte-wise;
+  **zero vector instructions in v6's `hllMerge`**. (3) Upstream's over-read
+  confirmed **in the shipped binary rather than inferred from source** —
+  `movzbl 0x1(%r8,%rsi,1)`, an unconditional `r[byte+1]` — and shown to be
+  **unnecessary**: register 16383 occupies bits 98298–98303, entirely inside byte
+  12287, so the extra byte is out of bounds *and* pointless. (4) An exhaustive
+  2^16-per-lane sweep under ASan+UBSan. (5) A differential against a
+  definitionally in-bounds reference, bit-identical on random, identical, all-0,
+  all-63 and real distributions.
+  **A self-inflicted finding worth keeping.** The measuring agent's own first
+  reference implementation **reproduced upstream's bug** and read `r[12288]` for
+  register 16383, making all eight variants appear to fault — a witness defect, not
+  a kernel defect. Its own conclusion: "a differential alone is not a bounds
+  argument; the reference has to be written carefully too." This is the second time
+  this week that the *checking apparatus* was the defective component, after the
+  differential driver's random-byte fill hid a live miscompile.
+  **Two context figures did NOT reproduce, flagged rather than smoothed.**
+  First, the **~13.7–13.9× scalar fused figure was not reproduced**: the best
+  purely-scalar kernel measures **3.44×** at kernel scope (other variants 1.78×,
+  2.58×, 2.79×). One variant reached 3.51× but only by GCC auto-vectorizing it into
+  `pmaxub`, which cannot be bounded at source level, so it was rejected. The 20.4×
+  SIMD figure was not attempted — it is the over-reading form.
+  Second, **the 0.76× identical-input loss did not appear at all, and the ~5× regime
+  swing is not an instruction-count effect.** Baseline instructions are flat across
+  regimes (within 1%); the swing is **cycle-level**, upstream's `if (val > max[i])`
+  mispredicting on disjoint inputs, measured at **2.21× and 2.67–2.82× — 2.2–2.8×,
+  not ~5×**. Because V6 is branchless its cost is flat and sits *below upstream's
+  own best case*, so the identical-input regime is a **3.5× win, not a 0.76× loss**;
+  that loss belongs to some other formulation.
+  **What this means, stated plainly.** The value is now established: a real,
+  deployable, command-level win on independently authored code, bounds-proved and
+  measured against Redis's own build flags (`-O3 -flto`, unchanged on both sides).
+  It was reached by **a hand-written 19-line patch, with no compiler involvement
+  whatsoever** — which is precisely the director's point that the project's failure
+  mode has been building machinery to reach opportunities whose deployable value was
+  not yet established. The value is established now; whether the compiler can be
+  made to reach it is the open question, and the capability it would need is the
+  latch-block admission (600–900 lines, zero corpus payoff), a pointwise-map family
+  shape, a `Max` node kind, and a scoped write authorization.
+  Not established: why the cited scalar kernel figure was ~4× the best reproduced
+  here; a 14% `PING` inclusive-cost difference between binaries (0.005% of a real
+  command, immaterial to every gate but unexplained); a bounds-safe SIMD form; and
+  16-key `PFCOUNT`.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
