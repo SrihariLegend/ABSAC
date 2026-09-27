@@ -216,6 +216,74 @@ fn flip(rel: Rel) -> Option<Rel> {
     })
 }
 
+/// A constant read that also accepts a signed literal, matching what the
+/// lowerer's extent promotion has always used. Kept identical so that
+/// moving the bound logic here does not quietly change which loops get
+/// promoted.
+fn lower_constant(function: &Function, id: NodeId) -> Option<u64> {
+    match &function.get_node(id)?.kind {
+        NodeKind::Constant(data) => data
+            .as_u64()
+            .or_else(|| data.as_i64().and_then(|v| u64::try_from(v).ok())),
+        _ => None,
+    }
+}
+
+/// An **exclusive index extent** for a counter: how far the indices it
+/// produces can reach, not how many iterations the loop runs.
+///
+/// These are different questions and they must stay different. A conjunct
+/// can exit a loop early, so for `!found && i < K` the indices are still
+/// bounded by `K` — a valid extent — while the loop may run fewer than `K`
+/// times. Bounding is what a buffer-extent question needs; counting is what
+/// a transformation needs, and `checked_counted_loop` answers *that* and
+/// deliberately refuses a compound termination. Collapsing the two would
+/// either make promotion unsound or make the families' count wrong.
+///
+/// `counter < K` gives `K`; `counter <= K` gives `K + 1`; `counter != K`
+/// gives `K`.
+pub fn counted_bound(
+    function: &Function,
+    termination: NodeId,
+    counter: NodeId,
+    outputs: &[NodeId],
+) -> Option<u64> {
+    if lower_constant(function, counter) != Some(0) {
+        return None;
+    }
+    let successor_seen = outputs.iter().any(|out| {
+        matches!(
+            function.get_node(*out).map(|n| &n.kind),
+            Some(NodeKind::Add { lhs, rhs })
+                if *lhs == counter && lower_constant(function, *rhs) == Some(1)
+        )
+    });
+    if !successor_seen {
+        return None;
+    }
+    let bound = bound_conjunct(function, termination, counter)?;
+    if bound == 0 {
+        return None;
+    }
+    Some(bound)
+}
+
+/// The constant bound of a `counter < K` / `counter != K` / `counter <= K`
+/// comparison appearing anywhere in a conjunction.
+fn bound_conjunct(function: &Function, term: NodeId, counter: NodeId) -> Option<u64> {
+    match function.get_node(term).map(|n| &n.kind) {
+        Some(NodeKind::Lt { lhs, rhs }) | Some(NodeKind::Ne { lhs, rhs }) if *lhs == counter => {
+            lower_constant(function, *rhs)
+        }
+        Some(NodeKind::Le { lhs, rhs }) if *lhs == counter => {
+            lower_constant(function, *rhs)?.checked_add(1)
+        }
+        Some(NodeKind::BoolAnd { lhs, rhs }) => bound_conjunct(function, *lhs, counter)
+            .or_else(|| bound_conjunct(function, *rhs, counter)),
+        _ => None,
+    }
+}
+
 fn constant(function: &Function, id: NodeId) -> Option<u64> {
     match function.get_node(id).map(|node| &node.kind) {
         Some(NodeKind::Constant(data)) => data.as_u64(),

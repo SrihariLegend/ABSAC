@@ -1374,59 +1374,6 @@ fn lower_constant_u64(func: &Function, id: NodeId) -> Option<u64> {
     }
 }
 
-/// The constant trip count of a strict counted loop whose carried
-/// counter is `counter`: counter starts at 0, its successor is
-/// `counter + 1` among the outputs, and the termination is EXACTLY the
-/// bound test (`counter < K`, `counter != K`, or `counter <= K-1`).
-/// A termination with an early-exit conjunct (found-flag scans) returns
-/// None: those loops may read fewer than K elements, so promoting the
-/// parameter to `[T; K]` would over-assert the caller's buffer.
-fn strict_counted_bound(
-    func: &Function,
-    termination: NodeId,
-    counter: NodeId,
-    outputs: &[NodeId],
-) -> Option<u64> {
-    if lower_constant_u64(func, counter) != Some(0) {
-        return None;
-    }
-    let successor_seen = outputs.iter().any(|out| {
-        matches!(
-            func.get_node(*out).map(|n| &n.kind),
-            Some(NodeKind::Add { lhs, rhs })
-                if *lhs == counter && lower_constant_u64(func, *rhs) == Some(1)
-        )
-    });
-    if !successor_seen {
-        return None;
-    }
-    // The counter comparison may be a CONJUNCT of the termination: the
-    // synthesized early-exit search loop terminates on
-    // `!found && i < BOUND`. Conjuncts only shrink the iteration domain,
-    // so a proven counter bound still bounds every access.
-    let bound = find_counter_bound_conjunct(func, termination, counter)?;
-    if bound == 0 {
-        return None;
-    }
-    Some(bound)
-}
-
-/// The constant bound of a `counter < K` / `counter != K` /
-/// `counter <= K` comparison appearing anywhere in a conjunction.
-fn find_counter_bound_conjunct(func: &Function, term: NodeId, counter: NodeId) -> Option<u64> {
-    match func.get_node(term).map(|n| &n.kind) {
-        Some(NodeKind::Lt { lhs, rhs }) | Some(NodeKind::Ne { lhs, rhs }) if *lhs == counter => {
-            lower_constant_u64(func, *rhs)
-        }
-        Some(NodeKind::Le { lhs, rhs }) if *lhs == counter => {
-            lower_constant_u64(func, *rhs)?.checked_add(1)
-        }
-        Some(NodeKind::BoolAnd { lhs, rhs }) => find_counter_bound_conjunct(func, *lhs, counter)
-            .or_else(|| find_counter_bound_conjunct(func, *rhs, counter)),
-        _ => None,
-    }
-}
-
 /// Promote `Pointer` parameters to `Array { element, length: K }` when
 /// every use of the parameter is an `ArrayAccess` whose index is
 /// provably within one common constant extent K:
@@ -1519,7 +1466,7 @@ fn promote_constant_extent_buffers(func: &mut Function) {
                     continue;
                 }
                 enclosing_carried = true;
-                if let Some(k) = strict_counted_bound(func, *termination, idx, outputs) {
+                if let Some(k) = sir_analysis::loop_shape::counted_bound(func, *termination, idx, outputs) {
                     bound = Some(bound.map_or(k, |prev| prev.min(k)));
                 }
             }

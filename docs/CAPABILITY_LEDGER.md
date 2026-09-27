@@ -3676,6 +3676,40 @@ Three follow-ups this table makes concrete:
   failure mode has not been analysed. The polarity question remains open and is recorded
   as such rather than folded into this change.
 
+- **2026-09-27 — loop-domain logic consolidated from three implementations to two, in
+  one place — and the two that remain are different questions that must stay
+  different.**
+  The question "how many times does this loop run" was answered in three places:
+  `sir_lower::strict_counted_bound` (+ its `find_counter_bound_conjunct`),
+  `sir_analysis::loops::estimate_trip_count`, and the new
+  `sir_analysis::loop_shape::checked_counted_loop`. They disagreed, and that
+  disagreement was what created the latent trip-count hole — the loose one was safe only
+  because the strict one refused first, in another crate, for another reason.
+  **What was done.** `counted_bound` and its conjunct walk moved into
+  `sir_analysis::loop_shape`, faithfully — including the signed-constant fallback in
+  `lower_constant_u64`, which differs from `loop_shape::constant` and would have
+  quietly changed which loops get promoted. `sir_lower` now calls it, and the two
+  functions were deleted there. `sir_lower` gained a dependency on `sir_analysis`
+  (acyclic: `sir_analysis` does not depend on `sir_lower`).
+  **What this is not.** It is a **move, not a merge**. Three implementations became two,
+  both now in `sir_analysis`, and `loops.rs::estimate_trip_count` remains — because
+  changing *it* changes the `is_some()` predicate that `runtime_sum`, `runtime_count`
+  and `search` consume, which is the unwired polarity question, which needs its own
+  analysis and did not belong folded into a mechanical change.
+  **And the two that remain genuinely differ.** They were not merged because they answer
+  different questions, and the case that separates them is real: for
+  `!found && i < K` the indices are still bounded by `K` — a valid **extent** — while
+  the loop may run **fewer than K times**. A bound is not a count. Collapsing them would
+  either make promotion unsound or make the families' count wrong, so
+  `counted_bound` (bound, tolerant of conjuncts) and `checked_counted_loop` (exact
+  count, refuses a compound termination) now sit adjacent in one file with that
+  distinction written down — which is the thing that was missing, and the reason they
+  were able to disagree silently for so long.
+  **Verified identical behaviour**, which is the whole safety argument for touching the
+  extent promotion that accidentally protects five families: **506 rewrites, unchanged**;
+  `VERIFY PASS mode=fast`; all tests green; zero warnings. `sir_lower` is 53 lines
+  shorter (11,645 → 11,592).
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
