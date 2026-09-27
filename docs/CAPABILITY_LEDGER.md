@@ -3430,6 +3430,46 @@ Three follow-ups this table makes concrete:
   loop domain, so it has nothing to consume.
   **State**: build warning-free, all 10 tests green, test count unchanged.
 
+- **2026-09-27 — step 2, first piece: `sir_opt::symbolic`, and its central property is
+  mutated-and-caught rather than asserted.**
+  The translator lowers SIR to bitvector terms under a substitution environment. The
+  design decisions, each of them a direct response to a specific way this could be
+  wrong:
+  **The memo is per-call and never shared across environments.** `lower` mints a fresh
+  memo and consults the environment before it. Astra's predicted route back to the
+  mutant was "memoising a loop-body node by `NodeId` across different substitution
+  environments freezes its first iteration"; this is shaped so that cannot happen, and
+  the property is now tested rather than intended.
+  **A closed, fail-closed operator whitelist.** Constant, Parameter, ArrayAccess,
+  Convert (extend/truncate with the exact target width), Add/Sub/Mul/And/Or/Xor/Shl,
+  Shr, Lt/Le/Gt/Ge/Eq/Ne, BoolAnd/BoolOr/BoolNot, Select. Everything else returns
+  `None`. Two refusals are deliberate rather than incidental: an **arithmetic shift is
+  not lowered at all** — a logical shift on a signed operand is a different function,
+  and lowering one as the other is exactly the "nearly right operator" that would
+  validate rewrites wrong on the inputs that distinguish them — and **i128 refuses**,
+  being outside `sir_mech`'s 64-bit `MAX_WIDTH`.
+  **Array reads without array theory.** Each `(array, concrete index)` pair is one
+  symbolic variable, shared across every call on one translator, so the same read in
+  the original and in the patch denotes the same value. A non-concrete index
+  **refuses**: independent variables for possibly-aliasing reads would be conservative
+  but could prove nothing, and sharing them without a common key would be unsound.
+  **The test, and its control.** `symbolic_lowering_is_environment_sensitive` lowers
+  the same element access at `k = 0` and `k = 63` and requires the two terms to differ
+  — and separately requires the *same* read reached from two calls to be the *same*
+  term, since without that no transformation could ever be proved. Then the translator
+  was mutated: `lower` rewritten to share one memo across every call.
+  **The mutation fails the test** with `left: 2, right: 2` — both environments
+  returning the same term — which is the predicted defect reproduced exactly. So the
+  check can fail, and fails for the right reason. Restored and re-verified: build
+  warning-free, all 10 tests green, test count unchanged.
+  **Not yet done, and required before any of this gates anything**: the symbolic
+  unroller for the original loop; **definedness checking** — value equality alone would
+  accept an eagerly executed `a[N] & 0`, which is numerically null but an out-of-bounds
+  read, and an executed unused load is easier still to miss; the boundary gate that
+  binds extraction, validation and commit to the same artifact; and the wiring into the
+  families, which is where `prove_equal(original, patch)` finally replaces the vacuous
+  obligation.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`

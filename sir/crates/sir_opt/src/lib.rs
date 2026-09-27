@@ -19,6 +19,7 @@ pub mod runtime_count;
 pub mod runtime_sum;
 pub mod search;
 pub mod sum;
+pub mod symbolic;
 
 pub use all::optimize_all;
 pub use any::optimize_any;

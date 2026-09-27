@@ -13,6 +13,12 @@ fn lower(corpus: &str, function: &str) -> Function {
 }
 
 mod cases {
+    pub mod symbolic {
+        include!("cases/symbolic.rs");
+        pub fn run() {
+            symbolic_lowering_is_environment_sensitive();
+        }
+    }
     pub mod loop_shape {
         include!("cases/loop_shape.rs");
         pub fn run() {
@@ -116,6 +122,7 @@ fn families_rewrite_and_prove() {
     cases::any::run();
     cases::carried_scalar::run();
     cases::loop_shape::run();
+    cases::symbolic::run();
     cases::count::run();
     cases::memchr::run();
     cases::parity::run();
