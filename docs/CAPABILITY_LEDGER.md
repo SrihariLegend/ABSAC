@@ -2622,6 +2622,57 @@ Three follow-ups this table makes concrete:
   command, immaterial to every gate but unexplained); a bounds-safe SIMD form; and
   16-key `PFCOUNT`.
 
+- **2026-09-27 — director's ruling on the fork: withdraw the derivation target, the
+  freeze stands, and the demonstrated product is not the compiler**: second
+  consultation, `--thinking max`, with the `hllMerge` result and the conflict
+  between "attempt automatic derivation" and "no new families, no lowering reach,
+  no SIMD types" put to it. Recorded because it re-scopes the project.
+  **1. Do not build the derivation path. `hllMerge` is withdrawn as the mandatory
+  next compiler experiment and the production compiler freeze stands** — "a
+  successful hand optimization does not justify an infrastructure expansion."
+  Automatic derivation remains the test of ABSAC, but **its next end-to-end target
+  must already fit the lowerer and an existing family.** The zero-firing count
+  defeats the standalone reach investment; it does **not** establish that max-map
+  recognition has no value. And SIMD is not a prerequisite — the winning kernel is
+  scalar.
+  **2. The demonstrated product is not the compiler.** "ABSAC currently consists of
+  research software and a human-driven, verified-optimization practice." Redis
+  validates **one valuable delivery** — not automated discovery, repeatable
+  discovery economics, or willingness to pay. **Make the company service-led**: sell
+  verified performance improvements, and treat the compiler as optional internal
+  tooling whose development must reduce delivery cost. "This result supports neither
+  the arbitrary-code automation claim nor unicorn economics. Maintainer acceptance
+  of free code will not establish a business model."
+  **3. Authorized next experiment — a recognition-only probe, explicitly not
+  disguised integration work.** A disposable, read-only LLVM analysis **outside
+  `sir_lower`**, capped at **three engineer-days**: input is untouched upstream IR
+  with **no function-name matching, no hand-normalized loop, no replacement
+  kernel**; recover induction, packed six-bit extraction, destination indexing and
+  unsigned compare/select; output a conditional relation such as
+  `dst'[i] = select(src6[i] >u dst[i], src6[i], dst[i])` with recovered widths,
+  extents and applicability conditions; SMT-check the lane relation and **list the
+  outstanding loop, alias and bounds obligations explicitly**; test held-out
+  equivalent implementations and signedness/indexing near-misses. It requires new
+  recognition code but **no `Max` node, no lowerer admission, no writable patch, no
+  emission** — it tests **object recovery only**. Two standing warnings attach:
+  **the upstream tail over-read must remain visible — undefined behaviour is not a
+  proof shortcut** — and "a recogniser tailored solely to this known answer is a
+  unit test, not research evidence."
+  **4. The single next action: submit the Redis package** — the complete patch
+  including kernel and header, tests and a reproducibility bundle, stating it was
+  **hand-derived**, with instruction ratios reported separately from wall clock, the
+  unreproduced figures retired and the bounds finding disclosed precisely. **No
+  further compiler milestone gates this submission.**
+  **5. A hard bar on the compiler, and an expiry.** One **20-engineer-day trial** on
+  a preregistered, independently selected corpus **within existing reach and family
+  coverage**, requiring **two automatically derived, proved optimizations in
+  different projects, each delivering reproducible ≥5% end-to-end CPU-time savings**
+  under native build flags, with original/raw-lowering/rewritten attribution
+  preserved and no hand-normalized inputs, bespoke semantic adapters, or scope
+  expansion to rescue the score. **Failure ends the current commercial compiler
+  strategy**; the service continues only on its own economics. "Another excellent
+  hand patch does not reset the compiler's clock."
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
