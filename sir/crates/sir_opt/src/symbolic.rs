@@ -175,6 +175,20 @@ impl<'a> Translator<'a> {
                 // agree denote different memory.
                 let key = self.constant_index(*index, env)?;
                 let width = width?;
+                // Definedness, and it is not implied by the equality query.
+                // A read outside the object is undefined however its value
+                // is used: `a[N] & 0` is numerically null and would compare
+                // equal to anything, so value equality alone would accept an
+                // out-of-bounds read folded into a result. The extent must
+                // be known and the index must be inside it.
+                let length = match self.function.get_node(*base).map(|node| &node.ty) {
+                    Some(Type::Array { length, .. }) => *length as u64,
+                    // No declared extent: the read cannot be shown safe.
+                    _ => return None,
+                };
+                if key >= length {
+                    return None;
+                }
                 self.element(*base, key, width)?
             }
             NodeKind::Convert {
@@ -201,7 +215,12 @@ impl<'a> Translator<'a> {
             NodeKind::And { lhs, rhs } => self.binary(*lhs, *rhs, env, memo, Bv::and)?,
             NodeKind::Or { lhs, rhs } => self.binary(*lhs, *rhs, env, memo, Bv::or)?,
             NodeKind::Xor { lhs, rhs } => self.binary(*lhs, *rhs, env, memo, Bv::xor)?,
-            NodeKind::Shl { lhs, rhs } => self.binary(*lhs, *rhs, env, memo, Bv::shl)?,
+            NodeKind::Shl { lhs, rhs } => {
+                let a = self.walk(*lhs, env, memo)?;
+                let b = self.walk(*rhs, env, memo)?;
+                self.shift_amount(b, a)?;
+                self.bv.shl(a, b)
+            }
             NodeKind::Shr { lhs, rhs } => {
                 // Logical shift only. An arithmetic shift on a signed
                 // operand is a different function, and lowering one as the
@@ -210,7 +229,10 @@ impl<'a> Translator<'a> {
                 if matches!(&self.function.get_node(*lhs)?.ty, Type::Integer { signed: true, .. }) {
                     return None;
                 }
-                self.binary(*lhs, *rhs, env, memo, Bv::lshr)?
+                let a = self.walk(*lhs, env, memo)?;
+                let b = self.walk(*rhs, env, memo)?;
+                self.shift_amount(b, a)?;
+                self.bv.lshr(a, b)
             }
             NodeKind::Lt { lhs, rhs } => self.binary(*lhs, *rhs, env, memo, Bv::ult)?,
             NodeKind::Le { lhs, rhs } => self.binary(*lhs, *rhs, env, memo, Bv::ule)?,
@@ -282,6 +304,18 @@ impl<'a> Translator<'a> {
         let a = self.walk(lhs, env, memo)?;
         let b = self.walk(rhs, env, memo)?;
         Some(op(&mut self.bv, a, b))
+    }
+
+    /// A shift by at least the operand's width is undefined in the emitted
+    /// language, and `Bv` totalises it, so the term language cannot be
+    /// trusted to have noticed. A concrete amount is checked; a symbolic
+    /// one is refused rather than assumed in range.
+    fn shift_amount(&self, amount: Term, value: Term) -> Option<()> {
+        let width = self.bv.width(value);
+        match self.bv.node(amount) {
+            sir_mech::bv::Node::Const(value) => (value < width as u64).then_some(()),
+            _ => None,
+        }
     }
 
     fn literal(&mut self, data: &ConstantData, width: u32) -> Option<Term> {

@@ -99,6 +99,55 @@ pub fn symbolic_lowering_is_environment_sensitive() {
     );
 }
 
+/// Definedness is not implied by the equality query, and this shows both
+/// that the lowering refuses an out-of-bounds read and that it has to.
+pub fn an_out_of_bounds_read_is_refused_and_value_equality_is_blind() {
+    let ll = std::fs::read_to_string("../../../gate6a/v6_corpus.ll").expect("corpus");
+    let function = sir_lower::lower_function(&ll, "p07_any_or_const_u32").expect("lower");
+    let (counter, access) = element_access(&function);
+    let NodeKind::ArrayAccess { base, .. } = function.get_node(access).unwrap().kind else {
+        panic!("not an array access");
+    };
+    let mut translator = sir_opt::symbolic::Translator::new(&function);
+
+    // The last in-bounds read lowers.
+    let mut inside = sir_opt::symbolic::Subst::new();
+    inside.bind(counter, translator.constant(63, 64));
+    assert!(
+        translator.lower(access, &inside).is_some(),
+        "a[63] is inside a 64-element object and must lower"
+    );
+
+    // One past the end does not. This is the address half of definedness,
+    // and it is checked against the object's declared extent rather than
+    // inferred from how the value is used.
+    let mut past = sir_opt::symbolic::Subst::new();
+    past.bind(counter, translator.constant(64, 64));
+    assert!(
+        translator.lower(access, &past).is_none(),
+        "a[64] is outside the object and must be refused"
+    );
+
+    // And why it must be its own check rather than a consequence of the
+    // equality query. `a[64] & 0` is numerically null, so it proves equal
+    // to zero — an out-of-bounds read rides into the result and the query
+    // reports `Valid`. The read is assembled here by hand precisely because
+    // the lowering refuses to produce it.
+    let element = translator
+        .element(base, 64, 32)
+        .expect("the element variable for the out-of-bounds index");
+    let zero = translator.constant(0, 32);
+    let masked = translator.bv_mut().and(element, zero);
+    assert!(
+        matches!(
+            sir_mech::prove_equal(translator.bv(), masked, zero),
+            CheckResult::Valid
+        ),
+        "a[64] & 0 must prove equal to 0 — if it did not, this test would \
+         not be demonstrating the blindness it claims to"
+    );
+}
+
 /// The unroller, and the query that finally refutes the mutant.
 pub fn the_unrolled_original_refutes_the_wrong_patch() {
     let ll = std::fs::read_to_string("../../../gate6a/v6_corpus.ll").expect("corpus");

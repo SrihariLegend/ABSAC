@@ -3517,6 +3517,36 @@ Three follow-ups this table makes concrete:
   and the **wiring** into the families, where `prove_equal(original, patch)` replaces
   the vacuous obligation.
 
+- **2026-09-27 — step 2, third piece: definedness, and the demonstration that value
+  equality cannot see it.**
+  The equality query is blind to an out-of-bounds read, and this is now shown rather
+  than argued. `a[N] & 0` is numerically null, so it **proves equal to zero** — the read
+  rides into the result and the kernel reports `Valid`. That is exactly the hole astra
+  named: *"value equality would accept an eagerly executed `a[N] & 0` … an executed
+  unused load is even easier to miss when traversing only the root."*
+  **The checks added.** Every `ArrayAccess` must have a concrete index after
+  substitution **strictly inside the object's declared extent**; a base with no
+  declared `Array` extent refuses rather than being assumed safe. Shift amounts must be
+  concrete and less than the operand width — `Bv` totalises an out-of-range shift, so
+  the term language cannot be relied on to have noticed, and a symbolic shift amount is
+  refused rather than assumed in range. Division and remainder already refuse outright:
+  they are absent from the operator whitelist.
+  **The test, and its control.**
+  `an_out_of_bounds_read_is_refused_and_value_equality_is_blind` asserts three things:
+  `a[63]` lowers (inside a 64-element object), `a[64]` is refused, and — the point —
+  `a[64] & 0` **proves equal to `0`**, which is why the bounds check has to exist
+  separately. The out-of-bounds term is assembled by hand *because the lowering refuses
+  to produce it*. Removing the bounds check makes the test fail at exactly
+  `"a[64] is outside the object and must be refused"`. Restored and re-verified: build
+  warning-free, all 10 tests green, test count unchanged.
+  **A consequence worth stating for the wiring step.** Refusing a symbolic shift amount
+  costs nothing today because `symbolic` is not yet consumed by any family — there is no
+  firing to lose. When it is wired, that refusal becomes a real guard with a real cost,
+  and the cost must be measured and recorded rather than assumed to be zero.
+  **Still outstanding**: the **boundary gate** — extraction, validation and commit bound
+  to the same artifact — and the **wiring** into the families, where
+  `prove_equal(original, patch)` replaces the vacuous obligation.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
