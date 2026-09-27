@@ -3228,6 +3228,100 @@ Three follow-ups this table makes concrete:
   "checked per patch". Until it exists, the honest description of a family firing is
   **"recognized, structurally gated, differentially tested"** — never "proved".
 
+- **2026-09-27 — astra reviews the repair for the vacuous-obligation hole and refutes it
+  as specified. The proposed fix would have proved the mutant correct.** Design review,
+  `--thinking max`. Verdict: **"Not sound as specified."** The repair's shape survives;
+  the details I specified do not.
+  **THE CRITICAL CATCH — my own fix would have blessed the bug.** The design said to
+  lower the original symbolically with a memo keyed by `NodeId`. **"Memoizing a
+  loop-body node by `NodeId` across different substitution environments freezes its
+  first iteration. The translated original can become `a[0]`, making the repeated-`a[0]`
+  patch provably equal."** That is: the unroller visits the body for k=0, memoizes the
+  access as `a[0]`, then returns the memoized term for every subsequent k — so the
+  *original* lowers to sixty-four copies of `a[0]`, exactly the mutant, and
+  `prove_equal` reports `Valid`. Sophisticated, wrong, and worse than the hole it was
+  written to close, because it would have converted a blind spot into a certificate.
+  **The general form of the error**: shared lowering is standard trusted machinery but
+  is **not independent corroboration** — "translating signed extension as zero
+  extension would validate an incorrect signed-to-unsigned conversion rewrite." A
+  common translator bug erases the distinction the check exists to detect.
+  **F1 — the translator's requirements**: a closed fail-closed operator whitelist with
+  exact width, signedness, Boolean, conversion and partial-operation semantics;
+  scope-correct symbol identities for actual boundary inputs shared consistently
+  between the two sides; and **environment-sensitive substitution and memoization,
+  including load keys**. Independent variables for reads *can* be sound without array
+  theory under a fixed inert memory snapshot, but sharing a variable must guarantee the
+  same concrete read — base/address, access width and memory state agreeing **after
+  substitution**; **keying on the unsubstituted induction-variable node is
+  insufficient.** Conservative non-sharing loses proofs but never creates false
+  validity. And: a SAT model over BV terms **need not describe realizable memory**, so
+  kernel re-evaluation does not establish a concrete SIR counterexample.
+  **A second hole I had not seen — definedness.** Value equality would accept an
+  eagerly executed `a[N] & 0` folded into a result: numerically null, but an
+  out-of-bounds read. "An executed unused load is even easier to miss when traversing
+  only the root." All executed computations must be checked for safety — including
+  address calculations and partial arithmetic — and unmodelled effects rejected.
+  **F2 — my independence argument is refuted.** I had argued the two derivations are
+  structurally different, so a wrong unrolling discipline would decorrelate and fail
+  closed. Counterexample: the source runs 64 iterations but analysis supplies `N = 63`
+  **to both construction and validation**, both terms omit `a[63]`, and `Valid` follows
+  while the transformation is wrong on a defined input. **"You are not proving the
+  substitution. You are assuming it while manufacturing the original's term."** The
+  analysis facts feed both sides, so a shared fact error is shared proof error. Two
+  defensible choices: trust every fact producer (then the proof protects nothing
+  against their mistakes), or — preferred — **treat the facts as hints checked against
+  the actual SIR by a small, restrictive loop-semantics checker** reading the real
+  binders, initial values, condition, step and yields, establishing the exact iteration
+  count including termination and counter wrap and modelling simultaneous carried-value
+  updates and all live-outs. Structural checking suffices; it need not go through SAT.
+  And explicitly: **"do not remove `carried_names` merely because an equality query now
+  exists — only when checked binding/substitution semantics cover the cases it
+  excluded."**
+  **F3 — replace the authorization, not the lemmas.** **"A universally true identity is
+  not itself a disease. Citing it as authorization for unrelated code is."** `or_laws`
+  may stay as a kernel test or a genuinely used lemma; it **must not authorize a
+  patch.** **"Every distinct candidate needs validation"** — and **caching by
+  `(extent, width)` immediately restores the hole, because the correct patch and the
+  mutant share that key.** Reuse requires an exact canonical obligation with checked
+  context and boundary mapping, or a proved schema with mechanically checked
+  instantiation. Timeout, `Unknown` and unsupported semantics mean refusal; proof cost
+  never justifies an unchecked subsequent application.
+  **F4 — share bounded-loop semantics, not family descriptions.** One generic extractor
+  for the supported fixed-count, inert-read fragment, interpreting actual loop
+  semantics rather than reconstructing a fold from each family's assertions. `search`
+  is not excluded a priori — a bounded first-match scan is a fold over
+  `(found, first_index)` frozen after the first match — **but preserving its value is
+  insufficient if expansion introduces reads the early exit avoided**; those must be
+  proved safe and unobservable or remain guarded. Data-dependent bounds need a checked
+  finite upper bound and faithful guarded execution, otherwise refuse, **with no
+  fallback to general algebraic obligations.**
+  **F5 — put the mandatory gate at the application boundary.** Do not hand
+  `patch::apply` an unbound Boolean proof result. Materialise the candidate in a
+  scratch function, validate the **actual before/after change**, then commit *that exact
+  candidate*, comparing every affected live-out under a common boundary-input
+  interpretation. **"A proof about the intended accumulator root does not prove that
+  the replacement map uses that root, preserves other live-outs, or rewrites the
+  intended uses. Candidate extraction, validation and commit must be bound together; do
+  not validate one object and reconstruct another."** Certified rewrite schemas with
+  checked matching are a possible cheaper alternative; **"calling a handwritten
+  constructor 'correct-by-construction' is not."**
+  **The new trusted base, stated**: `sir_mech`'s **`Valid` path** (BV semantics, query
+  construction, bit-blasting, UNSAT correctness — model re-checking protects
+  counterexample reporting, **not** `Valid`); SIR typing and scope verification;
+  operator lowering; environment substitution; symbol allocation, memory abstraction
+  and memoization; applicability, definedness and effect checks; loop
+  extraction/unrolling and every analysis fact accepted unchecked; and boundary
+  extraction plus the binding between proved candidate, replacement mapping, cache
+  entry and committed function. **"Recognizers and patch constructors leave the semantic
+  trusted base only when none of their semantic claims are accepted unchecked."**
+  Emitted-C correctness additionally still depends on faithful SIR-to-C lowering.
+  **Closing condition**: "With those conditions, symbolic equality is a sound gate.
+  Without them, the hole moves principally into 'what the original means', with a
+  separate definedness hole hidden by treating loads as values." Also required: mutate
+  the translator and unroller themselves, using independent concrete semantics as the
+  oracle, with small exhaustive and sparse cases through the existing `run()` dispatch
+  — **"tests harden this trusted code; they do not establish its correctness."**
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
