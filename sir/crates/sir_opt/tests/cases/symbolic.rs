@@ -98,3 +98,94 @@ pub fn symbolic_lowering_is_environment_sensitive() {
          across calls, or no transformation could ever be proved"
     );
 }
+
+/// The unroller, and the query that finally refutes the mutant.
+pub fn the_unrolled_original_refutes_the_wrong_patch() {
+    let ll = std::fs::read_to_string("../../../gate6a/v6_corpus.ll").expect("corpus");
+    let function = sir_lower::lower_function(&ll, "p07_any_or_const_u32").expect("lower");
+    let loop_id = function
+        .arena
+        .iter()
+        .find(|node| matches!(node.kind, NodeKind::Loop { .. }))
+        .expect("fixture has a loop")
+        .id;
+    let (_, access) = element_access(&function);
+    let NodeKind::ArrayAccess { base, .. } = function.get_node(access).unwrap().kind else {
+        panic!("not an array access");
+    };
+
+    let mut translator = sir_opt::symbolic::Translator::new(&function);
+    let unrolled = sir_opt::symbolic::unroll(
+        &mut translator,
+        &function,
+        loop_id,
+        &sir_opt::symbolic::Subst::new(),
+    )
+    .expect("the canonical reduction unrolls");
+
+    // The loop runs 64 times and the checker had to validate that against
+    // the loop's own exit expression, not take it from an analysis fact.
+    assert_eq!(unrolled.trip_count, 64, "the canonical loop runs 64 times");
+
+    // The accumulator is the u32 carried variable, and its final value must
+    // be the OR of all 64 distinct element reads.
+    let NodeKind::Loop {
+        carried_inputs,
+        outputs,
+        ..
+    } = &function.get_node(loop_id).unwrap().kind
+    else {
+        unreachable!()
+    };
+    let slot = carried_inputs
+        .iter()
+        .position(|id| {
+            matches!(
+                function.get_node(*id).map(|n| &n.ty),
+                Some(Type::Integer {
+                    width: sir_types::IntegerWidth::I32,
+                    ..
+                })
+            )
+        })
+        .expect("a u32 accumulator");
+    assert_eq!(outputs.len(), unrolled.outputs.len(), "every live-out");
+    let original = unrolled.outputs[slot];
+
+    // The patch as built today: an OR chain over a[0]..a[63].
+    let correct = {
+        let mut acc = translator.constant(0, 32);
+        for k in 0..64u64 {
+            let element = translator.element(base, k, 32).expect("element read");
+            acc = translator.bv_mut().or(acc, element);
+        }
+        acc
+    };
+    assert!(
+        matches!(
+            sir_mech::prove_equal(translator.bv(), original, correct),
+            CheckResult::Valid
+        ),
+        "the unrolled original equals the correct chain — otherwise the \
+         check would refuse real transformations and be useless"
+    );
+
+    // The mutant: the same chain reading a[0] sixty-four times. This is the
+    // transformation the current apparatus accepts and the
+    // vacuous-obligation hole certifies.
+    let mutant = {
+        let mut acc = translator.constant(0, 32);
+        for _ in 0..64u64 {
+            let element = translator.element(base, 0, 32).expect("element read");
+            acc = translator.bv_mut().or(acc, element);
+        }
+        acc
+    };
+    match sir_mech::prove_equal(translator.bv(), original, mutant) {
+        CheckResult::Counterexample(_) => {}
+        other => panic!(
+            "the repeated-a[0] patch must be refuted against the unrolled \
+             original, got {other:?}"
+        ),
+    }
+}

@@ -3470,6 +3470,53 @@ Three follow-ups this table makes concrete:
   families, which is where `prove_equal(original, patch)` finally replaces the vacuous
   obligation.
 
+- **2026-09-27 — step 2, second piece: `symbolic::unroll`, and the query that finally
+  refutes the mutant. The count is validated against the loop's own exit expression
+  rather than taken from the analysis.**
+  This is the piece astra's F2 refutation was aimed at — *"you are not proving the
+  substitution, you are assuming it while manufacturing the original's term"* — so it
+  is built the other way round:
+  **The counter is derived, not imposed.** `Bv::bin` folds constant operands, so
+  running the loop's *own* output expression for the counter (`counter + step`)
+  produces a concrete constant at every step, and array indices resolve to concrete
+  values from the loop as written. `loop_shape`'s predicted value is then required to
+  **agree** with the derived one at every step; a disagreement refuses rather than
+  picking one.
+  **The count is validated against the actual exit expression.** The termination node
+  is translated at each step and required to fold to a constant — the same constant
+  throughout the iterations and a **different** one at the count. That condition is
+  stated polarity-agnostically on purpose: *"constant, then different"* is the loop
+  running exactly `n` times whichever way round the termination node is written, and
+  the polarity was not something I was willing to assume after being wrong about this
+  IR once already today.
+  **Simultaneous update.** Every output is evaluated against the *same* pre-iteration
+  values, which is the carried-value semantics with no phi nodes.
+  **All carried outputs are returned**, so every live-out is covered rather than only
+  the slot a family happens to want. Nested loops refuse. A non-concrete counter
+  refuses.
+  **The test, and both controls.**
+  `the_unrolled_original_refutes_the_wrong_patch` unrolls `p07_any_or_const_u32` and
+  asserts the count is 64, then queries the unrolled original against two candidate
+  outcomes: the correct OR chain over `a[0..64]` must be **`Valid`**, and the mutant —
+  the same chain reading `a[0]` sixty-four times — must be a **`Counterexample`**.
+  The second is the query that finally refutes the transformation the vacuous
+  obligation was certifying. The first matters as much: a check that refutes
+  everything is as useless as one that refutes nothing.
+  Then the count check was mutated. `loop_shape` was changed to report one iteration
+  more than the loop runs, and the **unroller refuses** — `unroll` returns `None` and
+  the test fails at "the canonical reduction unrolls". So the validation is
+  load-bearing and can fail. (The first attempt at this control was caught earlier, by
+  the families' extent check, before the unroller ran; the dispatch order was changed
+  so the symbolic case runs first and the unroller's own check is what fires.)
+  Restored and re-verified: build warning-free, all 10 tests green, test count
+  unchanged.
+  **Still outstanding before this gates anything**: **definedness** — value equality
+  alone would accept an eagerly executed `a[N] & 0`, which is numerically null but an
+  out-of-bounds read, and an executed unused load is easier still to miss; the
+  **boundary gate** that binds extraction, validation and commit to the same artifact;
+  and the **wiring** into the families, where `prove_equal(original, patch)` replaces
+  the vacuous obligation.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`

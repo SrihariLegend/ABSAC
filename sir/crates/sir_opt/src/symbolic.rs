@@ -87,6 +87,12 @@ impl<'a> Translator<'a> {
         &self.bv
     }
 
+    /// The term builder, for callers that assemble a candidate term to
+    /// compare against a lowered original.
+    pub fn bv_mut(&mut self) -> &mut Bv {
+        &mut self.bv
+    }
+
     pub fn constant(&mut self, value: u64, width: u32) -> Term {
         self.bv.constant(value, width)
     }
@@ -324,6 +330,132 @@ impl<'a> Translator<'a> {
         }
         Some(width)
     }
+}
+
+/// One loop, fully unrolled.
+pub struct Unrolled {
+    pub trip_count: u64,
+    /// The final value of each carried variable, in the loop's own output
+    /// order, so every live-out is covered and not only the slot a family
+    /// happens to want.
+    pub outputs: Vec<Term>,
+}
+
+/// Unroll a counted loop into terms, deriving each iteration's values from
+/// the loop's own expressions and checking them against the structural
+/// facts rather than taking those facts for granted.
+///
+/// The distinction matters and is the whole point of doing it this way. It
+/// would be easy — and wrong — to read a trip count out of `sir_analysis`,
+/// then manufacture the original's meaning by substituting the counter
+/// with `0, 1, …, n-1`. That does not prove the substitution; it *assumes*
+/// it while constructing the very term the proof is supposed to be about,
+/// and it is the reason a shared mistake in an analysis fact would become a
+/// shared mistake in the proof.
+///
+/// So instead: the counter's value at each step is computed from the loop's
+/// own output expression for it, and the termination node is translated
+/// and required to fold to a **constant** at every step — the same constant
+/// throughout the iterations and a *different* one at the count. That last
+/// condition is what validates the count against the actual exit
+/// expression, and it is deliberately stated without assuming which
+/// polarity the termination uses: "constant, then different" is the loop
+/// running exactly `n` times either way.
+pub fn unroll(
+    translator: &mut Translator<'_>,
+    function: &Function,
+    loop_id: NodeId,
+    outer: &Subst,
+) -> Option<Unrolled> {
+    let shape = sir_analysis::loop_shape::checked_counted_loop(function, loop_id)?;
+    let node = function.get_node(loop_id)?;
+    let NodeKind::Loop {
+        body,
+        termination,
+        outputs,
+        carried_inputs,
+    } = &node.kind
+    else {
+        return None;
+    };
+    if carried_inputs.len() != outputs.len() || carried_inputs.is_empty() {
+        return None;
+    }
+    // A nested loop is not modelled here and refuses rather than being
+    // flattened silently into the outer unrolling.
+    if body
+        .iter()
+        .any(|id| matches!(function.get_node(*id).map(|n| &n.kind), Some(NodeKind::Loop { .. })))
+    {
+        return None;
+    }
+    let counter_slot = carried_inputs.iter().position(|id| *id == shape.counter)?;
+
+    // The values the carried variables hold on entry.
+    let mut values: Vec<Term> = Vec::with_capacity(carried_inputs.len());
+    for &carry in carried_inputs.iter() {
+        values.push(translator.lower(carry, outer)?);
+    }
+
+    // One extra step: the count must be validated *at* the exit, so the
+    // termination is evaluated once past the last iteration.
+    let mut entry_termination: Option<u64> = None;
+    for k in 0..=shape.trip_count {
+        let mut env = outer.clone();
+        for (slot, &carry) in carried_inputs.iter().enumerate() {
+            env.bind(carry, values[slot]);
+        }
+        // The counter must be concrete on this iteration, or the indices
+        // below are not, and nothing can be looked up.
+        let counter_value = match translator.bv().node(values[counter_slot]) {
+            sir_mech::bv::Node::Const(value) => value,
+            _ => return None,
+        };
+        let expected = shape
+            .counter_init
+            .checked_add(shape.step.checked_mul(k)?)?;
+        if counter_value != expected {
+            // The loop's own step expression disagrees with the count the
+            // structural extractor reported. One of the two is wrong and
+            // this module does not get to pick.
+            return None;
+        }
+
+        // The exit condition, translated and required to be constant.
+        let term = translator.lower(*termination, &env)?;
+        let exiting = match translator.bv().node(term) {
+            sir_mech::bv::Node::Const(value) => value,
+            _ => return None,
+        };
+        match entry_termination {
+            None => entry_termination = Some(exiting),
+            Some(value) if k == shape.trip_count => {
+                if exiting == value {
+                    // Still continuing at the count: the loop does not run
+                    // the number of times claimed.
+                    return None;
+                }
+            }
+            Some(value) if exiting != value => return None,
+            Some(_) => {}
+        }
+
+        if k == shape.trip_count {
+            break;
+        }
+        // Simultaneous update: every right-hand side is evaluated against
+        // the *same* pre-iteration values.
+        let mut next = Vec::with_capacity(outputs.len());
+        for &output in outputs.iter() {
+            next.push(translator.lower(output, &env)?);
+        }
+        values = next;
+    }
+
+    Some(Unrolled {
+        trip_count: shape.trip_count,
+        outputs: values,
+    })
 }
 
 fn mask_of(width: u32) -> u128 {

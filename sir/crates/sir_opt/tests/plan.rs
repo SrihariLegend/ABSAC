@@ -17,6 +17,7 @@ mod cases {
         include!("cases/symbolic.rs");
         pub fn run() {
             symbolic_lowering_is_environment_sensitive();
+            the_unrolled_original_refutes_the_wrong_patch();
         }
     }
     pub mod loop_shape {
@@ -117,12 +118,12 @@ fn families_rewrite_and_prove() {
     assert!(sir_opt::prove::and_laws(8));
     assert!(sir_opt::prove::first_match_law());
 
+    cases::symbolic::run();
     cases::all::run();
     cases::arithmetic::run();
     cases::any::run();
     cases::carried_scalar::run();
     cases::loop_shape::run();
-    cases::symbolic::run();
     cases::count::run();
     cases::memchr::run();
     cases::parity::run();
