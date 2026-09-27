@@ -2755,6 +2755,142 @@ Three follow-ups this table makes concrete:
   from "fitted to one IR shape" toward "fitted to the object", which is the
   property automated optimization actually needs.
 
+- **2026-09-27 — astra recommends: the search substrate is a proof-carrying AND/OR
+  implementation graph, and the network is a replaceable scheduler that should not
+  be built yet**: consultation on the representation-space design, `--thinking max`.
+  Recorded as **recommendations under consideration**, per the owner's standing
+  framing — the goal remains automated superoptimization. Two premises in my brief
+  were corrected and are recorded as corrections.
+  **CORRECTION 1 — a semantic canonical form cannot exist.** I had asked whether the
+  state should be "what the code computes". Arbitrary program equivalence is
+  **undecidable**: a program that simulates a machine and then returns zero is
+  equivalent to `return 0` exactly when that simulation terminates, so a semantic
+  canonical form with decidable equality would decide halting. "Finite correctness
+  certificates are checkable; arbitrary program equivalence is not decidable." What
+  *is* ruled out on the other side is syntax alone, which hides relationships, and
+  semantics alone, which quotients away the very variables being optimized.
+  **CORRECTION 2 — the AlphaDev diagnosis is unsupported.** AlphaDev demonstrated
+  improvements in **deliberately bounded low-level tasks** (small sorting routines).
+  That is neither arbitrary-program success nor evidence of a failed
+  arbitrary-program attempt. "ABSAC's supplied experiments establish **ABSAC's**
+  reward and expressiveness problems" — not a general lesson about AlphaZero-style
+  search on arbitrary programs.
+  **The design. Objective**, for source `P`, assumptions `A`, target/toolchain `H`,
+  workload `D`: minimize `J_{H,D}(Q) = E_w[ C_H(compile_H(Q), w) ]` subject to
+  `Q ≃_A P` — equivalence on **every defined source execution**, with no new UB.
+  **State**: an **AND/OR implementation-and-proof graph**. An **OR node** holds
+  alternative implementations of a contract; an **AND expansion** requires every
+  component implementation, applicability condition and refinement proof to succeed;
+  **shared representation variables connect every consumer of the same storage**;
+  leaves are executable IR, target primitives, or unchanged original code; the graph
+  carries proof status, counterexamples, compiled artifacts and context-specific
+  measurements. This is the answer to "a reasoning graph?" — **yes, a reasoning
+  graph of formal obligations, not natural-language reasoning.** SIR is retained as
+  implementation syntax with two qualifications: increasing `NodeId`s give
+  deterministic traversal but **not** canonicality, so it needs alpha-normalized
+  structural keys with semantic merging behind a proof; and a select DAG represents
+  conditional *pure, total* expressions, so conditional stores, trapping loads, calls
+  and divergence need guarded/lazy regions and explicit effect sequencing — **an
+  effects bitmask does not describe aliasing, footprints or ordering.** An e-graph is
+  useful *inside* a pure-expression task but is not a representation of protocol
+  closure or measured performance; an embedding is a search feature that may never
+  serve as an identity or a correctness criterion.
+  **Moves: "a semantic transaction, not an instruction edit."** A proposal selects
+  `(scope, contract, representation, algorithm constructor, parameters)` and expands
+  into implementation and proof tasks; intermediate states may hold unresolved
+  alternatives; a replacement is legal only when its obligations close, and the
+  certified incumbent remains available throughout. **The mechanism is data
+  refinement**: with abstraction `a`, concrete `c` and invariant `R_ρ(c,a)`,
+  `R_ρ(c,a) ∧ F(a,u)↓(a',o,τ) ⟹ ∃c'. G_ρ(c,u)↓(c',o,τ) ∧ R_ρ(c',a')`, with outputs
+  and observable effects matching. The consequence that matters: **"a transformation
+  affecting many functions can have many small, reusable certificates. Its textual
+  size need not determine its proof granularity."** That is how the cross-consumer
+  case becomes tractable — and the tension in my brief gets an exact local solution:
+  **"global representation changes composed from local refinement proofs."** Where
+  that decomposition cannot be found and checked, **return the original**.
+  **How the fitted recognizer stops being fitted**: "recognition proposes a contract
+  and proves it against the source. For example, propose unsigned maximum and check
+  the recovered expression universally. **Operand order and ternary spelling then
+  cease to be correctness gates.**" That resolves the probe's operand-order
+  sensitivity and its missing select-join path as *correctness* concerns, though
+  discovery can still fail — proof does not discover the contract. And a warning
+  against my own post-hoc criterion: **do not encode the five-example "algebra
+  versus data-structure walk" hypothesis as an exclusion rule.**
+  **The HLL case, worked**: abstraction is `a_i ∈ [0,63]` logical registers, with
+  both packed and byte storage related to it. A byte-layout proposal owes
+  obligations for initialization, every mutation, access/merge/counting,
+  copying/allocation/destruction, and **serialization, persistence, replication and
+  raw-byte observation** — "a raw-byte `GET` is a consumer; an escaping pointer is an
+  interface", and each must be included or mediated by a **proved adapter**. The
+  layout choice commits **atomically** across consumers, and ownership/escape
+  analysis must establish closure or the transformation is refused — no "private
+  storage" assumption may be invented. Cost is **whole-lifetime**: expanding 6-bit to
+  bytes raises payload by 4/3, and **new allocation failures are behaviour changes,
+  not merely costs**.
+  **Search and the network.** Use **memoized best-first AND/OR search** with bounded
+  enumeration or CEGIS inside synthesis tasks — it matches the dependency structure
+  and reuses subproofs — and **do not require intermediate moves to improve
+  performance**: unpacking is locally expensive while enabling the winning completed
+  transformation. A network is a **replaceable scheduler**: permutation-equivariant
+  encoder over the typed graph, a pointer selecting a task/scope, constructor and
+  parameter heads, and heads predicting proof feasibility, descendant improvement and
+  evaluation cost. **The value target is the best completed, certified gain within
+  the remaining budget — not source-level instruction count and not proximity to a
+  guessed normal form.** An LLM may propose contracts, invariants, algorithms and
+  certificates but **receives no authority over assumptions or acceptance**; MCTS
+  over macro-actions solves neither representation invention nor verification nor
+  reward integrity. **"With today's move set and measurements, a learned policy has
+  no demonstrated productive third-party actions. Fix that before training."** And:
+  **"do not simultaneously build a global e-graph, another compiler backend, MCTS and
+  a training stack."**
+  **Reward.** Correctness is a **hard admissibility constraint, never a finite
+  penalty that speed can outweigh**: `r(Q) = log( Σ w_j C_H(compile_H(P), w_j) /
+  Σ w_j C_H(compile_H(Q), w_j) )`, against **arm A — the original strong deployed
+  configuration, not a degraded raw lowering**, measuring all attributable work
+  including dispatch, helpers, conversions, migration and changed consumers. Four
+  consequences: machine-identical artifacts get identical credit, so
+  **multiply-to-shift earns exactly zero** (which is what the three-arm experiment
+  measured); correctness is not "fraction of tests passed"; **proof timeout is
+  censored feasibility data, not a verdict that the program is wrong**; and costs are
+  **not additive across graph nodes**. And the sharpest: **"instruction reduction is
+  not speed reduction"** — carry-less multiply, SIMD, cache locality and memory
+  parallelism all break the equivalence, so instruction counts may be a valid
+  current objective and a search feature but **must not prune every
+  instruction-increasing candidate**. "Until latency selection with A/A-calibrated
+  uncertainty exists, ABSAC has evidence for instruction-count wins, not general
+  performance wins."
+  **Soundness boundary.** The output is **a deployable program bundle plus a checked
+  certificate and measurement record**, or the unchanged original; "a representation
+  choice alone is not a finished optimization." The proof must cover the **actual
+  emitted transformation** — "a correct family theorem does not certify an emitter
+  that substitutes the initial loop index", which is the S2 defect named exactly —
+  so prove between original and emitted IR or validate each translation link, and
+  treat the remaining frontend/codegen assumptions as an **explicit trusted
+  boundary**. Verifier results are **Proved / refuted by a validated defined
+  execution / unknown**, and **unknown forbids deployment**. Edge rules stated as
+  non-negotiable: bounds and UB (zero iterations preserve initial state; tails and
+  extra vector lanes need object-level bounds, not merely mapped pages; alignment,
+  initialization, lifetime, provenance, zero-input `ctz`); arithmetic (prove actual
+  width, overflow, shift, division and floating-point semantics — integer or real
+  algebra is not a substitute); aliasing and effects (prove footprints, framing and
+  permitted reordering; an ATOMIC bit is insufficient for concurrency); nontermination
+  (divergence-sensitive simulation and well-founded arguments); external behaviour
+  (formats, error paths, observable ordering — a set abstraction that discards
+  duplicates cannot justify a database transformation that exposes them). On the
+  referee: differential testing is valuable as an independent attack on the trusted
+  boundary and its inputs should be **branch- and relation-directed, boundary sizes,
+  aliases and counterexample-derived** — **"random bytes and `mismatched=0` are not
+  correctness evidence sufficient for acceptance."**
+  **Falsification, stated.** The substantive hypothesis is that **"profitable
+  nonlocal transformations often admit automatically discoverable, reusable, compact
+  relational contracts."** It fails as substrate if useful contracts need
+  human-supplied invariants per function; if consumer closure and proof construction
+  consume the budget without further end-to-end wins; if lifetime measurement erases
+  the apparent representation wins; or if syntax/compiler perturbations repeatedly
+  defeat recovery of the same contract. Compare graph scheduling against direct
+  LLM-plus-verifier proposals and plain constructor enumeration at identical budgets,
+  and **delete learned scheduling if it adds no held-out gain**.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
