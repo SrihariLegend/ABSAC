@@ -3904,6 +3904,71 @@ Three follow-ups this table makes concrete:
   **[WITHDRAWN — see the correction above. Retained unedited as the record of what was
   believed and why.]**
 
+- **2026-09-27 — astra recommends: do NOT rehabilitate the audit as the main project; run
+  ONE family against ONE real site with an "ideal recognizer" control; and the CRC result
+  has a second measurement trap.** Consultation on the corrected audit, `--thinking max`,
+  no tools. Recorded as recommendations to weigh, not binding rulings.
+  **The correction astra made to my correction — confirmed, and it is my error.**
+  `png_calculate_crc` is a **wrapper**: it loops over chunks and calls zlib's `crc32`. The
+  CRC *recurrence* lives in zlib, which I supplied through `--ffi-support` as an opaque
+  function, so ABSAC saw `state = crc32(state, ptr, len)` and never saw the update
+  recurrence. **"No family fires" is therefore trivially true and is not evidence about
+  the families at all.** The `S1 scan/reduction` tag described what the function
+  *accomplishes*, not what its body *contains* — a tagging error inside the procedure
+  whose entire purpose is to prevent motivated tagging. Astra's instruction: keep
+  `unsupported` as the coarse status but record the subreason as **"computation behind
+  opaque callee"**, keep it in the deployment denominator, and **do not count it as a
+  mathematical-family trial.** Consequence: **the audit has produced zero authenticated
+  information about the families.** Attached warning: *"beating a slow audit support
+  implementation would be manufactured headroom."*
+  **The proposed smallest experiment — a favourable existence test, not a yield
+  estimate.** Pick one already-proved family with the strongest reason to beat LLVM; write
+  down its algebraic preconditions, its replacement, what work it removes, and why
+  `clang -O3` would leave that opportunity. Build three ways: **A** native application at
+  `clang -O3`; **B** the same region through ABSAC with families disabled; **C** the same
+  region with the proved transformation. Compare **C against both A and B** — *"beating a
+  slow round-trip build while losing to native -O3 is not a performance win."* Attempt
+  automatic recognition; if it misses, select and parameterise the rewrite **manually as
+  an oracle control, but never bypass the equivalence obligation or manufacture different
+  input IR.** The four outcomes separate questions the audit conflated: C cannot be proved
+  / C proved but not faster / C faster but recognition misses (a concrete recognition
+  problem worth funding) / automatic C beats A (**a first credible external witness**).
+  Search time-boxed to two days, candidates and rejections recorded.
+  **On indirect calls — devirtualization is not the general admission ticket.** Three
+  cases must be distinguished: the call is **outside** the region (preserve surrounding
+  code, optimise a leaf); the call is **inside** but the transformation can preserve it
+  without reasoning through it (conservative effects suffice); the transformation
+  **needs the callee** (only this needs devirtualization). *"A cold error callback can
+  cause a whole-function lowerer to reject a hot computational loop. That is an
+  optimization-boundary problem, not evidence that resolving the callback target would
+  make the hot loop faster."* Explicitly: do not turn this into a partial-region
+  compilation project.
+  **On the selection rule — biased, but not necessarily unfair.** For estimating
+  *prevalence* the two hottest functions in six mature applications are a poor sample
+  (they overselect already hand-optimised code). For *immediate performance value* the
+  rule is defensible: *"a performance company cannot dismiss the locations where its
+  prospective customers actually spend CPU time."* Functions are additionally the wrong
+  unit — inclusive time selects wrappers and dispatchers while the work sits in callees.
+  The commercial quantity is **cost share x removable fraction, not acceptance rate.**
+  **The ten-working-day plan**: day 1 establish a trustworthy instrument (mark the 24-site
+  conclusions invalid, resolve the CRC exposure question, exercise a **supported positive
+  control** through the corrected FFI path, and exercise deliberate failures recording the
+  last stage actually reached — project-authored controls are fine, they validate plumbing
+  not capability); days 2-3 freeze one family and one opportunity; days 4-6 the three-build
+  test; days 7-9 automate only the demonstrated opportunity, preserving the initial result;
+  day 10 decide from a result table.
+  **Where the earlier advice survives**: conditionally. *"Do not broaden the lowerer
+  merely to improve intake counts. A named, valuable opportunity blocked by one specific
+  limitation can justify that specific work. Six refusal categories, by themselves, do
+  not."* And the milestone restated: **proved CPU time saved in someone else's code, not a
+  larger set of LLVM constructs accepted.** Also flagged: running ABSAC *before*
+  vectorization is a legitimate product architecture provided the pipeline is automated on
+  unmodified code and the final output beats the fully optimised baseline — what is
+  cheating is weakening the comparator or protecting individual benchmark loops, and such
+  a pipeline must be declared separately from the frozen optimised-input audit.
+
+## Reference commands
+
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
 - Old file: `git show HEAD:sir/crates/<crate>/<path>`
 - Build old baseline (outside repo):
