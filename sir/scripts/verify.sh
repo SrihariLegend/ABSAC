@@ -18,9 +18,15 @@ CORPUS="$ROOT/gate6a"
 # is not run cannot fail, which is the same defect as a check that cannot
 # fail, applied to coverage instead of to logic.
 #
-# `heldout_corpus.ll` is deliberately excluded and says so in its name; it is
-# the only file in the directory excluded by intent rather than by accident.
-BASE_CORPORA=$(cd "$CORPUS" && ls -1 v*.ll 2>/dev/null | sed 's/\.ll$//' | sort -V)
+# `heldout_corpus.ll` used to be excluded here "by intent", for being held
+# out. But a corpus that is never run is never *scored*, so it was not held
+# out — it was unexamined, which is the same defect one level down. A
+# non-compiling emitter output (`n04_stride2`) lived in it undetected for as
+# long as it did because of this line. It now runs like any other: the name
+# is history, and it is no longer held out in any meaningful sense, having
+# supplied a defect that was then repaired against it. A genuine held-out
+# corpus would have to be authored and kept out of this loop.
+BASE_CORPORA=$(cd "$CORPUS" && ls -1 v*.ll heldout_corpus.ll 2>/dev/null | sed 's/\.ll$//' | sort -V)
 if [ -z "$BASE_CORPORA" ]; then
     echo "FAIL no corpora found under $CORPUS"
     exit 1

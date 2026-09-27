@@ -2089,6 +2089,115 @@ pub fn emit_c(func: &Function) -> String {
                 pre_set.insert(node.id);
             }
         }
+        // A node declared inside a loop is invisible after it, and the body
+        // walk emits a statement's *whole dependency closure* where the
+        // statement stands. So a node shared between a loop body and
+        // post-loop code is declared inside the loop, then read after it.
+        // `n04_stride2` did exactly this: the bound `p1 << 1` sat in the
+        // body as a dependency of a dead comparison, was reported as emitted
+        // and so excluded from the post-loop pass, and the post-loop
+        // `bound == 0` test read a variable that no longer existed — C that
+        // does not compile. `run_case` catches that, which is why it was a
+        // red gate rather than a wrong answer.
+        //
+        // Hoist such nodes in front of the loops, so both the body and the
+        // post-loop pass read one declaration. This generalises the `Global`
+        // case directly above, which is the same defect patched for one node
+        // kind. Hoisting is only sound for a node whose value is the same
+        // before the loop as inside it: the prelude is emitted against no
+        // carrier substitution, so hoisting a node that reads a carried
+        // input or a loop output would freeze it at its initial value. That
+        // is the `varying` filter, and it is what makes the hoisted set the
+        // conservative one rather than the tempting one.
+        //
+        // Which nodes change value between iterations: the carried inputs,
+        // whose meaning is rebound by the carrier map inside the loop, and
+        // the outputs, which are recomputed. Closed *forwards* — anything
+        // computed from a varying node is itself varying — so a node outside
+        // this set has an iteration-invariant value and its whole dependency
+        // closure is outside the set too.
+        let mut varying: HashSet<NodeId> = HashSet::new();
+        for node in func.arena.iter() {
+            if let NodeKind::Loop {
+                outputs,
+                carried_inputs,
+                ..
+            } = &node.kind
+            {
+                varying.extend(outputs.iter().copied());
+                varying.extend(carried_inputs.iter().copied());
+            }
+        }
+        loop {
+            let mut changed = false;
+            for node in func.arena.iter() {
+                if varying.contains(&node.id) {
+                    continue;
+                }
+                if node
+                    .kind
+                    .input_nodes()
+                    .iter()
+                    .any(|input| varying.contains(input))
+                {
+                    changed |= varying.insert(node.id);
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        // What a loop's emission can declare in its own scope: its body, its
+        // termination and its outputs, each with the dependency closure the
+        // body walk would drag in alongside it.
+        let mut loop_scoped: HashSet<NodeId> = HashSet::new();
+        for node in func.arena.iter() {
+            if let NodeKind::Loop {
+                body,
+                termination,
+                outputs,
+                ..
+            } = &node.kind
+            {
+                let seeds: Vec<NodeId> = body
+                    .iter()
+                    .copied()
+                    .chain(std::iter::once(*termination))
+                    .chain(outputs.iter().copied())
+                    .collect();
+                loop_scoped.extend(dependency_closure(&seeds, func, &HashSet::new()));
+            }
+        }
+        let mut shared: Vec<NodeId> = Vec::new();
+        for node in func.arena.iter() {
+            // A Loop is not emitted as a statement, and its `input_nodes`
+            // are its own body, termination, outputs and carried inputs — so
+            // scanning it would read the loop as an outside consumer of its
+            // own internals and hoist the entire body.
+            if loop_scoped.contains(&node.id) || matches!(node.kind, NodeKind::Loop { .. }) {
+                continue;
+            }
+            for input in node.kind.input_nodes() {
+                if loop_scoped.contains(&input) {
+                    shared.push(input);
+                }
+            }
+        }
+        // The filter is a soundness precondition, not a live check: measured
+        // across 847 functions in 23 corpora it never drops a node, because
+        // post-loop code reads a loop's result through `TupleExtract(loop, i)`
+        // — whose input is the Loop, not the output — so an output never
+        // reaches `shared`, and a body-internal node has no outside user by
+        // construction. Disabling it is green with identical rewrites. It is
+        // kept because it fails closed if a lowerer change breaks that
+        // contract: the node then stays in the loop unhoisted and the emitted
+        // C does not compile, which `run_case` reports as a hard failure
+        // rather than a wrong answer.
+        pre_set.extend(
+            dependency_closure(&shared, func, &HashSet::new())
+                .into_iter()
+                .filter(|id| !varying.contains(id)),
+        );
         let prelude: Vec<NodeId> = pre_set
             .iter()
             .copied()

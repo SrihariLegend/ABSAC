@@ -3748,6 +3748,77 @@ Three follow-ups this table makes concrete:
   **Verified**: 506 rewrites unchanged, `VERIFY PASS mode=fast`, all tests green by exit
   status, zero warnings.
 
+- **2026-09-27 — `n04_stride2` repaired: the lowerer was right, the emitter declared a
+  node inside a loop and read it after the loop. The held-out corpus is now gated, and
+  the guard behind the fix is recorded as unexercised.**
+  The known-broken output (`emitted.c:19:16: error: use of undeclared identifier 'v3'`)
+  is fixed. **The SIR was correct** — `%15 = Lt(%6, %3)` is the right *pre-tested*
+  termination for a post-tested LLVM loop, checked by hand at n=0, 1 and 2 — so this was
+  never a lowering defect, only an emission one.
+  **The cause.** The body walk emits each statement's *whole dependency closure* where
+  the statement stands, and reports those ids as emitted inside the loop, which removes
+  them from the post-loop pass. `%3 = p1 << 1` sat in the body as a dependency of a
+  **dead** comparison (`%14 = Lt(%13, %3)`, which nothing consumes — the termination is
+  `%15`), was claimed as emitted, and the post-loop `%5 = (%3 == 0)` then read a variable
+  that had been declared in a scope that had closed. **A dead statement is what made it
+  fire**, which is why it looks arbitrary: remove `%14` and the bug vanishes without
+  anything being fixed.
+  **The fix** hoists such nodes in front of the loops. It generalises a patch already in
+  the tree that does exactly this for `NodeKind::Global` alone, with the same comment —
+  the general case had been met before and handled one node kind at a time.
+  **An attribution I had to correct.** My first attempt hoisted too much and the referee
+  reported `mismatched=7` of 8. I attributed that to the absence of the `varying` filter.
+  That was wrong: the cause was that a `Loop`'s `input_nodes()` returns its own body,
+  termination, outputs and carried inputs, so the loop read as an *outside consumer of
+  itself* and the entire body was hoisted — `o0_1 = v11` with `v11` frozen at `0 + a[0]`,
+  so every answer was `a[0]`. The mutant is the control for **skipping Loop nodes in the
+  outside-consumer scan**, and it is a good one: 7 of 8 cases wrong, caught by the
+  referee, on a function the gate had never run.
+  **The `varying` filter, measured rather than assumed.** Hoisting is only sound for a
+  node whose value is the same before the loop as inside it — the prelude is emitted
+  against no carrier substitution, so hoisting a node reading a carried input or a loop
+  output freezes it. The filter is the forward closure of `{carried inputs} ∪ {outputs}`.
+  **It never drops a node: 0 firings across 847 functions in 23 corpora**, and disabling
+  it entirely (`varying.clear()`) leaves every corpus clean with rewrites identical.
+  **The gate result is itself the stronger evidence, and it needs no instrumentation.**
+  Every node in `shared` has an outside reader *by construction* — that is what puts it
+  there. If the filter dropped one, that node would stay declared inside the loop while
+  its reader is emitted outside it, which is precisely the `use of undeclared
+  identifier` failure `run_case` treats as a hard error. So **`harness_errors=0` over
+  the whole corpus set, external corpora included, is proof the filter never fires** —
+  a consequence of the failure mode rather than a sample. So
+  it is a **soundness precondition, not a live check**: post-loop code reads a loop's
+  result through `TupleExtract(loop, i)`, whose input is the Loop and not the output, so
+  an output never reaches `shared`, and a body-internal node has no outside user by
+  construction. It is kept because it fails *closed* if a lowerer change breaks that
+  contract — the node stays in the loop, the C does not compile, and `run_case` reports a
+  hard failure rather than a wrong answer. Recorded as unexercised so it is not later
+  mistaken for evidence.
+  **`heldout_corpus.ll` is now in the gate: 23 corpora, up from 22.** It was excluded
+  "by intent" for being held out — but **a corpus that is never run is never scored**, so
+  it was not held out, only unexamined, and a defect lived in it undetected for exactly
+  as long as that line did. It reports `clean=13 mismatched=0 lower_refused=3
+  harness_errors=0`; the three refusals are correct refusals. The name is now history:
+  it is no longer held out in any meaningful sense, having supplied a defect that was
+  then repaired against it, and a genuine held-out corpus would have to be authored and
+  kept out of this loop.
+  **The gate is now complete, not merely green.** The 19 external Embench corpora were
+  fetched (`scripts/fetch-external.sh`), so the run that used to end in `WARN 19/19
+  external corpora absent — the gate is NOT complete` now ends with no warning at all.
+  **42 corpora, every one passing: 23 base + 19 external, zero skips, `mismatched=0` and
+  `harness_errors=0` throughout.** The external set is **114 clean / 207 lower-refused
+  out of 321 functions (35.5%)** — third-party code, differentially clean against
+  clang. (The plan document quotes 117/204 for an earlier tree; refusals come from the
+  lowerer, which this change does not touch, so that difference predates it and is
+  recorded here rather than reconciled by assumption.)
+  **Verified**: `VERIFY PASS mode=fast`, workspace tests `passed=10 failed=0`,
+  **rewrites 506 excluding held-out — identical to before the change**, zero warnings.
+  `n04_stride2` is exercised at **length 0** (its `avoid_zero` is false), which is the
+  boundary its `bound == 0` guard exists for.
+  **Noted, not defects**: `n04_stride2` emits two identical loads (`%8` and `%9` are the
+  same `ArrayAccess`, `%8` unused) and a dead comparison (`v14`). Both are clang-trimmed
+  and neither is wrong; the dead one is what exposed the scope bug.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
