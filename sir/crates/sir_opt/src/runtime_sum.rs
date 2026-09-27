@@ -103,7 +103,7 @@ fn recognize_loop(
         }
     }
     let fact = facts.loops.get(&loop_id)?;
-    if fact.trip_count.is_some() {
+    if fact.constant_bound.is_some() {
         return None;
     }
     let counter = fact.reductions.iter().find(|reduction| {

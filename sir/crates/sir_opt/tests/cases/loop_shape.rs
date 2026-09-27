@@ -101,10 +101,12 @@ pub fn checked_trip_counts_are_exact() {
         loops: sir_analysis::loops::run_loops(&five),
     };
     assert_eq!(
-        facts.loops.values().next().and_then(|f| f.trip_count),
+        facts.loops.values().next().and_then(|f| f.constant_bound),
         Some(64),
-        "the bound-only extractor reports the bound, not the count: a \
-         counter starting at 5 against bound 64 runs 59 times, and it says 64"
+        "the fact database reports the constant *bound*, not the count: a \
+         counter starting at 5 against bound 64 runs 59 times, and it says 64. \
+         Nothing consumes it as a count any more — but the field used to be \
+         called `trip_count`, which is how it came to be read as one"
     );
 
     // Start-5 is refused, and the refusal is not attributable to the

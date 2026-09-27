@@ -144,13 +144,13 @@ define dso_local i64 @guarded_sum(ptr nocapture noundef readonly %0, ptr nocaptu
         facts
             .loops
             .values()
-            .map(|fact| fact.trip_count)
+            .map(|fact| fact.constant_bound)
             .collect::<Vec<_>>()
     });
     assert_eq!(
         trips,
         vec![None],
-        "a value-dependent guard must not yield a trip count"
+        "a value-dependent guard must not yield a constant bound"
     );
     for family in sir_opt::family::registry() {
         let applied =

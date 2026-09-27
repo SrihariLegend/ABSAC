@@ -3710,6 +3710,44 @@ Three follow-ups this table makes concrete:
   `VERIFY PASS mode=fast`; all tests green; zero warnings. `sir_lower` is 53 lines
   shorter (11,645 → 11,592).
 
+- **2026-09-27 — the polarity question resolved: the predicate was right and the field
+  name was wrong. Three questions, three answers, now all named in one crate.**
+  `runtime_sum`, `runtime_count` and `search` refuse when `fact.trip_count.is_some()`.
+  Analysed before changing, and **swapping in the checked extractor would have been
+  wrong**: `is_some()` here asks *"is the bound a compile-time constant?"* — a
+  **dispatch** decision meaning "let the static family take this loop" — while
+  `checked_counted_loop(...).is_some()` asks *"is this a well-formed exact counted
+  loop?"* The second is stricter, so substituting it would make the runtime-bounded
+  families fire on loops they never claimed. That is a dispatch change with no
+  correctness content, made in the name of tidiness, and it is the kind of change this
+  ledger exists to refuse.
+  **What was actually wrong was the name.** The field was called `trip_count`, which
+  invited exactly the reading that produced the original defect. It is now
+  `LoopFact::constant_bound`, with a doc comment stating that it is a bound and not a
+  count, that it equals the iteration count only when the counter starts at zero and
+  steps by one, that this analysis checks neither, and which function a caller wants for
+  each of the three questions. `is_finite` was dead and is removed.
+  **The three questions, now distinguishable by name and sitting in `sir_analysis`:**
+  | question | answer |
+  |---|---|
+  | how many times does this loop run? | `loop_shape::checked_counted_loop` — exact, refuses a compound termination |
+  | how far can this counter's index reach? | `loop_shape::counted_bound` — an extent, tolerant of conjuncts |
+  | is the bound a compile-time constant? | `LoopFact::constant_bound` — a dispatch signal, no correctness rides on it |
+  The case that separates the first two is `!found && i < K`: the indices are bounded by
+  `K` while the loop may run fewer than `K` times. The case that separates the third is a
+  constant bound with a counter that does not start at zero — static-bounded, but not a
+  well-formed count. All three are now in one crate with those differences written down,
+  which is the thing whose absence let them disagree silently.
+  **My own verification failed, in the exact pattern this session is about.** I checked
+  the rename with `grep -c "test result: FAILED"`, which returned `0` — not because the
+  tests passed but because two test files still referenced the old field name, so the
+  test binary **failed to compile and no test ran at all**. Zero failures because zero
+  tests ran. The gate caught it (`FAIL workspace tests`); my grep did not. The
+  verification habit this needs is to check the **exit status**, not to search the output
+  for a failure string.
+  **Verified**: 506 rewrites unchanged, `VERIFY PASS mode=fast`, all tests green by exit
+  status, zero warnings.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`

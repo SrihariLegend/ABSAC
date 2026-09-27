@@ -223,7 +223,7 @@ fn recognize_loop(
     if !runtime && extent == 0 {
         return None;
     }
-    if runtime && fact.trip_count.is_some() {
+    if runtime && fact.constant_bound.is_some() {
         return None;
     }
 

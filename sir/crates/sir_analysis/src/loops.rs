@@ -30,7 +30,8 @@ pub fn run_loops(func: &Function) -> HashMap<NodeId, LoopFact> {
             carried_inputs,
         } = &node.kind
         {
-            let trip_count = estimate_trip_count(func, *termination, carried_inputs, outputs);
+            let constant_bound =
+                estimate_constant_bound(func, *termination, carried_inputs, outputs);
             let is_nested = is_nested_loop(func, body);
             let carried = carried_inputs.clone();
             let reductions = detect_reductions(func, carried_inputs, outputs);
@@ -38,8 +39,7 @@ pub fn run_loops(func: &Function) -> HashMap<NodeId, LoopFact> {
             facts.insert(
                 loop_id,
                 LoopFact {
-                    is_finite: trip_count.is_some(),
-                    trip_count,
+                    constant_bound,
                     is_nested,
                     carried,
                     reductions,
@@ -51,11 +51,13 @@ pub fn run_loops(func: &Function) -> HashMap<NodeId, LoopFact> {
     facts
 }
 
-/// Estimate trip count for a counted loop.
+/// The constant a loop's counter is compared against, if there is one.
 ///
-/// Looks for the pattern: a carried input that is incremented/decremented
-/// by a constant amount in each iteration, compared against a bound.
-fn estimate_trip_count(
+/// **Not a trip count.** See `LoopFact::constant_bound`: this reads the
+/// constant *bound* and never inspects the counter's initial value, its
+/// step, or the direction of the comparison, so it is only ever safe to use
+/// as a bound or as a dispatch signal.
+fn estimate_constant_bound(
     func: &Function,
     termination: NodeId,
     carried_inputs: &[NodeId],
@@ -70,8 +72,8 @@ fn estimate_trip_count(
     // refused rather than guessed.
     if let NodeKind::BoolAnd { lhs, rhs } = &term_node.kind {
         return match (
-            estimate_trip_count(func, *lhs, carried_inputs, outputs),
-            estimate_trip_count(func, *rhs, carried_inputs, outputs),
+            estimate_constant_bound(func, *lhs, carried_inputs, outputs),
+            estimate_constant_bound(func, *rhs, carried_inputs, outputs),
         ) {
             (Some(trip), _) if is_true_constant(func, *rhs) => Some(trip),
             (_, Some(trip)) if is_true_constant(func, *lhs) => Some(trip),
