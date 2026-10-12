@@ -4056,9 +4056,11 @@ Three follow-ups this table makes concrete:
   `NDEBUG` the call vanishes and the test stops testing, while `make check` still reports
   **9/9 PASS**. Verified rather than argued, by searching the linked binary for a string
   literal only the eliminated call would print: original/asserts-on **1**, original/NDEBUG
-  **0**, fixed/NDEBUG **1**, fixed/asserts-on **1**. Distro packagers define `NDEBUG` as a
-  matter of course, so this is live, not hypothetical. A check that cannot fail has not
-  checked anything, encountered in someone else's tree.
+  **0**, fixed/NDEBUG **1**, fixed/asserts-on **1**. **Prevalence correction:** the defect
+  applies to any build defining `NDEBUG`; jq's stock autotools setup does not set it. The
+  claim that distro packagers do this as a matter of course is unsubstantiated and is
+  withdrawn. A check that cannot fail has not checked anything, encountered in someone
+  else's tree.
   **A second, smaller result**: `jv_free` opens with `pending = NULL`, so the first array or
   object torn down — which is every array and every object — mallocs a worklist and frees it
   again, and every scalar pays a `jv_mem_free(NULL)`. Starting it as a 16-element stack array
@@ -4069,14 +4071,19 @@ Three follow-ups this table makes concrete:
   and the validation is what routes to `jvp_string_copy_replace_bad`. (`2`) Inlining
   `jv_get_kind` (2.34% audit, 1.45% logs, body is `return JVP_KIND(x);`) is an exported
   libjq symbol and therefore an ABI decision, not a drive-by.
-  **Outcome: one PR, and it is the test fix, not the flag.** `PATCH-jq_test.diff` (2 hunks,
-  `src/jq_test.c`) hoists the side-effecting call out of `assert()`. It stands alone: anyone
-  building jq with `-DNDEBUG` today silently stops running the check the test is named for
-  while `make check` reports success. `make check` passes 7/7 and 14/14 both ways.
-  **`-DNDEBUG` is not part of the PR** — a 7-10% win, measured, but it would disable 367
-  internal consistency checks in a tool whose job is handling input it did not author, and
-  that is a maintainer's call rather than a drive-by. The honest form is the test fix in a
-  PR with the measurement posted alongside, so the decision is made on numbers.
+  **Outcome: one standalone PR, and it is the test fix, not the flag.** The first draft of
+  `PATCH-jq_test.diff` hoisted the call into a local variable but checked that variable only
+  with `assert()`, so its failure was still ignored under `NDEBUG`. **That draft was
+  incomplete.** The final patch uses explicit `if (!test_start_state(...)) exit(EXIT_FAILURE)`
+  checks at both call sites. jq's `make check` passed 9/9 with assertions enabled and 9/9
+  with `-DNDEBUG` (the bundled Oniguruma suites passed 7/7 and 14/14 in both configurations).
+  In a separate `-DNDEBUG` fault-injection build forcing `test_start_state()` to return false,
+  `tests/jqtest` exited with status 1. This verifies failure propagation, not just that the
+  helper call remains in the binary.
+  **`-DNDEBUG` is not part of the PR** — the measured 7-10% win is a separate maintainer
+  decision, and disabling 367 internal consistency checks in a tool that handles untrusted
+  input is not a drive-by change. The PR is limited to the test fix; the measurement is
+  context, not a claimed benefit of the patch.
   Not proposed: `jv_get_kind` inlining (an ABI decision), SIMD (a project, not a patch), the
   0.8% worklist change. The dominant jq cost is per-value allocation and teardown (~31% as a
   malloc/free family), which SIMD does not touch. Artifacts in
@@ -4088,6 +4095,57 @@ Three follow-ups this table makes concrete:
   hllMerge correction earlier the same day had the same shape (a claim about upstream state
   resolved by reading upstream rather than by argument). Recorded because the pattern, not
   the instance, is what costs.
+
+- **2026-10-12 — The `search` family has a real use case, and the gate has been hiding it:
+  its timing harness caps inputs at 32 bytes.** First end-to-end demonstration of a family
+  recognising a shape clang cannot handle, with a measured win and machine-checked
+  correctness.
+  **The case.** The ordinary linear search
+  (`for (i = 0; i < n; i++) if (a[i] == c) return i; return n;`) is compiled by clang -O3 to
+  a **scalar byte-at-a-time loop with two branches per byte**. Verified, not assumed:
+  `clang -O3 -S` on it emits **0 `memchr` calls and 0 vector instructions**. An early-exit
+  search returning an index has a data-dependent trip count, so it does not vectorize, and
+  LLVM has no `memchr` idiom recognition for it. **The library call is available and clang
+  will not use it.** ABSAC recognises the loop and emits `__sir_memchr`: a 16-byte inline
+  head scan (so early hits avoid the call) then vectorized `memchr` for the remainder
+  (definition 403, runtime `sir_memchr`).
+  **The measurement.** Original loop vs ABSAC's emitted C, same compiler, same `-O3`, both
+  `noinline`, needle absent so every byte is examined, best of N:
+  64 B **1.20×**, 1 KiB **8.06×**, 64 KiB **25.62×**, 1 MiB **19.40×**, 16 MiB **11.02×**,
+  64 MiB **6.46×**. Peak 25.6×; still 6× at 64 MiB where the scan is bandwidth bound.
+  **Correctness, on two paths because they are not the same path.** The referee reports
+  `def=403`, `clean cases=500`, `mismatched=0`. But its differential feeds only
+  `lens[] = {0..32}`, so it **never reaches the `n > 16` branch where `memchr` is actually
+  called** — the path the win is claimed on is the path it does not test. Checked separately
+  in `work/search-case/verify.c`: **90 configurations, 0 mismatches**, across sizes
+  0/1/15/16/17/31/32/33/64/1000/65536/1 MiB/4 MiB x needle positions
+  {absent, 0, 15, 16, 17, 31, 32, n/2, n-1}.
+  **THE DEFECT: the harness is 32 bytes long.** Both the differential and the timing driver
+  use `static const uint64_t lens[] = {0,1,2,3,4,5,7,8,16,31,32};`. The family's win is a
+  function of scan length — it is a byte loop against a vectorized library call — and at
+  n <= 32 there is no scan to vectorize. The referee therefore timed this rewrite at
+  **0.82×** (`ref_ns=752064 new_ns=916862`) while the same rewrite at 64 KiB is **25.6×**.
+  **The harness did not measure the transformation; it measured the size guard.** This is the
+  second instance of the defect already recorded for `crc32pseudo` — "the referee's input
+  distribution, not the code, decided what counted as clean" — now deciding what counts as
+  *fast*, with the same consequence: a correct large win reads as a loss. **It is very likely
+  why `search` does not fire on the Embench corpus and why the family has appeared useless.**
+  The family pays; the ruler is 32 bytes long.
+  **A real limitation, stated plainly, not smoothed.** The recognizer does not match the
+  `return -1` convention. It requires the not-found sentinel to *be* the scan bound: carried
+  values exactly `(false, bound, 0)`, result select `found ? index : bound`, and termination
+  `Lt(index, bound)` against that same carried bound. `return n` matches; `return -1` lowers
+  to carried `(false, -1, 0)` with termination against the *parameter* `n`, and is refused
+  because the `Lt` never meets the carried bound. Since `memchr` returns a pointer and
+  index-based searches conventionally return `-1`, a large share of real instances are
+  refused on the sentinel alone. **This is the next thing to fix, and it is a recognition
+  gap rather than a proof gap.**
+  **Scope, honestly.** One function shape, eight needle positions, thirteen sizes. Not a
+  corpus. The win requires a long input with a late or absent hit; for a hit in the first 16
+  bytes the head scan makes it a wash, and for a hit at byte 0 it is strictly more work than
+  the original. And nothing here is a compiler result yet — the rewrite was verified on a
+  hand-written kernel of the accepted shape, not discovered by lowering a third-party project.
+  Artifacts, the size sweep, `verify.c` and the referee commands: `work/search-case/`.
 
 ## Reference commands
 
