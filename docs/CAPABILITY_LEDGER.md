@@ -4030,35 +4030,64 @@ Three follow-ups this table makes concrete:
   something to skip. **Both shapes are ordinary JSON and they invert the conclusion**, so a
   verdict given on one is not evidence about the other, and the audit's original S1 framing
   ("a hardware shortcut exists here") was true of neither in the form it was stated.
-  **`-DNDEBUG`: measured, already known, and deliberate — not a PR.** `NDEBUG` appears
-  nowhere in `configure.ac`, `Makefile.am` or `src/Makefile.am`; stock configure gives
-  `CFLAGS = -g -O2 -pthread`, so all 367 asserts in `src/` are live in release builds,
+  **`-DNDEBUG`: measured — and my first reading of it was WRONG, corrected here rather than
+  in place.** `NDEBUG` appears nowhere in `configure.ac`, `Makefile.am` or `src/Makefile.am`;
+  stock configure gives `CFLAGS = -g -O2 -pthread`, so all 367 asserts in `src/` are live,
   including `assert(p->tokenpos <= p->tokenlen);` which runs **once per input character**
   (132,971,616 instructions, 2.45%). Same compiler and optimizer level, only `-DNDEBUG`
   differing: **−15.65%** instructions on the audit workload and **−21.03%** on the logs
-  workload, **−6.6%** and **−8.5%** wall clock, output byte-identical. But `jaq#42` already
-  records "jq ships without `-DNDEBUG`", and jq's FAQ shows the asserts are load-bearing:
-  `jq-1.6 -n '[-2] | implode'` aborts with them on and returns `"�"` with them off.
-  **Recorded as a known and deliberate trade-off, not as a finding.**
-  **A blanket `-DNDEBUG` would be wrong anyway, and that is the one reportable defect.**
+  workload, **−6.6%** and **−8.5%** wall clock, output byte-identical.
+  **The error**: I first recorded this as *"already known upstream and deliberate"*, citing
+  `jaq#42` and a jq FAQ entry about `[-2] | implode`. Both citations were misread — the FAQ
+  describes an assert the project **removed** in 1.7.1, not a policy of shipping asserts, and
+  `jaq#42` mentions the flag in passing while benchmarking something else. Neither is a
+  maintainer decision about jq's build. **What decides it is the shipped artifact**: jq's
+  official `jq-1.8.2` release binary contains **100 assert expression strings**, including
+  `p->tokenpos <= p->tokenlen` and `src/jv_parse.c`, where a `-DNDEBUG` build of the same
+  source contains **zero**. Asserting "deliberate" from a wiki entry, when the released
+  binary was one `curl` away, is the same failure this ledger keeps recording — reasoning
+  about the checking apparatus instead of running it. Against the actual release artifact,
+  best of 7: **291 ms → 263 ms (−9.6%)** and **412 ms → 371 ms (−10.0%)**, corroborating the
+  controlled A/B; the official binary's other flags are unknown, so the controlled run is the
+  evidence and this is confirmation.
+  **A blanket `-DNDEBUG` would be wrong regardless, and THAT is the reportable defect.**
   `src/jq_test.c` calls a side-effecting `test_start_state()` inside `assert()`, twice, in
   `test_jq_start_resets_state` — the only thing that runs that function's validation. Under
   `NDEBUG` the call vanishes and the test stops testing, while `make check` still reports
-  **9/9 PASS**. A check that cannot fail has not checked anything, encountered in someone
-  else's tree.
+  **9/9 PASS**. Verified rather than argued, by searching the linked binary for a string
+  literal only the eliminated call would print: original/asserts-on **1**, original/NDEBUG
+  **0**, fixed/NDEBUG **1**, fixed/asserts-on **1**. Distro packagers define `NDEBUG` as a
+  matter of course, so this is live, not hypothetical. A check that cannot fail has not
+  checked anything, encountered in someone else's tree.
+  **A second, smaller result**: `jv_free` opens with `pending = NULL`, so the first array or
+  object torn down — which is every array and every object — mallocs a worklist and frees it
+  again, and every scalar pays a `jv_mem_free(NULL)`. Starting it as a 16-element stack array
+  is worth **−0.80%** / **−0.62%**. Not proposed: 0.8% does not pay for a maintainer's review.
   **Rejected after checking, recorded so they are not re-opened.** (`1`) The lead that
   `jv_string_sized` re-validates UTF-8 the parser already validated: **false** —
   `jv_parse.c:503` copies raw bytes through as `*out++ = c;`, so invalid input does reach it
   and the validation is what routes to `jvp_string_copy_replace_bad`. (`2`) Inlining
   `jv_get_kind` (2.34% audit, 1.45% logs, body is `return JVP_KIND(x);`) is an exported
   libjq symbol and therefore an ABI decision, not a drive-by.
-  **Outcome: no PR was written for jq, and jq is withdrawn as the vehicle for a first PR.**
-  Every candidate either argues against a deliberate upstream decision, needs an ABI ruling,
-  or is a project rather than a patch — the dominant cost is per-value allocation and
-  teardown (~31% as a malloc/free family), which SIMD does not touch. Artifacts and the full
-  measurement are in `work/pr-targets/jq/FINDINGS.md`. What survives is a *boundary
-  condition* for `jq#1892`, which is a contribution to that thread rather than a patch, and
-  the `jq_test.c` defect, which is a legitimate standalone report.
+  **Outcome: one PR, and it is the test fix, not the flag.** `PATCH-jq_test.diff` (2 hunks,
+  `src/jq_test.c`) hoists the side-effecting call out of `assert()`. It stands alone: anyone
+  building jq with `-DNDEBUG` today silently stops running the check the test is named for
+  while `make check` reports success. `make check` passes 7/7 and 14/14 both ways.
+  **`-DNDEBUG` is not part of the PR** — a 7-10% win, measured, but it would disable 367
+  internal consistency checks in a tool whose job is handling input it did not author, and
+  that is a maintainer's call rather than a drive-by. The honest form is the test fix in a
+  PR with the measurement posted alongside, so the decision is made on numbers.
+  Not proposed: `jv_get_kind` inlining (an ABI decision), SIMD (a project, not a patch), the
+  0.8% worklist change. The dominant jq cost is per-value allocation and teardown (~31% as a
+  malloc/free family), which SIMD does not touch. Artifacts in
+  `work/pr-targets/jq/FINDINGS.md`.
+  **A note on the process, since it produced this session's most expensive error twice.**
+  Both times I concluded a finding was moot, I reached it by *reasoning about* evidence I
+  had not collected — a wiki page read as policy, and a FAQ entry about a different assert.
+  In both cases the decisive check was cheap: `curl` the release binary and search it. The
+  hllMerge correction earlier the same day had the same shape (a claim about upstream state
+  resolved by reading upstream rather than by argument). Recorded because the pattern, not
+  the instance, is what costs.
 
 ## Reference commands
 

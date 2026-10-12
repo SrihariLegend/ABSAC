@@ -60,22 +60,40 @@ Wall clock, best of 5, and output byte-identical on both:
 | audit workload | 289 ms | 270 ms | **−6.6%** |
 | logs workload | 402 ms | 368 ms | **−8.5%** |
 
-### This is already known upstream, and it is deliberate
+### CORRECTION: this is shipped, not merely unset — my first reading was wrong
 
-It is not a discovery. `jaq`'s issue #42 records "jq ships without `-DNDEBUG`"
-and the author uses `-DNDEBUG` in comparisons. And jq's own FAQ shows the
-asserts are load-bearing for safety:
+I first recorded this as *"already known upstream and deliberate"*, on the
+strength of `jaq#42` ("jq ships without `-DNDEBUG`") and a jq FAQ entry about
+`[-2] | implode`. **That reading was wrong and is withdrawn.** The FAQ entry
+describes an assert the project *removed* in 1.7.1, not a policy of shipping
+asserts; `jaq#42` mentions the flag in passing while benchmarking something
+else. Neither is a decision by jq's maintainers about their build.
+
+What decides it is the shipped artifact. jq's **official `jq-1.8.2` release
+binary** (`jq-linux-amd64`) contains **100 assert expression strings**,
+including:
 
 ```
-jq-1.6 -n '[-2] | implode'
-  → Assertion failed: (codepoint >= 0 && codepoint <= 0x10FFFF),
-    function jvp_utf8_encode, file src/jv_unicode.c, line 101.
-jq-1.7.1 (asserts off)  → "�"
+p->tokenpos <= p->tokenlen
+p->tokenpos < p->tokenlen
+src/jv_parse.c
 ```
 
-Asserts are how jq turns a malformed input into a crash rather than a silently
-wrong answer. A PR that just adds `-DNDEBUG` would be arguing against a
-deliberate decision, with numbers the maintainers already have.
+and a build of the same source with `-DNDEBUG` contains **zero** of them. So
+asserts are compiled into the binaries users download, and they cost ~7-10%
+of wall clock. Whether that is intended is a question for the maintainers — it
+is not something this measurement establishes either way.
+
+Compared against the actual release artifact, best of 7:
+
+| | official 1.8.2 | local `-DNDEBUG` | |
+|---|---:|---:|---:|
+| audit workload | 291 ms | 263 ms | **−9.6%** |
+| logs workload | 412 ms | 371 ms | **−10.0%** |
+
+The official binary's other build flags are unknown, so this is corroboration
+rather than a controlled comparison; the controlled A/B at fixed optimization
+above is the evidence, and it gives 6.6% / 8.5%. The two agree.
 
 ### A caveat that makes a blanket `-DNDEBUG` wrong anyway
 
@@ -130,6 +148,29 @@ of the audit query costs 197 M instructions — about **1,960 per object**.
 The dominant cost in jq is per-value allocation, refcounting and teardown. SIMD
 on the scanner does not touch it.
 
+## 4. The teardown worklist starts on the heap, and moving it to the stack is worth 0.8%
+
+`jv_free` opens with `jv* pending = NULL; ... cap = 0;`, so the *first* array or
+object it tears down -- which is every array and every object -- calls
+`jv_mem_realloc(NULL, ...)`, a malloc, and then `jv_mem_free` at the end. For a
+workload of 200k small objects that is 200k malloc/free pairs spent on the
+bookkeeping of freeing, on top of the memory being reclaimed. It also calls
+`jv_mem_free(NULL)` on every scalar.
+
+Starting the worklist as a 16-element stack array and moving to the heap only
+on overflow:
+
+| | before | after | |
+|---|---:|---:|---:|
+| audit workload | 3,540,333,506 | 3,511,886,096 | **−0.80%** |
+| logs workload | 5,425,236,000 | 5,391,729,973 | **−0.62%** |
+
+Small, and smaller than the 2.70% `realloc` figure suggests, because that cost
+is concentrated in the *few large* worklists — the top-level 200k-element array
+— which still go to the heap. The saving is ~200 instructions x 200k object
+frees, and it comes out where that predicts. Not proposed: 0.8% does not pay
+for a maintainer's review, and saying so is more useful than shipping it.
+
 ## What I checked and rejected
 
 - **`jv_string_sized` re-validates UTF-8 the parser already handled.** It does
@@ -144,10 +185,35 @@ on the scanner does not touch it.
 
 ## Status
 
-**No PR written.** Every candidate either argues against a deliberate upstream
-decision (NDEBUG), needs an ABI ruling (`jv_get_kind`), or is a project rather
-than a patch (SIMD, allocation). Recommendation is to stop treating jq as the
-vehicle for a first PR, and instead post finding #1 to `jq#1892` as a measured
-boundary condition — that is a real contribution to that thread, it is honest
-about its own workload dependence, and it costs the maintainers nothing to read.
-Finding #2's test-weakening caveat is a legitimate standalone issue report.
+**One PR, and it is the test fix — not the flag.**
+
+`PATCH-jq_test.diff` hoists the side-effecting `test_start_state()` calls out of
+`assert()` in `src/jq_test.c`. That change stands on its own: **anyone who
+builds jq with `-DNDEBUG` today silently stops running the check that
+`test_jq_start_resets_state` exists to perform, and `make check` reports
+success anyway.** Distro packagers define `NDEBUG` as a matter of course, so
+this is not hypothetical.
+
+Verified rather than reasoned. The probe is a string literal that only the
+eliminated call would print, searched in the linked binary:
+
+| source | `NDEBUG` | string present |
+|---|---|---|
+| original | no | 1 |
+| original | **yes** | **0** ← the check is gone |
+| fixed | **yes** | **1** ← restored |
+| fixed | no | 1 |
+
+`make check` passes 7/7 and 14/14 both ways.
+
+`-DNDEBUG` as a build change is **not** part of this PR. It is a 7-10% win and
+the measurement is above, but it would disable 367 internal consistency checks
+in a tool whose whole job is handling input it did not author, and that is a
+maintainer's call rather than a drive-by. The honest form is the test fix in a
+PR, with the measurement posted alongside so the decision can be made on
+numbers.
+
+Neither `jv_get_kind` inlining (an ABI decision) nor SIMD (a project) nor the
+0.8% worklist change is proposed. For `jq#1892`, finding #1 is a boundary
+condition worth posting — measured, and explicit that it depends on workload
+shape.
