@@ -30,3 +30,34 @@ gate4/differential_asan
 
 # The real history lives here; never add it as a nested repo
 /recovery.git/
+
+# External-project investigation workspace (work/).
+# Checkouts, build products and raw profiles are large and refetchable by
+# scripts, so they are ignored. Everything else under work/ -- patches, notes,
+# profile summaries, harness scripts, results -- IS committed, because the whole
+# point of this directory is that evidence must outlive /tmp.
+# `**` rather than `*` because targets nest (work/pr-targets/jq/src/).
+work/**/src/
+work/**/bin/
+work/**/build/
+work/**/data/
+work/**/bc/
+work/**/dl/
+work/**/work/
+work/**/eval/
+work/**/prof/
+work/**/ir/
+*.callgrind
+work/**/*.s
+work/**/*.rdb
+work/**/*.log
+# Compiled witnesses. Named exactly, not by glob: `test_*` would also catch
+# test_merge.c, which is the artifact. `*.inc` is derived from PATCH.diff by the
+# awk line in test_merge.c's header and is deliberately NOT committed -- a stale
+# .inc beside an edited patch would let the witness test code nobody ships.
+work/**/test_merge
+work/**/*.inc
+work/*/*.o
+work/*/*.bin
+work/*/*.png
+work/*/*.json
