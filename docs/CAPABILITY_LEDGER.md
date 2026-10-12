@@ -2622,6 +2622,44 @@ Three follow-ups this table makes concrete:
   command, immaterial to every gate but unexplained); a bounds-safe SIMD form; and
   16-key `PFCOUNT`.
 
+- **2026-10-12 — CORRECTION: the `hllMerge` win is upstream-obsolete, and it was
+  measured against a superseded baseline. It was never mergeable.**
+  Checked Redis upstream rather than the record. **Redis 8.0 already implements this,
+  and better**: `hllMergeDenseAVX2` and `hllMergeDenseAarch64` with runtime CPU dispatch
+  (`hyperloglog.c`), present in 8.0, 8.2, 8.4 and current 8.12. **Redis 7.2.5 — the
+  audit's baseline — had only the plain scalar loop.** Redis also solved the bounds
+  problem the survey did *not*: its AVX2 loop deliberately merges the first 8 and last 24
+  registers with the scalar macro, per its own comment, "the AVX2 algorithm needs 4
+  padding bytes at the start / at the end". The ledger listed "a bounds-safe SIMD form"
+  as **not established**; Redis established it.
+  **The timing is the damaging part.** The audit ran 2026-09-27 against Redis **7.2.5**
+  while 8.x was already current, so the 3.484x was measured against a version line Redis
+  had already improved. **It was never mergeable — not because it was wrong, but because
+  the target had already moved.** A suggested PR would be closed as already implemented.
+  **The residual angle is also dead.** The scalar fallback still reads `_p[_byte+1]` for
+  register 16383, but the dense representation is `sdsnewlen(NULL, HLL_DENSE_SIZE)` and
+  sds always allocates a trailing NUL, so that read lands inside the allocation on the
+  terminator. A bug report on it would be closed as by-design. The earlier "placement
+  witness" showing upstream SIGSEGV used a synthetic placement (array abutting a
+  `PROT_NONE` page), not Redis's own allocation.
+  **What survives is the analysis, not the artifact.** "A pointwise max over a packed
+  register array (a lattice join); the packing is what hides it" remains a true and exact
+  statement of the project's research question, and Redis independently reached the same
+  conclusion and shipped it. **Being right was not the product.**
+  **This is the first concrete instance of the advisor's warning** that the recurring
+  product is "compiler-conditioned performance maintenance: find repairs, revalidate them
+  after toolchain changes, retire them when upstream codegen catches up" — here upstream
+  caught up *before* the patch was ever submitted. It reframes the business problem: if
+  the value is "find optimizations upstream has not found", then on actively maintained
+  code the project is racing the maintainers on their own code and will usually lose. What
+  is defensible is either something upstream structurally cannot supply (a machine-checked
+  proof, a guarantee, a certificate) or **breadth and speed** — reaching the opportunity
+  across many projects faster than each project's maintainers reach it individually. A
+  single hand-written patch to one function has neither property.
+  **Consequence for the evidence record**: `hllMerge` may no longer be cited as the
+  project's demonstrated third-party win without this correction attached. It is a
+  historical lesson about decay, not a submission candidate.
+
 - **2026-09-27 — astra RECOMMENDS: withdraw the derivation target, freeze the
   compiler, and make the product service-led — under consideration, NOT adopted**:
   second consultation, `--thinking max`, with the `hllMerge` result and the conflict
