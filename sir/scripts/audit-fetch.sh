@@ -10,7 +10,9 @@
 #   scripts/audit-fetch.sh [DEST]     # default /tmp/audit
 set -uo pipefail
 
-A="${1:-/tmp/audit}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# Default to the persisted workspace, never /tmp.
+A="${1:-$ROOT/work/audit}"
 SRC="$A/src"; BLD="$A/build"; DL="$A/dl"
 mkdir -p "$SRC" "$BLD" "$DL"
 : > "$A/versions.txt"

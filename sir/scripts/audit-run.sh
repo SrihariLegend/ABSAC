@@ -14,8 +14,12 @@
 set -uo pipefail
 
 MODE="${1:-noise}"; shift || true
-A=/tmp/audit; B="$A/build"; W="$A/work"
-mkdir -p "$A/out"
+# Default to the repository's persisted workspace, never /tmp: three sets of
+# artifacts were lost there in one session, leaving findings that could be read
+# but not acted on. Override with AUDIT_DIR if you really need to.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+A="${AUDIT_DIR:-$ROOT/work/audit}"; B="$A/build"; W="$A/work"
+mkdir -p "$A/out" "$A/summaries"
 
 # Program stdout goes to a *regular file*, never to /dev/null. GNU grep checks
 # `stat("/dev/null")` at startup and sets `dev_null_output`, after which it
@@ -25,6 +29,14 @@ mkdir -p "$A/out"
 # 0.002 s and the instruction count fell 82x. A harness that redirects to
 # /dev/null is not running the workload it says it is.
 STDOUT_SINK="$A/out/current.stdout"
+
+# The built artifact is not always named after the application label.
+binary_for() {
+    case "$1" in
+        A4-sqlite) echo "$B/A4-sqlite3" ;;
+        *)         echo "$B/$1" ;;
+    esac
+}
 
 # run_one APP   — the frozen workload command, stdout discarded
 run_one() {
@@ -83,7 +95,13 @@ case "$MODE" in
                           "$B/A6-lua" "$W/bench.lua" ;;
             *) echo "unknown app $APP" >&2; exit 2 ;;
         esac >"$STDOUT_SINK" 2>/dev/null
-        callgrind_annotate --threshold=90 "$out" 2>/dev/null | tail -n +20
+        # The raw callgrind file is large and gitignored; the annotated summary
+        # is small, is the thing a reader actually needs, and IS committed.
+        callgrind_annotate --threshold=99.99 "$out" 2>/dev/null > "$A/summaries/$APP.txt"
+        grep -E "PROGRAM TOTALS" "$A/summaries/$APP.txt"
+        awk -v bin="$(binary_for "$APP")" \
+            'index($0,"["bin"]")>0 { print; if (++k == 6) exit }' \
+            "$A/summaries/$APP.txt"
         ;;
     noise)
         REPS="${1:-5}"

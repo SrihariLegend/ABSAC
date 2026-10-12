@@ -55,6 +55,10 @@ work/**/ir/
 work/**/*.s
 work/**/*.rdb
 work/**/*.log
+# pngtest writes to its working directory, so running it from the wrong place
+# drops a multi-megabyte PNG into the source tree. The audit runs from work/.
+pngout.png
+
 # Compiled witnesses. Named exactly, not by glob: `test_*` would also catch
 # test_merge.c, which is the artifact. `*.inc` is derived from PATCH.diff by the
 # awk line in test_merge.c's header and is deliberately NOT committed -- a stale

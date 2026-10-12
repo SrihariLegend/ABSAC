@@ -8,8 +8,9 @@
 #   scripts/audit-workloads.sh [DEST]     # default /tmp/audit
 set -euo pipefail
 
-A="${1:-/tmp/audit}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# Default to the persisted workspace, never /tmp.
+A="${1:-$ROOT/work/audit}"
 W="$A/work"; mkdir -p "$W"
 
 # ---- A1/A2 text corpus: the frozen tree's own text, repeated to 64 MiB ------
