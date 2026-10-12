@@ -1,0 +1,606 @@
+<title>The 32-Byte Ruler</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground:   #F4F5F8;
+    --surface:  #FFFFFF;
+    --sunk:     #ECEEF3;
+    --ink:      #14161C;
+    --muted:    #5E6573;
+    --faint:    #8B93A3;
+    --rule:     #DCE0E7;
+    --rule-hard:#C3C9D4;
+    --accent:   #1E4FC8;
+    --accent-w: #E6ECFB;
+    --good:     #146B4A;
+    --good-w:   #E2F0EA;
+    --bad:      #9C3A20;
+    --bad-w:    #F8E8E3;
+
+    --f-display: "Archivo", ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif;
+    --f-body:    "Source Serif 4", Georgia, "Times New Roman", serif;
+    --f-mono:    "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+    --gutter: clamp(16px, 4vw, 40px);
+    --col: 68ch;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground:   #101219;
+      --surface:  #171A23;
+      --sunk:     #1D212C;
+      --ink:      #E7E9EE;
+      --muted:    #9AA2B2;
+      --faint:    #6F7787;
+      --rule:     #282D3A;
+      --rule-hard:#3A4152;
+      --accent:   #7C9DFF;
+      --accent-w: #1A2340;
+      --good:     #4FBF8F;
+      --good-w:   #12291F;
+      --bad:      #E58267;
+      --bad-w:    #2E1A14;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground:   #101219;
+    --surface:  #171A23;
+    --sunk:     #1D212C;
+    --ink:      #E7E9EE;
+    --muted:    #9AA2B2;
+    --faint:    #6F7787;
+    --rule:     #282D3A;
+    --rule-hard:#3A4152;
+    --accent:   #7C9DFF;
+    --accent-w: #1A2340;
+    --good:     #4FBF8F;
+    --good-w:   #12291F;
+    --bad:      #E58267;
+    --bad-w:    #2E1A14;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 17px;
+    line-height: 1.62;
+    padding-inline: var(--gutter);
+    padding-block: clamp(32px, 6vw, 72px);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 940px; margin-inline: auto; }
+  .col  { max-width: var(--col); }
+
+  /* ---------- masthead ---------- */
+  .eyebrow {
+    font-family: var(--f-mono);
+    font-size: 11.5px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 14px;
+  }
+
+  h1 {
+    font-family: var(--f-display);
+    font-weight: 700;
+    font-size: clamp(38px, 7.5vw, 68px);
+    line-height: 0.98;
+    letter-spacing: -0.025em;
+    text-wrap: balance;
+    margin: 0 0 20px;
+  }
+
+  .standfirst {
+    font-size: clamp(18px, 2.4vw, 21px);
+    line-height: 1.5;
+    color: var(--muted);
+    margin: 0 0 8px;
+  }
+
+  .byline {
+    font-family: var(--f-mono);
+    font-size: 12px;
+    color: var(--faint);
+    letter-spacing: 0.02em;
+    margin: 26px 0 0;
+    padding-top: 16px;
+    border-top: 1px solid var(--rule);
+  }
+
+  /* ---------- sections ---------- */
+  section { margin-top: clamp(48px, 7vw, 76px); }
+
+  h2 {
+    font-family: var(--f-display);
+    font-weight: 600;
+    font-size: clamp(20px, 2.6vw, 24px);
+    letter-spacing: -0.012em;
+    margin: 0 0 4px;
+    text-wrap: balance;
+  }
+
+  h2 .num {
+    font-family: var(--f-mono);
+    font-weight: 500;
+    font-size: 0.72em;
+    color: var(--faint);
+    margin-right: 0.7em;
+    letter-spacing: 0.02em;
+  }
+
+  h3 {
+    font-family: var(--f-display);
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: 0.01em;
+    margin: 0 0 10px;
+  }
+
+  p { margin: 0 0 16px; }
+  p:last-child { margin-bottom: 0; }
+
+  a { color: var(--accent); text-underline-offset: 2px; }
+
+  strong { font-weight: 600; }
+
+  code:not(pre code) {
+    font-family: var(--f-mono);
+    font-size: 0.87em;
+    background: var(--sunk);
+    padding: 0.1em 0.36em;
+    border-radius: 3px;
+  }
+
+  /* ---------- claim bar ---------- */
+  .claim {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin-top: 34px;
+  }
+  .claim div {
+    background: var(--surface);
+    padding: 18px 20px;
+  }
+  .claim .k {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    display: block;
+    margin-bottom: 7px;
+  }
+  .claim .v {
+    font-family: var(--f-display);
+    font-weight: 700;
+    font-size: clamp(26px, 4.5vw, 34px);
+    line-height: 1;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .claim .v small {
+    font-size: 0.45em;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: 0;
+    margin-left: 1px;
+  }
+  .claim .n {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 7px;
+    line-height: 1.4;
+  }
+  .claim .good { color: var(--good); }
+
+  /* ---------- code ---------- */
+  .panes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin-top: 22px;
+  }
+  @media (max-width: 760px) { .panes { grid-template-columns: 1fr; } }
+
+  .pane {
+    border: 1px solid var(--rule);
+    background: var(--surface);
+    min-width: 0;
+  }
+  .pane .hd {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--rule);
+    background: var(--sunk);
+  }
+  .pane .hd b {
+    font-family: var(--f-display);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .pane .hd span {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    color: var(--faint);
+    white-space: nowrap;
+  }
+  .pane pre {
+    margin: 0;
+    padding: 14px;
+    overflow-x: auto;
+    font-family: var(--f-mono);
+    font-size: 11.5px;
+    line-height: 1.62;
+    color: var(--ink);
+    tab-size: 4;
+  }
+  .pane pre .cm { color: var(--faint); }
+  .pane pre .hi { color: var(--accent); font-weight: 500; }
+  .pane pre .gd { color: var(--good); }
+
+  .verdict {
+    display: inline-block;
+    font-family: var(--f-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 3px;
+  }
+  .verdict.no  { background: var(--bad-w);  color: var(--bad); }
+  .verdict.yes { background: var(--good-w); color: var(--good); }
+
+  /* ---------- chart ---------- */
+  figure { margin: 26px 0 0; }
+
+  .chart-frame {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    padding: 18px 14px 10px;
+  }
+  .chart-scroll { overflow-x: auto; }
+  svg.chart { display: block; width: 100%; min-width: 560px; height: auto; }
+
+  /* SVG presentation attributes do not accept var(). Colour and type go
+     through classes so the chart follows the theme tokens. */
+  svg.chart .gridline { stroke: var(--rule); stroke-width: 1; }
+  svg.chart .axisline { stroke: var(--rule-hard); stroke-width: 1.5; }
+  svg.chart .tick     { fill: var(--faint); font-family: var(--f-mono); font-size: 10px; }
+  svg.chart .axisname { fill: var(--faint); font-family: var(--f-mono); font-size: 10px; }
+  svg.chart .curve    { fill: none; stroke: var(--accent); stroke-width: 2.5;
+                        stroke-linejoin: round; stroke-linecap: round; }
+  svg.chart .pt       { fill: var(--surface); stroke: var(--accent); stroke-width: 2.5; }
+  svg.chart .band     { fill: var(--bad); opacity: 0.13; }
+  svg.chart .bandedge { stroke: var(--bad); stroke-width: 1.5; stroke-dasharray: 3 3; }
+  svg.chart .leader   { stroke: var(--bad); stroke-width: 1; opacity: 0.5; }
+  svg.chart .lblref   { fill: var(--bad); font-family: var(--f-display);
+                        font-size: 11.5px; font-weight: 600; }
+  svg.chart .lblreft  { fill: var(--bad); font-family: var(--f-mono); font-size: 10.5px; }
+  svg.chart .lblpeak  { fill: var(--accent); font-family: var(--f-display);
+                        font-size: 13px; font-weight: 700; }
+  svg.chart .lblval   { fill: var(--accent); font-family: var(--f-mono); font-size: 10.5px; }
+
+  figcaption {
+    font-size: 14px;
+    color: var(--muted);
+    margin-top: 12px;
+    line-height: 1.5;
+  }
+
+  /* ---------- table ---------- */
+  .table-scroll { overflow-x: auto; margin-top: 20px; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 460px;
+    font-family: var(--f-mono);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+  caption {
+    font-family: var(--f-body);
+    font-size: 14px;
+    color: var(--muted);
+    text-align: left;
+    margin-bottom: 10px;
+  }
+  th, td { padding: 8px 12px; text-align: right; border-bottom: 1px solid var(--rule); }
+  th:first-child, td:first-child { text-align: left; padding-left: 0; }
+  td:last-child, th:last-child { padding-right: 0; }
+  thead th {
+    font-family: var(--f-display);
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.02em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--rule-hard);
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.win { color: var(--good); font-weight: 600; }
+
+  /* ---------- callout ---------- */
+  .callout {
+    border-left: 3px solid var(--bad);
+    background: var(--bad-w);
+    padding: 20px 22px;
+    margin-top: 24px;
+  }
+  .callout h3 { color: var(--bad); }
+  .callout p:last-child { margin-bottom: 0; }
+
+  .note {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-w);
+    padding: 20px 22px;
+    margin-top: 24px;
+  }
+  .note h3 { color: var(--accent); }
+  .note p:last-child { margin-bottom: 0; }
+
+  /* ---------- status list ---------- */
+  ul.tight { margin: 16px 0 0; padding-left: 20px; }
+  ul.tight li { margin-bottom: 10px; }
+  ul.tight li:last-child { margin-bottom: 0; }
+
+  footer {
+    margin-top: clamp(56px, 8vw, 88px);
+    padding-top: 20px;
+    border-top: 1px solid var(--rule);
+    font-family: var(--f-mono);
+    font-size: 12px;
+    color: var(--faint);
+    line-height: 1.7;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">ABSAC · search family · definition 403</p>
+    <h1>The 32-Byte Ruler</h1>
+    <p class="standfirst col">A compiler found a loop that clang will not optimize, rewrote it to use the library call sitting right next to it, and made it <strong>25&times; faster</strong>. Then its own test harness measured that rewrite as a loss, because the harness only ever feeds it inputs up to 32 bytes.</p>
+    <p class="byline">Measured 2026-10-12 · clang 19.1.7 · x86-64 · best-of-N, needle absent</p>
+  </header>
+
+  <div class="claim">
+    <div>
+      <span class="k">clang -O3</span>
+      <span class="v">0</span>
+      <span class="n">memchr calls, and 0 vector instructions, on the loop below</span>
+    </div>
+    <div>
+      <span class="k">ABSAC rewrite</span>
+      <span class="v good">25.6<small>&times;</small></span>
+      <span class="n">at 64 KiB &mdash; peak of the sweep</span>
+    </div>
+    <div>
+      <span class="k">At 64 MiB</span>
+      <span class="v good">6.5<small>&times;</small></span>
+      <span class="n">still winning where the scan is bandwidth-bound</span>
+    </div>
+    <div>
+      <span class="k">Harness ceiling</span>
+      <span class="v" style="color:var(--bad)">32<small>B</small></span>
+      <span class="n">everything the referee can measure</span>
+    </div>
+  </div>
+
+  <section>
+    <h2><span class="num">01</span>The gap clang leaves open</h2>
+    <div class="col">
+      <p>A developer writes the ordinary linear search. It is correct, it is obvious, and it is one of the most common loops in C:</p>
+    </div>
+
+    <div class="panes" style="grid-template-columns:1fr">
+      <div class="pane">
+        <div class="hd"><b>find_first</b><span>the source</span></div>
+<pre><span class="cm">long</span> find_first(<span class="cm">const unsigned char</span> *a, <span class="cm">long</span> n, <span class="cm">unsigned char</span> c) {
+    <span class="cm">long</span> i;
+    <span class="hi">for</span> (i = 0; i &lt; n; i++)
+        <span class="hi">if</span> (a[i] == c) <span class="hi">return</span> i;
+    <span class="hi">return</span> n;
+}</pre>
+      </div>
+    </div>
+
+    <div class="col" style="margin-top:22px">
+      <p>Told to compile it as fast as it can, clang emits this:</p>
+    </div>
+
+    <div class="panes">
+      <div class="pane">
+        <div class="hd"><b>clang -O3</b><span class="verdict no">scalar, 2 branches/byte</span></div>
+<pre>find_first:
+	movq	%rsi, %rax
+	testq	%rsi, %rsi
+	jle	.LBB0_5
+	xorl	%ecx, %ecx
+.LBB0_2:
+	<span class="hi">cmpb</span>	%dl, (%rdi,%rcx)
+	<span class="hi">je</span>	.LBB0_3
+	incq	%rcx
+	cmpq	%rcx, %rax
+	<span class="hi">jne</span>	.LBB0_2</pre>
+      </div>
+      <div class="pane">
+        <div class="hd"><b>ABSAC, definition 403</b><span class="verdict yes">vectorized path</span></div>
+<pre><span class="cm">static uint64_t</span> __sir_memchr(
+        <span class="cm">const uint8_t</span> *base, <span class="cm">int</span> key, <span class="cm">uint64_t</span> n) {
+    <span class="hi">if</span> (n == 0) <span class="hi">return</span> 0;
+    <span class="cm">uint64_t</span> head = n &lt; 16 ? n : 16;
+    <span class="hi">for</span> (<span class="cm">uint64_t</span> i = 0; i &lt; head; i++)
+        <span class="hi">if</span> (base[i] == (<span class="cm">uint8_t</span>)key) <span class="hi">return</span> i;
+    <span class="hi">if</span> (n &lt;= 16) <span class="hi">return</span> n;
+    <span class="cm">const void</span> *hit = <span class="gd">memchr</span>((<span class="cm">const void</span> *)(base + 16),
+                            key, (<span class="cm">size_t</span>)(n - 16));
+    <span class="hi">return</span> hit ? (<span class="cm">uint64_t</span>)((<span class="cm">const uint8_t</span> *)hit - base) : n;
+}</pre>
+      </div>
+    </div>
+
+    <div class="col" style="margin-top:22px">
+      <p>An early-exit search returning an index has a trip count that depends on the data, so it does not vectorize, and LLVM has no <code>memchr</code> idiom recognition for it. Verified rather than assumed: <code>clang -O3 -S</code> on this function produces <strong>0 memchr calls and 0 vector instructions</strong>. The library call is available, and clang will not use it.</p>
+      <p>ABSAC recognises the loop and rewrites it. Its emitted code is not a bare <code>memchr</code> call &mdash; it scans the first 16 bytes inline so an early hit avoids the call entirely, then hands the remainder to the vectorized library routine. That kernel is a compromise between the two costs, and it is not one a person writes by hand.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">02</span>What it is worth, by scan length</h2>
+    <div class="col">
+      <p>Original loop against ABSAC's emitted C. Same compiler, same <code>-O3</code>, both <code>noinline</code> so the harness cannot inline one and not the other. The needle is absent, so every byte must be examined.</p>
+    </div>
+
+    <figure>
+      <div class="chart-frame">
+        <div class="chart-scroll">
+          <svg class="chart" viewBox="0 0 720 320" role="img" aria-label="Speedup against scan length, log scale. 1.2x at 64 bytes, peaking at 25.6x at 64 KiB, falling to 6.5x at 64 MiB. The referee's 0–32 byte measurement window is a sliver at the far left where the rewrite measures 0.82x.">
+            <!-- speedup gridlines -->
+            <g class="gridline">
+              <line x1="52" y1="227.5" x2="696" y2="227.5"/>
+              <line x1="52" y1="179.1" x2="696" y2="179.1"/>
+              <line x1="52" y1="130.6" x2="696" y2="130.6"/>
+              <line x1="52" y1="82.2"  x2="696" y2="82.2"/>
+              <line x1="52" y1="33.7"  x2="696" y2="33.7"/>
+            </g>
+            <g class="tick" text-anchor="end">
+              <text x="44" y="231">5&times;</text>
+              <text x="44" y="182.6">10&times;</text>
+              <text x="44" y="134.1">15&times;</text>
+              <text x="44" y="85.7">20&times;</text>
+              <text x="44" y="37.2">25&times;</text>
+            </g>
+            <!-- axes -->
+            <line class="axisline" x1="52" y1="276" x2="696" y2="276"/>
+            <g class="tick" text-anchor="middle">
+              <text x="91"  y="294">64 B</text>
+              <text x="206.8" y="294">1 KiB</text>
+              <text x="380.4" y="294">64 KiB</text>
+              <text x="496.2" y="294">1 MiB</text>
+              <text x="611.9" y="294">16 MiB</text>
+              <text x="669.8" y="294">64 MiB</text>
+            </g>
+            <text class="axisname" x="374" y="314" text-anchor="middle">scan length (log scale)</text>
+
+            <!-- the referee's window: 0..32 B -->
+            <rect class="band" x="52" y="24" width="10.1" height="252"/>
+            <line class="bandedge" x1="62.1" y1="24" x2="62.1" y2="276"/>
+            <line class="leader" x1="62.1" y1="112" x2="150" y2="112"/>
+            <text class="lblref" x="156" y="109">everything the referee measures</text>
+            <text class="lblreft" x="156" y="124">0&ndash;32 B &nbsp;&rarr;&nbsp; 0.82&times;</text>
+
+            <!-- the curve -->
+            <polyline class="curve"
+              points="91,264.4 206.8,197.9 380.4,27.7 496.2,88.0 611.9,169.2 669.8,213.4"/>
+            <g class="pt">
+              <circle cx="91"    cy="264.4" r="4"/>
+              <circle cx="206.8" cy="197.9" r="4"/>
+              <circle cx="380.4" cy="27.7"  r="4"/>
+              <circle cx="496.2" cy="88.0"  r="4"/>
+              <circle cx="611.9" cy="169.2" r="4"/>
+              <circle cx="669.8" cy="213.4" r="4"/>
+            </g>
+            <text class="lblpeak" x="380.4" y="18" text-anchor="middle">25.6&times;</text>
+            <text class="lblval" x="91" y="256" text-anchor="middle">1.2&times;</text>
+            <text class="lblval" x="669.8" y="205" text-anchor="middle">6.5&times;</text>
+          </svg>
+        </div>
+      </div>
+      <figcaption>Speedup of ABSAC's rewrite over the clang <code>-O3</code> baseline, against scan length. The rewrite is a wash below about 1 KiB and a large win above it. The shaded sliver at the left is the entire range the project's own referee can measure.</figcaption>
+    </figure>
+
+    <div class="table-scroll">
+      <table>
+        <caption>The same data as numbers. Times are best-of-N, in nanoseconds.</caption>
+        <thead>
+          <tr><th>scan length</th><th>clang -O3 loop</th><th>ABSAC rewrite</th><th>speedup</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>64 B</td><td>18</td><td>15</td><td>1.20&times;</td></tr>
+          <tr><td>1 KiB</td><td>145</td><td>18</td><td class="win">8.06&times;</td></tr>
+          <tr><td>64 KiB</td><td>8,428</td><td>329</td><td class="win">25.62&times;</td></tr>
+          <tr><td>1 MiB</td><td>134,862</td><td>6,952</td><td class="win">19.40&times;</td></tr>
+          <tr><td>16 MiB</td><td>3,013,860</td><td>273,428</td><td class="win">11.02&times;</td></tr>
+          <tr><td>64 MiB</td><td>16,330,263</td><td>2,529,531</td><td class="win">6.46&times;</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">03</span>The harness could not see it</h2>
+    <div class="col">
+      <p>Both of the project's test drivers &mdash; the one that checks correctness and the one that measures speed &mdash; draw their inputs from the same list:</p>
+    </div>
+
+    <div class="panes" style="grid-template-columns:1fr;max-width:620px">
+      <div class="pane">
+        <div class="hd"><b>driver_time.c, driver.c</b><span>line 31, line 13</span></div>
+<pre><span class="cm">static const uint64_t</span> lens[] = {0,1,2,3,4,5,7,8,16,31,32};</pre>
+      </div>
+    </div>
+
+    <div class="callout">
+      <h3>A 32-byte ceiling</h3>
+      <p>The win is a function of scan length. It is a byte loop against a vectorized library call, and at <em>n</em> &le; 32 there is no scan to vectorize. So the referee timed this rewrite at <strong>0.82&times;</strong> &mdash; a loss &mdash; while the same rewrite at 64 KiB is <strong>25.6&times;</strong>.</p>
+      <p><strong>The harness did not measure the transformation. It measured the size guard.</strong> That guard is the first line of the emitted helper, and below 32 bytes it is the only line that runs.</p>
+    </div>
+
+    <div class="col" style="margin-top:24px">
+      <p>This is the second time the same defect has been recorded for this project. The first was a kernel where the differential driver's input set decided what counted as <em>correct</em>. Here the timing driver's input set decides what counts as <em>fast</em>, and the consequence is the same: a real win reads as a regression.</p>
+      <p>It is very likely why this family has appeared useless. On the nineteen-benchmark corpus the <code>search</code> family never fires, and anyone reading the gate would conclude it does not pay. It pays. The ruler is 32 bytes long.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">04</span>What it does not do</h2>
+    <div class="col">
+      <p>The recognizer requires the not-found sentinel to <em>be</em> the scan bound. The loop must carry exactly <code>(false, bound, 0)</code>, its result select must be <code>found ? index : bound</code>, and its termination must compare the index against that same carried bound.</p>
+      <p>So <code>return n</code> matches and <code>return -1</code> does not &mdash; even though they are the same loop. The <code>return -1</code> form lowers to a carried <code>-1</code> with its termination against the parameter <code>n</code>, and the recognizer refuses it because the comparison never meets the carried value. Since <code>memchr</code> returns a pointer and index-based searches conventionally return <code>-1</code>, a large share of real instances are refused on the sentinel alone.</p>
+      <p>That is a recognition gap, not a proof gap, and it is the next thing to fix.</p>
+    </div>
+
+    <div class="note">
+      <h3>Scope</h3>
+      <p>One function shape, tested at eight needle positions across thirteen sizes. Not a corpus. The win needs a long input with a late or absent hit: for a hit in the first 16 bytes the head scan makes it a wash, and for a hit at byte 0 it is strictly more work than the original.</p>
+      <p>And nothing here is a compiler result yet. The rewrite was verified on a hand-written kernel of the shape the family accepts &mdash; not discovered by lowering a third-party project. That is the test the project has not yet passed, and it is the one that would matter.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">05</span>Correctness, on both paths</h2>
+    <div class="col">
+      <p>The referee reports <code>clean cases=500</code>, <code>mismatched=0</code> for definition 403 &mdash; the equivalence obligation plus a differential against the original.</p>
+      <p>But its differential draws from that same 32-byte list, so it never reaches the branch where <code>memchr</code> is actually called. <strong>The path the win is claimed on is the path it does not test.</strong> Checked separately: 90 configurations, 0 mismatches, across sizes 0 / 1 / 15 / 16 / 17 / 31 / 32 / 33 / 64 / 1000 / 65536 / 1 MiB / 4 MiB and needle positions {absent, 0, 15, 16, 17, 31, 32, n/2, n&minus;1} &mdash; including every position where the head scan hands over to the library call.</p>
+    </div>
+  </section>
+
+  <footer>
+    <div>ABSAC &mdash; automatic bitwise superoptimization of arbitrary code</div>
+    <div>Artifacts, the size sweep, the correctness check and the referee commands: <code>work/search-case/</code></div>
+  </footer>
+
+</div>
