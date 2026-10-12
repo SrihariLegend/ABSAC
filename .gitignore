@@ -37,9 +37,13 @@ gate4/differential_asan
 # profile summaries, harness scripts, results -- IS committed, because the whole
 # point of this directory is that evidence must outlive /tmp.
 # `**` rather than `*` because targets nest (work/pr-targets/jq/src/).
+# Build trees are named `build-*` by convention so that one rule catches them;
+# a tree called `t/` or `d/` is 56 MB of object files that nothing can identify
+# from its name.
 work/**/src/
 work/**/bin/
 work/**/build/
+work/**/build-*/
 work/**/data/
 work/**/bc/
 work/**/dl/
