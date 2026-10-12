@@ -4005,6 +4005,61 @@ Three follow-ups this table makes concrete:
   cheating is weakening the comparator or protecting individual benchmark loops, and such
   a pipeline must be declared separately from the frozen optimised-input audit.
 
+- **2026-10-12 — jq `jv_parser_next`: the audit's own S1 tag is refuted by the line-level
+  profile, and the SIMD hypothesis turns out to have a workload boundary rather than a
+  verdict.** The pre-registered opportunity audit tagged `jv_parser_next` (21.16% of `jq`
+  on the frozen workload) as **S1 — a named algebraic object with a hardware or algorithmic
+  shortcut**. That tag was attached from what the function *accomplishes* (it turns bytes
+  into values), not from what its body *contains*. Profiled at line level on the same
+  workload, the function's own cost is a byte-walking state machine plus value
+  construction: `jv_number_with_literal` at **464 instructions per number** (600,073
+  calls), `jv_string_sized` at **270 per string** (1,000,000 calls) for keys one to three
+  characters long, and `jv_free` at **12.10% self**. There is no algebraic object and no
+  shortcut. **The audit's separating test — "does the hot loop compute a named algebraic
+  object, or is it walking a data structure?" — answers *walking a data structure***, which
+  is a NO for this site, and the S1 tag was wrong. This is the first time the separating
+  test and a domain tag have disagreed, and the tag lost.
+  **The SIMD question, measured rather than asserted.** The quantity that decides whether a
+  SIMD stage-1 scanner ("simdjson", `jq#1892`) can pay is *bytes between structural
+  characters*, because that is what a wide block skips without branching. Two ordinary JSON
+  shapes, both 200,000 records, measured on the raw bytes:
+  short-value records give **mean run 4.19 B, max 5 B, and 0 of 611,929 16-byte blocks free
+  of a structural character**; long-string logs give **mean 10.00 B, 43.71% of blocks free**.
+  `jv_parser_next` self cost is **17.87%** on the first and **41.73%** on the second. On the
+  first, a SIMD scanner finds a hit in every block and is pure overhead; on the second it has
+  something to skip. **Both shapes are ordinary JSON and they invert the conclusion**, so a
+  verdict given on one is not evidence about the other, and the audit's original S1 framing
+  ("a hardware shortcut exists here") was true of neither in the form it was stated.
+  **`-DNDEBUG`: measured, already known, and deliberate — not a PR.** `NDEBUG` appears
+  nowhere in `configure.ac`, `Makefile.am` or `src/Makefile.am`; stock configure gives
+  `CFLAGS = -g -O2 -pthread`, so all 367 asserts in `src/` are live in release builds,
+  including `assert(p->tokenpos <= p->tokenlen);` which runs **once per input character**
+  (132,971,616 instructions, 2.45%). Same compiler and optimizer level, only `-DNDEBUG`
+  differing: **−15.65%** instructions on the audit workload and **−21.03%** on the logs
+  workload, **−6.6%** and **−8.5%** wall clock, output byte-identical. But `jaq#42` already
+  records "jq ships without `-DNDEBUG`", and jq's FAQ shows the asserts are load-bearing:
+  `jq-1.6 -n '[-2] | implode'` aborts with them on and returns `"�"` with them off.
+  **Recorded as a known and deliberate trade-off, not as a finding.**
+  **A blanket `-DNDEBUG` would be wrong anyway, and that is the one reportable defect.**
+  `src/jq_test.c` calls a side-effecting `test_start_state()` inside `assert()`, twice, in
+  `test_jq_start_resets_state` — the only thing that runs that function's validation. Under
+  `NDEBUG` the call vanishes and the test stops testing, while `make check` still reports
+  **9/9 PASS**. A check that cannot fail has not checked anything, encountered in someone
+  else's tree.
+  **Rejected after checking, recorded so they are not re-opened.** (`1`) The lead that
+  `jv_string_sized` re-validates UTF-8 the parser already validated: **false** —
+  `jv_parse.c:503` copies raw bytes through as `*out++ = c;`, so invalid input does reach it
+  and the validation is what routes to `jvp_string_copy_replace_bad`. (`2`) Inlining
+  `jv_get_kind` (2.34% audit, 1.45% logs, body is `return JVP_KIND(x);`) is an exported
+  libjq symbol and therefore an ABI decision, not a drive-by.
+  **Outcome: no PR was written for jq, and jq is withdrawn as the vehicle for a first PR.**
+  Every candidate either argues against a deliberate upstream decision, needs an ABI ruling,
+  or is a project rather than a patch — the dominant cost is per-value allocation and
+  teardown (~31% as a malloc/free family), which SIMD does not touch. Artifacts and the full
+  measurement are in `work/pr-targets/jq/FINDINGS.md`. What survives is a *boundary
+  condition* for `jq#1892`, which is a contribution to that thread rather than a patch, and
+  the `jq_test.c` defect, which is a legitimate standalone report.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`
