@@ -110,9 +110,10 @@ after subsequent calls to jq_start" — stops testing that. `make check` still
 reports **9/9 PASS**, which is exactly the failure mode this project treats as
 the worst kind: a check that cannot fail has not checked anything.
 
-So the correct change is *not* a global `-DNDEBUG`. If asserts are to be off in
-release builds, `NDEBUG` must be defined for `libjq` and `jq` but **not** for
-`jq_test`, and `test_start_state` should be called outside the assert.
+So the correct change is *not* a global `-DNDEBUG`; that remains a maintainer
+decision. This PR makes this particular validation an explicit condition with
+an explicit nonzero failure path. Other assert-based checks in `jq_test.c` still
+disappear if that test code is compiled with `NDEBUG`.
 
 ## 3. Where jq's time actually goes
 
@@ -185,35 +186,36 @@ for a maintainer's review, and saying so is more useful than shipping it.
 
 ## Status
 
-**One PR, and it is the test fix — not the flag.**
+**One standalone jq PR, and it is the test fix — not the flag.**
 
-`PATCH-jq_test.diff` hoists the side-effecting `test_start_state()` calls out of
-`assert()` in `src/jq_test.c`. That change stands on its own: **anyone who
-builds jq with `-DNDEBUG` today silently stops running the check that
-`test_jq_start_resets_state` exists to perform, and `make check` reports
-success anyway.** Distro packagers define `NDEBUG` as a matter of course, so
-this is not hypothetical.
+`PATCH-jq_test.diff` replaces both `assert(test_start_state(...))` calls with
+explicit checks that exit with `EXIT_FAILURE` on failure. The original calls
+vanish under `NDEBUG`; with this patch, this particular validation still runs
+and a failed check makes the test process fail. This is conditional on a build
+that defines `NDEBUG`: jq's stock autotools files do not set it, and the evidence
+here does not establish how common it is in distro builds.
 
-Verified rather than reasoned. The probe is a string literal that only the
-eliminated call would print, searched in the linked binary:
+The linked-binary string probe confirms the call remains present, but does not
+by itself prove that a failed check fails the test:
 
 | source | `NDEBUG` | string present |
 |---|---|---|
 | original | no | 1 |
-| original | **yes** | **0** ← the check is gone |
-| fixed | **yes** | **1** ← restored |
+| original | **yes** | **0** ← call removed |
+| fixed | **yes** | **1** ← call retained |
 | fixed | no | 1 |
 
-`make check` passes 7/7 and 14/14 both ways.
+Validation: jq's `make check` passes 9/9 with assertions enabled and 9/9 with
+`-DNDEBUG` (the bundled Oniguruma suites also pass 7/7 and 14/14 in both
+configurations). In a separate `-DNDEBUG` fault-injection build where
+`test_start_state()` was forced to return false, `tests/jqtest` exited with
+status 1. That verifies the failure path, not just the call's presence.
 
-`-DNDEBUG` as a build change is **not** part of this PR. It is a 7-10% win and
-the measurement is above, but it would disable 367 internal consistency checks
-in a tool whose whole job is handling input it did not author, and that is a
-maintainer's call rather than a drive-by. The honest form is the test fix in a
-PR, with the measurement posted alongside so the decision can be made on
-numbers.
+`-DNDEBUG` as a build change is **not** part of this PR. The measured 7–10%
+speedup is a separate maintainer decision; removing 367 internal consistency
+checks in a tool handling untrusted input is not a drive-by change. The PR is
+only the test fix, with the measurement available as context.
 
-Neither `jv_get_kind` inlining (an ABI decision) nor SIMD (a project) nor the
-0.8% worklist change is proposed. For `jq#1892`, finding #1 is a boundary
-condition worth posting — measured, and explicit that it depends on workload
-shape.
+Neither `jv_get_kind` inlining (an ABI decision), SIMD (a project), nor the
+0.8% worklist change is proposed. For `jq#1892`, finding #1 is a workload
+boundary worth reporting, not a patch.

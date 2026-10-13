@@ -1,31 +1,27 @@
+diff --git a/src/jq_test.c b/src/jq_test.c
+index 9064fbf..f18ba25 100644
 --- a/src/jq_test.c
 +++ b/src/jq_test.c
-@@ -310,9 +310,15 @@
-   // First call to jq_start. Run until completion.
+@@ -311,7 +311,10 @@ static void test_jq_start_resets_state(char *prog, const char *input) {
    jv parsed_input = jv_parse(input);
    assert(jv_is_valid(parsed_input));
    jq_start(jq, parsed_input, 0);
 -  assert(test_start_state(jq, prog));
-+  // test_start_state() has side effects: it checks the error message and exit
-+  // code, prints on failure and frees what it read. Calling it inside assert()
-+  // means a build with NDEBUG defined -- which packagers commonly do -- drops
-+  // the call entirely, so this test stops checking the thing it is named for
-+  // while still reporting success.
-+  int start_state_ok = test_start_state(jq, prog);
-+  assert(start_state_ok);
++  // Don't use assert here: NDEBUG would remove this check from the test.
++  if (!test_start_state(jq, prog)) {
++    exit(EXIT_FAILURE);
++  }
    while (1) {
      jv result = jq_next(jq);
      int valid = jv_is_valid(result);
-     jv_free(result);
-@@ -322,9 +328,10 @@
-   // Second call to jq_start.
+@@ -323,7 +326,9 @@ static void test_jq_start_resets_state(char *prog, const char *input) {
    jv parsed_input2 = jv_parse(input);
    assert(jv_is_valid(parsed_input2));
    jq_start(jq, parsed_input2, 0);
 -  assert(test_start_state(jq, prog));
-+  start_state_ok = test_start_state(jq, prog);
-+  assert(start_state_ok);
++  if (!test_start_state(jq, prog)) {
++    exit(EXIT_FAILURE);
++  }
  
    jq_teardown(&jq);
  }
- 
