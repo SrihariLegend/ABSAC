@@ -4147,6 +4147,27 @@ Three follow-ups this table makes concrete:
   hand-written kernel of the accepted shape, not discovered by lowering a third-party project.
   Artifacts, the size sweep, `verify.c` and the referee commands: `work/search-case/`.
 
+- **2026-10-13 — README rewritten: it had been describing a system that does not exist.**
+  The public README (last touched 2026-09-19) listed six crates that are not in the
+  workspace — `sir_semantics`, `sir_inference`, `sir_generation`, `sir_verification`,
+  `sir_rewrite`, `sir_optimizer` — none of which appear in `Cargo.toml`. It printed an
+  "Ontology Coverage" report (`Concepts implemented: 12`, `Average reasoning depth: 3.2`,
+  `Compression ratio: 1.09x`) that nothing in the tree can produce, and it told the reader
+  to run `cargo run -p sir_benchmarks --bin report`, a binary that no longer exists. The
+  only binary in the workspace is `emit_c_diff`.
+  Two consequences worth naming, because this is the same failure the ledger keeps recording
+  in code: **a claim that no run can reproduce is not evidence, and a command that cannot run
+  is not a reproduction** — the README was the checking apparatus, and it was the defective
+  component, for a month, in the one file every visitor reads first.
+  The rewrite states the evolved research question, the real nine-crate workspace, the real
+  pipeline, commands that run, and keeps `docs/CAPABILITY_LEDGER.md` as the authority. It
+  separates **demonstrated** (the pipeline end to end; a real proof kernel; the `search`
+  family's 25.6x win on a shape clang handles badly) from **not demonstrated** (any
+  end-to-end win on third-party code — the `search` result is a hand-written kernel of the
+  accepted shape, not a project nobody here wrote). The `arithmetic` family firing on the
+  benchmark corpus is recorded as meaning nothing, because clang performs the same
+  multiply→shift peephole.
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`

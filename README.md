@@ -1,120 +1,181 @@
 # ABSAC
 
-**A Semantic Knowledge-Acquisition Compiler for Bitwise Superoptimization**
+**Automatic Bitwise Superoptimization of Arbitrary Code**
 
-> *"How much of the known universe of bitwise optimization can be automatically rediscovered from naive programs?"*
+> Can a compiler recover the mathematical object implemented by arbitrary code and
+> choose the best representation for that object?
 
-ABSAC is an experimental semantic compiler architecture. Instead of hardcoding peephole patterns or using expensive stochastic search over assembly instructions, ABSAC discovers mathematical domains (like Finite Sets or Logical Sequences) embedded in arbitrary functional source code. It systematically proves the equivalence of hardware-efficient representations (like `BitSet`) to replace naive algorithms with optimal bitwise logic.
+ABSAC is a semantic compiler. It lowers LLVM IR into a typed functional IR,
+recognises mathematical structure embedded in loops, discharges an obligation
+proving an equivalent cheaper implementation, and emits C.
 
-The compiler acts as a **knowledge acquisition system**. It doesn't use syntactic pattern matching; it relies entirely on a pipeline of semantic deduction, representation inference, candidate generation, and formal verification.
+It is not pattern matching. A rewrite is only applied when the proof kernel
+returns a verdict, and a refuted claim comes back with a counterexample.
 
-## The Knowledge Pipeline
+## The result
 
-ABSAC relies on a pure, feed-forward knowledge pipeline operating over **SIR** (Semantic IR), a typed, functional SSA-form graph.
+A hand-written equality search is compiled by `clang -O3` to a **scalar
+byte-at-a-time loop with two branches per byte**. Verified, not assumed:
+`clang -O3 -S` on it emits **0 `memchr` calls and 0 vector instructions**. An
+early-exit search returning an index has a data-dependent trip count, so it does
+not vectorize, and LLVM has no `memchr` idiom recognition for it. The library
+call is available and clang will not use it.
 
-```text
-Source Program
-      │
-      ▼
-Compiler Facts           "What is provably true?" (Purity, Finiteness, Loops, Ranges)
-      │
-      ▼
-Semantic Truths          "What mathematical object / domain does this represent?"
-      │
-      ▼
-Representation Beliefs   "Which hardware representation best models this object?"
-      │
-      ▼
-Candidate Plans          "What implementations are possible?"
-      │
-      ▼
-Equivalence Proofs       "Is the chosen rewrite mathematically exact?"
-      │
-      ▼
-Verified Mutations       "Execute the rewrite."
+ABSAC recognises the loop and rewrites it (family `search`, definition 403) to a
+16-byte inline head scan followed by the vectorized library call:
+
+| scan length | `clang -O3` loop | ABSAC rewrite | |
+|---:|---:|---:|---:|
+| 1 KiB | 145 ns | 18 ns | **8.06×** |
+| 64 KiB | 8,428 ns | 329 ns | **25.62×** |
+| 1 MiB | 134,862 ns | 6,952 ns | **19.40×** |
+| 16 MiB | 3,013,860 ns | 273,428 ns | **11.02×** |
+| 64 MiB | 16,330,263 ns | 2,529,531 ns | **6.46×** |
+
+Same compiler, same `-O3`, both `noinline`, needle absent. Correctness is
+machine-checked on two paths — the equivalence obligation plus a differential,
+and separately 90 configurations across 13 sizes and 9 needle positions up to
+4 MiB, since the differential alone only reaches inputs of 32 bytes.
+
+Full measurement, the emitted kernel, and the limits of the claim:
+[`work/search-case/`](work/search-case/USE_CASE.md).
+
+## What is demonstrated, and what is not
+
+The project's rule is that [`docs/CAPABILITY_LEDGER.md`](docs/CAPABILITY_LEDGER.md)
+is the record. Quote it, not the design documents, when stating what exists.
+
+**Demonstrated.**
+
+- The pipeline runs end to end on unmodified LLVM IR: lowering, analysis,
+  recognition, proof, guarded patch, emission, and a differential referee that
+  compares the emitted C against the original IR natively, on AArch64, and under
+  sanitizers.
+- The proof kernel is real. `sir_mech` decides bitvector equivalence by CDCL SAT
+  and refutes with a model; induction and integer linear arithmetic are there for
+  the obligations that need them.
+- **One family produces a large, correct win over `clang -O3` on a shape clang
+  handles badly** — `search`, above. It is the first such result the project has.
+
+**Not demonstrated.**
+
+- **No end-to-end win on third-party code.** The `search` result was verified on a
+  hand-written kernel of the shape the family accepts, not discovered by lowering
+  a project nobody here wrote. That is the test that matters and it has not been
+  passed.
+- On 19 independently-authored benchmarks, the only family that fires at any
+  optimization level is `arithmetic` (multiply→shift) — a peephole clang already
+  performs, so firing there means nothing.
+- The one third-party kernel measured historically (Redis `redisPopcount`) lost to
+  `clang -O3`, and Redis has since shipped its own hand-written replacement.
+- The correctness of the `search` win was established on inputs of 32 bytes or
+  fewer by the referee's own harness, and had to be re-established by hand for the
+  larger inputs the win depends on. See
+  [the 32-byte ruler](work/search-case/USE_CASE.md) — the harness measured its own
+  size guard, not the transformation.
+
+`docs/ROADMAP.md`, `docs/NORTH_STAR.md` and the older `docs/GATE*` files describe
+intended or historical systems, and some of their claims were never demonstrated
+beyond project-authored kernels.
+
+## Pipeline
+
+```
+  .ll text ──► sir_lower::lower_function ──► SIR Function
+                                                │
+                                                ▼  sir_analysis
+                                             Facts (loop / reduction)
+                                                │
+                                                ▼  sir_opt
+                                             a family recognises a shape and
+                                             discharges its sir_mech obligation
+                                                │
+                                                ▼  sir_opt::patch::apply
+                                             guarded replacement (structural
+                                             verifier + frame + effects floor)
+                                                │
+                                                ▼  sir_benchmarks::emit
+                                             C, compiled and compared against
+                                             the original IR by the referee
 ```
 
-Each layer strictly consumes only the knowledge produced by the immediately preceding layer.
+`lower_function` is the only supported entry point into the lowerer: it is where
+the structural verifier and the emission-blowup guard run. `lower()` is
+crate-private for that reason.
 
-## Corpus v1.0: Empirical Evaluation
+The IR has no control flow. Branching is `Select`, iteration is a `Loop` with
+explicit carried values, and there are no phi nodes. A branchy function therefore
+flattens into a large select DAG, and the lowerer refuses when that blowup passes
+a calibrated bound rather than emitting something enormous.
 
-ABSAC's progress is measured not by features, but by the boundaries of its mathematical knowledge. We maintain an immutable, reproducible benchmark corpus (**Corpus v1.0**) tracking exactly what the compiler can synthesize from first principles. 
+## Workspace
 
-Every benchmark acts as a declarative specification of the expected reasoning chain. Expected failures are treated as first-class artifacts mapping the exact domain of missing knowledge (e.g., *Mask Algebra* or *Bit Permutations*).
+Nine crates, all commands run from `sir/`.
 
-You can run the live coverage report at any time:
+| Crate | Role |
+|---|---|
+| `sir_types` | Foundational types: `NodeId`, `Type`, `Effects`, `ConstantData`. No internal deps. |
+| `sir_nodes` | `NodeKind`, `Node`, `NodeArena`, `Function`, `Module`. |
+| `sir_builder` | `Builder` — type checking and effect computation at node-creation time. |
+| `sir_verify` | Seven structural invariants. |
+| `sir_analysis` | Read-only facts: loop and reduction facts, graph traversal. |
+| `sir_mech` | The proof kernel: bitvector terms, CNF, CDCL SAT, equivalence decision, induction, integer linear arithmetic. |
+| `sir_lower` | LLVM IR text → SIR. The largest crate. |
+| `sir_opt` | The rewrite families and the driver. |
+| `sir_benchmarks` | SIR → C emission, and `emit_c_diff`, the differential referee. |
+
+Ten families live in `sir_opt`: `all`, `any`, `arithmetic`, `count`, `parity`,
+`popcount`, `runtime_count`, `runtime_sum`, `search`, `sum`. Each recognises a
+shape and refuses on any ambiguity, calls `sir_mech` through its `prove::*`
+obligation and refuses if it does not discharge, then builds a `Patch` that
+`patch::apply` rejects unless the replacement verifies structurally, fits the
+frame, and declares the effects its nodes actually perform.
+
+`sir_gate4b/` and `sir_tests/` exist on disk but contain no sources and are **not**
+workspace members.
+
+## Build and test
 
 ```bash
 cd sir
-cargo run -p sir_benchmarks --bin report
+cargo build --release            # must stay warning-free
+cargo test --workspace           # 10 tests, ~1s
 ```
 
-### Current Semantic Coverage (Corpus v1.0)
+There is no lint config and no CI. `sir_benchmarks` is the only crate with a
+binary (`emit_c_diff`, the referee); everything else is a library.
 
-```text
-Ontology Coverage (Architectural Metrics)
-=========================================
-Concepts implemented:     12
-Concepts exercised:       8
-Closure rules:            4
-Average reasoning depth:  3.2
-Maximum reasoning depth:  5
+The test count is deliberately kept small — the standing instruction is single
+digits, and it currently sits at 10. New cases go behind an existing `#[test]`
+via the `run()` dispatch in `sir_opt/tests/plan.rs`, rather than as new test
+functions.
 
-ABSAC Benchmark Status
-======================
-
-Benchmarks:             23
-
-Optimized:              11
-Expected failures:       5
-Correctly declined:      1
-
-Semantic Compression
-
-  Total Initial IR nodes:   101
-  Total Semantic truths:    31
-  Total Final IR nodes:     93
-  Compression ratio:        1.09x
-
-Semantic domains
-
-  Boolean reductions        ✓
-  Arithmetic identities     ✓
-  Positional search         ✓
-  Set algebra               Partial
-  Mask algebra              ✓
-  Bit permutations          Missing
-
-Representations
-
-  BitSet                    ✓
-  BitwiseArithmetic         ✓
-  BitScan                   ✓
-  MaskAlgebra               ✓
-```
-
-As the compiler acquires new mathematical concepts, benchmarks graduate from "Expected Failure" to "Optimized."
-
-## Project Architecture
-
-The compiler framework is implemented purely in Rust (`sir/` workspace). It is architecturally frozen at the IR and reasoning substrate levels to guarantee stability.
-
-- **`sir_types` / `sir_nodes`**: Core data models and SSA-form IR.
-- **`sir_analysis`**: Read-only framework (Dataflow, Ranges, Purity, Dominance).
-- **`sir_semantics`**: Structural and semantic concept recognizers.
-- **`sir_inference`**: Cost and representation mapping.
-- **`sir_generation`**: Combinatorial implementation strategies.
-- **`sir_verification`**: Exhaustive and symbolic equivalence provers.
-- **`sir_rewrite`**: Deterministic, verified subgraph replacement.
-- **`sir_optimizer`**: Global fixed-point orchestrator executing beam search over valid rewrite paths to maximize Semantic Compression.
-
-## Building and Testing
-
-There are no external dependencies beyond a standard Rust toolchain.
+## Evidence
 
 ```bash
-cd sir
-cargo build
-cargo test
-cargo run -p sir_benchmarks --bin report
+bash sir/scripts/verify.sh fast   # tests, base corpora, external Embench, native
+bash sir/scripts/verify.sh full   # adds AArch64, fuzz, sanitizers
 ```
+
+Green means every corpus reports `EMITC_SUMMARY` with `mismatched=0` and
+`harness_errors=0`, workspace tests pass, and native totals equal the AArch64 and
+sanitizer totals section for section. External corpora come from
+`scripts/fetch-external.sh`; a missing corpus is a `WARN`, not a pass.
+
+## Working rules
+
+These are enforced somewhere in the tree, and they were learned the hard way.
+
+- **Fail closed.** A refusal is a correct outcome; a guess is not. When a guard
+  costs firings, keep the guard and record the cost.
+- **Performance never decides correctness.** A counterexample on a defined
+  execution blocks the transformation until the applicability condition is fixed.
+- **A check that cannot fail has not checked anything.** A run that reports
+  nothing, a gate that cannot fire, and a fixture that only ever sees well-formed
+  input are all silent passes. This has been the defective component more often
+  than the code has.
+- **Find the bound before writing the code.** Reach work in `sir_lower` needs a
+  counted target.
+- **Record counterexamples, negative results and corrections** in
+  [`docs/CAPABILITY_LEDGER.md`](docs/CAPABILITY_LEDGER.md) — including corrections
+  to earlier entries, marked in place rather than silently edited.
