@@ -3,7 +3,10 @@
 # the external evidence is reproducible.
 set -euo pipefail
 
-DEST="${1:-/tmp/external}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# Default to the persisted workspace, never /tmp: a corpus that vanishes with
+# the temp directory is a gate input that cannot be reproduced.
+DEST="${1:-$ROOT/work/external}"
 mkdir -p "$DEST"
 if [ ! -d "$DEST/embench/.git" ]; then
     git clone --depth 1 https://github.com/embench/embench-iot.git "$DEST/embench"

@@ -31,7 +31,9 @@ if [ -z "$BASE_CORPORA" ]; then
     echo "FAIL no corpora found under $CORPUS"
     exit 1
 fi
-EXTERNAL="${ABSAC_EXTERNAL:-/tmp/external}"
+# Persisted by default, matching fetch-external.sh; /tmp lost a whole
+# audit workspace once.
+EXTERNAL="${ABSAC_EXTERNAL:-$ROOT/work/external}"
 BIN="$SIR_DIR/target/release/emit_c_diff"
 export TMPDIR="${TMPDIR:-$ROOT/tmp}"
 mkdir -p "$TMPDIR/verify"

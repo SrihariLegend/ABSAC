@@ -4168,6 +4168,41 @@ Three follow-ups this table makes concrete:
   benchmark corpus is recorded as meaning nothing, because clang performs the same
   multiply→shift peephole.
 
+- **2026-10-17 — `search`: the not-found sentinel is decoupled from the scan bound. The
+  first attempt was UNSOUND and the referee caught it.** The recognizer previously required
+  the not-found value to *be* the scan bound, so `return n` matched and the conventional
+  `return -1` was refused — even though they are the same loop. `SearchPlan` now carries
+  `bound` (the `Lt` right-hand side, passed to `sir_memchr` as the length) and `sentinel`
+  (the carried result, returned on a miss) separately, and `runtime` now means "the bound is
+  not a compile-time constant" rather than "the carried result is not a constant" — the
+  property that actually selects the vectorized path.
+  **The unsound first version.** Decoupling alone made the `-1` shape fire, and the referee
+  returned **`mismatched=1`, 483 of 500 cases**. The emitted helper reports a miss as the
+  scan bound (`... : n`), so the rewrite returned `n` where the source returned `-1`. The
+  recognizer was right about the shape and wrong about the contract. **Fixed by translating
+  the miss**: an `Eq(result, bound)` and a `Select` back to the sentinel, since a found index
+  is always below the bound and can never equal it. This is the second time this week a
+  decoupling produced a plausible-looking rewrite that the differential killed; the referee
+  is doing the job it exists to do.
+  **Verified.** Both conventions fire definition 403 and are clean at 500 referee cases.
+  Beyond the referee's 32-byte ceiling: **90 configurations each, 0 mismatches**, over 13
+  sizes (0 … 4 MiB) x 9 needle positions {absent, 0, 15, 16, 17, 31, 32, n/2, n-1}. `cargo
+  test --workspace` 10 tests; `verify.sh fast` green with all 19 external corpora present
+  (`mismatched=0`, `harness_errors=0`).
+  **Honest negative, and it matters**: the fix **does not fire on any of the 19 Embench
+  corpora**. Across all of them the only definition that fires is **102** (multiply→shift,
+  29 firings) — the peephole clang already performs. Embench is numeric kernels, not string
+  scanners; the two corpus members that do scan bytes (`qrduino`, `slre`) already call
+  `memchr`/`strlen` themselves. **So the recognizer is broader, and third-party reach is
+  unchanged.** The claim "real code is full of this shape" remains untested against real
+  code; the next step is a project that actually has hand-rolled scans, not another corpus
+  of numeric kernels.
+  **Also fixed**: `fetch-external.sh` and `verify.sh` both defaulted to `/tmp/external`. They
+  now default to `work/external`, so a gate input cannot vanish with the temp directory.
+  (First gate run of this change reported `SKIP` on 19/19 external corpora and still printed
+  `VERIFY PASS` — a missing corpus is a WARN by design, but a pass over 4 corpora is not the
+  gate the README describes.)
+
 ## Reference commands
 
 - Extract old tree: `git archive HEAD sir | tar -x -C /tmp/old_sir`

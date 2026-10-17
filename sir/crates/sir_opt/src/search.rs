@@ -18,7 +18,11 @@ struct SearchPlan {
     target: NodeId,
     extent: usize,
     index_ty: Type,
+    /// Length passed to the `sir_memchr` intrinsic: the scan bound.
     bound: NodeId,
+    /// The not-found result the loop returns. Equal to the bound in the
+    /// `return n` convention, and `-1` in the conventional index form.
+    sentinel: NodeId,
     predicate: NodeId,
     accesses: Vec<(NodeId, NodeId, Type)>,
     definition: u64,
@@ -69,11 +73,54 @@ pub(crate) fn apply_one(
             Effects::READ_MEMORY,
             Span::unknown(),
         );
+        let mut nodes = vec![(local, node)];
+        // `sir_memchr` reports a miss as the scan bound. The source may report
+        // it as something else -- -1 by convention -- so the miss is translated
+        // back to the sentinel. A miss is exactly `result == bound`: a found
+        // index is always below the bound, so it can never equal it.
+        //
+        // This is not cosmetic. Decoupling the sentinel from the bound without
+        // this step fired the rewrite and returned the bound where the source
+        // returned -1; the referee caught it at 483 of 500 cases.
+        let replacement = if plan.sentinel == plan.bound {
+            local
+        } else {
+            let hit_local = max + 2;
+            let sel_local = max + 3;
+            nodes.push((
+                hit_local,
+                Node::new(
+                    NodeId::new(hit_local),
+                    NodeKind::Eq {
+                        lhs: NodeId::new(local),
+                        rhs: plan.bound,
+                    },
+                    Type::Bool,
+                    Effects::empty(),
+                    Span::unknown(),
+                ),
+            ));
+            nodes.push((
+                sel_local,
+                Node::new(
+                    NodeId::new(sel_local),
+                    NodeKind::Select {
+                        cond: NodeId::new(hit_local),
+                        true_val: plan.sentinel,
+                        false_val: NodeId::new(local),
+                    },
+                    Type::u64(),
+                    Effects::empty(),
+                    Span::unknown(),
+                ),
+            ));
+            sel_local
+        };
         apply(
             function,
             &Patch {
-                nodes: vec![(local, node)],
-                replacements: vec![(plan.target, local)],
+                nodes,
+                replacements: vec![(plan.target, replacement)],
             },
         )?
     } else {
@@ -93,10 +140,15 @@ fn build_select_chain(function: &Function, plan: &SearchPlan) -> Option<Function
     let max = function.arena.ids().map(|id| id.0).max().unwrap_or(0);
     let mut next = max + 1;
     let mut nodes: Vec<(u64, Node)> = Vec::new();
+    // The unrolled chain's fall-through value is the not-found sentinel, which
+    // is not necessarily the extent: `return -1` returns -1, not the bound.
+    // A non-constant sentinel cannot be spelled as a constant here, so this
+    // path refuses (fail closed) rather than guessing.
+    let sentinel = constant_u64(function, plan.sentinel)?;
     let mut result = push(
         &mut nodes,
         &mut next,
-        NodeKind::Constant(ConstantData::u64(plan.extent as u64)),
+        NodeKind::Constant(ConstantData::u64(sentinel)),
         plan.index_ty.clone(),
         Effects::empty(),
     );
@@ -201,31 +253,19 @@ fn recognize_loop(
     }
     let found_pos = found_pos?;
     let counter_pos = counter_pos?;
-    let runtime = runtime_result_pos.is_some();
-    let result_pos = if runtime {
+    let result_pos = if runtime_result_pos.is_some() {
         runtime_result_pos?
     } else {
         result_pos?
     };
     let index = carried_inputs[counter_pos];
     let found = carried_inputs[found_pos];
-    let bound = carried_inputs[result_pos];
-    let extent = if runtime {
-        0
-    } else {
-        constant_u64(function, bound)? as usize
-    };
-    // A guarded termination (`!found && i < bound`) can exit early on the
-    // match, so the loop analysis reports no trip count for it. The scan
-    // bound is established structurally below instead: `bound_guard`
-    // requires the zero-initialized counter, stepped by exactly one, to be
-    // compared `Lt` against the carried extent.
-    if !runtime && extent == 0 {
-        return None;
-    }
-    if runtime && fact.constant_bound.is_some() {
-        return None;
-    }
+    // The carried result is the *not-found sentinel*, which is not the same
+    // value as the scan bound: `return n` uses n for both, but `return -1`
+    // scans up to n and returns -1. The bound is recovered from the
+    // termination below, so the two are no longer conflated here. Conflating
+    // them is why the -1 convention was refused outright.
+    let sentinel = carried_inputs[result_pos];
 
     let match_node = function.get_node(outputs[found_pos])?;
     let NodeKind::BoolOr {
@@ -249,7 +289,7 @@ fn recognize_loop(
     else {
         return None;
     };
-    if true_val != index || false_val != bound {
+    if true_val != index || false_val != sentinel {
         return None;
     }
     let NodeKind::BoolAnd {
@@ -283,33 +323,46 @@ fn recognize_loop(
         return None;
     }
 
+    // A guarded termination (`!found && i < bound`) exits early on a match, so
+    // the loop analysis reports no trip count for this shape. The scan bound is
+    // recovered structurally instead, from the right-hand side of the
+    // termination's `Lt(index, bound)`. It is deliberately not read from the
+    // carried result: `return -1` scans to the bound and returns -1, and those
+    // are different values. `runtime` now means "the bound is not known at
+    // compile time", which is the property that actually selects the vectorized
+    // path -- it previously meant "the carried result is not a constant", which
+    // answered a different question and refused the -1 convention outright.
     let termination_kind = &function.get_node(*termination)?.kind;
-    let bound_guard = match termination_kind {
-        NodeKind::Lt { lhs, rhs }
-            if *lhs == index
-                && (*rhs == bound
-                    || (!runtime && constant_u64(function, *rhs) == Some(extent as u64))) =>
-        {
-            true
-        }
-        NodeKind::BoolAnd { lhs, rhs } => {
-            let lt = if matches!(&function.get_node(*lhs)?.kind, NodeKind::Lt { .. }) {
-                *lhs
-            } else {
-                *rhs
-            };
-            matches!(
-                &function.get_node(lt)?.kind,
-                NodeKind::Lt { lhs, rhs }
-                    if *lhs == index
-                        && (*rhs == bound
-                            || (!runtime
-                                && constant_u64(function, *rhs) == Some(extent as u64)))
-            )
-        }
-        _ => false,
+    let is_bound_lt = |id: NodeId| -> bool {
+        matches!(
+            function.get_node(id).map(|node| &node.kind),
+            Some(NodeKind::Lt { lhs, .. }) if *lhs == index
+        )
     };
-    if !bound_guard {
+    let lt = match termination_kind {
+        NodeKind::Lt { .. } if is_bound_lt(*termination) => *termination,
+        NodeKind::BoolAnd { lhs, .. } if is_bound_lt(*lhs) => *lhs,
+        NodeKind::BoolAnd { rhs, .. } if is_bound_lt(*rhs) => *rhs,
+        _ => return None,
+    };
+    let NodeKind::Lt {
+        rhs: scan_bound_raw,
+        ..
+    } = &function.get_node(lt)?.kind
+    else {
+        return None;
+    };
+    let scan_bound = *scan_bound_raw;
+    let runtime = constant_u64(function, scan_bound).is_none();
+    let extent = if runtime {
+        0
+    } else {
+        constant_u64(function, scan_bound)? as usize
+    };
+    if !runtime && extent == 0 {
+        return None;
+    }
+    if runtime && fact.constant_bound.is_some() {
         return None;
     }
 
@@ -381,7 +434,8 @@ fn recognize_loop(
         target,
         extent,
         index_ty: function.get_node(index)?.ty.clone(),
-        bound,
+        bound: scan_bound,
+        sentinel,
         predicate,
         accesses,
         definition,
