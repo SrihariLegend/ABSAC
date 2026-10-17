@@ -64,6 +64,13 @@ pngout.png
 work/**/exe
 work/**/time_exe
 
+# Fetched third-party corpora and referee workdirs. Both are regenerable with a
+# committed script (scripts/fetch-external.sh; a referee --workdir run), so they
+# are not evidence and do not belong in the history. The hashes that pin what
+# they were are committed under work/audit/.
+work/**/external/
+work/**/wd*/
+
 # Compiled witnesses. Named exactly, not by glob: `test_*` would also catch
 # test_merge.c, which is the artifact. `*.inc` is derived from PATCH.diff by the
 # awk line in test_merge.c's header and is deliberately NOT committed -- a stale
